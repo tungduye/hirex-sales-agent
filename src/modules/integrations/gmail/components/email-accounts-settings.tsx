@@ -1,0 +1,63 @@
+import Link from "next/link";
+import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
+
+interface Props {
+  accounts: EmailAccountMetadata[];
+  loadError: string | null;
+  feedback: "connected" | "error" | null;
+}
+
+const dateFormatter = new Intl.DateTimeFormat("en", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+export function EmailAccountsSettings({ accounts, loadError, feedback }: Props) {
+  return (
+    <>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Settings</h1><p className="mt-1 text-sm text-slate-500">Manage workspace integrations and connected accounts.</p></div>
+      </div>
+
+      {feedback === "connected" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status"><CheckCircle2 className="size-4" />Gmail connected successfully.</div>}
+      {feedback === "error" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert"><AlertCircle className="size-4" />Gmail could not be connected. Please try again.</div>}
+
+      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="font-semibold">Email Accounts</h2><p className="mt-0.5 text-xs text-slate-500">Connected Gmail accounts for this workspace.</p></div>
+          <Button asChild><Link href="/api/integrations/gmail/connect"><Plus className="size-4" />Connect Gmail <ExternalLink className="size-3.5" /></Link></Button>
+        </div>
+
+        {loadError ? (
+          <div className="px-6 py-14 text-center"><AlertCircle className="mx-auto size-7 text-rose-500" /><p className="mt-3 text-sm font-semibold">Unable to load email accounts</p><p className="mt-1 text-xs text-slate-500">{loadError}</p></div>
+        ) : accounts.length === 0 ? (
+          <div className="px-6 py-14 text-center"><div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Mail className="size-6" /></div><p className="mt-4 text-sm font-semibold">No email accounts connected</p><p className="mt-1 text-xs text-slate-500">Connect Gmail to prepare for readonly mailbox access in a later phase.</p></div>
+        ) : (
+          <div className="divide-y">
+            {accounts.map((account) => (
+              <div key={account.id} className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
+                <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not synced yet"}</p></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function statusClassName(status: EmailAccountMetadata["status"]) {
+  const color = status === "CONNECTED"
+    ? "bg-emerald-50 text-emerald-700"
+    : status === "REAUTH_REQUIRED"
+      ? "bg-amber-50 text-amber-700"
+      : "bg-rose-50 text-rose-700";
+  return `inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${color}`;
+}
