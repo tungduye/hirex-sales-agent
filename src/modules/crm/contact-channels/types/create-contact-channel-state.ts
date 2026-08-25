@@ -1,4 +1,4 @@
-export type ContactChannelFormField = "contactId" | "channelType" | "channelValue" | "isPrimary";
+export type ContactChannelFormField = "contactId" | "channelId" | "channelType" | "channelValue" | "isPrimary";
 
 export interface CreateContactChannelState {
   success: boolean;
@@ -7,6 +7,11 @@ export interface CreateContactChannelState {
 }
 
 export const initialCreateContactChannelState: CreateContactChannelState = {
+  success: false,
+  message: null,
+};
+
+export const initialUpdateContactChannelState: CreateContactChannelState = {
   success: false,
   message: null,
 };
