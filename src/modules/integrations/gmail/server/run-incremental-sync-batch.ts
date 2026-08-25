@@ -29,7 +29,15 @@ interface StateRow {
   batch_lock_id: string | null;
   batch_lock_at: string | null;
 }
-type BatchResult = { success: boolean; completed: boolean; message: string };
+export type IncrementalBatchCode =
+  | "OK"
+  | "MORE_REMAIN"
+  | "SYNC_BUSY"
+  | "HISTORY_ID_EXPIRED"
+  | "REAUTH_REQUIRED"
+  | "CURSOR_CHANGED"
+  | "FAILED";
+export type IncrementalBatchResult = { success: boolean; completed: boolean; message: string; code: IncrementalBatchCode };
 type ClaimResult =
   | { kind: "CLAIMED"; state: StateRow }
   | { kind: "BUSY" }
@@ -38,7 +46,7 @@ type ClaimResult =
 type PageWork = { kind: "REFETCH" | "DELETE"; messageId: string; threadId: string | null };
 type WorkResult = { kind: "SYNCED" | "DELETED"; threadId: string | null } | { kind: "FAILED"; code: IncrementalSyncSafeErrorCode };
 
-export async function runIncrementalSyncBatch(scope: Scope): Promise<BatchResult> {
+export async function runIncrementalSyncBatch(scope: Scope): Promise<IncrementalBatchResult> {
   try {
     return await executeIncrementalSyncBatch(scope);
   } catch {
@@ -46,21 +54,21 @@ export async function runIncrementalSyncBatch(scope: Scope): Promise<BatchResult
   }
 }
 
-async function executeIncrementalSyncBatch(scope: Scope): Promise<BatchResult> {
+async function executeIncrementalSyncBatch(scope: Scope): Promise<IncrementalBatchResult> {
   const supabase = createPrivilegedSupabaseClient();
   const accountResult = await supabase.from("email_accounts")
     .select("id, status, provider_history_id")
     .eq("id", scope.emailAccountId).eq("workspace_id", scope.workspaceId).eq("provider", "GMAIL").maybeSingle();
   const account = accountResult.data as AccountRow | null;
   if (accountResult.error || !account) return failure("This email account could not be synced.");
-  if (account.status !== "CONNECTED") return failure("Gmail access expired. Reconnect the account and try again.");
+  if (account.status !== "CONNECTED") return failure("Gmail access expired. Reconnect the account and try again.", "REAUTH_REQUIRED");
   if (!account.provider_history_id) return failure("Complete the initial mailbox sync before syncing changes.");
 
   const lockId = randomUUID();
   const claim = await claimState(scope, account.provider_history_id, lockId);
-  if (claim.kind === "BUSY") return failure("Another Gmail sync action is already running.");
-  if (claim.kind === "EXPIRED") return failure("Gmail history expired. A full mailbox resync is required.");
-  if (claim.kind === "CURSOR_CHANGED") return failure("The mailbox checkpoint changed. Refresh and try again.");
+  if (claim.kind === "BUSY") return failure("Another Gmail sync action is already running.", "SYNC_BUSY");
+  if (claim.kind === "EXPIRED") return failure("Gmail history expired. A full mailbox resync is required.", "HISTORY_ID_EXPIRED");
+  if (claim.kind === "CURSOR_CHANGED") return failure("The mailbox checkpoint changed. Refresh and try again.", "CURSOR_CHANGED");
   const state = claim.state;
 
   try {
@@ -75,7 +83,7 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<BatchResult> {
     } catch (error) {
       if (error instanceof GmailApiError && error.status === 404) {
         await failState(scope, state.id, lockId, "HISTORY_ID_EXPIRED");
-        return failure("Gmail history expired. A full mailbox resync is required.");
+        return failure("Gmail history expired. A full mailbox resync is required.", "HISTORY_ID_EXPIRED");
       }
       throw error;
     }
@@ -103,7 +111,7 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<BatchResult> {
       const code = mostImportantError(failed.map((item) => item.code));
       if (code === "REAUTH_REQUIRED") await markReauthenticationRequired(scope.emailAccountId, scope.workspaceId);
       await failState(scope, state.id, lockId, code);
-      return failure(messageForCode(code));
+      return failure(messageForCode(code), batchCodeForError(code));
     }
 
     const pageCounters = {
@@ -156,14 +164,14 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<BatchResult> {
     if (finalized.error || finalized.data !== true) {
       const cursorChanged = await hasAccountCursorChanged(scope, state.start_history_id);
       await failState(scope, state.id, lockId, cursorChanged ? "CURSOR_CHANGED" : "MAILBOX_PERSISTENCE_ERROR");
-      return failure(cursorChanged ? "The mailbox checkpoint changed. Refresh and try again." : "Sync completion could not be saved. Retrying this page is safe.");
+      return failure(cursorChanged ? "The mailbox checkpoint changed. Refresh and try again." : "Sync completion could not be saved. Retrying this page is safe.", cursorChanged ? "CURSOR_CHANGED" : "FAILED");
     }
     return success(true, pageCounters, "Gmail changes are up to date.");
   } catch (error) {
     const code = classifyError(error);
     if (code === "REAUTH_REQUIRED") await markReauthenticationRequired(scope.emailAccountId, scope.workspaceId);
     await failState(scope, state.id, lockId, code);
-    return failure(messageForCode(code));
+    return failure(messageForCode(code), batchCodeForError(code));
   }
 }
 
@@ -330,11 +338,17 @@ function messageForCode(code: IncrementalSyncSafeErrorCode) {
     : "Gmail could not be reached. Please try again.";
 }
 
-function success(completed: boolean, counters: { processed: number; affected: number; synced: number; deleted: number }, message: string): BatchResult {
-  return { success: true, completed, message: `${message} ${counters.processed} history records, ${counters.affected} affected, ${counters.synced} synced, ${counters.deleted} deleted.` };
+function success(completed: boolean, counters: { processed: number; affected: number; synced: number; deleted: number }, message: string): IncrementalBatchResult {
+  return { success: true, completed, code: completed ? "OK" : "MORE_REMAIN", message: `${message} ${counters.processed} history records, ${counters.affected} affected, ${counters.synced} synced, ${counters.deleted} deleted.` };
 }
 
-function failure(message: string): BatchResult { return { success: false, completed: false, message }; }
+function failure(message: string, code: IncrementalBatchCode = "FAILED"): IncrementalBatchResult {
+  return { success: false, completed: false, message, code };
+}
+function batchCodeForError(code: IncrementalSyncSafeErrorCode): IncrementalBatchCode {
+  if (code === "HISTORY_ID_EXPIRED" || code === "REAUTH_REQUIRED" || code === "CURSOR_CHANGED" || code === "SYNC_BUSY") return code;
+  return "FAILED";
+}
 function cleanOpaqueId(value?: string | null) { const cleaned = value?.trim(); return cleaned ? cleaned : null; }
 function isStale(batchLockAt: string | null) { return !batchLockAt || new Date(batchLockAt).getTime() < Date.now() - STALE_LOCK_MS; }
 

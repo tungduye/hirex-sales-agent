@@ -45,6 +45,7 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 - Implement multi-account OAuth lifecycle, `channel_accounts`/`email_accounts`, least-privilege scopes, Gmail adapter, webhook/history synchronization, and token refresh.
 - Normalize Gmail threads/messages into the conversation core.
 - Keep all outbound email user-authored and policy-controlled.
+- Reuse the bounded incremental History runner through a server-only internal endpoint; external scheduler configuration remains pending and automatic sync is not yet active.
 
 ## Phase 6 — Manual Email Sending and Delivery Policy
 

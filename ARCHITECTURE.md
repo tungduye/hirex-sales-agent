@@ -117,6 +117,8 @@ Redis and BullMQ provide transport and scheduling; PostgreSQL remains the system
 
 Every job includes `workspace_id`, correlation ID, schema version, idempotency key, attempt metadata, and a reference to durable database state rather than sensitive payloads. Workers use bounded exponential backoff with jitter, distinguish retryable from terminal failures, and send exhausted jobs to a dead-letter path with alerts. Database transitions and job dispatch should use an outbox/reconciliation strategy to avoid lost work.
 
+The Gmail incremental runner is reusable by both manual controls and a server-only internal scheduler endpoint. The endpoint uses a dedicated bearer secret, bounded account/page processing, and the database lease as its concurrency boundary. Integration with an external scheduler is pending; background Gmail synchronization is not active until that scheduler is configured.
+
 ## 7. Security
 
 - Enforce workspace isolation in application authorization and PostgreSQL Row Level Security. Every tenant-owned record carries `workspace_id` directly or has an unambiguous tenant path.
