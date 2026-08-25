@@ -5,8 +5,10 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InitialSyncControl } from "@/modules/integrations/gmail/components/initial-sync-control";
+import { IncrementalSyncControl } from "@/modules/integrations/gmail/components/incremental-sync-control";
 import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
 import type { InitialSyncProgress } from "@/modules/integrations/gmail/types/initial-sync";
+import type { IncrementalSyncProgress } from "@/modules/integrations/gmail/types/incremental-sync";
 
 interface Props {
   accounts: EmailAccountMetadata[];
@@ -14,6 +16,8 @@ interface Props {
   feedback: "connected" | "error" | null;
   syncStates: InitialSyncProgress[];
   syncStatesError: string | null;
+  incrementalSyncStates: IncrementalSyncProgress[];
+  incrementalSyncStatesError: string | null;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -24,7 +28,7 @@ const dateFormatter = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
 });
 
-export function EmailAccountsSettings({ accounts, loadError, feedback, syncStates, syncStatesError }: Props) {
+export function EmailAccountsSettings({ accounts, loadError, feedback, syncStates, syncStatesError, incrementalSyncStates, incrementalSyncStatesError }: Props) {
   const busyAccountRef = useRef<string | null>(null);
   const [busyAccountId, setBusyAccountId] = useState<string | null>(null);
 
@@ -62,17 +66,23 @@ export function EmailAccountsSettings({ accounts, loadError, feedback, syncState
           <div className="px-6 py-14 text-center"><div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Mail className="size-6" /></div><p className="mt-4 text-sm font-semibold">No email accounts connected</p><p className="mt-1 text-xs text-slate-500">Connect Gmail to prepare for readonly mailbox access in a later phase.</p></div>
         ) : (
           <div className="divide-y">
-            {accounts.map((account) => (
+            {accounts.map((account) => {
+              const initialProgress = syncStates.find((state) => state.emailAccountId === account.id) ?? null;
+              const incrementalProgress = incrementalSyncStates.find((state) => state.emailAccountId === account.id) ?? null;
+              return (
               <div key={account.id} className="px-5 py-4">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
                   <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
-                  <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last full sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not fully synced yet"}</p></div>
+                  <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not fully synced yet"}</p></div>
                 </div>
-                {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={syncStates.find((state) => state.emailAccountId === account.id) ?? null} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
+                {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={initialProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
                 {account.status === "CONNECTED" && syncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{syncStatesError}</p>}
+                {account.status === "CONNECTED" && initialProgress?.status === "COMPLETED" && !incrementalSyncStatesError && <IncrementalSyncControl emailAccountId={account.id} progress={incrementalProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
+                {account.status === "CONNECTED" && initialProgress?.status === "COMPLETED" && incrementalSyncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{incrementalSyncStatesError}</p>}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

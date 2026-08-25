@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { GmailMessageResource } from "@/modules/integrations/gmail/types/gmail-message";
+import type { GmailHistoryPage } from "@/modules/integrations/gmail/types/incremental-sync";
 
 const BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -34,6 +35,24 @@ export async function listMessagePage(accessToken: string, pageToken?: string | 
 export async function getFullMessage(accessToken: string, messageId: string) {
   const response = await request(`${BASE_URL}/messages/${encodeURIComponent(messageId)}?format=full`, accessToken);
   return response.json() as Promise<GmailMessageResource>;
+}
+
+export async function listHistoryPage(
+  accessToken: string,
+  input: { startHistoryId: string; pageToken?: string | null; maxResults: number },
+): Promise<GmailHistoryPage> {
+  const query = new URLSearchParams({
+    startHistoryId: input.startHistoryId,
+    maxResults: String(input.maxResults),
+  });
+  if (input.pageToken) query.set("pageToken", input.pageToken);
+  const response = await request(`${BASE_URL}/history?${query.toString()}`, accessToken);
+  const body = await response.json() as GmailHistoryPage;
+  return {
+    history: body.history ?? [],
+    historyId: body.historyId,
+    nextPageToken: body.nextPageToken ?? null,
+  };
 }
 
 async function request(url: string, accessToken: string) {

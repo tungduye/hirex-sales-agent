@@ -6,6 +6,8 @@ import type { ParsedGmailMessage } from "@/modules/integrations/gmail/types/gmai
 
 interface Scope { workspaceId: string; emailAccountId: string }
 interface LocalMessage { provider_internal_date: string | null; subject: string | null; snippet: string | null; labels: string[]; is_unread: boolean; is_starred: boolean }
+interface MessageIdentity { email_thread_id: string }
+interface ThreadIdentity { id: string }
 
 export async function upsertMailboxMessage(scope: Scope, message: ParsedGmailMessage) {
   const supabase = createPrivilegedSupabaseClient();
@@ -35,12 +37,55 @@ export async function recomputeThreadAggregates(scope: Scope, threadIds: Set<str
   for (const threadId of threadIds) await recomputeThread(supabase, scope, threadId);
 }
 
+export async function deleteMailboxMessage(
+  scope: Scope,
+  providerMessageId: string,
+  providerThreadId: string | null,
+) {
+  const supabase = createPrivilegedSupabaseClient();
+  const existing = await supabase.from("email_messages")
+    .select("email_thread_id")
+    .eq("workspace_id", scope.workspaceId)
+    .eq("email_account_id", scope.emailAccountId)
+    .eq("provider", "GMAIL")
+    .eq("provider_message_id", providerMessageId)
+    .maybeSingle();
+  if (existing.error) throw new Error("MESSAGE_DELETE_LOOKUP_FAILED");
+
+  let threadId = (existing.data as MessageIdentity | null)?.email_thread_id ?? null;
+  if (!threadId && providerThreadId) {
+    const thread = await supabase.from("email_threads")
+      .select("id")
+      .eq("workspace_id", scope.workspaceId)
+      .eq("email_account_id", scope.emailAccountId)
+      .eq("provider", "GMAIL")
+      .eq("provider_thread_id", providerThreadId)
+      .maybeSingle();
+    if (thread.error) throw new Error("THREAD_DELETE_LOOKUP_FAILED");
+    threadId = (thread.data as ThreadIdentity | null)?.id ?? null;
+  }
+
+  const deleted = await supabase.from("email_messages").delete()
+    .eq("workspace_id", scope.workspaceId)
+    .eq("email_account_id", scope.emailAccountId)
+    .eq("provider", "GMAIL")
+    .eq("provider_message_id", providerMessageId);
+  if (deleted.error) throw new Error("MESSAGE_DELETE_FAILED");
+  return threadId;
+}
+
 async function recomputeThread(supabase: SupabaseClient, scope: Scope, threadId: string) {
   const { data, error } = await supabase.from("email_messages")
     .select("provider_internal_date, subject, snippet, labels, is_unread, is_starred")
     .eq("workspace_id", scope.workspaceId).eq("email_account_id", scope.emailAccountId).eq("email_thread_id", threadId);
   if (error) throw new Error("THREAD_AGGREGATE_READ_FAILED");
   const messages = (data ?? []) as LocalMessage[];
+  if (messages.length === 0) {
+    const { error: deleteError } = await supabase.from("email_threads").delete()
+      .eq("id", threadId).eq("workspace_id", scope.workspaceId).eq("email_account_id", scope.emailAccountId);
+    if (deleteError) throw new Error("EMPTY_THREAD_DELETE_FAILED");
+    return;
+  }
   const dated = messages.filter((item) => item.provider_internal_date)
     .sort((a, b) => (a.provider_internal_date ?? "").localeCompare(b.provider_internal_date ?? ""));
   const latest = dated.at(-1) ?? messages.at(-1);
