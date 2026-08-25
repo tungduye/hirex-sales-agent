@@ -1,7 +1,9 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SyncLatestMessagesButton } from "@/modules/integrations/gmail/components/sync-latest-messages-button";
 import { InitialSyncControl } from "@/modules/integrations/gmail/components/initial-sync-control";
 import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
 import type { InitialSyncProgress } from "@/modules/integrations/gmail/types/initial-sync";
@@ -23,6 +25,22 @@ const dateFormatter = new Intl.DateTimeFormat("en", {
 });
 
 export function EmailAccountsSettings({ accounts, loadError, feedback, syncStates, syncStatesError }: Props) {
+  const busyAccountRef = useRef<string | null>(null);
+  const [busyAccountId, setBusyAccountId] = useState<string | null>(null);
+
+  const tryAcquireAccountLock = useCallback((emailAccountId: string) => {
+    if (busyAccountRef.current !== null) return false;
+    busyAccountRef.current = emailAccountId;
+    setBusyAccountId(emailAccountId);
+    return true;
+  }, []);
+
+  const releaseAccountLock = useCallback((emailAccountId: string) => {
+    if (busyAccountRef.current !== emailAccountId) return;
+    busyAccountRef.current = null;
+    setBusyAccountId(null);
+  }, []);
+
   return (
     <>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -50,9 +68,8 @@ export function EmailAccountsSettings({ accounts, loadError, feedback, syncState
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
                   <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
                   <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last full sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not fully synced yet"}</p></div>
-                  {account.status === "CONNECTED" && <SyncLatestMessagesButton emailAccountId={account.id} />}
                 </div>
-                {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={syncStates.find((state) => state.emailAccountId === account.id) ?? null} />}
+                {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={syncStates.find((state) => state.emailAccountId === account.id) ?? null} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
                 {account.status === "CONNECTED" && syncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{syncStatesError}</p>}
               </div>
             ))}

@@ -18,6 +18,7 @@ export interface InitialSyncActionState {
   success: boolean;
   completed: boolean;
   message: string | null;
+  progress?: InitialSyncProgress | null;
 }
 
 export const initialSyncActionState: InitialSyncActionState = { success: false, completed: false, message: null };
