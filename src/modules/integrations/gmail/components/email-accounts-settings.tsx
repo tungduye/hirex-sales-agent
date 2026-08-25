@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SyncLatestMessagesButton } from "@/modules/integrations/gmail/components/sync-latest-messages-button";
 import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
 
 interface Props {
@@ -44,6 +45,7 @@ export function EmailAccountsSettings({ accounts, loadError, feedback }: Props) 
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
                 <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
                 <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not synced yet"}</p></div>
+                {account.status === "CONNECTED" && <SyncLatestMessagesButton emailAccountId={account.id} />}
               </div>
             ))}
           </div>
