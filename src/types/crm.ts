@@ -11,19 +11,6 @@ export const LEAD_STATUSES = [
 
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
-export type CompanyStatus = "ACTIVE" | "PROSPECT" | "INACTIVE";
-
-export interface Company {
-  id: string;
-  name: string;
-  website: string;
-  industry: string;
-  country: string;
-  contactCount: number;
-  status: CompanyStatus;
-  createdAt: string;
-}
-
 export interface Contact {
   id: string;
   fullName: string;

@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { CompanyStatus, LeadStatus } from "@/types/crm";
+import type { CompanyStatus } from "@/modules/crm/companies/types/company";
+import type { LeadStatus } from "@/types/crm";
 
 const styles: Record<LeadStatus | CompanyStatus, string> = {
   NEW: "bg-sky-50 text-sky-700",

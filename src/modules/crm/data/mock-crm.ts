@@ -1,13 +1,4 @@
-import type { Activity, Company, Contact } from "@/types/crm";
-
-export const companies: Company[] = [
-  { id: "comp-1", name: "Acme Systems", website: "acmesystems.io", industry: "Software", country: "United States", contactCount: 18, status: "ACTIVE", createdAt: "Aug 18, 2026" },
-  { id: "comp-2", name: "Northstar Labs", website: "northstarlabs.co", industry: "Biotechnology", country: "Singapore", contactCount: 9, status: "PROSPECT", createdAt: "Aug 16, 2026" },
-  { id: "comp-3", name: "Meridian Works", website: "meridianworks.com", industry: "Manufacturing", country: "Germany", contactCount: 14, status: "ACTIVE", createdAt: "Aug 12, 2026" },
-  { id: "comp-4", name: "BrightPath Finance", website: "brightpath.finance", industry: "Financial Services", country: "United Kingdom", contactCount: 7, status: "PROSPECT", createdAt: "Aug 8, 2026" },
-  { id: "comp-5", name: "Koru Commerce", website: "korucommerce.nz", industry: "Retail", country: "New Zealand", contactCount: 5, status: "INACTIVE", createdAt: "Jul 29, 2026" },
-  { id: "comp-6", name: "Sora Mobility", website: "soramobility.jp", industry: "Transportation", country: "Japan", contactCount: 11, status: "ACTIVE", createdAt: "Jul 24, 2026" },
-];
+import type { Activity, Contact } from "@/types/crm";
 
 export const contacts: Contact[] = [
   { id: "con-1", fullName: "Olivia Martin", initials: "OM", company: "Acme Systems", jobTitle: "VP of Sales", email: "olivia@acmesystems.io", phone: "+1 415 555 0142", country: "United States", source: "Referral", leadStatus: "QUALIFIED", leadScore: 92, lastActivity: "12 min ago" },

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { AccountContext } from "@/types/account";
 
@@ -14,7 +15,7 @@ interface WorkspaceRow {
   name: string;
 }
 
-export async function getAccountContext(): Promise<AccountContext | null> {
+async function loadAccountContext(): Promise<AccountContext | null> {
   const supabase = await createClient();
   const { data: { user }, error: userError } = await supabase.auth.getUser();
 
@@ -56,3 +57,5 @@ export async function getAccountContext(): Promise<AccountContext | null> {
     configurationComplete: !workspaceError && Boolean(workspace),
   };
 }
+
+export const getAccountContext = cache(loadAccountContext);
