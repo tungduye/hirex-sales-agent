@@ -20,6 +20,17 @@ export async function listLatestMessageIds(accessToken: string) {
   return (body.messages ?? []).flatMap((item) => item.id ? [item.id] : []).slice(0, 10);
 }
 
+export async function listMessagePage(accessToken: string, pageToken?: string | null) {
+  const query = new URLSearchParams({ maxResults: "50", includeSpamTrash: "false" });
+  if (pageToken) query.set("pageToken", pageToken);
+  const response = await request(`${BASE_URL}/messages?${query.toString()}`, accessToken);
+  const body = await response.json() as { messages?: Array<{ id?: string }>; nextPageToken?: string };
+  return {
+    messageIds: (body.messages ?? []).flatMap((item) => item.id ? [item.id] : []).slice(0, 50),
+    nextPageToken: body.nextPageToken ?? null,
+  };
+}
+
 export async function getFullMessage(accessToken: string, messageId: string) {
   const response = await request(`${BASE_URL}/messages/${encodeURIComponent(messageId)}?format=full`, accessToken);
   return response.json() as Promise<GmailMessageResource>;

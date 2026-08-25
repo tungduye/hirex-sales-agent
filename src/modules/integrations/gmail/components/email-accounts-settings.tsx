@@ -2,12 +2,16 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SyncLatestMessagesButton } from "@/modules/integrations/gmail/components/sync-latest-messages-button";
+import { InitialSyncControl } from "@/modules/integrations/gmail/components/initial-sync-control";
 import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
+import type { InitialSyncProgress } from "@/modules/integrations/gmail/types/initial-sync";
 
 interface Props {
   accounts: EmailAccountMetadata[];
   loadError: string | null;
   feedback: "connected" | "error" | null;
+  syncStates: InitialSyncProgress[];
+  syncStatesError: string | null;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -18,7 +22,7 @@ const dateFormatter = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
 });
 
-export function EmailAccountsSettings({ accounts, loadError, feedback }: Props) {
+export function EmailAccountsSettings({ accounts, loadError, feedback, syncStates, syncStatesError }: Props) {
   return (
     <>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -41,11 +45,15 @@ export function EmailAccountsSettings({ accounts, loadError, feedback }: Props) 
         ) : (
           <div className="divide-y">
             {accounts.map((account) => (
-              <div key={account.id} className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
-                <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not synced yet"}</p></div>
-                {account.status === "CONNECTED" && <SyncLatestMessagesButton emailAccountId={account.id} />}
+              <div key={account.id} className="px-5 py-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><Mail className="size-5" /></div>
+                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
+                  <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last full sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not fully synced yet"}</p></div>
+                  {account.status === "CONNECTED" && <SyncLatestMessagesButton emailAccountId={account.id} />}
+                </div>
+                {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={syncStates.find((state) => state.emailAccountId === account.id) ?? null} />}
+                {account.status === "CONNECTED" && syncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{syncStatesError}</p>}
               </div>
             ))}
           </div>

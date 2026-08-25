@@ -1,14 +1,16 @@
 import { EmailAccountsSettings } from "@/modules/integrations/gmail/components/email-accounts-settings";
 import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-email-accounts";
+import { listInitialSyncStates } from "@/modules/integrations/gmail/server/list-initial-sync-states";
 
 export default async function SettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{ gmail?: string }>;
 }) {
-  const [{ gmail }, result] = await Promise.all([
+  const [{ gmail }, result, syncResult] = await Promise.all([
     searchParams,
     listEmailAccounts(),
+    listInitialSyncStates(),
   ]);
   const feedback = gmail === "connected" || gmail === "error" ? gmail : null;
 
@@ -17,6 +19,8 @@ export default async function SettingsPage({
       accounts={result.accounts}
       loadError={result.error}
       feedback={feedback}
+      syncStates={syncResult.states}
+      syncStatesError={syncResult.error}
     />
   );
 }
