@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, CheckSquare, ContactRound, Inbox, LayoutDashboard, Megaphone, Settings, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SignOutButton } from "@/modules/identity/components/sign-out-button";
+import type { AccountContext } from "@/types/account";
 
 const navigation = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -16,7 +18,7 @@ const navigation = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function Sidebar({ account, onNavigate }: { account: AccountContext; onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
@@ -39,8 +41,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
       <div className="m-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
-        <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-white"><span className="size-2 rounded-full bg-emerald-400" />Phase 1A</div>
-        <p className="text-xs leading-5 text-slate-400">CRM foundation using local mock data.</p>
+        <div className="flex items-center gap-2"><div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{(account.fullName ?? account.email).slice(0, 2).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-xs font-semibold text-white">{account.fullName ?? "Account setup pending"}</p><p className="truncate text-[11px] text-slate-400">{account.email}</p></div></div>
+        {account.workspaceName && <p className="mt-2 truncate border-t border-slate-800 pt-2 text-[11px] text-slate-500">{account.workspaceName}</p>}
+        <SignOutButton />
       </div>
     </aside>
   );

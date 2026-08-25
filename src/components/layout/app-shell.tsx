@@ -4,21 +4,25 @@ import { useState, type ReactNode } from "react";
 import { Bell, Menu, Search, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
+import { AccountProvider } from "@/modules/identity/components/account-context";
+import { AccountSetupRequired } from "@/modules/identity/components/account-setup-required";
+import type { AccountContext } from "@/types/account";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, account }: { children: ReactNode; account: AccountContext }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
+    <AccountProvider account={account}>
     <div className="min-h-screen bg-slate-50 lg:grid lg:grid-cols-[264px_1fr]">
       <div className="hidden lg:block">
-        <Sidebar />
+        <Sidebar account={account} />
       </div>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button className="absolute inset-0 bg-slate-950/40" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />
           <div className="relative h-full w-[280px] shadow-2xl">
-            <Sidebar onNavigate={() => setMobileOpen(false)} />
+            <Sidebar account={account} onNavigate={() => setMobileOpen(false)} />
             <Button variant="ghost" size="icon" className="absolute right-3 top-3 text-slate-400 hover:bg-slate-800 hover:text-white" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
               <X className="size-5" />
             </Button>
@@ -38,11 +42,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 sm:block">Manual mode</div>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-5" /></Button>
-            <div className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white" aria-label="Alex Morgan profile">AM</div>
+            <div className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white" aria-label={`${account.fullName ?? account.email} profile`}>{(account.fullName ?? account.email).slice(0, 2).toUpperCase()}</div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">{account.configurationComplete ? children : <AccountSetupRequired />}</main>
       </div>
     </div>
+    </AccountProvider>
   );
 }

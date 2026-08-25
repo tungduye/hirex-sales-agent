@@ -1,3 +1,10 @@
 # Supabase boundary
 
-Phase 1A installs the official Supabase packages and reserves this server/data-access boundary, but does not create a client or connect to a Supabase project. Future client factories must validate environment variables, keep privileged credentials server-only, and follow the migration/RLS rules in `DATABASE_DESIGN.md`.
+This folder contains the Phase 1B.2 Supabase SSR boundary:
+
+- `client.ts` creates the publishable browser client.
+- `server.ts` creates a cookie-aware client for Server Components and actions.
+- `proxy.ts` refreshes auth cookies at the Next.js proxy boundary.
+- `config.ts` validates only the two public Supabase environment variables.
+
+No service-role credential belongs in this folder or in browser code. Database reads continue to rely on the authenticated user and Row Level Security.

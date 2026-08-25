@@ -1,15 +1,20 @@
+"use client";
+
 import { ArrowUpRight, Building2, CheckCircle2, ContactRound, Plus, Target, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { contacts, dashboardMetrics, recentActivities } from "@/modules/crm/data/mock-crm";
 import { StatusBadge } from "@/modules/crm/components/status-badge";
+import { useAccount } from "@/modules/identity/components/account-context";
 
 const metricIcons = [ContactRound, Building2, UserPlus, Target];
 
 export function DashboardView() {
+  const account = useAccount();
+
   return (
     <>
-      <PageHeader title="Good morning, Alex" description="Here’s what’s happening across your sales workspace." action={<Button><Plus className="size-4" />Add contact</Button>} />
+      <PageHeader title={`Good morning, ${account.fullName ?? "there"}`} description="Here’s what’s happening across your sales workspace." action={<Button><Plus className="size-4" />Add contact</Button>} />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dashboardMetrics.map((metric, index) => {
           const Icon = metricIcons[index];

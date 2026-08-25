@@ -26,9 +26,7 @@ const sections = {
 
 type Section = keyof typeof sections;
 
-export default async function SectionPage({
-  params,
-}: PageProps<"/[section]">) {
+export default async function SectionPage({ params }: PageProps<"/[section]">) {
   const { section } = await params;
 
   if (!(section in sections)) {
