@@ -20,6 +20,7 @@ export interface Contact {
 
 export interface ContactListItem {
   id: string;
+  companyId: string | null;
   fullName: string;
   initials: string;
   companyName: string | null;
@@ -27,6 +28,7 @@ export interface ContactListItem {
   email: string | null;
   phone: string | null;
   country: string | null;
+  language: string | null;
   source: string | null;
   leadStatus: LeadStatus;
   leadScore: number;

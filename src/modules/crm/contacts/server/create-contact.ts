@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createContactSchema } from "@/modules/crm/contacts/schemas/contact-schema";
+import { companyBelongsToWorkspace } from "@/modules/crm/contacts/server/company-belongs-to-workspace";
 import type { CreateContactState } from "@/modules/crm/contacts/types/create-contact-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 
@@ -40,14 +41,13 @@ export async function createContact(
   const supabase = await createClient();
 
   if (parsed.data.companyId) {
-    const { data: company, error: companyError } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("id", parsed.data.companyId)
-      .eq("workspace_id", account.workspaceId)
-      .maybeSingle();
+    const companyIsValid = await companyBelongsToWorkspace(
+      supabase,
+      parsed.data.companyId,
+      account.workspaceId,
+    );
 
-    if (companyError || !company) {
+    if (!companyIsValid) {
       return {
         success: false,
         message: "The selected company is not available in your workspace.",

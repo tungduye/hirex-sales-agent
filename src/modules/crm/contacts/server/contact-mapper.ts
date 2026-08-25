@@ -47,6 +47,7 @@ export function toContactListItem(
 ): ContactListItem {
   return {
     id: contact.id,
+    companyId: contact.companyId,
     fullName: contact.fullName,
     initials: getInitials(contact.fullName),
     companyName,
@@ -54,6 +55,7 @@ export function toContactListItem(
     email: contact.email,
     phone: contact.phone,
     country: contact.country,
+    language: contact.language,
     source: contact.source,
     leadStatus: contact.leadStatus,
     leadScore: contact.leadScore,

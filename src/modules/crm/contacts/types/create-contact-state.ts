@@ -10,13 +10,20 @@ export type ContactFormField =
   | "leadStatus"
   | "leadScore";
 
-export interface CreateContactState {
+export interface ContactFormState {
   success: boolean;
   message: string | null;
   fieldErrors?: Partial<Record<ContactFormField, string[]>>;
 }
 
+export type CreateContactState = ContactFormState;
+
 export const initialCreateContactState: CreateContactState = {
+  success: false,
+  message: null,
+};
+
+export const initialUpdateContactState: ContactFormState = {
   success: false,
   message: null,
 };
