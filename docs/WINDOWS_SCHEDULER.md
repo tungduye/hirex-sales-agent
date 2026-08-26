@@ -17,11 +17,11 @@ For the current stable-local validation sequence:
 3. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run-hirex-local-app.ps1"`.
 4. Verify `http://127.0.0.1:3000` in the browser.
 
-Keep the terminal and attached application runner open: W3A does not add application autostart. While the production application remains running, the existing Gmail scheduler task continues calling the localhost endpoint automatically.
+This attached terminal sequence remains useful for maintenance and manual validation. Normal local operation now uses the installed login-start task described below.
 
 The production runner resolves the project root from its own location, requires an existing `.next/BUILD_ID`, and invokes the existing `npm.cmd run start` project command with `--hostname 127.0.0.1 --port 3000`. Local Windows mode intentionally binds only to IPv4 loopback and does not expose the application to the LAN. The runner neither builds nor installs dependencies and does not read or print `.env.local`; Next.js performs its normal environment loading.
 
-W3B will prepare a login-start task only after this production runtime has passed live validation. The application must be running before the scheduler runner is invoked.
+The production runtime and W3B login-start behavior have passed live validation. The application must be running before the scheduler runner can reach its local endpoint.
 
 ## Runner
 
@@ -66,6 +66,39 @@ Remove only the HireX Gmail task with:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-gmail-scheduler-task.ps1"
 ```
 
-The Next.js application itself must still be started manually and remain running for the localhost scheduler endpoint to work. W3A is preparing and validating the local production runtime; it does not configure application autostart. W3B will create the application login-start task.
+The Gmail task recovered automatically after the validated Windows logout/login cycle. Its final observed health returned to `LastTaskResult = 0` with `NumberOfMissedRuns = 0`, and the safe diagnostic log recorded `SUCCESS` followed by `END exitCode=0`.
+
+## HireX Local App autostart
+
+The root task `\HireX Local App` is installed. It passed a manual `Start-ScheduledTask` live test and a full Windows logout/login test. After login, its state is `Running`, the application listens only on `127.0.0.1:3000`, and the web interface is accessible.
+
+The task starts the attached production runner when the current Windows user logs on. It is a long-running process, uses an unlimited execution time, ignores overlapping starts, and retries an abnormal exit at most three times with a one-minute interval.
+
+Install after review and after a successful `npm run build`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install-hirex-local-app-task.ps1"
+```
+
+Inspect the definition and runtime state:
+
+```powershell
+Get-ScheduledTask -TaskName "HireX Local App" -TaskPath "\"
+Get-ScheduledTaskInfo -TaskName "HireX Local App" -TaskPath "\"
+```
+
+Remove only the app autostart task with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-hirex-local-app-task.ps1"
+```
+
+While the application is healthy, the task state will normally remain `Running`. `LastTaskResult` is not the primary health check while a long-running task is still active. Verify that `127.0.0.1:3000` is listening, the web application is accessible, and `HireX Gmail Incremental Sync` continues reporting `LastTaskResult = 0`.
+
+Because both tasks use the interactive current-user session, Windows may terminate a running scheduler process during sign-out. On the next login, `HireX Local App` starts the production application automatically and `HireX Gmail Incremental Sync` resumes on its next scheduled five-minute cycle.
+
+Final W3B health validation: **PASS**. App autostart, loopback binding, web access, Gmail scheduler recovery, zero missed runs, and safe diagnostic success were all confirmed.
+
+For a reviewed code update: stop or restart the app task through the maintenance flow, run `npm run build`, then start the app task again. W3B does not implement automatic deployment or updates.
 
 A future VPS migration will configure its reverse proxy and network exposure separately. It changes only the application runtime and external scheduler configuration; the Gmail incremental synchronization core and internal endpoint remain unchanged.
