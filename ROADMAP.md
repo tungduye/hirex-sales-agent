@@ -51,6 +51,8 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 
 - Add composer, drafts, attachments, signatures, send-as selection, suppression/consent checks, rate limits, approval evidence, and idempotent delivery.
 - Route every send through application service, policy engine, job queue, and Gmail adapter.
+- Phase 2B.1 prepares the server-controlled send-request schema and OAuth scope strategy only; sending remains inactive.
+- Phase 2B.2 adds explicit Gmail send reconsent, Phase 2B.3 adds a reviewed one-message send service, and Phase 2B.4 adds reply/thread sending derived from trusted mailbox state.
 
 ## Phase 7 — AI Foundation and Sales Email Drafting
 
