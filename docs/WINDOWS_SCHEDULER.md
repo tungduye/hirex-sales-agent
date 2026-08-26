@@ -10,14 +10,18 @@ For development testing, start the application with:
 npm run dev
 ```
 
-For a stable local runtime later, build and start the production server with:
+For the current stable-local validation sequence:
 
-```powershell
-npm run build
-npm run start
-```
+1. Stop the currently running `npm run dev` process.
+2. Build the production application with `npm run build`.
+3. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run-hirex-local-app.ps1"`.
+4. Verify `http://127.0.0.1:3000` in the browser.
 
-The application must be running before the scheduler runner is invoked.
+Keep the terminal and attached application runner open: W3A does not add application autostart. While the production application remains running, the existing Gmail scheduler task continues calling the localhost endpoint automatically.
+
+The production runner resolves the project root from its own location, requires an existing `.next/BUILD_ID`, and invokes the existing `npm.cmd run start` project command with `--hostname 127.0.0.1 --port 3000`. Local Windows mode intentionally binds only to IPv4 loopback and does not expose the application to the LAN. The runner neither builds nor installs dependencies and does not read or print `.env.local`; Next.js performs its normal environment loading.
+
+W3B will prepare a login-start task only after this production runtime has passed live validation. The application must be running before the scheduler runner is invoked.
 
 ## Runner
 
@@ -30,7 +34,7 @@ scripts/run-gmail-incremental-sync.ps1
 It resolves the project root from its own location and reads `AUTOMATION_CRON_SECRET` from the ignored project-root `.env.local`. By default it calls:
 
 ```text
-http://localhost:3000/api/internal/gmail/incremental-sync
+http://127.0.0.1:3000/api/internal/gmail/incremental-sync
 ```
 
 A server-local `GMAIL_INCREMENTAL_SYNC_URL` environment variable may override that URL. Neither the URL nor secret is accepted as a command-line argument.
@@ -39,9 +43,11 @@ Exit codes are `0` for a successful run with no failed accounts, `1` for configu
 
 ## Windows Task Scheduler
 
-The installer registers `HireX Gmail Incremental Sync` for the current Windows user. It runs only while that user is logged on, repeats every five minutes, ignores overlapping starts, and does not place the scheduler secret in the task definition.
+The Windows task `HireX Gmail Incremental Sync` is installed and has passed live testing. It runs every five minutes, and its observed `LastTaskResult` has been confirmed as `0`.
 
-Installation remains pending until this reviewed command is run manually:
+The task runs for the current Windows user only while that user is logged on, ignores overlapping starts, and does not place the scheduler secret in the task definition.
+
+For maintenance or a reviewed reinstall, run the installer only after removing the existing task:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install-gmail-scheduler-task.ps1"
@@ -54,18 +60,12 @@ Get-ScheduledTask -TaskName "HireX Gmail Incremental Sync"
 Get-ScheduledTaskInfo -TaskName "HireX Gmail Incremental Sync"
 ```
 
-Manual triggering is intentionally deferred until after review. The later test command will be:
-
-```powershell
-Start-ScheduledTask -TaskName "HireX Gmail Incremental Sync"
-```
-
 Remove only the HireX Gmail task with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-gmail-scheduler-task.ps1"
 ```
 
-The Next.js application itself must remain running for the localhost scheduler endpoint to work. Currently that means starting `npm run dev` manually. A later W3 phase may use `npm run build`, `npm run start`, and a separate Windows startup/service mechanism; W2 does not configure application autostart.
+The Next.js application itself must still be started manually and remain running for the localhost scheduler endpoint to work. W3A is preparing and validating the local production runtime; it does not configure application autostart. W3B will create the application login-start task.
 
-A future VPS migration changes only the application runtime and external scheduler configuration. The Gmail incremental synchronization core and internal endpoint remain unchanged.
+A future VPS migration will configure its reverse proxy and network exposure separately. It changes only the application runtime and external scheduler configuration; the Gmail incremental synchronization core and internal endpoint remain unchanged.

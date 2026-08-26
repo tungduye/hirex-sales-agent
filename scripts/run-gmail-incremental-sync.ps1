@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$defaultEndpointUrl = "http://localhost:3000/api/internal/gmail/incremental-sync"
+$defaultEndpointUrl = "http://127.0.0.1:3000/api/internal/gmail/incremental-sync"
 $timeoutSeconds = 240
 $exitCode = 1
 $cronSecret = $null
