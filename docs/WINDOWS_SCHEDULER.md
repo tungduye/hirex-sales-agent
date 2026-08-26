@@ -37,8 +37,35 @@ A server-local `GMAIL_INCREMENTAL_SYNC_URL` environment variable may override th
 
 Exit codes are `0` for a successful run with no failed accounts, `1` for configuration/network/HTTP/malformed-response failures, and `2` when the endpoint ran successfully but one or more accounts failed. Busy/skipped accounts alone do not produce exit code `2`.
 
-## Scheduling status
+## Windows Task Scheduler
 
-Windows Task Scheduler setup remains pending. No scheduled task is created by this phase.
+The installer registers `HireX Gmail Incremental Sync` for the current Windows user. It runs only while that user is logged on, repeats every five minutes, ignores overlapping starts, and does not place the scheduler secret in the task definition.
+
+Installation remains pending until this reviewed command is run manually:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install-gmail-scheduler-task.ps1"
+```
+
+Inspect the registered definition and runtime state with:
+
+```powershell
+Get-ScheduledTask -TaskName "HireX Gmail Incremental Sync"
+Get-ScheduledTaskInfo -TaskName "HireX Gmail Incremental Sync"
+```
+
+Manual triggering is intentionally deferred until after review. The later test command will be:
+
+```powershell
+Start-ScheduledTask -TaskName "HireX Gmail Incremental Sync"
+```
+
+Remove only the HireX Gmail task with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-gmail-scheduler-task.ps1"
+```
+
+The Next.js application itself must remain running for the localhost scheduler endpoint to work. Currently that means starting `npm run dev` manually. A later W3 phase may use `npm run build`, `npm run start`, and a separate Windows startup/service mechanism; W2 does not configure application autostart.
 
 A future VPS migration changes only the application runtime and external scheduler configuration. The Gmail incremental synchronization core and internal endpoint remain unchanged.
