@@ -13,7 +13,7 @@ export interface EmailAccountMetadata {
   emailAddress: string;
   displayName: string | null;
   status: EmailAccountStatus;
-  scopes: string[];
+  sendEnabled: boolean;
   lastSyncAt: string | null;
   createdAt: string;
 }

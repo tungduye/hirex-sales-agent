@@ -14,7 +14,17 @@ export default async function SettingsPage({
     listInitialSyncStates(),
     listIncrementalSyncStates(),
   ]);
-  const feedback = gmail === "connected" || gmail === "error" ? gmail : null;
+  const allowedFeedback = [
+    "connected",
+    "error",
+    "send_enabled",
+    "send_already_enabled",
+    "send_denied",
+    "send_error",
+    "send_account_mismatch",
+    "send_scope_missing",
+  ] as const;
+  const feedback = allowedFeedback.find((value) => value === gmail) ?? null;
 
   return (
     <EmailAccountsSettings

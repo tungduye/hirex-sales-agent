@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus } from "lucide-react";
+import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InitialSyncControl } from "@/modules/integrations/gmail/components/initial-sync-control";
 import { IncrementalSyncControl } from "@/modules/integrations/gmail/components/incremental-sync-control";
@@ -13,7 +13,16 @@ import type { IncrementalSyncProgress } from "@/modules/integrations/gmail/types
 interface Props {
   accounts: EmailAccountMetadata[];
   loadError: string | null;
-  feedback: "connected" | "error" | null;
+  feedback:
+    | "connected"
+    | "error"
+    | "send_enabled"
+    | "send_already_enabled"
+    | "send_denied"
+    | "send_error"
+    | "send_account_mismatch"
+    | "send_scope_missing"
+    | null;
   syncStates: InitialSyncProgress[];
   syncStatesError: string | null;
   incrementalSyncStates: IncrementalSyncProgress[];
@@ -53,6 +62,11 @@ export function EmailAccountsSettings({ accounts, loadError, feedback, syncState
 
       {feedback === "connected" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status"><CheckCircle2 className="size-4" />Gmail connected successfully.</div>}
       {feedback === "error" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert"><AlertCircle className="size-4" />Gmail could not be connected. Please try again.</div>}
+      {(feedback === "send_enabled" || feedback === "send_already_enabled") && <div className="mb-5 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status"><CheckCircle2 className="size-4" />{feedback === "send_enabled" ? "Gmail sending enabled." : "Gmail sending is already enabled."}</div>}
+      {feedback === "send_denied" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700" role="status"><AlertCircle className="size-4" />Sending permission was not granted. Readonly sync remains connected.</div>}
+      {feedback === "send_account_mismatch" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert"><AlertCircle className="size-4" />Choose the same Google account that is connected to HireX.</div>}
+      {feedback === "send_scope_missing" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700" role="status"><AlertCircle className="size-4" />Gmail sending permission was not granted. Readonly sync remains connected.</div>}
+      {feedback === "send_error" && <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert"><AlertCircle className="size-4" />Gmail sending could not be enabled. Readonly sync remains connected.</div>}
 
       <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -76,6 +90,12 @@ export function EmailAccountsSettings({ accounts, loadError, feedback, syncState
                   <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{account.emailAddress}</p><p className="mt-0.5 truncate text-xs text-slate-500">{account.displayName ?? "Gmail account"} · {account.provider}</p></div>
                   <div className="sm:text-right"><span className={statusClassName(account.status)}>{account.status.replaceAll("_", " ")}</span><p className="mt-1.5 text-xs text-slate-400">{account.lastSyncAt ? `Last sync ${dateFormatter.format(new Date(account.lastSyncAt))}` : "Not fully synced yet"}</p></div>
                 </div>
+                {account.status === "CONNECTED" && (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-slate-600"><Send className="size-3.5" />{account.sendEnabled ? "Sending enabled" : "Sending is not enabled"}</div>
+                    {!account.sendEnabled && <Button asChild size="sm" variant="outline"><Link href={`/api/integrations/gmail/enable-send?account=${encodeURIComponent(account.id)}`}>Enable sending <ExternalLink className="size-3.5" /></Link></Button>}
+                  </div>
+                )}
                 {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={initialProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
                 {account.status === "CONNECTED" && syncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{syncStatesError}</p>}
                 {account.status === "CONNECTED" && initialProgress?.status === "COMPLETED" && !incrementalSyncStatesError && <IncrementalSyncControl emailAccountId={account.id} progress={incrementalProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}

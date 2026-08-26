@@ -1,8 +1,10 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 import type { EmailAccountMetadata, EmailAccountStatus } from "@/modules/integrations/gmail/types/email-account";
+
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 interface EmailAccountMetadataRow {
   id: string;
@@ -26,11 +28,12 @@ export async function listEmailAccounts(): Promise<ListEmailAccountsResult> {
     return { accounts: [], error: "Email accounts could not be loaded." };
   }
 
-  const supabase = await createClient();
+  const supabase = createPrivilegedSupabaseClient();
   const { data, error } = await supabase
     .from("email_accounts")
     .select("id, provider, email_address, display_name, status, scopes, last_sync_at, created_at")
     .eq("workspace_id", account.workspaceId)
+    .eq("provider", "GMAIL")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -44,7 +47,7 @@ export async function listEmailAccounts(): Promise<ListEmailAccountsResult> {
       emailAddress: row.email_address,
       displayName: row.display_name,
       status: row.status,
-      scopes: row.scopes,
+      sendEnabled: row.scopes.includes(GMAIL_SEND_SCOPE),
       lastSyncAt: row.last_sync_at,
       createdAt: row.created_at,
     })),

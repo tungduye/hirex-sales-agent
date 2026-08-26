@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 status
+## Phase 2B.1 and 2B.2 status
 
-Phase 2B.1 prepares schema and OAuth strategy only. Gmail sending, replying, MIME construction, reconsent, workers, scheduled follow-ups, and AI-triggered delivery are not active.
+Phase 2B.1 schema is complete. Phase 2B.2 prepares the explicit Gmail send OAuth re-consent flow and capability UI. Gmail message sending, replying, MIME construction, workers, scheduled follow-ups, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -12,7 +12,7 @@ The current Gmail connection requests identity scopes `openid`, `email`, and `pr
 https://www.googleapis.com/auth/gmail.readonly
 ```
 
-A future send-enabled connection will retain those scopes and explicitly add:
+Normal **Connect Gmail** remains readonly. The separate send-enable flow retains those scopes and explicitly requests:
 
 ```text
 https://www.googleapis.com/auth/gmail.send
@@ -22,11 +22,17 @@ https://www.googleapis.com/auth/gmail.send
 
 ## Explicit send enablement
 
-Sending will be enabled through a separate **Enable Gmail sending** flow. A readonly connection must never silently gain a send scope. The future authorization request will use offline access, `include_granted_scopes=true`, the existing identity/readonly scopes plus `gmail.send`, and `prompt=consent` for explicit upgrade consent and clear refresh-token handling.
+Sending capability is enabled through a separate **Enable sending** flow. A readonly connection never silently gains a send scope. The authorization request uses offline access, `include_granted_scopes=true`, the existing identity/readonly scopes plus `gmail.send`, and `prompt=consent` for explicit upgrade consent and clear refresh-token handling. The signed, expiring OAuth state binds the authenticated user, `ENABLE_SEND` purpose, nonce, and target local email account while reusing the registered callback URL.
 
-The existing `email_accounts.scopes` array remains the granted-scope source of truth; no duplicate `granted_scopes` column or `send_enabled` boolean is added. Send capability is true only when the exact `https://www.googleapis.com/auth/gmail.send` value is recorded. Existing rows are not backfilled with assumed grants. The future upgrade callback must record normalized scopes actually observed from Google and must not assume `gmail.send` when a scope response is unavailable.
+The existing `email_accounts.scopes` array remains the granted-scope source of truth; no duplicate `granted_scopes` column or `send_enabled` boolean is added. Send capability is true only when the exact `https://www.googleapis.com/auth/gmail.send` value is recorded. Existing rows are not backfilled with assumed grants. The upgrade callback uses Google access-token info to verify normalized scopes actually granted and fails closed when `gmail.readonly` or `gmail.send` cannot be verified.
 
-Any refresh-token replacement must encrypt the new token and persist the credential plus its scope state atomically within the reviewed server-only credential boundary. Failed or declined send consent must preserve the existing encrypted refresh token, readonly scopes, connected status, and mailbox synchronization. `SEND_SCOPE_REQUIRED` disables only the send operation; it must not disconnect a healthy readonly Gmail account.
+Before mutation, the callback verifies the authorized Google email case-insensitively against the target local account and also checks the stable provider identity when available. The server then reloads the connected account in the authenticated workspace and updates scopes, encrypted access token, and expiry in one credential mutation. A newly returned refresh token is encrypted and replaces the old value; when Google omits it, the existing encrypted refresh token is preserved.
+
+Denied consent, account mismatch, missing scopes, token verification failure, stale callbacks, and database failures do not clear credentials, alter sync cursors, disconnect the account, or mark it `REAUTH_REQUIRED`. The browser receives only safe feedback codes and the metadata DTO exposes only `sendEnabled`, never raw scopes or credentials.
+
+## Manual Google Cloud prerequisite
+
+Before a later live test, an administrator may need to add `https://www.googleapis.com/auth/gmail.send` to the OAuth consent screen Data Access scopes in Google Cloud. This is a manual pending configuration step; Phase 2B.2 does not modify or claim to have verified Google Cloud configuration.
 
 ## Send requests and idempotency
 
