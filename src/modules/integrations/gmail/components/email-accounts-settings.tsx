@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, ExternalLink, Mail, Plus, Send } from "lucid
 import { Button } from "@/components/ui/button";
 import { InitialSyncControl } from "@/modules/integrations/gmail/components/initial-sync-control";
 import { IncrementalSyncControl } from "@/modules/integrations/gmail/components/incremental-sync-control";
+import { GmailSendTestForm } from "@/modules/integrations/gmail/components/gmail-send-test-form";
 import type { EmailAccountMetadata } from "@/modules/integrations/gmail/types/email-account";
 import type { InitialSyncProgress } from "@/modules/integrations/gmail/types/initial-sync";
 import type { IncrementalSyncProgress } from "@/modules/integrations/gmail/types/incremental-sync";
@@ -96,6 +97,7 @@ export function EmailAccountsSettings({ accounts, loadError, feedback, syncState
                     {!account.sendEnabled && <Button asChild size="sm" variant="outline"><Link href={`/api/integrations/gmail/enable-send?account=${encodeURIComponent(account.id)}`}>Enable sending <ExternalLink className="size-3.5" /></Link></Button>}
                   </div>
                 )}
+                {account.status === "CONNECTED" && account.sendEnabled && <GmailSendTestForm emailAccountId={account.id} />}
                 {account.status === "CONNECTED" && !syncStatesError && <InitialSyncControl emailAccountId={account.id} progress={initialProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}
                 {account.status === "CONNECTED" && syncStatesError && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{syncStatesError}</p>}
                 {account.status === "CONNECTED" && initialProgress?.status === "COMPLETED" && !incrementalSyncStatesError && <IncrementalSyncControl emailAccountId={account.id} progress={incrementalProgress} globallyBusy={busyAccountId !== null} blockedByOtherAccount={busyAccountId !== null && busyAccountId !== account.id} acquireGlobalLock={tryAcquireAccountLock} releaseGlobalLock={releaseAccountLock} />}

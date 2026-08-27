@@ -23,6 +23,7 @@ export interface ParsedGmailMessage {
   providerThreadId: string;
   providerHistoryId: string | null;
   rfcMessageId: string | null;
+  hirexSendRequestId: string | null;
   inReplyTo: string | null;
   referencesHeader: string | null;
   direction: "INBOUND" | "OUTBOUND";

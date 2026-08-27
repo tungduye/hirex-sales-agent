@@ -16,6 +16,7 @@ export function parseGmailMessage(message: GmailMessageResource, connectedEmail:
     providerThreadId: message.threadId,
     providerHistoryId: clean(message.historyId),
     rfcMessageId: clean(headers.get("message-id")),
+    hirexSendRequestId: parseHirexSendRequestId(headers.get("x-hirex-send-request-id")),
     inReplyTo: clean(headers.get("in-reply-to")),
     referencesHeader: clean(headers.get("references")),
     direction,
@@ -91,6 +92,13 @@ function parseInternalDate(value?: string) {
   if (!value || !/^\d+$/.test(value)) return null;
   const date = new Date(Number(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function parseHirexSendRequestId(value?: string) {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized)
+    ? normalized
+    : null;
 }
 
 function clean(value?: string) { const result = value?.trim(); return result ? result : null; }

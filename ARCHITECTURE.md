@@ -119,7 +119,7 @@ Every job includes `workspace_id`, correlation ID, schema version, idempotency k
 
 The Gmail incremental runner is reusable by both manual controls and a server-only internal scheduler endpoint. The endpoint uses a dedicated bearer secret, bounded account/page processing, and the database lease as its concurrency boundary. Integration with an external scheduler is pending; background Gmail synchronization is not active until that scheduler is configured.
 
-Phase 2B.1 prepares a server-controlled Gmail send-request schema and an explicit least-privilege OAuth upgrade strategy; sending is not active. Phase 2B.2 will add explicit `gmail.send` reconsent without damaging readonly sync, Phase 2B.3 will add a safe one-message send service, and Phase 2B.4 will add server-derived reply/thread sending.
+Phase 2B.1 prepares a server-controlled Gmail send-request schema. Phase 2B.2 explicit `gmail.send` consent is live-tested without damaging readonly sync. Phase 2B.3A has a controlled live-send PASS with durable idempotency, conditional execution claim, and fail-safe ambiguous-delivery locking. Gmail replaced the requested MIME Message-ID during that test, so it is not a guaranteed reconciliation key; ambiguous sends remain locked without retry while a separate correlation mechanism is validated. Phase 2B.4 will add server-derived reply/thread sending.
 
 ## 7. Security
 
