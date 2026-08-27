@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3B status
+## Phase 2B.1 through 2B.3C status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed one controlled live test. Phase 2B.3B prepares persistence for the Gmail-observed `X-HireX-Send-Request-ID`; migration 008 has not been run. Replies, reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Replies, reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -49,7 +49,7 @@ Only one caller can claim `PENDING`. Network loss, timeout, HTTP 408/5xx, malfor
 
 Before claim/send, a new request receives a stable requested/client MIME Message-ID in the form `<hirex.<request-uuid>@<validated-sender-domain>>`. It is derived from the server-generated request ID and connected Gmail sender domain, never from browser input. Gmail may canonicalize or replace this header, so equality with `email_send_requests.rfc_message_id` is not proof of delivery or non-delivery and must not be the sole ambiguous-delivery reconciliation key.
 
-New MIME messages also include `X-HireX-Send-Request-ID` with the validated server-created request UUID. The browser cannot set this header. It is only a future correlation candidate: preservation by Gmail has not yet been live-tested and reconciliation must not rely on it. Phase 2B.3B adds a nullable UUID field and workspace/account partial index so Gmail History upserts can persist only a valid observed header. The field remains internal and is excluded from authenticated browser SELECT grants. There is no UNIQUE constraint or FK because duplicate, copied, forged, or corrupted external headers must not break mailbox synchronization.
+New MIME messages also include `X-HireX-Send-Request-ID` with the validated server-created request UUID. The browser cannot set this header. Phase 2B.3B adds a nullable UUID field and workspace/account partial index so Gmail History upserts can persist only a valid observed header. The field remains internal and is excluded from authenticated browser SELECT grants. There is no UNIQUE constraint or FK because duplicate, copied, forged, or corrupted external headers must not break mailbox synchronization. Preservation has now been verified in one controlled live Gmail send plus History sync, but Gmail is not assumed to guarantee custom-header preservation universally and reconciliation must not rely on this value alone.
 
 The minimal Settings form is manual-only and accepts one recipient, a CR/LF-free subject, and a plain-text body. Its UUID idempotency key remains stable across duplicate submissions of one attempt. A new key is created only when the user explicitly starts another message after a definitive outcome.
 
@@ -73,7 +73,18 @@ Migration 006 intentionally defers a database FK from the send request to `email
 
 This test proves Gmail canonicalized/replaced the supplied Message-ID. Provider message/thread IDs are authoritative after a successful Gmail response. A deterministic requested Message-ID alone is insufficient for ambiguous delivery reconciliation. An ambiguous request must remain locked in `SENDING`; there is no automatic retry or reconciliation until a separately validated, false-positive-resistant mechanism is reviewed.
 
-`hirex_send_request_id` equality alone is also insufficient. Any future reviewed reconciliation must at minimum verify the same workspace and email account, exact local request ID, canonical Gmail `SENT` label, association with the connected sender, expected recipient/content metadata where useful, and absence of conflicting provider identifiers. `ParsedGmailMessage.direction === OUTBOUND` alone is not proof of Gmail delivery. No second correlation-header live test has occurred yet.
+`hirex_send_request_id` equality alone is also insufficient. Any future reviewed reconciliation must at minimum verify the same workspace and email account, exact local request ID, canonical Gmail `SENT` label, association with the connected sender, expected recipient/content metadata where useful, and absence of conflicting provider identifiers. `ParsedGmailMessage.direction === OUTBOUND` alone is not proof of Gmail delivery.
+
+### Controlled Phase 2B.3C correlation result
+
+- Send request `7930c5d5-3acf-4698-a79b-7bc302045c18`: `SENT`, `attempt_count=1`, execution locks released, and exactly one matching send-request row.
+- Gmail response `provider_message_id` matched the canonical `email_messages` row, and `provider_thread_id` matched the canonical thread.
+- The canonical Gmail message was `OUTBOUND` and had the Gmail `SENT` label.
+- Gmail History sync completed with `affected=1`, `synced=1`, and `failed=0`.
+- Gmail preserved `X-HireX-Send-Request-ID`, and `email_messages.hirex_send_request_id` exactly matched `email_send_requests.id`.
+- Gmail again replaced/canonicalized the client MIME Message-ID with a different canonical Gmail Message-ID.
+
+Current evidence is deliberately narrow: provider message ID is authoritative after a successful Gmail API response; client MIME Message-ID is not a reconciliation key; and the custom HireX header was preserved in this one controlled test only. Future ambiguous-delivery reconciliation must combine the same workspace, same email account, exact request ID, canonical Gmail `SENT` label, expected connected sender, expected recipient, compatible subject/message metadata, and absence of conflicting provider IDs. No automatic reconciliation or retry exists, and ambiguous `SENDING` requests remain locked.
 
 After Gmail eventually accepts a send:
 
