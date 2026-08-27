@@ -20,7 +20,8 @@ export async function upsertMailboxMessage(scope: Scope, message: ParsedGmailMes
   const { error: messageError } = await supabase.from("email_messages").upsert({
     workspace_id: scope.workspaceId, email_account_id: scope.emailAccountId, email_thread_id: thread.id, provider: "GMAIL",
     provider_message_id: message.providerMessageId, provider_history_id: message.providerHistoryId,
-    rfc_message_id: message.rfcMessageId, in_reply_to: message.inReplyTo, references_header: message.referencesHeader,
+    rfc_message_id: message.rfcMessageId, hirex_send_request_id: message.hirexSendRequestId,
+    in_reply_to: message.inReplyTo, references_header: message.referencesHeader,
     direction: message.direction, from_email: message.fromEmail, from_name: message.fromName,
     to_emails: message.toEmails, cc_emails: message.ccEmails, bcc_emails: message.bccEmails,
     subject: message.subject, snippet: message.snippet, body_text: message.bodyText, body_html: message.bodyHtml,
