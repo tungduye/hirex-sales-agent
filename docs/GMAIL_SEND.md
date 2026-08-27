@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3C status
+## Phase 2B.1 through 2B.3D status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Replies, reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Replies, reconciliation mutations, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -85,6 +85,14 @@ This test proves Gmail canonicalized/replaced the supplied Message-ID. Provider 
 - Gmail again replaced/canonicalized the client MIME Message-ID with a different canonical Gmail Message-ID.
 
 Current evidence is deliberately narrow: provider message ID is authoritative after a successful Gmail API response; client MIME Message-ID is not a reconciliation key; and the custom HireX header was preserved in this one controlled test only. Future ambiguous-delivery reconciliation must combine the same workspace, same email account, exact request ID, canonical Gmail `SENT` label, expected connected sender, expected recipient, compatible subject/message metadata, and absence of conflicting provider IDs. No automatic reconciliation or retry exists, and ambiguous `SENDING` requests remain locked.
+
+### Phase 2B.3D read-only evaluator
+
+The server-only evaluator classifies an eligible ambiguous `SENDING`/`NEW` request as exactly `SAFE_MATCH`, `NO_MATCH`, or `AMBIGUOUS`. It uses same-workspace and same-email-account queries and requires exactly one canonical message with the exact HireX UUID, Gmail `SENT` label, no `SPAM`/`TRASH`, connected sender, exactly one matching recipient, exact normalized subject, conservatively equivalent plain-text body, and no conflict with any non-null stored provider message/thread ID.
+
+Body comparison only normalizes CRLF/CR to LF and permits one terminal newline difference because MIME parsing can add or remove that final line ending. It does not trim interior whitespace or perform fuzzy matching. A missing canonical body is `AMBIGUOUS`; a definite mismatch is `NO_MATCH`. Duplicate header matches are also `AMBIGUOUS` and the evaluator never selects the newest or first row.
+
+`SAFE_MATCH` is evidence only. The evaluator performs privileged SELECTs but has no insert, update, delete, RPC, Gmail request, status transition, lock release, or retry. A future mutation phase must separately review transaction/concurrency rules, current lock ownership, provider identifiers, audit trail, false-positive protection, and a final database recheck if state changes between evaluation and finalization.
 
 After Gmail eventually accepts a send:
 
