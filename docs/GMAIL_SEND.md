@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3G status
+## Phase 2B.1 through 2B.3H status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds a dormant manual boundary for one explicitly identified request. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -115,6 +115,12 @@ The server-only discovery function performs one bounded, read-only query for `NE
 Discovery returns only local request/workspace/account IDs, lock timestamp, and attempt count. It does not expose the lock UUID, message content, addresses, provider identifiers, MIME, errors, or credentials. A candidate means only that the request currently has the shape of an unresolved send. It is not authorization to finalize. Any future explicit caller must still use the Phase 2B.3F chain: read-only evaluator, `SAFE_MATCH` gate, migration-009 transactional revalidation, and final CAS.
 
 Phase 2B.3G has no evaluator/finalizer call, Gmail request, retry, stale-lock reclaim, mutation, automatic loop, route, server action, UI, scheduler, webhook, worker, or production caller.
+
+### Phase 2B.3H explicit manual execution boundary
+
+The server-only manual boundary accepts exactly a request, workspace, and email-account UUID. It performs an exact read-only preflight for one `NEW` request that remains `SENDING` with both lock fields present and an exact connected Gmail account in the same workspace. It does not use the bounded discovery page, so a valid exact request cannot be excluded merely because it is outside the first 10 or 25 candidates.
+
+Preflight is a guard, not authorization. An eligible result delegates exactly once to Phase 2B.3F, which still performs the read-only evaluator, `SAFE_MATCH` gate, migration-009 transactional evidence revalidation, and final CAS. The manual boundary does not accept caller-supplied message/provider IDs, lock IDs, addresses, content, MIME, credentials, or evidence. It has no direct mutation, RPC, Gmail call, retry, route, server action, UI, scheduler, automation, or production caller.
 
 After Gmail eventually accepts a send:
 
