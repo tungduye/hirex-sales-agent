@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3H status
+## Phase 2B.1 through 2B.3I-A status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds a dormant manual boundary for one explicitly identified request. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds a dormant manual boundary for one explicitly identified request. Phase 2B.3I-A adds a local operator read-only inspector. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -121,6 +121,12 @@ Phase 2B.3G has no evaluator/finalizer call, Gmail request, retry, stale-lock re
 The server-only manual boundary accepts exactly a request, workspace, and email-account UUID. It performs an exact read-only preflight for one `NEW` request that remains `SENDING` with both lock fields present and an exact connected Gmail account in the same workspace. It does not use the bounded discovery page, so a valid exact request cannot be excluded merely because it is outside the first 10 or 25 candidates.
 
 Preflight is a guard, not authorization. An eligible result delegates exactly once to Phase 2B.3F, which still performs the read-only evaluator, `SAFE_MATCH` gate, migration-009 transactional evidence revalidation, and final CAS. The manual boundary does not accept caller-supplied message/provider IDs, lock IDs, addresses, content, MIME, credentials, or evidence. It has no direct mutation, RPC, Gmail call, retry, route, server action, UI, scheduler, automation, or production caller.
+
+### Phase 2B.3I-A local read-only inspector
+
+The local operator CLI has exactly two commands: `list` invokes bounded candidate discovery, while `inspect` invokes the read-only evaluator for one exact request/workspace/account identity. It emits machine-readable JSON containing only reviewed candidate metadata or evaluator classification metadata. It does not print locks, content, addresses, provider responses, credentials, environment values, or raw errors.
+
+There is no execute/finalize/retry/reconcile/send command. The inspector cannot call Phase 2B.3H, Phase 2B.3F, or migration 009; it has no mutation, Gmail request, automatic loop, route, server action, UI, scheduler, worker, webhook, or AI integration. Phase 2B.3H remains without a production caller.
 
 After Gmail eventually accepts a send:
 
