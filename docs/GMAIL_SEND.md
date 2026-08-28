@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3F status
+## Phase 2B.1 through 2B.3G status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Replies, automatic request discovery, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -107,6 +107,14 @@ This foundation is deliberately dormant. It is not called by the evaluator, Gmai
 The server-only orchestrator accepts only an exact request, workspace, and email-account UUID. It validates those identifiers, invokes the existing read-only evaluator, and returns without mutation for `NO_MATCH` or `AMBIGUOUS`. Only `SAFE_MATCH` with a valid evaluator-returned local message UUID may invoke the migration-009 finalizer once. It never accepts provider IDs, addresses, content, lock IDs, Gmail identifiers, or credentials from its caller.
 
 The evaluator remains advisory. `SAFE_MATCH` does not authorize a forced status change: migration 009 locks the request and independently rechecks all canonical account, message, thread, exact-one correlation, provider-conflict, and CAS evidence. A false RPC result is reported as changed evidence and is not retried. The orchestrator has no Gmail call, direct table mutation, automatic request scan, scheduler, cron, route, server action, UI, webhook, or AI caller. It remains dormant until a separate production invocation boundary is reviewed.
+
+### Phase 2B.3G bounded candidate discovery
+
+The server-only discovery function performs one bounded, read-only query for `NEW` requests that are still `SENDING` with both execution-lock fields present and whose exact account is a connected Gmail account in the requested workspace. It defaults to 10 rows, caps requests at 25, and orders by oldest `send_lock_at` then request UUID. The lock age is ordering metadata only and never implies that a lock may be reclaimed or a send retried.
+
+Discovery returns only local request/workspace/account IDs, lock timestamp, and attempt count. It does not expose the lock UUID, message content, addresses, provider identifiers, MIME, errors, or credentials. A candidate means only that the request currently has the shape of an unresolved send. It is not authorization to finalize. Any future explicit caller must still use the Phase 2B.3F chain: read-only evaluator, `SAFE_MATCH` gate, migration-009 transactional revalidation, and final CAS.
+
+Phase 2B.3G has no evaluator/finalizer call, Gmail request, retry, stale-lock reclaim, mutation, automatic loop, route, server action, UI, scheduler, webhook, worker, or production caller.
 
 After Gmail eventually accepts a send:
 
