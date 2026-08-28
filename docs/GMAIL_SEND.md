@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.4A status
+## Phase 2B.1 through 2B.4B status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds the exact one-request orchestrator. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds the manual exact-request boundary. Phase 2B.3I-A adds local read-only list/inspect commands, and Phase 2B.3I-B adds an explicit local operator reconcile command. Phase 2B.4A adds read-only validation of one exact canonical Gmail message as a future reply target. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds the exact one-request orchestrator. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds the manual exact-request boundary. Phase 2B.3I-A adds local read-only list/inspect commands, and Phase 2B.3I-B adds an explicit local operator reconcile command. Phase 2B.4A adds read-only validation of one exact canonical Gmail message as a future reply target. Phase 2B.4B adds server-only creation of one idempotent `PENDING` reply intent. Reply delivery, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -139,6 +139,12 @@ The command rebuilds an exact three-ID input and delegates once only to Phase 2B
 The server-only evaluator accepts only one workspace UUID, email-account UUID, and canonical local message UUID. It reads the exact stored Gmail message plus its canonical thread and connected account, then fails closed unless all evidence has the same scope, the message is inbound and outside Spam/Trash, the original sender is one valid address distinct from the connected mailbox, provider identifiers are present and consistent, and the Gmail-observed RFC Message-ID is safe for a future `In-Reply-To` header.
 
 A safe internal plan contains only local scope/target IDs, the canonical sender as the single future recipient, one normalized `Re:` subject, the canonical provider thread ID, and canonical parent RFC Message-ID. No body, credential, raw Gmail payload, or MIME is included. This phase creates no `REPLY` send request, route, UI, CLI, mutation, Gmail request, or reply. Later phases must separately review reply-request creation, transactional claiming, MIME construction, and one controlled live reply.
+
+### Phase 2B.4B reply send-request creation
+
+The server-only creation boundary accepts only workspace/account/target UUIDs, a plain-text body, and the existing UUID idempotency key. It invokes the Phase 2B.4A evaluator exactly once and inserts only when the returned canonical plan is runtime-valid and explicitly safe. The new row is a single-recipient `REPLY` in `PENDING`, with `attempt_count=0`, empty CC/BCC, null HTML and scheduling, and no execution lock or delivery-result identifiers.
+
+The unique `(workspace_id, email_account_id, idempotency_key)` constraint remains the sole idempotency mechanism. A uniqueness race is resolved by an exact scoped read: equivalent immutable intent returns the existing request, while any target, recipient, subject, body, or send-type difference is a conflict and is never overwritten. Only `reply_to_email_message_id` persists the canonical linkage. Provider thread and parent RFC Message-ID evidence are deliberately not copied into delivery-result columns; a future reviewed claim/send phase must re-evaluate the canonical target before building reply MIME. Phase 2B.4B does not claim, build MIME, call Gmail, send, retry, or finalize.
 
 After Gmail eventually accepts a send:
 
