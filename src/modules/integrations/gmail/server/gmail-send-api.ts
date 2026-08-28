@@ -19,7 +19,15 @@ export class GmailSendAmbiguousError extends Error {
   }
 }
 
-export async function sendRawGmailMessage(accessToken: string, raw: string) {
+export async function sendRawGmailMessage(
+  accessToken: string,
+  raw: string,
+  threadId?: string,
+) {
+  if (threadId !== undefined && !isProviderId(threadId)) {
+    throw new GmailSendDefinitiveError("GMAIL_SEND_REJECTED");
+  }
+
   let response: Response;
   try {
     response = await fetch(SEND_URL, {
@@ -28,7 +36,7 @@ export async function sendRawGmailMessage(accessToken: string, raw: string) {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ raw }),
+      body: JSON.stringify(threadId === undefined ? { raw } : { raw, threadId }),
       cache: "no-store",
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
