@@ -103,6 +103,7 @@ for (const [name, runtimeInput] of [
 for (const [name, value] of [
   ["credential exception", () => { throw new Error("credential unavailable"); }],
   ["malformed credentials", Promise.resolve({ accessToken: "token" })],
+  ["extra credential field", Promise.resolve({ ...credentials, refreshToken: "must-not-pass" })],
   ["mismatched credential account", Promise.resolve({ ...credentials, emailAccountId: replyTarget })],
   ["mismatched credential workspace", Promise.resolve({ ...credentials, workspaceId: replyTarget })],
   ["blank credential token", Promise.resolve({ ...credentials, accessToken: " " })],
@@ -110,9 +111,13 @@ for (const [name, value] of [
   const test = await run({ credentials: value });
   check(`${name} unavailable`, test.result.reason, "CREDENTIALS_UNAVAILABLE");
   check(`${name} does not claim`, test.calls.claim.length, 0);
+  check(`${name} does not call Gmail`, test.calls.gmail.length, 0);
 }
 
 let test = await run();
+check("exact four-field credential result accepted", test.result.status, "SENT");
+check("credential evidence has exact reviewed keys", Object.keys(credentials).sort(),
+  ["accessToken", "emailAccountId", "emailAddress", "workspaceId"]);
 check("credentials called once", test.calls.credentials.length, 1);
 check("credentials exact scope input", test.calls.credentials[0][0], input);
 check("lock generated once", test.calls.lock.length, 1);
@@ -140,6 +145,7 @@ for (const [name, value] of malformedClaims) {
   test = await run({ claim: Promise.resolve(value) });
   check(`${name} unavailable`, test.result.reason, "CLAIM_UNAVAILABLE");
   check(`${name} prevents planner`, test.calls.planner.length, 0);
+  check(`${name} prevents Gmail`, test.calls.gmail.length, 0);
 }
 test = await run({ claim: Promise.resolve([]) });
 check("zero-row claim not eligible", test.result.status, "NOT_ELIGIBLE");
@@ -148,6 +154,7 @@ check("zero-row claim no planner", test.calls.planner.length, 0);
 test = await run({ claim: () => { throw new Error("rpc unavailable"); } });
 check("claim exception unavailable", test.result.reason, "CLAIM_UNAVAILABLE");
 check("claim exception called once", test.calls.claim.length, 1);
+check("claim exception does not call Gmail", test.calls.gmail.length, 0);
 
 for (const [name, planner, code] of [
   ["evidence changed", { status: "EVIDENCE_CHANGED", reason: "CANONICAL_REPLY_TARGET_CHANGED", sendRequestId: input.sendRequestId, plan: null }, "REPLY_TARGET_CHANGED"],

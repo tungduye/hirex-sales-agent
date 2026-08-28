@@ -273,10 +273,15 @@ for (const [executorStatus, executorReason] of [["NOT_ELIGIBLE", "REQUEST_NOT_EL
   test = await run({ execution: { status: executorStatus, reason: executorReason, sendRequestId,
     providerMessageId: null, providerThreadId: null }, inspections: [pending, sendingRow] });
   check(`${executorStatus} safely unavailable`, test.result.status, "UNAVAILABLE");
+  check(`${executorStatus} safe executor reason preserved`, test.result.executorReason, executorReason);
   check(`${executorStatus} executor once`, test.calls.execute.length, 1);
   check(`${executorStatus} final inspection performed`, test.calls.inspect.length, 2);
   check(`${executorStatus} no retry`, test.calls.create.length, 1);
 }
+test = await run({ execution: { status: "UNAVAILABLE", reason: "RAW_DATABASE_FAILURE", sendRequestId,
+  providerMessageId: null, providerThreadId: null }, inspections: [pending, pending] });
+check("unknown executor reason fails closed", test.result.reason, "EXECUTION_UNAVAILABLE");
+check("unknown executor reason does not leak", test.result.executorReason, "EXECUTION_UNAVAILABLE");
 
 const safeResult = (await run()).result;
 for (const forbidden of ["bodyText", "recipientEmail", "subject", "parentRfcMessageId", "accessToken",
@@ -284,7 +289,7 @@ for (const forbidden of ["bodyText", "recipientEmail", "subject", "parentRfcMess
   check(`output excludes ${forbidden}`, Object.hasOwn(safeResult, forbidden), false);
 }
 check("output exact safe keys", Object.keys(safeResult).sort(), ["emailAccountId", "emailMessageId", "executorStatus",
-  "finalRequestStatus", "providerMessageId", "providerThreadId", "reason", "requestCreationStatus",
+  "executorReason", "finalRequestStatus", "providerMessageId", "providerThreadId", "reason", "requestCreationStatus",
   "sendRequestId", "status", "workspaceId"].sort());
 
 const operatorSources = [

@@ -10,7 +10,8 @@ const projectRoot = path.resolve(scriptDirectory, "..");
 const SAFE_UNAVAILABLE_OUTPUT = Object.freeze({
   status: "UNAVAILABLE", reason: "LIVE_TEST_UNAVAILABLE", sendRequestId: null,
   workspaceId: null, emailAccountId: null, emailMessageId: null, requestCreationStatus: null,
-  executorStatus: null, finalRequestStatus: null, providerMessageId: null, providerThreadId: null,
+  executorStatus: null, executorReason: null, finalRequestStatus: null,
+  providerMessageId: null, providerThreadId: null,
 });
 
 export async function runSafeControlledReplyLiveTestBootstrap(bootstrap) {
