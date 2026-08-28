@@ -64,7 +64,12 @@ export async function loadGmailSendCredentials(emailAccountId: string, workspace
     if (!Number.isFinite(tokenInfo.expiry_date) || tokenInfo.expiry_date <= Date.now()) {
       throw new GmailSendCredentialError("GMAIL_TEMPORARY_ERROR");
     }
-    return credential;
+    return {
+      accessToken: credential.accessToken,
+      emailAddress: credential.emailAddress,
+      emailAccountId: account.id as string,
+      workspaceId,
+    };
   } catch (error) {
     if (error instanceof GmailSendCredentialError) throw error;
     throw new GmailSendCredentialError("GMAIL_TEMPORARY_ERROR");
