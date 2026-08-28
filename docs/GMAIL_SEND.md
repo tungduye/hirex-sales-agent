@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3I-B status
+## Phase 2B.1 through 2B.4A status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds the exact one-request orchestrator. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds the manual exact-request boundary. Phase 2B.3I-A adds local read-only list/inspect commands, and Phase 2B.3I-B adds an explicit local operator reconcile command. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds the exact one-request orchestrator. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds the manual exact-request boundary. Phase 2B.3I-A adds local read-only list/inspect commands, and Phase 2B.3I-B adds an explicit local operator reconcile command. Phase 2B.4A adds read-only validation of one exact canonical Gmail message as a future reply target. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -133,6 +133,12 @@ Phase 2B.3I-A `list` and `inspect` remain read-only and never execute reconcilia
 The local CLI adds exactly one execution command, `reconcile`, for one exact request/workspace/account identity. It requires the deterministic confirmation token `RECONCILE:<request UUID>` to match the validated request ID exactly. There are no execute, finalize, repair, retry, or send aliases and no interactive confirmation fallback.
 
 The command rebuilds an exact three-ID input and delegates once only to Phase 2B.3H. It does not accept or forward matched-message/provider IDs, lock IDs, addresses, content, MIME, tokens, or arbitrary evidence. Phase 2B.3H still performs exact preflight and delegates through Phase 2B.3F, whose evaluator, `SAFE_MATCH` gate, migration-009 revalidation, and final CAS remain authoritative. The CLI does not directly call the orchestrator or RPC, send Gmail, scan/list candidates automatically, batch, loop, reclaim locks, or retry any outcome.
+
+### Phase 2B.4A read-only reply target evaluator
+
+The server-only evaluator accepts only one workspace UUID, email-account UUID, and canonical local message UUID. It reads the exact stored Gmail message plus its canonical thread and connected account, then fails closed unless all evidence has the same scope, the message is inbound and outside Spam/Trash, the original sender is one valid address distinct from the connected mailbox, provider identifiers are present and consistent, and the Gmail-observed RFC Message-ID is safe for a future `In-Reply-To` header.
+
+A safe internal plan contains only local scope/target IDs, the canonical sender as the single future recipient, one normalized `Re:` subject, the canonical provider thread ID, and canonical parent RFC Message-ID. No body, credential, raw Gmail payload, or MIME is included. This phase creates no `REPLY` send request, route, UI, CLI, mutation, Gmail request, or reply. Later phases must separately review reply-request creation, transactional claiming, MIME construction, and one controlled live reply.
 
 After Gmail eventually accepts a send:
 
