@@ -16,7 +16,7 @@ async function loadCanonicalEvidence(input: ReplyTargetInput): Promise<ReplyTarg
   const supabase = createPrivilegedSupabaseClient();
   const [messageResult, accountResult] = await Promise.all([
     supabase.from("email_messages")
-      .select("id, workspace_id, email_account_id, email_thread_id, provider, provider_message_id, provider_thread_id, rfc_message_id, direction, from_email, subject, labels")
+      .select("id, workspace_id, email_account_id, email_thread_id, provider, provider_message_id, rfc_message_id, direction, from_email, subject, labels")
       .eq("id", input.emailMessageId).eq("workspace_id", input.workspaceId).eq("email_account_id", input.emailAccountId).maybeSingle(),
     supabase.from("email_accounts")
       .select("id, workspace_id, provider, status, email_address")
@@ -45,8 +45,8 @@ function mapMessage(row: Record<string, unknown>) {
   return {
     id: row.id, workspaceId: row.workspace_id, emailAccountId: row.email_account_id,
     emailThreadId: row.email_thread_id, provider: row.provider, providerMessageId: row.provider_message_id,
-    providerThreadId: row.provider_thread_id, rfcMessageId: row.rfc_message_id, direction: row.direction,
-    fromEmail: row.from_email, subject: row.subject, labels: row.labels,
+    rfcMessageId: row.rfc_message_id, direction: row.direction, fromEmail: row.from_email,
+    subject: row.subject, labels: row.labels,
   };
 }
 

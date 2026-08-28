@@ -109,7 +109,7 @@ export function classifyReplyTarget(input: ReplyTargetInput, evidence: ReplyTarg
     return result(input, "NOT_REPLYABLE", "EVIDENCE_SCOPE_MISMATCH");
   }
   const providerThreadId = thread.providerThreadId;
-  if (!nonBlank(providerThreadId) || providerThreadId !== message.providerThreadId) {
+  if (!isProviderId(providerThreadId)) {
     return result(input, "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE");
   }
 
@@ -121,7 +121,7 @@ export function classifyReplyTarget(input: ReplyTargetInput, evidence: ReplyTarg
     replyToEmailMessageId: input.emailMessageId,
     recipientEmail: sender,
     subject,
-    providerThreadId: providerThreadId.trim(),
+    providerThreadId,
     parentRfcMessageId: parentRfcMessageId.trim(),
   };
 }
@@ -150,12 +150,12 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]) {
 
 function isMessage(value: unknown): value is {
   id: string; workspaceId: string; emailAccountId: string; emailThreadId: string; provider: string;
-  providerMessageId: string | null; providerThreadId: string | null; rfcMessageId: string | null;
+  providerMessageId: string | null; rfcMessageId: string | null;
   direction: string; fromEmail: string | null; subject: string | null; labels: string[];
 } {
-  if (!isRecord(value) || !exactKeys(value, ["id", "workspaceId", "emailAccountId", "emailThreadId", "provider", "providerMessageId", "providerThreadId", "rfcMessageId", "direction", "fromEmail", "subject", "labels"])) return false;
+  if (!isRecord(value) || !exactKeys(value, ["id", "workspaceId", "emailAccountId", "emailThreadId", "provider", "providerMessageId", "rfcMessageId", "direction", "fromEmail", "subject", "labels"])) return false;
   return [value.id, value.workspaceId, value.emailAccountId, value.emailThreadId, value.provider, value.direction].every((item) => typeof item === "string")
-    && nullableString(value.providerMessageId) && nullableString(value.providerThreadId) && nullableString(value.rfcMessageId)
+    && nullableString(value.providerMessageId) && nullableString(value.rfcMessageId)
     && nullableString(value.fromEmail) && nullableString(value.subject)
     && Array.isArray(value.labels) && value.labels.every((label) => typeof label === "string");
 }
@@ -165,14 +165,17 @@ function isAccount(value: unknown): value is { id: string; workspaceId: string; 
     && [value.id, value.workspaceId, value.provider, value.status, value.emailAddress].every((item) => typeof item === "string");
 }
 
-function isThread(value: unknown): value is { id: string; workspaceId: string; emailAccountId: string; provider: string; providerThreadId: string | null } {
+function isThread(value: unknown): value is { id: string; workspaceId: string; emailAccountId: string; provider: string; providerThreadId: unknown } {
   return isRecord(value) && exactKeys(value, ["id", "workspaceId", "emailAccountId", "provider", "providerThreadId"])
-    && [value.id, value.workspaceId, value.emailAccountId, value.provider].every((item) => typeof item === "string")
-    && nullableString(value.providerThreadId);
+    && [value.id, value.workspaceId, value.emailAccountId, value.provider].every((item) => typeof item === "string");
 }
 
 function nullableString(value: unknown): value is string | null { return value === null || typeof value === "string"; }
 function nonBlank(value: string | null): value is string { return typeof value === "string" && value.trim().length > 0 && !/[\r\n]/.test(value); }
+function isProviderId(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 1 && value.length <= 512
+    && /^[A-Za-z0-9_-]+$/.test(value);
+}
 function isUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 
 function normalizeEmail(value: string | null) {

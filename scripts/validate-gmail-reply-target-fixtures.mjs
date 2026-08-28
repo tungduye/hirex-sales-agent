@@ -11,8 +11,7 @@ const otherAccountId = "66666666-6666-4666-8666-666666666666";
 const input = { workspaceId, emailAccountId, emailMessageId };
 const message = {
   id: emailMessageId, workspaceId, emailAccountId, emailThreadId, provider: "GMAIL",
-  providerMessageId: "gmail-message-1", providerThreadId: "gmail-thread-1",
-  rfcMessageId: "<canonical-message@mail.gmail.com>", direction: "INBOUND",
+  providerMessageId: "gmail-message-1", rfcMessageId: "<canonical-message@mail.gmail.com>", direction: "INBOUND",
   fromEmail: "buyer@example.com", subject: "Proposal", labels: ["INBOX"],
 };
 const account = { id: emailAccountId, workspaceId, provider: "GMAIL", status: "CONNECTED", emailAddress: "seller@gmail.com" };
@@ -36,7 +35,6 @@ const cases = [
   ["disconnected account", () => classify({ account: { ...account, status: "DISCONNECTED" } }), "NOT_REPLYABLE", "ACCOUNT_NOT_CONNECTED"],
   ["non Gmail account", () => classify({ account: { ...account, provider: "OTHER" } }), "NOT_REPLYABLE", "ACCOUNT_NOT_CONNECTED"],
   ["missing provider message id", () => classify({ message: { ...message, providerMessageId: null } }), "NOT_REPLYABLE", "PROVIDER_MESSAGE_ID_UNAVAILABLE"],
-  ["missing provider thread id", () => classify({ message: { ...message, providerThreadId: null } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
   ["missing RFC Message-ID", () => classify({ message: { ...message, rfcMessageId: null } }), "NOT_REPLYABLE", "RFC_MESSAGE_ID_UNAVAILABLE"],
   ["malformed RFC Message-ID", () => classify({ message: { ...message, rfcMessageId: "bad-id" } }), "NOT_REPLYABLE", "RFC_MESSAGE_ID_UNAVAILABLE"],
   ["RFC Message-ID with NUL", () => classify({ message: { ...message, rfcMessageId: "<canonical\u0000@mail.gmail.com>" } }), "NOT_REPLYABLE", "RFC_MESSAGE_ID_UNAVAILABLE"],
@@ -59,7 +57,12 @@ const cases = [
   ["sender with control", () => classify({ message: { ...message, fromEmail: "buyer\u0000@example.com" } }), "NOT_REPLYABLE", "SENDER_UNAVAILABLE"],
   ["normal sender remains safe", () => classify({ message: { ...message, fromEmail: "buyer@example.com" } }), "SAFE_REPLY_TARGET", "SAFE_CANONICAL_REPLY_TARGET"],
   ["canonical RFC Message-ID remains safe", () => classify({ message: { ...message, rfcMessageId: "<canonical-message@mail.gmail.com>" } }), "SAFE_REPLY_TARGET", "SAFE_CANONICAL_REPLY_TARGET"],
-  ["thread provider mismatch", () => classify({ thread: { ...thread, providerThreadId: "other-thread" } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["thread provider ID null", () => classify({ thread: { ...thread, providerThreadId: null } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["thread provider ID blank", () => classify({ thread: { ...thread, providerThreadId: "" } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["thread provider ID slash", () => classify({ thread: { ...thread, providerThreadId: "thread/id" } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["thread provider ID whitespace", () => classify({ thread: { ...thread, providerThreadId: "thread id" } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["thread provider ID oversized", () => classify({ thread: { ...thread, providerThreadId: "a".repeat(513) } }), "NOT_REPLYABLE", "PROVIDER_THREAD_ID_UNAVAILABLE"],
+  ["valid canonical thread provider ID", () => classify({ thread: { ...thread, providerThreadId: "valid_thread-1" } }), "SAFE_REPLY_TARGET", "SAFE_CANONICAL_REPLY_TARGET"],
 ];
 
 for (const [name, run, classification, reason] of cases) {
@@ -77,14 +80,21 @@ assert.deepEqual(Object.keys(classify()).sort(), [
   "classification", "emailAccountId", "parentRfcMessageId", "providerThreadId", "reason",
   "recipientEmail", "replyToEmailMessageId", "subject", "workspaceId",
 ].sort());
+assert.deepEqual(Object.keys(message).sort(), [
+  "direction", "emailAccountId", "emailThreadId", "fromEmail", "id", "labels",
+  "provider", "providerMessageId", "rfcMessageId", "subject", "workspaceId",
+].sort());
 
 const loaderFailure = await evaluateReplyTargetEvidence(input, async () => { throw new Error("sensitive database detail"); });
 assert.equal(loaderFailure.classification, "UNAVAILABLE");
 assert.equal(loaderFailure.reason, "EVALUATION_UNAVAILABLE");
 
 const production = readFileSync(new URL("../src/modules/integrations/gmail/server/evaluate-reply-target.ts", import.meta.url), "utf8");
+const messageSelect = production.match(/from\("email_messages"\)\s*\.select\("([^"]+)"\)/)?.[1];
+assert.equal(messageSelect, "id, workspace_id, email_account_id, email_thread_id, provider, provider_message_id, rfc_message_id, direction, from_email, subject, labels");
+assert.equal(messageSelect.split(", ").includes("provider_thread_id"), false, "message SELECT excludes provider_thread_id");
 for (const forbidden of [".insert(", ".update(", ".delete(", ".rpc(", "fetch(", "sendRawGmailMessage", "runManualSendReconciliation", "reconcileAmbiguousSend", "finalize_reconciled_email_send_request"]) {
   assert.equal(production.includes(forbidden), false, `forbidden production dependency: ${forbidden}`);
 }
 
-process.stdout.write(`gmail-reply-target fixtures: ${cases.length + 3} passed\n`);
+process.stdout.write(`gmail-reply-target fixtures: ${cases.length + 6} passed\n`);
