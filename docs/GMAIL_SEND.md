@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3E status
+## Phase 2B.1 through 2B.3F status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds a database-side transactional reconciliation finalizer foundation, but it is not called by production code. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Replies, automatic request discovery, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -101,6 +101,12 @@ Migration 009 defines a service-role-only reconciliation RPC that can conditiona
 The RPC does not accept provider IDs, labels, sender, recipient, subject, body, status, or lock IDs from its caller. It does not reclaim a stale lock. Successful finalization retains the normal request record, copies canonical provider identifiers, clears only the request's still-matching execution lock, and records a minimal `EMAIL_SEND_RECONCILED` audit event containing only local request and message UUIDs. Concurrent calls serialize on the request row; at most one may return true.
 
 This foundation is deliberately dormant. It is not called by the evaluator, Gmail History sync, send route, scheduler, browser, UI, or worker. There is still no automatic retry, automatic reconciliation, stale-lock recovery, or Gmail call in this path. Migration 009 and its rollback-only SQL fixtures must be reviewed and applied separately before any later production integration is designed.
+
+### Phase 2B.3F one-request orchestration boundary
+
+The server-only orchestrator accepts only an exact request, workspace, and email-account UUID. It validates those identifiers, invokes the existing read-only evaluator, and returns without mutation for `NO_MATCH` or `AMBIGUOUS`. Only `SAFE_MATCH` with a valid evaluator-returned local message UUID may invoke the migration-009 finalizer once. It never accepts provider IDs, addresses, content, lock IDs, Gmail identifiers, or credentials from its caller.
+
+The evaluator remains advisory. `SAFE_MATCH` does not authorize a forced status change: migration 009 locks the request and independently rechecks all canonical account, message, thread, exact-one correlation, provider-conflict, and CAS evidence. A false RPC result is reported as changed evidence and is not retried. The orchestrator has no Gmail call, direct table mutation, automatic request scan, scheduler, cron, route, server action, UI, webhook, or AI caller. It remains dormant until a separate production invocation boundary is reviewed.
 
 After Gmail eventually accepts a send:
 
