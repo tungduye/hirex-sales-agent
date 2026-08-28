@@ -60,6 +60,12 @@ async function bootstrapOperatorInspector() {
       );
       return evaluateAmbiguousSendReconciliation(input);
     },
+    reconcile: async (input) => {
+      const { runManualSendReconciliation: runManualBoundary } = await import(
+        "../src/modules/integrations/gmail/server/run-manual-send-reconciliation.ts"
+      );
+      return runManualBoundary(input);
+    },
   });
 }
 

@@ -6,6 +6,7 @@ import type {
   SendReconciliationCandidateDiscoveryInput,
   SendReconciliationCandidateDiscoveryResult,
 } from "@/modules/integrations/gmail/types/send-reconciliation-candidate";
+import type { ManualSendReconciliationResult } from "@/modules/integrations/gmail/types/manual-send-reconciliation";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_LIMIT = 10;
@@ -29,10 +30,17 @@ const AMBIGUOUS_REASONS = new Set<SendReconciliationReason>([
   "CANONICAL_THREAD_UNAVAILABLE",
   "EVALUATION_UNAVAILABLE",
 ]);
+const MANUAL_UNAVAILABLE_REASONS: ReadonlySet<
+  ManualSendReconciliationResult["reason"]
+> = new Set([
+  "MATCHED_MESSAGE_INVALID",
+  "ORCHESTRATION_UNAVAILABLE",
+] as const);
 
 type InspectorCommand =
   | { mode: "list"; workspaceId: string; emailAccountId?: string; limit: number }
-  | { mode: "inspect"; workspaceId: string; emailAccountId: string; sendRequestId: string };
+  | { mode: "inspect"; workspaceId: string; emailAccountId: string; sendRequestId: string }
+  | { mode: "reconcile"; workspaceId: string; emailAccountId: string; sendRequestId: string };
 
 interface InspectorDependencies {
   list: (
@@ -43,6 +51,11 @@ interface InspectorDependencies {
     workspaceId: string;
     emailAccountId: string;
   }) => Promise<SendReconciliationResult>;
+  reconcile: (input: {
+    sendRequestId: string;
+    workspaceId: string;
+    emailAccountId: string;
+  }) => Promise<ManualSendReconciliationResult>;
 }
 
 export async function runReconciliationInspectorCli(
@@ -61,19 +74,33 @@ export async function runReconciliationInspectorCli(
       });
       return mapDiscoveryOutput(discovery, command);
     }
-    const inspection = await dependencies.inspect({
+    if (command.mode === "inspect") {
+      const inspection = await dependencies.inspect({
+        sendRequestId: command.sendRequestId,
+        workspaceId: command.workspaceId,
+        emailAccountId: command.emailAccountId,
+      });
+      return mapInspectionOutput(inspection, command);
+    }
+    const exactInput = {
       sendRequestId: command.sendRequestId,
       workspaceId: command.workspaceId,
       emailAccountId: command.emailAccountId,
-    });
-    return mapInspectionOutput(inspection, command);
+    };
+    try {
+      const execution = await dependencies.reconcile(exactInput);
+      return mapManualReconciliationOutput(execution, command);
+    } catch {
+      return manualUnavailable(command.sendRequestId);
+    }
   } catch {
     return safeError("UNAVAILABLE", "INSPECTOR_UNAVAILABLE");
   }
 }
 
 function parseArguments(argv: string[]): InspectorCommand | null {
-  if (!Array.isArray(argv) || (argv[0] !== "list" && argv[0] !== "inspect")) {
+  if (!Array.isArray(argv)
+    || !["list", "inspect", "reconcile"].includes(argv[0])) {
     return null;
   }
   const flags = new Map<string, string>();
@@ -84,7 +111,13 @@ function parseArguments(argv: string[]): InspectorCommand | null {
       || typeof value !== "string"
       || value.startsWith("--")
       || flags.has(flag)
-      || !["--workspace", "--account", "--request", "--limit"].includes(flag)) {
+      || ![
+        "--workspace",
+        "--account",
+        "--request",
+        "--limit",
+        "--confirm",
+      ].includes(flag)) {
       return null;
     }
     flags.set(flag, value);
@@ -93,7 +126,7 @@ function parseArguments(argv: string[]): InspectorCommand | null {
   if (!isUuid(workspaceId)) return null;
 
   if (argv[0] === "list") {
-    if (flags.has("--request")) return null;
+    if (flags.has("--request") || flags.has("--confirm")) return null;
     const emailAccountId = flags.get("--account");
     if (emailAccountId !== undefined && !isUuid(emailAccountId)) return null;
     const limitValue = flags.get("--limit");
@@ -111,7 +144,12 @@ function parseArguments(argv: string[]): InspectorCommand | null {
   const emailAccountId = flags.get("--account");
   const sendRequestId = flags.get("--request");
   if (!isUuid(emailAccountId) || !isUuid(sendRequestId)) return null;
-  return { mode: "inspect", workspaceId, emailAccountId, sendRequestId };
+  if (argv[0] === "inspect") {
+    if (flags.has("--confirm")) return null;
+    return { mode: "inspect", workspaceId, emailAccountId, sendRequestId };
+  }
+  if (flags.get("--confirm") !== `RECONCILE:${sendRequestId}`) return null;
+  return { mode: "reconcile", workspaceId, emailAccountId, sendRequestId };
 }
 
 function mapDiscoveryOutput(
@@ -183,6 +221,57 @@ function mapInspectionOutput(
     reason: value.reason,
     sendRequestId: value.sendRequestId,
     matchedEmailMessageId: value.matchedEmailMessageId,
+  };
+}
+
+function mapManualReconciliationOutput(
+  value: ManualSendReconciliationResult,
+  command: Extract<InspectorCommand, { mode: "reconcile" }>,
+) {
+  if (!value
+    || value.sendRequestId !== command.sendRequestId
+    || (value.matchedEmailMessageId !== null
+      && !isUuid(value.matchedEmailMessageId))) {
+    return manualUnavailable(command.sendRequestId);
+  }
+  const resultIsConsistent = (
+    value.status === "FINALIZED"
+    && value.reason === "FINALIZED"
+    && isUuid(value.matchedEmailMessageId)
+  ) || (
+    value.status === "EVIDENCE_CHANGED"
+    && value.reason === "EVIDENCE_CHANGED"
+    && isUuid(value.matchedEmailMessageId)
+  ) || (
+    value.status === "NO_MATCH"
+    && isReasonIn(value.reason, NO_MATCH_REASONS)
+  ) || (
+    value.status === "AMBIGUOUS"
+    && isReasonIn(value.reason, AMBIGUOUS_REASONS)
+  ) || (
+    value.status === "NOT_ELIGIBLE"
+    && value.reason === "REQUEST_NOT_ELIGIBLE"
+    && value.matchedEmailMessageId === null
+  ) || (
+    value.status === "UNAVAILABLE"
+    && typeof value.reason === "string"
+    && MANUAL_UNAVAILABLE_REASONS.has(value.reason)
+  );
+  if (!resultIsConsistent) return manualUnavailable(command.sendRequestId);
+  return {
+    status: value.status,
+    reason: value.reason,
+    sendRequestId: value.sendRequestId,
+    matchedEmailMessageId: value.matchedEmailMessageId,
+  };
+}
+
+function manualUnavailable(sendRequestId: string) {
+  return {
+    status: "UNAVAILABLE",
+    reason: "ORCHESTRATION_UNAVAILABLE",
+    sendRequestId,
+    matchedEmailMessageId: null,
   };
 }
 

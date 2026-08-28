@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3I-A status
+## Phase 2B.1 through 2B.3I-B status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds a dormant server-only boundary for orchestrating exactly one explicitly scoped request. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds a dormant manual boundary for one explicitly identified request. Phase 2B.3I-A adds a local operator read-only inspector. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds the database-side transactional reconciliation finalizer. Phase 2B.3F adds the exact one-request orchestrator. Phase 2B.3G adds bounded, read-only candidate discovery. Phase 2B.3H adds the manual exact-request boundary. Phase 2B.3I-A adds local read-only list/inspect commands, and Phase 2B.3I-B adds an explicit local operator reconcile command. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -126,7 +126,13 @@ Preflight is a guard, not authorization. An eligible result delegates exactly on
 
 The local operator CLI has exactly two commands: `list` invokes bounded candidate discovery, while `inspect` invokes the read-only evaluator for one exact request/workspace/account identity. It emits machine-readable JSON containing only reviewed candidate metadata or evaluator classification metadata. It does not print locks, content, addresses, provider responses, credentials, environment values, or raw errors.
 
-There is no execute/finalize/retry/reconcile/send command. The inspector cannot call Phase 2B.3H, Phase 2B.3F, or migration 009; it has no mutation, Gmail request, automatic loop, route, server action, UI, scheduler, worker, webhook, or AI integration. Phase 2B.3H remains without a production caller.
+Phase 2B.3I-A `list` and `inspect` remain read-only and never execute reconciliation.
+
+### Phase 2B.3I-B explicit operator reconciliation
+
+The local CLI adds exactly one execution command, `reconcile`, for one exact request/workspace/account identity. It requires the deterministic confirmation token `RECONCILE:<request UUID>` to match the validated request ID exactly. There are no execute, finalize, repair, retry, or send aliases and no interactive confirmation fallback.
+
+The command rebuilds an exact three-ID input and delegates once only to Phase 2B.3H. It does not accept or forward matched-message/provider IDs, lock IDs, addresses, content, MIME, tokens, or arbitrary evidence. Phase 2B.3H still performs exact preflight and delegates through Phase 2B.3F, whose evaluator, `SAFE_MATCH` gate, migration-009 revalidation, and final CAS remain authoritative. The CLI does not directly call the orchestrator or RPC, send Gmail, scan/list candidates automatically, batch, loop, reclaim locks, or retry any outcome.
 
 After Gmail eventually accepts a send:
 
