@@ -52,7 +52,7 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 - Add composer, drafts, attachments, signatures, send-as selection, suppression/consent checks, rate limits, approval evidence, and idempotent delivery.
 - Route every send through application service, policy engine, job queue, and Gmail adapter.
 - Phase 2B.1 prepares the server-controlled send-request schema and OAuth scope strategy only; sending remains inactive.
-- Phase 2B.2 explicit Gmail send consent is complete. Phase 2B.3A passed a controlled NEW plain-text send; Gmail replaced the requested Message-ID. Phase 2B.3B persists internal `X-HireX-Send-Request-ID` metadata without FK/uniqueness, and Phase 2B.3C verified preservation once. Phase 2B.3D adds a server-only read-only multi-signal evaluator; even `SAFE_MATCH` does not finalize, unlock, or retry an ambiguous request. Phase 2B.4 adds reply/thread sending derived from trusted mailbox state.
+- Phase 2B.2 explicit Gmail send consent is complete. Phase 2B.3A passed a controlled NEW plain-text send; Gmail replaced the requested Message-ID. Phase 2B.3B persists internal `X-HireX-Send-Request-ID` metadata without FK/uniqueness, and Phase 2B.3C verified preservation once. Phase 2B.3D adds a server-only read-only multi-signal evaluator. Phase 2B.3E adds a dormant, service-role-only transactional finalizer foundation that independently revalidates canonical evidence; evaluator `SAFE_MATCH` alone cannot finalize. It has no scheduler, API, UI, retry, stale-lock reclaim, or production caller. Phase 2B.4 adds reply/thread sending derived from trusted mailbox state.
 
 ## Phase 7 — AI Foundation and Sales Email Drafting
 

@@ -1,8 +1,8 @@
 # Gmail Send and Reply Strategy
 
-## Phase 2B.1 through 2B.3D status
+## Phase 2B.1 through 2B.3E status
 
-Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Replies, reconciliation mutations, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
+Phase 2B.1 schema is complete. Phase 2B.2 send consent is complete and live-tested. Phase 2B.3A one-message send passed its controlled live test. Phase 2B.3B persists Gmail-observed `X-HireX-Send-Request-ID` metadata. Phase 2B.3C records one successful controlled correlation-header preservation test. Phase 2B.3D adds a server-only, read-only ambiguous-send evidence evaluator. Phase 2B.3E adds a database-side transactional reconciliation finalizer foundation, but it is not called by production code. Replies, automatic reconciliation, retries, HTML, attachments, multiple recipients, workers, scheduled follow-ups, campaigns, and AI-triggered delivery remain inactive.
 
 ## Least-privilege scopes
 
@@ -93,6 +93,14 @@ The server-only evaluator classifies an eligible ambiguous `SENDING`/`NEW` reque
 Body comparison only normalizes CRLF/CR to LF and permits one terminal newline difference because MIME parsing can add or remove that final line ending. It does not trim interior whitespace or perform fuzzy matching. A missing canonical body is `AMBIGUOUS`; a definite mismatch is `NO_MATCH`. Duplicate header matches are also `AMBIGUOUS` and the evaluator never selects the newest or first row.
 
 `SAFE_MATCH` is evidence only. The evaluator performs privileged SELECTs but has no insert, update, delete, RPC, Gmail request, status transition, lock release, or retry. A future mutation phase must separately review transaction/concurrency rules, current lock ownership, provider identifiers, audit trail, false-positive protection, and a final database recheck if state changes between evaluation and finalization.
+
+### Phase 2B.3E transactional finalizer foundation
+
+Migration 009 defines a service-role-only reconciliation RPC that can conditionally transition one locked `NEW` request from `SENDING` to `SENT`. An evaluator `SAFE_MATCH` result is never accepted as authoritative input. The RPC accepts only local request/workspace/account/message UUIDs, locks and re-reads the request, and independently revalidates the connected Gmail account, exact-one correlation, canonical `SENT` message, exclusion of `SPAM`/`TRASH`, sender, single recipient, normalized subject, conservative plain-text body equivalence, canonical thread, and provider-ID conflicts inside one transaction.
+
+The RPC does not accept provider IDs, labels, sender, recipient, subject, body, status, or lock IDs from its caller. It does not reclaim a stale lock. Successful finalization retains the normal request record, copies canonical provider identifiers, clears only the request's still-matching execution lock, and records a minimal `EMAIL_SEND_RECONCILED` audit event containing only local request and message UUIDs. Concurrent calls serialize on the request row; at most one may return true.
+
+This foundation is deliberately dormant. It is not called by the evaluator, Gmail History sync, send route, scheduler, browser, UI, or worker. There is still no automatic retry, automatic reconciliation, stale-lock recovery, or Gmail call in this path. Migration 009 and its rollback-only SQL fixtures must be reviewed and applied separately before any later production integration is designed.
 
 After Gmail eventually accepts a send:
 
