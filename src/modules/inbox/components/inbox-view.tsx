@@ -13,9 +13,9 @@ export function InboxView({ accounts, threads, selectedAccountId, selectedThread
     <>
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Readonly mailbox</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Inbox</h1>
-          <p className="mt-1 text-sm text-slate-500">Review messages already synchronized from connected Gmail accounts.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Sales workspace</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Sales Inbox</h1>
+          <p className="mt-1 text-sm text-slate-500">Read conversations, draft with AI, and approve every reply.</p>
         </div>
         <form action="/inbox" method="get" className="flex items-center gap-2">
           <label htmlFor="account" className="text-xs font-semibold text-slate-500">Email account</label>

@@ -34,6 +34,7 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 - Implement channel-neutral conversations, messages, participants/assignments, statuses, attachments, and canonical message contracts.
 - Build Unified Inbox UI using internal/manual messages only; no external connector yet.
 - Add human assignment and takeover-ready conversation states.
+- Phase 3 product flow adds the Gmail Sales Inbox, bounded canonical reply-target resolution, editable AI draft generation, and human-approved idempotent REPLY sending through the reviewed Gmail executor. AI cannot send automatically; uncertain delivery is never retried automatically.
 
 ## Phase 4 — Job and Worker Infrastructure
 

@@ -5,6 +5,7 @@ export interface InboxAccount {
   emailAddress: string;
   displayName: string | null;
   status: EmailAccountStatus;
+  sendEnabled: boolean;
 }
 
 export interface InboxThread {
@@ -56,3 +57,10 @@ export type ThreadDetailResult =
   | { status: "ready"; messages: InboxMessage[] }
   | { status: "not_found"; messages: [] }
   | { status: "error"; messages: [] };
+
+export interface ReplyComposerContext {
+  status: "READY" | "NOT_REPLYABLE" | "REAUTH_REQUIRED" | "SEND_SCOPE_REQUIRED" | "UNAVAILABLE";
+  emailAccountId: string | null;
+  emailMessageId: string | null;
+  message: string;
+}

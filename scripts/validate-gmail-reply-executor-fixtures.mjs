@@ -332,7 +332,7 @@ const productionSources = readdirSync(srcRoot, { recursive: true, encoding: "utf
   .filter((path) => /\.(?:ts|tsx)$/.test(path))
   .map((path) => readFileSync(new URL(path.replaceAll("\\", "/"), srcRoot), "utf8"))
   .join("\n");
-check("executor has no production caller", (productionSources.match(/sendOneReplyMessage/g) ?? []).length, 1);
+check("executor has exactly one reviewed product caller", (productionSources.match(/sendOneReplyMessage/g) ?? []).length, 3);
 check("credential projection has no spread", credentialSource.includes("...credential"), false);
 for (const field of ["accessToken: credential.accessToken", "emailAddress: credential.emailAddress", "emailAccountId: account.id", "workspaceId,"]) {
   check(`credential projection includes ${field}`, credentialSource.includes(field), true);

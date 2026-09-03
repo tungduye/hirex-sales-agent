@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import type { InboxMessage, ThreadDetailResult } from "@/modules/inbox/types/inbox";
 
 interface MessageRow {
@@ -14,8 +15,10 @@ interface MessageRow {
 
 export async function getThreadDetail(threadId: string, selectedAccountId: string | null): Promise<ThreadDetailResult> {
   if (!z.uuid().safeParse(threadId).success) return { status: "not_found", messages: [] };
+  const account = await getAccountContext();
+  if (!account?.workspaceId) return { status: "not_found", messages: [] };
   const supabase = await createClient();
-  let threadQuery = supabase.from("email_threads").select("id").eq("id", threadId);
+  let threadQuery = supabase.from("email_threads").select("id").eq("id", threadId).eq("workspace_id", account.workspaceId);
   if (selectedAccountId) threadQuery = threadQuery.eq("email_account_id", selectedAccountId);
   const { data: thread, error: threadError } = await threadQuery.maybeSingle();
   if (threadError) return { status: "error", messages: [] };
@@ -24,6 +27,7 @@ export async function getThreadDetail(threadId: string, selectedAccountId: strin
   let messageQuery = supabase.from("email_messages")
     .select("id, email_thread_id, direction, from_email, from_name, to_emails, cc_emails, bcc_emails, subject, snippet, body_text, labels, is_unread, is_starred, sent_at, received_at, provider_internal_date, has_attachments, attachment_count, rfc_message_id")
     .eq("email_thread_id", threadId)
+    .eq("workspace_id", account.workspaceId)
     .order("provider_internal_date", { ascending: true, nullsFirst: false });
   if (selectedAccountId) messageQuery = messageQuery.eq("email_account_id", selectedAccountId);
   const { data, error } = await messageQuery;

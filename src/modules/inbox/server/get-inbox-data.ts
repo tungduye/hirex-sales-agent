@@ -1,10 +1,10 @@
 import "server-only";
 
+import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { createClient } from "@/lib/supabase/server";
-import type { InboxAccount, InboxData, InboxThread } from "@/modules/inbox/types/inbox";
-import type { EmailAccountStatus } from "@/modules/integrations/gmail/types/email-account";
+import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-email-accounts";
+import type { InboxData, InboxThread } from "@/modules/inbox/types/inbox";
 
-interface AccountRow { id: string; email_address: string; display_name: string | null; status: EmailAccountStatus }
 interface ThreadRow {
   id: string; email_account_id: string; subject: string | null; snippet: string | null;
   last_message_at: string | null; message_count: number; is_unread: boolean; is_starred: boolean;
@@ -16,21 +16,20 @@ interface SenderRow {
 }
 
 export async function getInboxData(requestedAccountId?: string): Promise<InboxData> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId) return { accounts: [], threads: [], selectedAccountId: null, error: "Inbox could not be loaded." };
   const supabase = await createClient();
-  const { data: accountData, error: accountError } = await supabase.from("email_accounts")
-    .select("id, email_address, display_name, status")
-    .eq("provider", "GMAIL")
-    .eq("status", "CONNECTED")
-    .order("email_address", { ascending: true });
-
-  if (accountError) return { accounts: [], threads: [], selectedAccountId: null, error: "Inbox could not be loaded. Please try again." };
-  const accounts = (accountData as AccountRow[]).map(mapAccount);
+  const accountResult = await listEmailAccounts();
+  if (accountResult.error) return { accounts: [], threads: [], selectedAccountId: null, error: accountResult.error };
+  const accounts = accountResult.accounts.map((item) => ({ id: item.id, emailAddress: item.emailAddress,
+    displayName: item.displayName, status: item.status, sendEnabled: item.sendEnabled }));
   const selectedAccountId = requestedAccountId && accounts.some((account) => account.id === requestedAccountId)
     ? requestedAccountId
     : null;
 
   let threadQuery = supabase.from("email_threads")
     .select("id, email_account_id, subject, snippet, last_message_at, message_count, is_unread, is_starred, labels, contact_id")
+    .eq("workspace_id", account.workspaceId)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(50);
   if (selectedAccountId) threadQuery = threadQuery.eq("email_account_id", selectedAccountId);
@@ -56,10 +55,6 @@ export async function getInboxData(requestedAccountId?: string): Promise<InboxDa
     selectedAccountId,
     error: null,
   };
-}
-
-function mapAccount(row: AccountRow): InboxAccount {
-  return { id: row.id, emailAddress: row.email_address, displayName: row.display_name, status: row.status };
 }
 
 function mapThread(row: ThreadRow, sender: SenderRow | null): InboxThread {

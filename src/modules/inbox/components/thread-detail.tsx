@@ -1,23 +1,26 @@
 import { AlertCircle, MailX, Paperclip } from "lucide-react";
 import type { ReactNode } from "react";
 import type { InboxMessage, ThreadDetailResult } from "@/modules/inbox/types/inbox";
+import type { ReplyComposerContext } from "@/modules/inbox/types/inbox";
+import { SalesReplyComposer } from "@/modules/inbox/components/sales-reply-composer";
 
-export function ThreadDetail({ result }: { result: ThreadDetailResult }) {
+export function ThreadDetail({ result, replyContext, threadId }: { result: ThreadDetailResult; replyContext: ReplyComposerContext; threadId: string }) {
   if (result.status === "not_found") return <DetailState icon={<MailX className="size-7" />} title="Thread not found" message="This conversation is unavailable or outside the selected account." />;
   if (result.status === "error") return <DetailState icon={<AlertCircle className="size-7" />} title="Unable to load conversation" message="The messages could not be loaded. Please try again." tone="error" />;
   if (result.messages.length === 0) return <DetailState icon={<MailX className="size-7" />} title="No messages in this thread" message="No synchronized message content is available." />;
 
   const subject = [...result.messages].reverse().find((message) => message.subject)?.subject ?? "(No subject)";
   return (
-    <div>
+    <div className="flex min-h-[650px] flex-col">
       <header className="border-b bg-white px-5 py-4 md:px-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Conversation</p>
         <h2 className="mt-1 text-lg font-bold text-slate-950">{subject}</h2>
-        <p className="mt-1 text-xs text-slate-500">{result.messages.length} synchronized {result.messages.length === 1 ? "message" : "messages"} · Readonly</p>
+        <p className="mt-1 text-xs text-slate-500">{result.messages.length} synchronized {result.messages.length === 1 ? "message" : "messages"}</p>
       </header>
-      <div className="space-y-4 p-4 md:p-6">
+      <div className="flex-1 space-y-4 p-4 md:p-6">
         {result.messages.map((message) => <MessageCard key={message.id} message={message} />)}
       </div>
+      <SalesReplyComposer context={replyContext} threadId={threadId} />
     </div>
   );
 }
