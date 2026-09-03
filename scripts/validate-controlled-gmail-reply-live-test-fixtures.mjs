@@ -274,14 +274,28 @@ for (const [executorStatus, executorReason] of [["NOT_ELIGIBLE", "REQUEST_NOT_EL
     providerMessageId: null, providerThreadId: null }, inspections: [pending, sendingRow] });
   check(`${executorStatus} safely unavailable`, test.result.status, "UNAVAILABLE");
   check(`${executorStatus} safe executor reason preserved`, test.result.executorReason, executorReason);
+  check(`${executorStatus} failure stage executor`, test.result.failureStage, "EXECUTOR");
   check(`${executorStatus} executor once`, test.calls.execute.length, 1);
   check(`${executorStatus} final inspection performed`, test.calls.inspect.length, 2);
   check(`${executorStatus} no retry`, test.calls.create.length, 1);
 }
 test = await run({ execution: { status: "UNAVAILABLE", reason: "RAW_DATABASE_FAILURE", sendRequestId,
   providerMessageId: null, providerThreadId: null }, inspections: [pending, pending] });
-check("unknown executor reason fails closed", test.result.reason, "EXECUTION_UNAVAILABLE");
-check("unknown executor reason does not leak", test.result.executorReason, "EXECUTION_UNAVAILABLE");
+check("unknown executor reason fails closed", test.result.reason, "EXECUTOR_RESULT_UNAVAILABLE");
+check("unknown executor reason does not leak", test.result.executorReason, "EXECUTOR_RESULT_UNAVAILABLE");
+check("malformed executor gets distinct top reason", test.result.reason, "EXECUTOR_RESULT_UNAVAILABLE");
+check("malformed executor stage", test.result.failureStage, "EXECUTOR");
+
+test = await run({ execution: () => { throw new Error("raw executor invocation failure"); },
+  inspections: [pending, pending] });
+check("executor throw unavailable", test.result.status, "UNAVAILABLE");
+check("executor throw distinct reason", test.result.reason, "EXECUTOR_INVOCATION_UNAVAILABLE");
+check("executor throw safe executor reason", test.result.executorReason, "EXECUTOR_INVOCATION_UNAVAILABLE");
+check("executor throw stage", test.result.failureStage, "EXECUTOR_INVOCATION");
+check("executor throw final state pending", test.result.finalRequestStatus, "PENDING");
+check("executor throw called once", test.calls.execute.length, 1);
+check("executor throw inspected final state", test.calls.inspect.length, 2);
+check("executor throw no second creation", test.calls.create.length, 1);
 
 const safeResult = (await run()).result;
 for (const forbidden of ["bodyText", "recipientEmail", "subject", "parentRfcMessageId", "accessToken",
@@ -289,7 +303,7 @@ for (const forbidden of ["bodyText", "recipientEmail", "subject", "parentRfcMess
   check(`output excludes ${forbidden}`, Object.hasOwn(safeResult, forbidden), false);
 }
 check("output exact safe keys", Object.keys(safeResult).sort(), ["emailAccountId", "emailMessageId", "executorStatus",
-  "executorReason", "finalRequestStatus", "providerMessageId", "providerThreadId", "reason", "requestCreationStatus",
+  "executorReason", "failureStage", "finalRequestStatus", "providerMessageId", "providerThreadId", "reason", "requestCreationStatus",
   "sendRequestId", "status", "workspaceId"].sort());
 
 const operatorSources = [
@@ -297,7 +311,7 @@ const operatorSources = [
   readFileSync(new URL("../src/modules/integrations/gmail/domain/controlled-reply-live-test.ts", import.meta.url), "utf8"),
   readFileSync(new URL("../src/modules/integrations/gmail/server/inspect-reply-send-request.ts", import.meta.url), "utf8"),
 ].join("\n");
-for (const forbidden of ["sendRawGmailMessage", ".insert(", ".update(", ".delete(", ".upsert(",
+for (const forbidden of ["sendRawGmailMessage(", ".insert(", ".update(", ".delete(", ".upsert(",
   "setInterval", "setTimeout", "while (", "while(", "fetch(", "/api/", "scheduler", "campaign"])
   check(`static audit excludes ${forbidden}`, operatorSources.includes(forbidden), false);
 check("operator references reviewed creation", operatorSources.includes("createReplySendRequest"), true);

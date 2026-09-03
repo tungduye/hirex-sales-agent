@@ -4,12 +4,15 @@ const SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const SEND_TIMEOUT_MS = 20_000;
 
 export class GmailSendDefinitiveError extends Error {
-  constructor(readonly safeCode:
+  readonly safeCode:
     | "REAUTH_REQUIRED"
     | "GMAIL_PERMISSION_DENIED"
     | "GMAIL_RATE_LIMITED"
-    | "GMAIL_SEND_REJECTED") {
+    | "GMAIL_SEND_REJECTED";
+
+  constructor(safeCode: GmailSendDefinitiveError["safeCode"]) {
     super("Gmail rejected the send request.");
+    this.safeCode = safeCode;
   }
 }
 

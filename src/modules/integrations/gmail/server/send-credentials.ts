@@ -10,8 +10,11 @@ import {
 } from "@/modules/integrations/gmail/server/sync-credentials";
 
 export class GmailSendCredentialError extends Error {
-  constructor(readonly safeCode: "REAUTH_REQUIRED" | "SEND_SCOPE_REQUIRED" | "GMAIL_TEMPORARY_ERROR") {
+  readonly safeCode: "REAUTH_REQUIRED" | "SEND_SCOPE_REQUIRED" | "GMAIL_TEMPORARY_ERROR";
+
+  constructor(safeCode: GmailSendCredentialError["safeCode"]) {
     super("Gmail send credential is unavailable.");
+    this.safeCode = safeCode;
   }
 }
 

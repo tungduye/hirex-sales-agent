@@ -8,17 +8,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
 const SAFE_UNAVAILABLE_OUTPUT = Object.freeze({
-  status: "UNAVAILABLE", reason: "LIVE_TEST_UNAVAILABLE", sendRequestId: null,
+  status: "UNAVAILABLE", reason: "LIVE_TEST_BOOTSTRAP_UNAVAILABLE", sendRequestId: null,
   workspaceId: null, emailAccountId: null, emailMessageId: null, requestCreationStatus: null,
-  executorStatus: null, executorReason: null, finalRequestStatus: null,
+  executorStatus: null, executorReason: null, failureStage: "BOOTSTRAP", finalRequestStatus: null,
   providerMessageId: null, providerThreadId: null,
 });
+let moduleHooksConfigured = false;
 
 export async function runSafeControlledReplyLiveTestBootstrap(bootstrap) {
   try { return await bootstrap(); } catch { return SAFE_UNAVAILABLE_OUTPUT; }
 }
 
-async function bootstrapControlledReplyLiveTest() {
+function configureModuleResolution() {
+  if (moduleHooksConfigured) return;
   registerHooks({
     resolve(specifier, context, nextResolve) {
       if (specifier === "server-only") return { url: "data:text/javascript,export {};", shortCircuit: true };
@@ -31,30 +33,54 @@ async function bootstrapControlledReplyLiveTest() {
       return nextResolve(specifier, context);
     },
   });
+  moduleHooksConfigured = true;
+}
+
+export async function loadControlledReplyLiveTestProductionDependencies() {
+  configureModuleResolution();
+  const [domain, preflightDomain, evaluatorModule, creationModule, inspectionModule, executorModule,
+    claimModule, plannerModule, credentialModule, , finalizerModule] = await Promise.all([
+    import("../src/modules/integrations/gmail/domain/controlled-reply-live-test.ts"),
+    import("../src/modules/integrations/gmail/domain/controlled-reply-preflight.ts"),
+    import("../src/modules/integrations/gmail/server/evaluate-reply-target.ts"),
+    import("../src/modules/integrations/gmail/server/create-reply-send-request.ts"),
+    import("../src/modules/integrations/gmail/server/inspect-reply-send-request.ts"),
+    import("../src/modules/integrations/gmail/server/send-one-reply-message.ts"),
+    import("../src/modules/integrations/gmail/server/claim-reply-send-request.ts"),
+    import("../src/modules/integrations/gmail/server/prepare-claimed-reply-execution.ts"),
+    import("../src/modules/integrations/gmail/server/send-credentials.ts"),
+    import("../src/modules/integrations/gmail/server/gmail-send-api.ts"),
+    import("../src/modules/integrations/gmail/server/finalize-reply-send-request.ts"),
+  ]);
+  const required = [domain.runControlledReplyLiveTestCli, preflightDomain.mapEvaluation,
+    evaluatorModule.evaluateReplyTarget, creationModule.createReplySendRequest,
+    inspectionModule.inspectReplySendRequest, executorModule.sendOneReplyMessage,
+    claimModule.claimReplySendRequest, plannerModule.prepareClaimedReplyExecution,
+    credentialModule.loadGmailSendCredentials,
+    finalizerModule.finalizeReplySendRequestSent, finalizerModule.finalizeReplySendRequestFailed];
+  if (!required.every((value) => typeof value === "function")) throw new Error("OPERATOR_MODULE_UNAVAILABLE");
+  return {
+    runControlledReplyLiveTestCli: domain.runControlledReplyLiveTestCli,
+    mapEvaluation: preflightDomain.mapEvaluation,
+    evaluateReplyTarget: evaluatorModule.evaluateReplyTarget,
+    createReplySendRequest: creationModule.createReplySendRequest,
+    inspectReplySendRequest: inspectionModule.inspectReplySendRequest,
+    sendOneReplyMessage: executorModule.sendOneReplyMessage,
+  };
+}
+
+async function bootstrapControlledReplyLiveTest() {
   const require = createRequire(import.meta.url);
   const { loadEnvConfig } = require("@next/env");
   loadEnvConfig(projectRoot);
-  const [{ runControlledReplyLiveTestCli }, { mapEvaluation }] = await Promise.all([
-    import("../src/modules/integrations/gmail/domain/controlled-reply-live-test.ts"),
-    import("../src/modules/integrations/gmail/domain/controlled-reply-preflight.ts"),
-  ]);
+  const { runControlledReplyLiveTestCli, mapEvaluation, evaluateReplyTarget,
+    createReplySendRequest, inspectReplySendRequest, sendOneReplyMessage }
+    = await loadControlledReplyLiveTestProductionDependencies();
   return runControlledReplyLiveTestCli(process.argv.slice(2), process.env, {
-    preflight: async (input) => {
-      const { evaluateReplyTarget } = await import("../src/modules/integrations/gmail/server/evaluate-reply-target.ts");
-      return mapEvaluation(input, await evaluateReplyTarget(input));
-    },
-    createRequest: async (input) => {
-      const { createReplySendRequest } = await import("../src/modules/integrations/gmail/server/create-reply-send-request.ts");
-      return createReplySendRequest(input);
-    },
-    inspectRequest: async (input) => {
-      const { inspectReplySendRequest } = await import("../src/modules/integrations/gmail/server/inspect-reply-send-request.ts");
-      return inspectReplySendRequest(input);
-    },
-    executeRequest: async (input) => {
-      const { sendOneReplyMessage } = await import("../src/modules/integrations/gmail/server/send-one-reply-message.ts");
-      return sendOneReplyMessage(input);
-    },
+    preflight: async (input) => mapEvaluation(input, await evaluateReplyTarget(input)),
+    createRequest: createReplySendRequest,
+    inspectRequest: inspectReplySendRequest,
+    executeRequest: sendOneReplyMessage,
   });
 }
 

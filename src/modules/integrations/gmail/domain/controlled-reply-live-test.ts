@@ -59,6 +59,8 @@ export interface ControlledReplyLiveTestResult {
   executorStatus: "SENT" | "FAILED" | "DELIVERY_STATUS_UNKNOWN" | "NOT_ELIGIBLE"
     | "INVALID_INPUT" | "UNAVAILABLE" | null;
   executorReason: string | null;
+  failureStage: "BOOTSTRAP" | "PREFLIGHT" | "CREATION" | "PRE_EXECUTION_INSPECTION"
+    | "EXECUTOR_INVOCATION" | "EXECUTOR" | "FINAL_INSPECTION" | null;
   finalRequestStatus: "PENDING" | "SENDING" | "SENT" | "FAILED" | "CANCELLED" | null;
   providerMessageId: string | null;
   providerThreadId: string | null;
@@ -78,15 +80,18 @@ export async function runControlledReplyLiveTestCli(
 
   let preflight: unknown;
   try { preflight = await dependencies.preflight(scope); } catch {
-    return output(input, "UNAVAILABLE", "PREFLIGHT_UNAVAILABLE");
+    return output(input, "UNAVAILABLE", "PREFLIGHT_UNAVAILABLE", null, null, null, null, null, null, null, "PREFLIGHT");
   }
   const canonical = classifyPreflight(preflight, input);
-  if (canonical.kind === "NOT_REPLYABLE") return output(input, "NOT_REPLYABLE", canonical.reason);
-  if (canonical.kind !== "READY") return output(input, "UNAVAILABLE", "PREFLIGHT_UNAVAILABLE");
+  if (canonical.kind === "NOT_REPLYABLE") return output(input, "NOT_REPLYABLE", canonical.reason,
+    null, null, null, null, null, null, null, "PREFLIGHT");
+  if (canonical.kind !== "READY") return output(input, "UNAVAILABLE", "PREFLIGHT_UNAVAILABLE",
+    null, null, null, null, null, null, null, "PREFLIGHT");
   if (canonical.recipientEmail !== input.expectedRecipient || canonical.subject !== input.expectedSubject
     || canonical.providerThreadId !== input.expectedProviderThreadId
     || canonical.parentRfcMessageId !== input.expectedParentRfcMessageId) {
-    return output(input, "REFUSED", "LIVE_TARGET_CONFIRMATION_MISMATCH");
+    return output(input, "REFUSED", "LIVE_TARGET_CONFIRMATION_MISMATCH",
+      null, null, null, null, null, null, null, "PREFLIGHT");
   }
 
   let created: unknown;
@@ -98,10 +103,12 @@ export async function runControlledReplyLiveTestCli(
       bodyText: input.bodyText,
       idempotencyKey: input.idempotencyKey,
     });
-  } catch { return output(input, "UNAVAILABLE", "REPLY_REQUEST_UNAVAILABLE"); }
+  } catch { return output(input, "UNAVAILABLE", "REPLY_REQUEST_UNAVAILABLE",
+    null, null, null, null, null, null, null, "CREATION"); }
   const creation = classifyCreation(created, input);
   if (creation.kind !== "READY") {
-    return output(input, creation.status, creation.reason, creation.sendRequestId);
+    return output(input, creation.status, creation.reason, creation.sendRequestId,
+      null, null, null, null, null, null, "CREATION");
   }
 
   const inspectionInput = {
@@ -111,18 +118,25 @@ export async function runControlledReplyLiveTestCli(
   };
   let pendingRow: unknown;
   try { pendingRow = await dependencies.inspectRequest(inspectionInput); } catch {
-    return output(input, "UNAVAILABLE", "PENDING_REQUEST_INSPECTION_FAILED", creation.sendRequestId, creation.status);
+    return output(input, "UNAVAILABLE", "PENDING_REQUEST_INSPECTION_FAILED", creation.sendRequestId, creation.status,
+      null, null, null, null, null, "PRE_EXECUTION_INSPECTION");
   }
   if (!isPendingRequest(pendingRow, input, canonical, creation.sendRequestId)) {
-    return output(input, "UNAVAILABLE", "PENDING_REQUEST_INSPECTION_FAILED", creation.sendRequestId, creation.status);
+    return output(input, "UNAVAILABLE", "PENDING_REQUEST_INSPECTION_FAILED", creation.sendRequestId, creation.status,
+      null, null, null, null, null, "PRE_EXECUTION_INSPECTION");
   }
 
   let executor: unknown;
+  let executorInvocationFailed = false;
   try { executor = await dependencies.executeRequest(inspectionInput); } catch {
-    executor = { status: "UNAVAILABLE", reason: "EXECUTION_UNAVAILABLE", sendRequestId: creation.sendRequestId,
+    executorInvocationFailed = true;
+    executor = { status: "UNAVAILABLE", reason: "EXECUTOR_INVOCATION_UNAVAILABLE", sendRequestId: creation.sendRequestId,
       providerMessageId: null, providerThreadId: null };
   }
-  const execution = classifyExecutor(executor, creation.sendRequestId);
+  const execution = executorInvocationFailed
+    ? { kind: "STOP" as const, status: "UNAVAILABLE" as const, reason: "EXECUTOR_INVOCATION_UNAVAILABLE",
+      providerMessageId: null, providerThreadId: null }
+    : classifyExecutor(executor, creation.sendRequestId);
 
   let finalRow: unknown;
   try { finalRow = await dependencies.inspectRequest(inspectionInput); } catch {
@@ -130,10 +144,10 @@ export async function runControlledReplyLiveTestCli(
       return output(input, "DELIVERY_STATUS_UNKNOWN",
         execution.kind === "SENT" ? "FINAL_STATE_VERIFICATION_FAILED" : execution.reason,
         creation.sendRequestId, creation.status, execution.status, null,
-        execution.providerMessageId, execution.providerThreadId, execution.reason);
+        execution.providerMessageId, execution.providerThreadId, execution.reason, "FINAL_INSPECTION");
     }
     return output(input, "UNAVAILABLE", "FINAL_STATE_VERIFICATION_FAILED", creation.sendRequestId,
-      creation.status, execution.status, null, null, null, execution.reason);
+      creation.status, execution.status, null, null, null, execution.reason, "FINAL_INSPECTION");
   }
   const finalStatus = safeFinalStatus(finalRow);
 
@@ -142,22 +156,24 @@ export async function runControlledReplyLiveTestCli(
       ? output(input, "VERIFIED_SENT", "VERIFIED_SENT", creation.sendRequestId, creation.status, "SENT", "SENT",
         execution.providerMessageId, execution.providerThreadId, execution.reason)
       : output(input, "DELIVERY_STATUS_UNKNOWN", "FINAL_STATE_VERIFICATION_FAILED", creation.sendRequestId,
-        creation.status, "SENT", finalStatus, execution.providerMessageId, execution.providerThreadId, execution.reason);
+        creation.status, "SENT", finalStatus, execution.providerMessageId, execution.providerThreadId,
+        execution.reason, "FINAL_INSPECTION");
   }
   if (execution.kind === "FAILED") {
     return isVerifiedFailed(finalRow, input, canonical, creation.sendRequestId, execution.reason)
       ? output(input, "VERIFIED_FAILED", execution.reason, creation.sendRequestId, creation.status, "FAILED", "FAILED",
         null, null, execution.reason)
       : output(input, "UNAVAILABLE", "FINAL_STATE_VERIFICATION_FAILED", creation.sendRequestId,
-        creation.status, "FAILED", finalStatus, null, null, execution.reason);
+        creation.status, "FAILED", finalStatus, null, null, execution.reason, "FINAL_INSPECTION");
   }
   if (execution.kind === "UNKNOWN") {
     return output(input, "DELIVERY_STATUS_UNKNOWN", execution.reason || "FINAL_STATE_UNRESOLVED",
       creation.sendRequestId, creation.status, execution.status, finalStatus,
-      execution.providerMessageId, execution.providerThreadId, execution.reason);
+      execution.providerMessageId, execution.providerThreadId, execution.reason, "EXECUTOR");
   }
   return output(input, "UNAVAILABLE", execution.reason, creation.sendRequestId, creation.status,
-    execution.status, finalStatus, null, null, execution.reason);
+    execution.status, finalStatus, null, null, execution.reason,
+    execution.reason === "EXECUTOR_INVOCATION_UNAVAILABLE" ? "EXECUTOR_INVOCATION" : "EXECUTOR");
 }
 
 type Canonical = { kind: "READY"; recipientEmail: string; subject: string; providerThreadId: string; parentRfcMessageId: string }
@@ -214,7 +230,7 @@ type Execution = { kind: "SENT"; status: "SENT"; reason: "SENT"; providerMessage
 function classifyExecutor(value: unknown, sendRequestId: string): Execution {
   if (!isRecord(value) || !exactKeys(value, ["status", "reason", "sendRequestId", "providerMessageId", "providerThreadId"])
     || value.sendRequestId !== sendRequestId || typeof value.reason !== "string") {
-    return { kind: "STOP", status: "UNAVAILABLE", reason: "EXECUTION_UNAVAILABLE",
+    return { kind: "STOP", status: "UNAVAILABLE", reason: "EXECUTOR_RESULT_UNAVAILABLE",
       providerMessageId: null, providerThreadId: null };
   }
   if (value.status === "SENT" && value.reason === "SENT" && isProviderId(value.providerMessageId)
@@ -234,7 +250,7 @@ function classifyExecutor(value: unknown, sendRequestId: string): Execution {
     && value.providerMessageId === null && value.providerThreadId === null) {
     return { kind: "STOP", status: value.status, reason: value.reason, providerMessageId: null, providerThreadId: null };
   }
-  return { kind: "STOP", status: "UNAVAILABLE", reason: "EXECUTION_UNAVAILABLE",
+  return { kind: "STOP", status: "UNAVAILABLE", reason: "EXECUTOR_RESULT_UNAVAILABLE",
     providerMessageId: null, providerThreadId: null };
 }
 
@@ -311,7 +327,7 @@ function parseArguments(argv: unknown): ControlledReplyLiveTestInput | null {
 
 function empty(status: "REFUSED" | "INVALID_INPUT", reason: string): ControlledReplyLiveTestResult {
   return { status, reason, sendRequestId: null, workspaceId: null, emailAccountId: null, emailMessageId: null,
-    requestCreationStatus: null, executorStatus: null, executorReason: null, finalRequestStatus: null,
+    requestCreationStatus: null, executorStatus: null, executorReason: null, failureStage: null, finalRequestStatus: null,
     providerMessageId: null, providerThreadId: null };
 }
 function output(input: ControlledReplyLiveTestInput, status: ControlledReplyLiveTestResult["status"], reason: string,
@@ -319,9 +335,10 @@ function output(input: ControlledReplyLiveTestInput, status: ControlledReplyLive
   executorStatus: ControlledReplyLiveTestResult["executorStatus"] = null,
   finalRequestStatus: ControlledReplyLiveTestResult["finalRequestStatus"] = null,
   providerMessageId: string | null = null, providerThreadId: string | null = null,
-  executorReason: string | null = null): ControlledReplyLiveTestResult {
+  executorReason: string | null = null,
+  failureStage: ControlledReplyLiveTestResult["failureStage"] = null): ControlledReplyLiveTestResult {
   return { status, reason, sendRequestId, ...scoped(input), requestCreationStatus, executorStatus,
-    executorReason, finalRequestStatus, providerMessageId, providerThreadId };
+    executorReason, failureStage, finalRequestStatus, providerMessageId, providerThreadId };
 }
 function scoped(input: ControlledReplyLiveTestInput) {
   return { workspaceId: input.workspaceId, emailAccountId: input.emailAccountId, emailMessageId: input.emailMessageId };
