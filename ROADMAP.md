@@ -123,3 +123,6 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 - Preserve immediate human takeover and complete auditability.
 
 Exit: only after explicit governance approval and demonstrated safety/reliability targets; otherwise remain in `MANUAL` or `AI_ASSIST`.
+# Phase 4AB implementation note (review snapshot)
+
+Migration 014 and the Campaigns product surface now prepare campaign, sender, recipient, suppression, events, atomic quota reservation, CSV/XLSX import, signed unsubscribe, lifecycle actions, scheduling activation and bounded worker execution. Migration 014 has not been applied, the worker has not been invoked, and no campaign has been sent. Phase 4C retains tracking, bounce/reply detection, stop-on-reply, HTML/attachments, unsubscribe transport headers and analytics expansion.

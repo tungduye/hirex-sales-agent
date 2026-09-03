@@ -228,3 +228,6 @@ After Gmail eventually accepts a send:
 4. `email_send_requests` remains the durable send-attempt, audit, and idempotency record.
 
 Phase 2B.3A does not create an optimistic `email_messages` row. Gmail History synchronization remains the canonical path for the Sent mailbox copy.
+# Campaign transport boundary
+
+Email campaigns must orchestrate the reviewed single-message NEW send engine; they do not have a separate Gmail transport. Stable recipient idempotency is never regenerated after an attempt. `SENDING` and delivery-unknown requests are not automatically retried. Migration 014 and the campaign UI are currently review-only and no live campaign send has occurred.

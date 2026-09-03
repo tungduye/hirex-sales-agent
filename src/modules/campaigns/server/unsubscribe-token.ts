@@ -1,0 +1,11 @@
+import "server-only";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { normalizeCampaignEmail } from "@/modules/campaigns/domain/campaign-rules";
+
+interface Payload { workspaceId:string;email:string;expiresAt:number }
+function key(){const value=process.env.EMAIL_UNSUBSCRIBE_SIGNING_KEY?.trim();if(!value||value.length<32)throw new Error("UNSUBSCRIBE_NOT_CONFIGURED");return value;}
+function baseUrl(){const configured=process.env.APP_BASE_URL?.trim();if(!configured)throw new Error("APP_BASE_URL_MISSING");const base=new URL(configured);if(base.protocol!=="https:"&&!(base.protocol==="http:"&&(base.hostname==="127.0.0.1"||base.hostname==="localhost")))throw new Error("APP_BASE_URL_INVALID");return base;}
+export function validateCampaignWorkerConfig(){try{key();baseUrl();return true;}catch{return false;}}
+export function createUnsubscribeToken(payload:Payload){const email=normalizeCampaignEmail(payload.email);if(!email)throw new Error("INVALID_EMAIL");const body=Buffer.from(JSON.stringify({...payload,email}),"utf8").toString("base64url");const signature=createHmac("sha256",key()).update(body).digest("base64url");return `${body}.${signature}`;}
+export function verifyUnsubscribeToken(token:string):Payload|null{try{if(token.length>2048)return null;const [body,supplied,...rest]=token.split(".");if(!body||!supplied||rest.length)return null;const expected=createHmac("sha256",key()).update(body).digest();const actual=Buffer.from(supplied,"base64url");if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return null;const value=JSON.parse(Buffer.from(body,"base64url").toString("utf8")) as Partial<Payload>;const email=normalizeCampaignEmail(value.email);if(typeof value.workspaceId!=="string"||!/^[0-9a-f-]{36}$/i.test(value.workspaceId)||!email||typeof value.expiresAt!=="number"||value.expiresAt<Date.now())return null;return{workspaceId:value.workspaceId,email,expiresAt:value.expiresAt};}catch{return null;}}
+export function createUnsubscribeUrl(workspaceId:string,email:string){const base=baseUrl();base.pathname="/unsubscribe";base.searchParams.set("token",createUnsubscribeToken({workspaceId,email,expiresAt:Date.now()+365*24*60*60*1000}));return base.toString();}
