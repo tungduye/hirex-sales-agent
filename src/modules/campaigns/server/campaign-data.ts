@@ -28,7 +28,7 @@ export async function getCampaign(id: string) {
   if (!account?.workspaceId || !account.configurationComplete) return null;
   const db = createPrivilegedSupabaseClient();
   const { data } = await db.from("email_campaigns")
-    .select("id,name,status,subject_template,body_text_template,scheduled_at,started_at,paused_at,completed_at,cancelled_at,email_campaign_recipients(id,email,display_name,status),email_campaign_senders(id,email_account_id,daily_cap,per_minute_cap,enabled)")
+    .select("id,name,status,subject_template,body_text_template,scheduled_at,started_at,paused_at,completed_at,cancelled_at,email_campaign_recipients(id,email,display_name,company,position,personalization_json,status,sender_email_account_id,sent_at,failed_at,safe_error_code),email_campaign_senders(id,email_account_id,daily_cap,per_minute_cap,enabled)")
     .eq("id",id).eq("workspace_id",account.workspaceId).maybeSingle();
   return data;
 }
