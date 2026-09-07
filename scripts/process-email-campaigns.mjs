@@ -8,7 +8,7 @@ if(process.env.HIREX_ENABLE_CAMPAIGN_WORKER_OPERATOR!=="1") {process.stdout.writ
 else try{
   const require=createRequire(import.meta.url);require("@next/env").loadEnvConfig(root);
   registerHooks({resolve(specifier,context,nextResolve){if(specifier==="server-only")return{url:"data:text/javascript,export {};",shortCircuit:true};if(specifier.startsWith("@/")){const base=path.join(root,"src",specifier.slice(2));const found=[base,`${base}.ts`,`${base}.tsx`].find(existsSync);if(!found)throw new Error("MODULE_UNAVAILABLE");return{url:pathToFileURL(found).href,shortCircuit:true};}return nextResolve(specifier,context);}});
-  const worker=await import("../src/modules/campaigns/server/process-email-campaign-batch.ts");
-  const campaignsActivated=await worker.activateDueEmailCampaigns();const batch=await worker.processEmailCampaignBatch(10);
-  process.stdout.write(`${JSON.stringify({campaignsActivated,...batch})}\n`);
+  const worker=await import("../src/modules/campaigns/server/process-email-campaign-batch.ts");const sequenceWorker=await import("../src/modules/campaigns/server/process-email-campaign-sequence-batch.ts");const signalsWorker=await import("../src/modules/campaigns/server/process-campaign-signals.ts");
+  const campaignsActivated=await worker.activateDueEmailCampaigns();const signals=await signalsWorker.processPersistedCampaignReplies(50);const legacy=await worker.processEmailCampaignBatch(10);const sequence=await sequenceWorker.processEmailCampaignSequenceBatch(10);
+  process.stdout.write(`${JSON.stringify({campaignsActivated,legacy,sequence,repliedStopped:signals.repliedStopped})}\n`);
 }catch{process.stdout.write('{"success":false,"code":"WORKER_UNAVAILABLE"}\n');process.exitCode=1;}

@@ -22,7 +22,7 @@ export async function processEmailCampaignBatch(limit = 10): Promise<CampaignWor
   const result:CampaignWorkerResult={success:true,code:"OK",campaignsConsidered:0,recipientsProcessed:0,sent:0,failed:0,deliveryUnknown:0};
   if(!validateCampaignWorkerConfig())return {...result,success:false,code:"CONFIG_UNAVAILABLE"};
   const db=createPrivilegedSupabaseClient();
-  const {data:campaigns,error:campaignError}=await db.from("email_campaigns").select("id,workspace_id").eq("status","RUNNING").order("started_at").limit(25);if(campaignError)return {...result,success:false,code:"DATABASE_UNAVAILABLE"};
+  const {data:campaigns,error:campaignError}=await db.from("email_campaigns").select("id,workspace_id").eq("status","RUNNING").eq("sequence_enabled",false).order("started_at").limit(25);if(campaignError)return {...result,success:false,code:"DATABASE_UNAVAILABLE"};
   result.campaignsConsidered=campaigns?.length??0;
   let consecutiveEmpty=0;
   for(let index=0;index<ceiling;index+=1){

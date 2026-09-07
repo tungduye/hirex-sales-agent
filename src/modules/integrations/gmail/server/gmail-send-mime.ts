@@ -9,11 +9,22 @@ interface BuildMimeInput {
   sendRequestId: string;
 }
 
+interface ThreadedBuildMimeInput extends BuildMimeInput { inReplyTo: string; references: string }
+
 const HEADER_LINE_BREAK = /[\r\n]/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENCODED_WORD_MAX_BYTES = 42;
 
 export function buildPlainTextGmailMessage(input: BuildMimeInput) {
+  return buildMessage(input, []);
+}
+
+export function buildPlainTextGmailThreadedMessage(input: ThreadedBuildMimeInput) {
+  for(const value of [input.inReplyTo,input.references])if(!/^<[^<>\s@]+@[^<>\s@]+>$/.test(value)||HEADER_LINE_BREAK.test(value))throw new Error("MIME_THREAD_HEADER_INVALID");
+  return buildMessage(input,[`In-Reply-To: ${input.inReplyTo}`,`References: ${input.references}`]);
+}
+
+function buildMessage(input:BuildMimeInput,threadHeaders:string[]) {
   for (const headerValue of [input.from, input.to, input.subject, input.rfcMessageId, input.sendRequestId]) {
     if (!headerValue || HEADER_LINE_BREAK.test(headerValue)) {
       throw new Error("MIME_HEADER_INVALID");
@@ -29,6 +40,7 @@ export function buildPlainTextGmailMessage(input: BuildMimeInput) {
     `Subject: ${encodedSubject}`,
     `Message-ID: ${input.rfcMessageId}`,
     `X-HireX-Send-Request-ID: ${input.sendRequestId.toLowerCase()}`,
+    ...threadHeaders,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: base64",

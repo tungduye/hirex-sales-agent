@@ -28,6 +28,9 @@ export async function upsertMailboxMessage(scope: Scope, message: ParsedGmailMes
     labels: message.labels, is_unread: message.isUnread, is_starred: message.isStarred,
     sent_at: message.sentAt, received_at: message.receivedAt, provider_internal_date: message.providerInternalDate,
     has_attachments: message.hasAttachments, attachment_count: message.attachmentCount,
+    auto_submitted:message.autoSubmitted,dsn_report_type:message.reportType,failed_recipients:message.failedRecipients,
+    dsn_final_recipient:message.dsnFinalRecipient,dsn_original_recipient:message.dsnOriginalRecipient,dsn_action:message.dsnAction,
+    dsn_status:message.dsnStatus,dsn_diagnostic_code:message.dsnDiagnosticCode,is_mailer_daemon:message.isMailerDaemon,
   }, { onConflict: "workspace_id,email_account_id,provider,provider_message_id" });
   if (messageError) throw new Error("MESSAGE_UPSERT_FAILED");
   return thread.id as string;

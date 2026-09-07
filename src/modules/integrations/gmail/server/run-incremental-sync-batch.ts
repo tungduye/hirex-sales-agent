@@ -7,6 +7,7 @@ import { deleteMailboxMessage, recomputeThreadAggregates, upsertMailboxMessage }
 import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 import { loadSyncCredentials, markReauthenticationRequired, ReauthenticationRequiredError, TransientCredentialError } from "@/modules/integrations/gmail/server/sync-credentials";
 import type { GmailHistoryPage, GmailHistoryRecord, IncrementalSyncSafeErrorCode, IncrementalSyncStatus } from "@/modules/integrations/gmail/types/incremental-sync";
+import { processPersistedCampaignBounces,processPersistedCampaignReplies } from "@/modules/campaigns/server/process-campaign-signals";
 
 const HISTORY_PAGE_SIZE = 100;
 const MESSAGE_CONCURRENCY = 5;
@@ -139,6 +140,7 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<IncrementalBat
         await releaseLock(scope, state.id, lockId);
         return failure("Sync progress could not be saved. Retrying this page is safe.");
       }
+      await refreshCampaignSignalsSafely();
       return success(false, pageCounters, "One history page was synced. More changes remain.");
     }
 
@@ -166,6 +168,7 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<IncrementalBat
       await failState(scope, state.id, lockId, cursorChanged ? "CURSOR_CHANGED" : "MAILBOX_PERSISTENCE_ERROR");
       return failure(cursorChanged ? "The mailbox checkpoint changed. Refresh and try again." : "Sync completion could not be saved. Retrying this page is safe.", cursorChanged ? "CURSOR_CHANGED" : "FAILED");
     }
+    await refreshCampaignSignalsSafely();
     return success(true, pageCounters, "Gmail changes are up to date.");
   } catch (error) {
     const code = classifyError(error);
@@ -174,6 +177,8 @@ async function executeIncrementalSyncBatch(scope: Scope): Promise<IncrementalBat
     return failure(messageForCode(code), batchCodeForError(code));
   }
 }
+
+async function refreshCampaignSignalsSafely(){try{await processPersistedCampaignReplies(50);await processPersistedCampaignBounces(50);}catch{/* Mailbox sync remains authoritative; worker retries DB-local signal refresh. */}}
 
 async function claimState(scope: Scope, accountCursor: string, lockId: string): Promise<ClaimResult> {
   const supabase = createPrivilegedSupabaseClient();

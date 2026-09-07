@@ -44,4 +44,13 @@ export interface ParsedGmailMessage {
   providerInternalDate: string | null;
   hasAttachments: boolean;
   attachmentCount: number;
+  autoSubmitted: string | null;
+  reportType: string | null;
+  failedRecipients: string[];
+  dsnFinalRecipient: string | null;
+  dsnOriginalRecipient: string | null;
+  dsnAction: string | null;
+  dsnStatus: string | null;
+  dsnDiagnosticCode: string | null;
+  isMailerDaemon: boolean;
 }

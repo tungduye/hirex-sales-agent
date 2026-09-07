@@ -17,7 +17,7 @@ import {
   GmailSendDefinitiveError,
   sendRawGmailMessage,
 } from "@/modules/integrations/gmail/server/gmail-send-api";
-import { buildPlainTextGmailMessage } from "@/modules/integrations/gmail/server/gmail-send-mime";
+import { buildPlainTextGmailMessage, buildPlainTextGmailThreadedMessage } from "@/modules/integrations/gmail/server/gmail-send-mime";
 import {
   GmailSendCredentialError,
   loadGmailSendCredentials,
@@ -29,6 +29,7 @@ import type { GmailSendResult, GmailSendSafeCode } from "@/modules/integrations/
 export async function sendOneNewGmailMessage(
   input: SendNewMessageInput,
   workspaceId: string,
+  thread?: { providerThreadId: string; parentRfcMessageId: string },
 ): Promise<GmailSendResult> {
   const account = await loadSendAccount(input.emailAccountId, workspaceId);
   if (!account) return result(false, "GMAIL_SEND_REJECTED", null);
@@ -61,14 +62,15 @@ export async function sendOneNewGmailMessage(
   let raw: string;
   try {
     if (!request.rfc_message_id) throw new Error("RFC_MESSAGE_ID_MISSING");
-    raw = buildPlainTextGmailMessage({
+    const mimeInput={
       from: account.emailAddress,
       to: input.to,
       subject: input.subject,
       bodyText: input.bodyText,
       rfcMessageId: request.rfc_message_id,
       sendRequestId: request.id,
-    });
+    };
+    raw = thread ? buildPlainTextGmailThreadedMessage({...mimeInput,inReplyTo:thread.parentRfcMessageId,references:thread.parentRfcMessageId}) : buildPlainTextGmailMessage(mimeInput);
   } catch {
     return finalizeDefinitiveFailure(
       request.id,
@@ -97,7 +99,8 @@ export async function sendOneNewGmailMessage(
   }
 
   try {
-    const providerResult = await sendRawGmailMessage(accessToken, raw);
+    const providerResult = await sendRawGmailMessage(accessToken, raw, thread?.providerThreadId);
+    if(thread&&providerResult.providerThreadId!==thread.providerThreadId)return result(false,"DELIVERY_STATUS_UNKNOWN",request.id);
     const finalized = await finalizeSendRequestSent({
       requestId: request.id,
       workspaceId,

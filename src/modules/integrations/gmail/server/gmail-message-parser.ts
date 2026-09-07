@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { GmailHeader, GmailMessageResource, GmailPart, ParsedGmailMessage } from "@/modules/integrations/gmail/types/gmail-message";
+import { parseDeliveryStatusText } from "@/modules/campaigns/domain/campaign-signals";
 
 export function parseGmailMessage(message: GmailMessageResource, connectedEmail: string): ParsedGmailMessage | null {
   if (!message.id || !message.threadId) return null;
@@ -10,6 +11,7 @@ export function parseGmailMessage(message: GmailMessageResource, connectedEmail:
   const direction = labels.includes("SENT") || from.email === connectedEmail.trim().toLowerCase() ? "OUTBOUND" : "INBOUND";
   const internalDate = parseInternalDate(message.internalDate);
   const body = collectBody(message.payload);
+  const delivery = collectDeliveryStatus(message.payload);
 
   return {
     providerMessageId: message.id,
@@ -37,8 +39,21 @@ export function parseGmailMessage(message: GmailMessageResource, connectedEmail:
     providerInternalDate: internalDate,
     hasAttachments: body.attachmentCount > 0,
     attachmentCount: body.attachmentCount,
+    autoSubmitted: clean(headers.get("auto-submitted")),
+    reportType: parseReportType(message.payload?.headers ?? []),
+    failedRecipients: parseAddressList(headers.get("x-failed-recipients")),
+    dsnFinalRecipient: delivery.finalRecipient,
+    dsnOriginalRecipient: delivery.originalRecipient,
+    dsnAction: delivery.action,
+    dsnStatus: delivery.status,
+    dsnDiagnosticCode: delivery.diagnosticCode,
+    isMailerDaemon: /mailer-daemon|postmaster/i.test(from.email ?? ""),
   };
 }
+
+function parseReportType(headers:GmailHeader[]){const contentType=headers.find(h=>h.name?.toLowerCase()==="content-type")?.value??"";return clean(contentType.match(/report-type\s*=\s*"?([^;"\s]+)/i)?.[1]);}
+
+function collectDeliveryStatus(root?:GmailPart){let raw:string|null=null;function visit(part?:GmailPart){if(!part||raw)return;if(part.mimeType?.toLowerCase()==="message/delivery-status")raw=decodeBase64Url(part.body?.data);for(const child of part.parts??[])visit(child);}visit(root);return parseDeliveryStatusText(raw);}
 
 function headerMap(headers: GmailHeader[]) {
   const result = new Map<string, string>();
