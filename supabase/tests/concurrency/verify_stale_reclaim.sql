@@ -1,0 +1,2 @@
+select claim_token='97000000-0000-4000-8000-000000000085' and status='SENDING' and send_request_id is null as reclaimed_without_request from public.email_campaign_recipient_steps where id='97000000-0000-4000-8000-000000000061';
+select count(*)=0 as nonnull_request_not_reclaimable from public.claim_email_campaign_sequence_steps('97000000-0000-4000-8000-000000000002','97000000-0000-4000-8000-000000000040','97000000-0000-4000-8000-000000000086',1);

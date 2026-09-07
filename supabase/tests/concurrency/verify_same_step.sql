@@ -1,0 +1,2 @@
+select count(*)=1 as exactly_one_claim from public.email_campaign_recipient_steps where workspace_id='97000000-0000-4000-8000-000000000002' and campaign_id='97000000-0000-4000-8000-000000000010' and status='SENDING';
+select count(distinct claim_token)=1 as one_effective_token from public.email_campaign_recipient_steps where workspace_id='97000000-0000-4000-8000-000000000002' and campaign_id='97000000-0000-4000-8000-000000000010' and status='SENDING';

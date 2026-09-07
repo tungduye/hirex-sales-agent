@@ -1,0 +1,11 @@
+import {chromium} from "@playwright/test";
+import {access} from "node:fs/promises";
+import {loadPhase4cQaEnv} from "./load-phase4c-qa-env.mjs";
+loadPhase4cQaEnv();
+const base=process.env.HIREX_QA_BASE_URL||"http://localhost:3000";const state="playwright/.auth/hirex.json";
+try{await access(state)}catch{console.error("HIREX_AUTH_STATE_REQUIRED");process.exit(2)}
+const browser=await chromium.launch({headless:true});const context=await browser.newContext({storageState:state,acceptDownloads:true});const page=await context.newPage();let errors=0;page.on("pageerror",()=>errors++);page.on("console",message=>{if(message.type()==="error")errors++});let checks=0;
+const check=(value,label)=>{if(!value)throw new Error(label);checks++};
+try{for(const path of ["/campaigns","/campaigns/new","/settings/suppressions"]){const response=await page.goto(base+path,{waitUntil:"networkidle"});check(response?.ok(),`${path} response`);check(!page.url().includes("/login"),`${path} authenticated`);check(await page.locator("h1").count()===1,`${path} heading`)}
+await page.goto(base+"/campaigns",{waitUntil:"networkidle"});for(const text of ["Active","Scheduled","Emails sent","Replies","Reply rate","Hard bounces"])check(await page.getByText(text,{exact:true}).count()>0,`list ${text}`);check(await page.locator('input[name="q"]').count()===1,"campaign search");check(await page.locator('select[name="status"]').count()===1,"campaign status filter");const detailLinks=page.locator('a[href^="/campaigns/"]:not([href="/campaigns/new"])');if(await detailLinks.count()){await detailLinks.first().click();await page.waitForLoadState({state:"networkidle"});for(const text of ["Overview","Audience","Sequence","Senders","Activity","Reports"])check(await page.getByText(text,{exact:true}).count()>0,`detail ${text}`);check(await page.locator('input[name="q"]').count()===1,"audience search");check(await page.locator('select[name="audienceStatus"]').count()===1,"audience filter")}
+check(errors===0,"browser errors");console.log(`HIREX_PHASE4C_READ_E2E_PASS checks=${checks}`)}catch(error){const label=error instanceof Error?error.message:"unknown";console.error(`HIREX_PHASE4C_READ_E2E_FAIL checks=${checks} check=${label}`);process.exitCode=1}finally{await browser.close()}

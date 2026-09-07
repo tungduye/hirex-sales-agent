@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { registerHooks } from "node:module";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadPhase4cQaEnv } from "./load-phase4c-qa-env.mjs";
+import { parseQaRecipientAllowlist } from "./phase4c-qa-recipient-allowlist.mjs";
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");const {missing}=loadPhase4cQaEnv(root);const campaignId=process.argv[2];const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;if(missing.length||process.env.HIREX_ALLOW_REMOTE_SYNTHETIC_TESTS!=="1"||!uuid.test(campaignId??""))process.exit(2);
+registerHooks({resolve(specifier,context,nextResolve){if(specifier==="server-only")return{url:"data:text/javascript,export {};",shortCircuit:true};if(specifier.startsWith("@/")){const base=path.join(root,"src",specifier.slice(2));const found=[base,`${base}.ts`,`${base}.tsx`].find(existsSync);if(!found)throw new Error("MODULE_UNAVAILABLE");return{url:pathToFileURL(found).href,shortCircuit:true};}return nextResolve(specifier,context);}});
+try{const {createPrivilegedSupabaseClient}=await import("../src/modules/integrations/gmail/server/privileged-supabase.ts");const db=createPrivilegedSupabaseClient();const {data:campaign}=await db.from("email_campaigns").select("id,name,email_campaign_recipients(email)").eq("id",campaignId).maybeSingle();const allow=new Set(parseQaRecipientAllowlist(process.env.HIREX_QA_RECIPIENT_ALLOWLIST));if(!campaign||!campaign.name.startsWith(process.env.HIREX_QA_CAMPAIGN_PREFIX)||(campaign.email_campaign_recipients??[]).some(r=>!allow.has(r.email.trim().toLowerCase())))throw new Error("GUARD");const {processPersistedCampaignReplies}=await import("../src/modules/campaigns/server/process-campaign-signals.ts");const result=await processPersistedCampaignReplies(100,campaignId);console.log(`QA_REPLY_SIGNAL success=${!result.error} repliedStopped=${result.repliedStopped}`);if(result.error||result.repliedStopped!==1)process.exitCode=1;}catch{console.error("QA_REPLY_SIGNAL_UNAVAILABLE");process.exitCode=1;}

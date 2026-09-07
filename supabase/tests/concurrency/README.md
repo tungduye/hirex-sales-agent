@@ -89,3 +89,14 @@ psql "$env:HIREX_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f '.\supabase\tests\conc
 ```
 
 Expected output: `CLEANUP_PASS`. If any session is still open in a transaction, commit or roll it back before cleanup. Cleanup deletes only the deterministic `960...` fixtures and verifies that their user, workspace, accounts, campaigns, recipients, limits, usage, and events are absent.
+# Phase 4C sequence races
+
+After migration 016 is approved and applied to a reviewed test database, execute `016_setup.sql` once. Use two independent `psql` terminals:
+
+1. Run `same_step_session_a.sql` in A. At `SESSION_A_LOCK_HELD...`, run `same_step_session_b.sql` in B. B may block. Run `COMMIT;` in A; B must finish with zero rows. Run `verify_same_step.sql`.
+2. Run `global_quota_session_a.sql` in A, then B's `global_quota_session_b.sql`, then commit A. Exactly one shared-account slot may win. Run `verify_global_quota.sql`.
+3. Run `stale_reclaim.sql`, then `verify_stale_reclaim.sql`. The stale NULL-request claim preserves sender/idempotency and quota; the non-NULL request cannot reclaim.
+4. Run `reply_race_session_a.sql` in A, start `reply_race_session_b.sql` in B, then commit A. The recipient lock serializes the outcome. Once B commits REPLIED, it never returns ACTIVE and no later PENDING step survives. Run `verify_reply_race.sql`.
+5. Run `016_cleanup.sql`; it must print `CLEANUP_PASS`.
+
+All UUIDs use the `97000000` namespace. Scripts contain no database password, Gmail credential or service key and never call Gmail/worker code.

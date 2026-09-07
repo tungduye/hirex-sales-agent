@@ -1,0 +1,3 @@
+select coalesce(max(reserved_count),0)=1 as utc_day_reserved_once from public.email_sender_usage where workspace_id='97000000-0000-4000-8000-000000000002' and email_account_id='97000000-0000-4000-8000-000000000003' and bucket_kind='UTC_DAY';
+select coalesce(max(reserved_count),0)=1 as utc_minute_reserved_once from public.email_sender_usage where workspace_id='97000000-0000-4000-8000-000000000002' and email_account_id='97000000-0000-4000-8000-000000000003' and bucket_kind='UTC_MINUTE';
+select count(*)=1 as exactly_one_cross_campaign_claim from public.email_campaign_recipient_steps where workspace_id='97000000-0000-4000-8000-000000000002' and campaign_id in('97000000-0000-4000-8000-000000000020','97000000-0000-4000-8000-000000000030') and status='SENDING';
