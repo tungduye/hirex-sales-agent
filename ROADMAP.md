@@ -50,6 +50,12 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 
 ## Phase 6 — Manual Email Sending and Delivery Policy
 
+> Delivery update: the email-send policy work was completed in earlier Phase 2B
+> slices. The current Phase 6 implementation expands HireX into an omnichannel
+> foundation: canonical inbox, Facebook/Zalo adapter boundaries, operator
+> controls, workflow proposals, channel suppression/reporting, and a separate
+> multichannel campaign lifecycle. See `docs/PHASE_6_OMNICHANNEL.md`.
+
 - Add composer, drafts, attachments, signatures, send-as selection, suppression/consent checks, rate limits, approval evidence, and idempotent delivery.
 - Route every send through application service, policy engine, job queue, and Gmail adapter.
 - Phase 2B.1 prepares the server-controlled send-request schema and OAuth scope strategy only; sending remains inactive.

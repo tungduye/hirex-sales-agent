@@ -17,14 +17,14 @@ export function InboxView({ accounts, threads, selectedAccountId, selectedThread
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">Sales Inbox</h1>
           <p className="mt-1 text-sm text-slate-500">Read conversations, draft with AI, and approve every reply.</p>
         </div>
-        <form action="/inbox" method="get" className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2"><Link href="/inbox/all" className="h-10 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">Unified Inbox</Link><form action="/inbox" method="get" className="flex items-center gap-2">
           <label htmlFor="account" className="text-xs font-semibold text-slate-500">Email account</label>
           <select id="account" name="account" defaultValue={selectedAccountId ?? ""} className="h-10 min-w-56 rounded-lg border bg-white px-3 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none">
             <option value="">All accounts</option>
             {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName ? `${account.displayName} · ` : ""}{account.emailAddress}</option>)}
           </select>
           <button type="submit" className="h-10 rounded-lg border bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Apply</button>
-        </form>
+        </form></div>
       </div>
 
       {error ? (

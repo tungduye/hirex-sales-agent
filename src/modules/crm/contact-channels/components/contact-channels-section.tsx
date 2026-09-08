@@ -8,6 +8,7 @@ import { AddContactChannelDialog } from "@/modules/crm/contact-channels/componen
 import { DeleteContactChannelDialog } from "@/modules/crm/contact-channels/components/delete-contact-channel-dialog";
 import { EditContactChannelDialog } from "@/modules/crm/contact-channels/components/edit-contact-channel-dialog";
 import type { ContactChannel } from "@/modules/crm/contact-channels/types/contact-channel";
+import { ContactChannelConsentForm } from "@/modules/crm/contact-channels/components/contact-channel-consent-form";
 
 interface Props {
   contactId: string;
@@ -50,7 +51,7 @@ export function ContactChannelsSection({ contactId, channels, loadError }: Props
           {channels.map((channel) => (
             <div key={channel.id} className="relative flex items-center gap-4 px-5 py-4">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><AtSign className="size-4" /></div>
-              <div className="min-w-0 flex-1"><p className="text-xs font-semibold tracking-wide text-slate-500">{channel.channelType}</p><p className="mt-0.5 break-all text-sm font-medium text-slate-900">{channel.channelValue}</p></div>
+              <div className="min-w-0 flex-1"><p className="text-xs font-semibold tracking-wide text-slate-500">{channel.channelType}</p><p className="mt-0.5 break-all text-sm font-medium text-slate-900">{channel.channelValue}</p><ContactChannelConsentForm contactId={contactId} channel={channel}/></div>
               {channel.isPrimary && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">Primary</span>}
               <Button variant="ghost" size="icon" aria-label={`Actions for ${channel.channelType} ${channel.channelValue}`} onClick={() => setOpenMenuId((current) => current === channel.id ? null : channel.id)}><MoreHorizontal className="size-5" /></Button>
               {openMenuId === channel.id && (

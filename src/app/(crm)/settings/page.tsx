@@ -28,7 +28,7 @@ export default async function SettingsPage({
   const feedback = allowedFeedback.find((value) => value === gmail) ?? null;
 
   return (
-    <><div className="mb-4 flex justify-end"><Link href="/settings/email-automation" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Email Automation health</Link></div><EmailAccountsSettings
+    <><div className="mb-4 flex justify-end gap-2"><Link href="/settings/channels" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Channel accounts</Link><Link href="/settings/email-automation" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Email Automation health</Link></div><EmailAccountsSettings
       accounts={result.accounts}
       loadError={result.error}
       feedback={feedback}

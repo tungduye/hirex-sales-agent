@@ -1,0 +1,36 @@
+begin;
+create temporary table __phase6_test_init(id integer) on commit drop;
+create function pg_temp.assert_true(value boolean,label text) returns void language plpgsql as $$begin if value is not true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end$$;
+
+select pg_temp.assert_true(to_regclass('public.channel_accounts') is not null,'channel accounts exists');
+select pg_temp.assert_true(to_regclass('public.omnichannel_conversations') is not null,'canonical conversations exists');
+select pg_temp.assert_true(to_regclass('public.omnichannel_messages') is not null,'canonical messages exists');
+select pg_temp.assert_true(to_regclass('public.channel_outbound_actions') is not null,'outbound actions exists');
+select pg_temp.assert_true(to_regclass('public.channel_suppressions') is not null,'channel suppression exists');
+select pg_temp.assert_true(to_regclass('public.channel_automations') is not null,'automation exists');
+select pg_temp.assert_true((select relrowsecurity from pg_catalog.pg_class where oid='public.channel_accounts'::regclass),'channel account RLS');
+select pg_temp.assert_true((select relrowsecurity from pg_catalog.pg_class where oid='public.omnichannel_conversations'::regclass),'conversation RLS');
+select pg_temp.assert_true(not has_function_privilege('public','public.claim_channel_outbound_action(uuid,uuid,uuid)','execute'),'public claim blocked');
+select pg_temp.assert_true(not has_function_privilege('anon','public.claim_channel_outbound_action(uuid,uuid,uuid)','execute'),'anon claim blocked');
+select pg_temp.assert_true(not has_function_privilege('authenticated','public.claim_channel_outbound_action(uuid,uuid,uuid)','execute'),'authenticated claim blocked');
+select pg_temp.assert_true(has_function_privilege('service_role','public.claim_channel_outbound_action(uuid,uuid,uuid)','execute'),'service role claim allowed');
+select pg_temp.assert_true(not has_function_privilege('authenticated','public.finalize_channel_outbound_action_sent(uuid,uuid,uuid,text,text,timestamptz)','execute'),'authenticated finalizer blocked');
+select pg_temp.assert_true(has_function_privilege('service_role','public.finalize_channel_outbound_action_sent(uuid,uuid,uuid,text,text,timestamptz)','execute'),'service role finalizer allowed');
+select pg_temp.assert_true(has_function_privilege('authenticated','public.propose_channel_message(uuid,text,text,text)','execute'),'authenticated proposal allowed');
+select pg_temp.assert_true(has_function_privilege('authenticated','public.approve_channel_outbound_action(uuid)','execute'),'authenticated approval allowed');
+select pg_temp.assert_true(not has_table_privilege('authenticated','public.channel_policy_decisions','select'),'browser policy evidence hidden');
+select pg_temp.assert_true(not has_table_privilege('authenticated','public.channel_inbound_events','select'),'browser raw event state hidden');
+select pg_temp.assert_true(not has_table_privilege('authenticated','public.channel_accounts','insert'),'browser cannot connect channel directly');
+select pg_temp.assert_true(not exists(select 1 from information_schema.columns where table_schema='public' and table_name='channel_accounts' and column_name like '%token%'),'channel account contains no token columns');
+select pg_temp.assert_true(not has_table_privilege('authenticated','public.channel_account_credentials','select'),'browser credential table hidden');
+select pg_temp.assert_true(has_table_privilege('service_role','public.channel_account_credentials','select'),'service credential read allowed');
+select pg_temp.assert_true(not has_table_privilege('authenticated','public.channel_account_credentials','insert'),'browser credential write blocked');
+select pg_temp.assert_true(has_function_privilege('service_role','public.upsert_channel_account_credential(uuid,uuid,text,text,text,text,text[],text,text,jsonb)','execute'),'service credential RPC allowed');
+select pg_temp.assert_true(not has_function_privilege('authenticated','public.upsert_channel_account_credential(uuid,uuid,text,text,text,text,text[],text,text,jsonb)','execute'),'authenticated credential RPC blocked');
+select pg_temp.assert_true(to_regclass('public.channel_automation_proposals') is not null,'automation proposals exists');
+select pg_temp.assert_true(to_regclass('public.channel_tasks') is not null,'channel tasks exists');
+select pg_temp.assert_true(has_function_privilege('authenticated','public.review_channel_automation_proposal(uuid,boolean)','execute'),'authenticated proposal review allowed');
+select pg_temp.assert_true(exists(select 1 from information_schema.columns where table_schema='public' and table_name='contact_channels' and column_name='marketing_consent_status'),'contact channel consent exists');
+select pg_temp.assert_true(has_function_privilege('authenticated','public.set_contact_channel_marketing_consent(uuid,text,text)','execute'),'authenticated consent review allowed');
+
+rollback;
