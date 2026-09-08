@@ -7,13 +7,14 @@ import { loadPhase4cQaEnv } from "./load-phase4c-qa-env.mjs";
 import { parseQaRecipientAllowlist } from "./phase4c-qa-recipient-allowlist.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+delete process.env.HIREX_QA_RECIPIENT_ALLOWLIST;
 const { missing } = loadPhase4cQaEnv(root);
 const campaignId = process.argv[2];
 const preflightOnly = process.argv.includes("--preflight");
 const expectZero = process.argv.includes("--expect-zero");
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-if (missing.length || process.env.HIREX_ALLOW_REMOTE_SYNTHETIC_TESTS !== "1" || !uuid.test(campaignId ?? "")) {
+if (missing.length || process.env.HIREX_ALLOW_LIVE_EMAIL_TESTS !== "1" || !uuid.test(campaignId ?? "")) {
   console.error("QA_CAMPAIGN_GUARD_FAILED");
   process.exit(2);
 }

@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";import fs from "node:fs";let n=0;const ok=x=>{assert.ok(x);n++};
+const run=fs.readFileSync(new URL("./run-email-campaign-scheduler.ps1",import.meta.url),"utf8"),install=fs.readFileSync(new URL("./install-email-campaign-scheduler-task.ps1",import.meta.url),"utf8"),uninstall=fs.readFileSync(new URL("./uninstall-email-campaign-scheduler-task.ps1",import.meta.url),"utf8");
+ok(run.includes("FileShare]::None"));ok(run.includes("HIREX_SCHEDULER_DRY_RUN"));ok(run.includes("127.0.0.1:3000"));ok(run.includes('candidate.Host -ne "127.0.0.1"'));ok(!run.includes("Write-Output $secret"));ok(install.includes('HIREX_ALLOW_SCHEDULER_INSTALL -ne "1"'));ok(install.includes("New-TimeSpan -Minutes 1"));ok(install.includes("HireX Email Campaign Worker"));ok(uninstall.includes("HireX Email Campaign Worker"));console.log(`PHASE5_SCHEDULER_PASS assertions=${n}`);

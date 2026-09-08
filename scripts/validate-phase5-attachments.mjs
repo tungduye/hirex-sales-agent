@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import { existsSync,readFileSync } from "node:fs";
+import { registerHooks } from "node:module";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
+registerHooks({resolve(specifier,context,nextResolve){if(specifier==="server-only")return{url:"data:text/javascript,export {};",shortCircuit:true};if(specifier.startsWith("@/")){const base=path.join(root,"src",specifier.slice(2));const found=[base,`${base}.ts`,`${base}.tsx`].find(existsSync);if(found)return{url:pathToFileURL(found).href,shortCircuit:true};}return nextResolve(specifier,context);}});
+const rules=await import("../src/modules/campaigns/domain/attachment-rules.ts");
+const mime=await import("../src/modules/integrations/gmail/server/gmail-send-mime.ts");
+const loader=await import("../src/modules/campaigns/server/campaign-attachment-loader.ts");
+let n=0;const eq=(a,b)=>{assert.equal(a,b);n++};
+eq(rules.validateAttachmentDescriptor("safe.pdf","application/pdf",100),null);
+eq(rules.validateAttachmentDescriptor("safe.exe","application/octet-stream",100),"ATTACHMENT_TYPE_UNSUPPORTED");
+eq(rules.validateAttachmentDescriptor("../safe.pdf","application/pdf",100),"ATTACHMENT_TYPE_UNSUPPORTED");
+eq(rules.validateAttachmentDescriptor("safe.pdf","application/pdf",rules.MAX_ATTACHMENT_BYTES+1),"ATTACHMENT_SIZE_LIMIT");
+eq(rules.validateStepAttachmentSet(Array.from({length:11},()=>({sizeBytes:1}))),"ATTACHMENT_COUNT_LIMIT");
+eq(rules.sha256(Buffer.from("fixture")),"f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d");
+const raw=mime.buildPlainTextGmailMessage({from:"a@example.com",to:"b@example.com",subject:"Attachment",bodyText:"hello",rfcMessageId:"<x@example.com>",sendRequestId:"94000000-0000-4000-8000-000000000001",attachments:[{filename:"báo-cáo.pdf",mimeType:"application/pdf",bytes:Buffer.from("pdf fixture")},{filename:"notes.txt",mimeType:"text/plain",bytes:Buffer.from("notes")}]});
+const decoded=Buffer.from(raw,"base64url").toString("utf8");
+for(const expected of ["multipart/mixed","Content-Disposition: attachment","filename*=UTF-8''b%C3%A1o-c%C3%A1o.pdf","application/pdf",Buffer.from("pdf fixture").toString("base64"),"In-Reply-To:"]){if(expected==="In-Reply-To:"){eq(decoded.includes(expected),false)}else eq(decoded.includes(expected),true)}
+const threaded=mime.buildPlainTextGmailThreadedMessage({from:"a@example.com",to:"b@example.com",subject:"Re",bodyText:"hello",rfcMessageId:"<x@example.com>",sendRequestId:"94000000-0000-4000-8000-000000000001",inReplyTo:"<parent@example.com>",references:"<parent@example.com>",attachments:[{filename:"safe.txt",mimeType:"text/plain",bytes:Buffer.from("ok")}]});
+eq(Buffer.from(threaded,"base64url").toString("utf8").includes("In-Reply-To: <parent@example.com>"),true);
+const worker=readFileSync(path.join(root,"src/modules/campaigns/server/process-email-campaign-sequence-batch.ts"),"utf8"),actions=readFileSync(path.join(root,"src/modules/campaigns/server/campaign-actions.ts"),"utf8"),route=readFileSync(path.join(root,"src/app/api/campaigns/[campaignId]/attachments/[attachmentId]/route.ts"),"utf8");
+for(const expected of ["createCampaignAttachmentLoader","loadCampaignDeliveryAttachments","loaded.attachments","ATTACHMENT_INTEGRITY_FAILED","ATTACHMENT_MISSING"])eq(worker.includes(expected),true);
+for(const expected of ["uploadCampaignStepAttachment","removeCampaignStepAttachment","reorderCampaignStepAttachment","sha256(bytes)"])eq(actions.includes(expected),true);
+eq(route.includes("sha256(bytes)!==item.sha256"),true);
+eq(loader.isStorageNotFoundError({statusCode:404}),true);
+eq(loader.isStorageNotFoundError({statusCode:"404"}),true);
+eq(loader.isStorageNotFoundError({statusCode:500,message:"temporary"}),false);
+eq(readFileSync(path.join(root,"src/modules/campaigns/server/campaign-attachment-loader.ts"),"utf8").includes("campaign_step_id"),true);
+console.log(`PHASE5_ATTACHMENTS_PASS assertions=${n}`);

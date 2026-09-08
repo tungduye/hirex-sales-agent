@@ -7,7 +7,10 @@ interface BuildMimeInput {
   bodyText: string;
   rfcMessageId: string;
   sendRequestId: string;
+  attachments?: readonly MimeAttachment[];
 }
+
+export interface MimeAttachment { filename:string; mimeType:string; bytes:Buffer }
 
 interface ThreadedBuildMimeInput extends BuildMimeInput { inReplyTo: string; references: string }
 
@@ -34,7 +37,7 @@ function buildMessage(input:BuildMimeInput,threadHeaders:string[]) {
 
   const encodedSubject = encodeSubject(input.subject);
   const encodedBody = wrapBase64(Buffer.from(input.bodyText, "utf8").toString("base64"));
-  const mime = [
+  const baseHeaders = [
     `From: ${input.from}`,
     `To: ${input.to}`,
     `Subject: ${encodedSubject}`,
@@ -42,14 +45,18 @@ function buildMessage(input:BuildMimeInput,threadHeaders:string[]) {
     `X-HireX-Send-Request-ID: ${input.sendRequestId.toLowerCase()}`,
     ...threadHeaders,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    encodedBody,
-    "",
-  ].join("\r\n");
+  ];
+  const attachments=input.attachments??[];
+  const mime=attachments.length===0?[...baseHeaders,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",encodedBody,""].join("\r\n"):buildMultipart(baseHeaders,encodedBody,attachments);
 
   return Buffer.from(mime, "utf8").toString("base64url");
+}
+
+function buildMultipart(headers:string[],body:string,attachments:readonly MimeAttachment[]){
+  const boundary=`hirex-${headers.length}-${attachments.length}-${Buffer.from(headers.join(""),"utf8").toString("base64url").slice(0,24)}`;
+  const parts=[...headers,`Content-Type: multipart/mixed; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",body];
+  for(const item of attachments){if(!item.filename||/[\r\n\u0000-\u001f\u007f-\u009f]/.test(item.filename)||!item.mimeType||/[\r\n]/.test(item.mimeType))throw new Error("MIME_ATTACHMENT_INVALID");const encodedName=`UTF-8''${encodeURIComponent(item.filename)}`;parts.push(`--${boundary}`,`Content-Type: ${item.mimeType}`,`Content-Disposition: attachment; filename*=UTF-8''${encodedName.slice(7)}`,"Content-Transfer-Encoding: base64","",wrapBase64(item.bytes.toString("base64")));}
+  parts.push(`--${boundary}--`,"");return parts.join("\r\n");
 }
 
 function wrapBase64(value: string) {

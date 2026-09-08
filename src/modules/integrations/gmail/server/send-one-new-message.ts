@@ -25,11 +25,13 @@ import {
 import { markReauthenticationRequired } from "@/modules/integrations/gmail/server/sync-credentials";
 import type { SendNewMessageInput } from "@/modules/integrations/gmail/schemas/send-new-message";
 import type { GmailSendResult, GmailSendSafeCode } from "@/modules/integrations/gmail/types/send-message";
+import type { MimeAttachment } from "@/modules/integrations/gmail/server/gmail-send-mime";
 
 export async function sendOneNewGmailMessage(
   input: SendNewMessageInput,
   workspaceId: string,
   thread?: { providerThreadId: string; parentRfcMessageId: string },
+  attachments: readonly MimeAttachment[] = [],
 ): Promise<GmailSendResult> {
   const account = await loadSendAccount(input.emailAccountId, workspaceId);
   if (!account) return result(false, "GMAIL_SEND_REJECTED", null);
@@ -69,6 +71,7 @@ export async function sendOneNewGmailMessage(
       bodyText: input.bodyText,
       rfcMessageId: request.rfc_message_id,
       sendRequestId: request.id,
+      attachments,
     };
     raw = thread ? buildPlainTextGmailThreadedMessage({...mimeInput,inReplyTo:thread.parentRfcMessageId,references:thread.parentRfcMessageId}) : buildPlainTextGmailMessage(mimeInput);
   } catch {
