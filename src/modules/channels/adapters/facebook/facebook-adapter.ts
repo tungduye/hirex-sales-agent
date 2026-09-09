@@ -28,25 +28,24 @@ function parseEnvelope(value: unknown): FacebookWebhookEnvelope {
 }
 
 export class FacebookPageAdapter implements ChannelAdapter {
+  private readonly channelAccountId:string;
+  private readonly workspaceId:string;
+  private readonly credential:FacebookPageCredential;
+  private readonly transport:ChannelTransport;
   readonly channelType = "FACEBOOK" as const;
   readonly capabilities = new Set([
     "SEND_TEXT",
-    "SEND_IMAGE",
-    "SEND_FILE",
     "REPLY",
     "DELIVERY_RECEIPTS",
     "READ_RECEIPTS",
-    "TYPING_INDICATOR",
-    "TEMPLATES",
-    "COMMENTS",
   ] as const);
 
   constructor(
-    private readonly channelAccountId: string,
-    private readonly workspaceId: string,
-    private readonly credential: FacebookPageCredential,
-    private readonly transport: ChannelTransport,
-  ) {}
+    channelAccountId: string,
+    workspaceId: string,
+    credential: FacebookPageCredential,
+    transport: ChannelTransport,
+  ) {this.channelAccountId=channelAccountId;this.workspaceId=workspaceId;this.credential=credential;this.transport=transport;}
 
   async verifyWebhook(input: {
     headers: Readonly<Record<string, string>>;

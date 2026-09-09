@@ -1,14 +1,14 @@
 import { ingestChannelWebhook } from "@/modules/channels/server/ingest-channel-webhook";
 import { loadChannelAdapterByExternalId } from "@/modules/channels/server/load-channel-adapter";
+import { verifyFacebookWebhookChallenge } from "@/modules/channels/adapters/facebook/facebook-webhook-verification";
 
 export async function GET(request: Request) {
   try {
     const verifyToken = process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN?.trim();
     if (!verifyToken) throw new Error("FACEBOOK_WEBHOOK_NOT_CONFIGURED");
     const url = new URL(request.url);
-    if (url.searchParams.get("hub.mode") !== "subscribe" || url.searchParams.get("hub.verify_token") !== verifyToken) return new Response("Forbidden", { status: 403 });
-    const challenge = url.searchParams.get("hub.challenge");
-    return challenge ? new Response(challenge, { status: 200 }) : new Response("Bad Request", { status: 400 });
+    const result=verifyFacebookWebhookChallenge({mode:url.searchParams.get("hub.mode"),suppliedToken:url.searchParams.get("hub.verify_token"),expectedToken:verifyToken,challenge:url.searchParams.get("hub.challenge")});
+    return new Response(result.body,{status:result.status});
   } catch { return new Response("Unavailable", { status: 503 }); }
 }
 
