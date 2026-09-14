@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import type { ChannelActionState } from "../types/channel-action-state";
 import { randomUUID } from "node:crypto";
+import { dispatchManualFacebookAction } from "./dispatch-manual-facebook-action";
 
 const uuid = z.string().uuid();
 const conversationControlSchema = z.object({
@@ -132,10 +133,23 @@ export async function proposeChannelMessage(_state: ChannelActionState, formData
 
 export async function approveChannelMessage(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = uuid.safeParse(formData.get("actionId"));
+  const account = await getAccountContext();
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Message could not be approved." };
+  if (!parsed.success || !supabase || !account?.workspaceId) return { status: "error", message: "Message could not be approved." };
+  const { data: action, error: actionError } = await supabase.from("channel_outbound_actions")
+    .select("id,channel_type,status,attempt_count")
+    .eq("id", parsed.data).eq("workspace_id", account.workspaceId).maybeSingle();
+  if (actionError || !action || action.status !== "PROPOSED") return { status: "error", message: "This draft is no longer available for approval. Refresh the inbox." };
   const { data, error } = await supabase.rpc("approve_channel_outbound_action", { p_action_id: parsed.data });
   if (error || data !== true) return { status: "error", message: "Message approval failed its current policy check." };
+  if (action.channel_type === "FACEBOOK") {
+    const result = await dispatchManualFacebookAction(parsed.data);
+    revalidatePath("/inbox/all");
+    if (result === "SENT") return { status: "success", message: "Facebook message sent once." };
+    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not approve or send this message again; inspect the action state." };
+    if (result === "FAILED") return { status: "error", message: "Facebook rejected this message. Inspect the safe action error before creating a new draft." };
+    return { status: "error", message: "Draft approved, but no confirmed send occurred. Refresh and inspect the action state before retrying." };
+  }
   revalidatePath("/inbox/all");
   return { status: "success", message: "Message approved and ready for the channel worker." };
 }

@@ -18,6 +18,32 @@ function isUuid(value: unknown): value is string { return typeof value === "stri
 
 type PrivilegedClient = ReturnType<typeof createPrivilegedClient>;
 
+async function persistSentConversationMessage(client: PrivilegedClient, actionId: string, workspaceId: string) {
+  const { data: action, error } = await client.from("channel_outbound_actions")
+    .select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,text_content,provider_message_id,accepted_at")
+    .eq("id", actionId).eq("workspace_id", workspaceId).eq("status", "SENT").maybeSingle();
+  if (error || !action || !isUuid(action.conversation_id) || !isUuid(action.channel_account_id) ||
+      typeof action.provider_message_id !== "string" || typeof action.accepted_at !== "string" ||
+      typeof action.recipient_external_id !== "string" || typeof action.text_content !== "string") return false;
+  const { data: account, error: accountError } = await client.from("channel_accounts")
+    .select("external_account_id").eq("id", action.channel_account_id).eq("workspace_id", workspaceId).maybeSingle();
+  if (accountError || typeof account?.external_account_id !== "string") return false;
+  const { error: insertError } = await client.from("omnichannel_messages").upsert({
+    workspace_id: workspaceId,
+    conversation_id: action.conversation_id,
+    channel_account_id: action.channel_account_id,
+    channel_type: action.channel_type,
+    provider_message_id: action.provider_message_id,
+    direction: "OUTBOUND",
+    sender_external_id: account.external_account_id,
+    recipient_external_ids: [action.recipient_external_id],
+    text_content: action.text_content,
+    sent_at: action.accepted_at,
+    metadata: { outboundActionId: actionId },
+  }, { onConflict: "workspace_id,channel_account_id,provider_message_id", ignoreDuplicates: true });
+  return !insertError;
+}
+
 async function mapAction(client: PrivilegedClient, row: ActionRow | null): Promise<OutboundActionRecord | null> {
   if (!row || !isUuid(row.id) || !isUuid(row.workspace_id) || (row.conversation_id !== null && !isUuid(row.conversation_id)) || !isUuid(row.channel_account_id) || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || !["APPROVED","QUEUED","EXECUTING"].includes(String(row.status)) || typeof row.recipient_external_id !== "string" || (row.text_content !== null && typeof row.text_content !== "string") || !Array.isArray(row.attachment_ids) || !row.attachment_ids.every(isUuid) || typeof row.idempotency_key !== "string" || !isUuid(row.policy_decision_id) || !isUuid(row.approved_by) || typeof row.approved_at !== "string") return null;
   let providerConversationId: string | null = null;
@@ -81,7 +107,10 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
     },
     async finalizeSent(input) {
       const { data, error } = await client.rpc("finalize_channel_outbound_action_sent", { p_workspace_id: input.workspaceId, p_action_id: input.actionId, p_execution_lock_id: input.executionLockId, p_provider_message_id: input.providerMessageId, p_provider_conversation_id: input.providerConversationId, p_accepted_at: input.acceptedAt });
-      return !error && data === true;
+      if (error || data !== true) return false;
+      // The durable action is authoritative: a read-model failure must never trigger a resend.
+      try { await persistSentConversationMessage(client, input.actionId, input.workspaceId); } catch { /* action remains SENT */ }
+      return true;
     },
     async finalizeFailed(input) {
       const { data, error } = await client.rpc("finalize_channel_outbound_action_failed", { p_workspace_id: input.workspaceId, p_action_id: input.actionId, p_execution_lock_id: input.executionLockId, p_safe_error_code: input.safeErrorCode });
