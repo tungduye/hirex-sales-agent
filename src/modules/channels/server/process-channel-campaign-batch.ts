@@ -4,13 +4,18 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { ChannelAdapterRegistry } from "../core/channel-adapter-registry";
 import { executeChannelOutboundAction } from "./execute-channel-outbound-action";
 import { loadChannelAdapterByAccountId } from "./load-channel-adapter";
+import { projectChannelCampaign } from "./project-channel-campaign";
 
 interface ClaimRow { recipient_step_id: unknown; channel_account_id: unknown; claim_lock_id: unknown }
 function uuid(value:unknown):value is string{return typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)}
 
 export async function processChannelCampaignBatch(input:{workspaceId:string;campaignId:string;maximumActions?:number;dryRun?:boolean}){
   if(!uuid(input.workspaceId)||!uuid(input.campaignId))throw new Error("CHANNEL_CAMPAIGN_INPUT_INVALID"); const maximum=Math.min(Math.max(input.maximumActions??10,1),25);
-  if(input.dryRun)return {claimed:0,sent:0,failed:0,deliveryUnknown:0,remaining:true};
+  // Both modes evaluate the same read-only candidate snapshot first. The claim RPC
+  // remains authoritative and rechecks eligibility under its transaction lock.
+  const projection = await projectChannelCampaign({workspaceId:input.workspaceId,campaignId:input.campaignId,maximumActions:maximum});
+  if(input.dryRun)return {...projection,claimed:0,sent:0,failed:0,deliveryUnknown:0,remaining:projection.eligibleRecipientCount>projection.projectedActions};
+  if(projection.projectedActions===0)return {claimed:0,sent:0,failed:0,deliveryUnknown:0,remaining:false};
   const client=createPrivilegedClient(); let claimed=0,sent=0,failed=0,deliveryUnknown=0;
   for(let index=0;index<maximum;index+=1){
     const lockId=randomUUID(); const claimResult=await client.rpc("claim_channel_campaign_recipient_step",{p_workspace_id:input.workspaceId,p_campaign_id:input.campaignId,p_claim_lock_id:lockId});
