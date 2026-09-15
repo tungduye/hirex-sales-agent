@@ -27,3 +27,11 @@ export async function disconnectChannelAccount(_state:ChannelActionState,formDat
   const id=z.string().uuid().safeParse(formData.get("id")),account=await context();if(!id.success||!account)return{status:"error",message:"Channel account could not be disconnected."};
   try{const{data,error}=await createPrivilegedClient().rpc("disconnect_channel_account",{p_workspace_id:account.workspaceId,p_actor_id:account.userId,p_channel_account_id:id.data});if(error||data!==true)return{status:"error",message:"Channel account could not be disconnected."};revalidatePath("/settings/channels");return{status:"success",message:"Channel account disconnected and credential removed."}}catch{return{status:"error",message:"Channel account disconnect is unavailable."}}
 }
+
+export async function setChannelAccountOperatorEnabled(_state:ChannelActionState,formData:FormData):Promise<ChannelActionState>{
+  const id=z.string().uuid().safeParse(formData.get("id")),enabled=z.enum(["true","false"]).safeParse(formData.get("enabled")),account=await context();
+  if(!id.success||!enabled.success||!account)return{status:"error",message:"Channel operator state could not be changed."};
+  const{data,error}=await createPrivilegedClient().rpc("set_channel_account_operator_enabled",{p_channel_account_id:id.data,p_enabled:enabled.data==="true"});
+  if(error||data!==true)return{status:"error",message:"Channel operator state could not be changed."};
+  revalidatePath("/settings/channels");return{status:"success",message:"Channel operator state updated."};
+}

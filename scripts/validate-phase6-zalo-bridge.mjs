@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import {createHmac} from "node:crypto";
+import {registerHooks} from "node:module";
+import {existsSync,readFileSync} from "node:fs";
+import {fileURLToPath,pathToFileURL} from "node:url";
+registerHooks({resolve(s,c,n){if(s==="server-only")return{url:"data:text/javascript,export {};",shortCircuit:true};if(s.startsWith(".")&&c.parentURL?.startsWith("file:")){const b=fileURLToPath(new URL(s,c.parentURL)),f=[b,`${b}.ts`].find(existsSync);if(f)return{url:pathToFileURL(f).href,shortCircuit:true}}return n(s,c)}});
+const {ZaloBridgeAdapter}=await import("../src/modules/channels/adapters/zalo/zalo-bridge-adapter.ts");
+const {canonicalZaloBridgeSignatureInput,signZaloBridgeRequest,verifyZaloBridgeSignature}=await import("../src/modules/channels/adapters/zalo/zalo-bridge-signing.ts");
+const {evaluateZaloProviderHealth}=await import("../src/modules/channels/core/provider-health.ts");
+let assertions=0;const eq=(a,b)=>{assert.deepEqual(a,b);assertions++},ok=a=>{assert.ok(a);assertions++};
+const secret="fixture-signing-secret-at-least-32",base={method:"POST",path:"/v1/messages/send",timestamp:"1800000000",body:'{"text":"hi"}',idempotencyKey:"action-1"};
+const signature=signZaloBridgeRequest(secret,base);ok(verifyZaloBridgeSignature(secret,base,signature));
+for(const [key,value] of [["method","PUT"],["path","/v1/other"],["timestamp","1800000001"],["body",'{"text":"bye"}'],["idempotencyKey","action-2"]])eq(verifyZaloBridgeSignature(secret,{...base,[key]:value},signature),false);
+eq(canonicalZaloBridgeSignatureInput(base),`POST\n/v1/messages/send\n1800000000\n${await (async()=>{const{createHash}=await import("node:crypto");return createHash("sha256").update(base.body).digest("hex")})()}\naction-1`);
+const credential={bridgeBaseUrl:"https://bridge.example.test",bridgeAccountId:"za-1",signingSecret:secret},command={actionId:"a",workspaceId:"w",channelAccountId:"ca",channelType:"ZALO",providerConversationId:"thread",recipientExternalId:"recipient",text:"Hello",attachments:[],idempotencyKey:"stable-key",policyDecisionId:"p"};
+let request;const adapterFor=body=>new ZaloBridgeAdapter("w","ca",credential,{request:async input=>{request=input;return body}},()=>1800000000000);
+let adapter=adapterFor({status:200,body:{status:"SENT",messageId:"m",threadId:"thread"}});eq((await adapter.sendMessage(command)).providerMessageId,"m");eq(request.headers["x-hirex-idempotency-key"],"stable-key");ok(verifyZaloBridgeSignature(secret,{method:"POST",path:"/v1/messages/send",timestamp:request.headers["x-hirex-timestamp"],body:request.body,idempotencyKey:"stable-key"},request.headers["x-hirex-signature"]));
+for(const body of [{status:200,body:{status:"SENT",threadId:"t"}},{status:200,body:{}},{status:200,body:{status:"UNKNOWN"}}]){await assert.rejects(()=>adapterFor(body).sendMessage(command),/DELIVERY_UNKNOWN/);assertions++}
+await assert.rejects(()=>adapterFor({status:200,body:{status:"FAILED"}}).sendMessage(command),/DELIVERY_REJECTED/);assertions++;
+for(const status of ["HEALTHY","DEGRADED","DISCONNECTED","AUTH_REQUIRED","UNKNOWN"]){eq(await adapterFor({status:200,body:{status}}).healthCheck(),status)}
+eq(await adapterFor({status:200,body:{status:"BROKEN"}}).healthCheck(),"UNKNOWN");eq(await adapterFor({status:401,body:null}).healthCheck(),"AUTH_REQUIRED");
+const timeout=new ZaloBridgeAdapter("w","ca",credential,{request:async()=>{throw Error("timeout")}},()=>1800000000000);eq(await timeout.healthCheck(),"UNKNOWN");
+const now=new Date("2027-01-15T08:00:00Z"),fresh="2027-01-15T07:59:00Z",stale="2027-01-15T07:50:00Z";
+eq(evaluateZaloProviderHealth({operatorEnabled:true,status:"HEALTHY",checkedAt:fresh},now),{allowed:true});eq(evaluateZaloProviderHealth({operatorEnabled:false,status:"HEALTHY",checkedAt:fresh},now).reason,"CHANNEL_DISABLED");eq(evaluateZaloProviderHealth({operatorEnabled:true,status:"HEALTHY",checkedAt:stale},now).reason,"PROVIDER_HEALTH_STALE");
+for(const [status,reason] of [["DEGRADED","PROVIDER_DEGRADED"],["DISCONNECTED","PROVIDER_DISCONNECTED"],["AUTH_REQUIRED","PROVIDER_AUTH_REQUIRED"],["UNKNOWN","PROVIDER_HEALTH_UNKNOWN"]])eq(evaluateZaloProviderHealth({operatorEnabled:true,status,checkedAt:fresh},now).reason,reason);
+const migration=readFileSync(new URL("../supabase/migrations/023_zalo_bridge_health_foundation.sql",import.meta.url),"utf8"),connect=readFileSync(new URL("../src/modules/channels/server/connect-channel-actions.ts",import.meta.url),"utf8"),execute=readFileSync(new URL("../src/modules/channels/server/execute-channel-outbound-action.ts",import.meta.url),"utf8"),ui=readFileSync(new URL("../src/modules/channels/components/channel-accounts-view.tsx",import.meta.url),"utf8");
+for(const needle of ["operator_enabled boolean not null default true","provider_health_status","set_channel_account_operator_enabled","record_channel_account_provider_health","grant execute on function public.record_channel_account_provider_health","to service_role"])ok(migration.includes(needle));ok(connect.includes("set_channel_account_operator_enabled"));ok(execute.includes("evaluateZaloProviderHealth"));ok(execute.includes("record_channel_account_provider_health"));ok(ui.includes("Operator state:"));ok(ui.includes("Provider health:"));
+const inboundBody=JSON.stringify({eventId:"e",accountId:"za-1",threadId:"t",messageId:"m",senderId:"s",recipientIds:["za-1"],text:"Hi",attachments:[],occurredAt:"2027-01-15T08:00:00Z"}),ts="1800000000",inboundSig=createHmac("sha256",secret).update(`${ts}.${inboundBody}`).digest("hex"),inboundAdapter=new ZaloBridgeAdapter("w","ca",credential,{request:async()=>{throw Error("unused")}},()=>1800000000000);const verified=await inboundAdapter.verifyWebhook({headers:{"x-hirex-timestamp":ts,"x-hirex-signature":inboundSig},body:inboundBody});eq((await inboundAdapter.normalizeInbound(verified))[0].channelType,"ZALO");await assert.rejects(()=>inboundAdapter.verifyWebhook({headers:{"x-hirex-timestamp":ts,"x-hirex-signature":"bad"},body:inboundBody}));assertions++;
+console.log(`PHASE6_ZALO_BRIDGE_PASS assertions=${assertions} realProviderCalls=0`);

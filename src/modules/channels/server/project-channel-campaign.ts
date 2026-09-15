@@ -26,7 +26,7 @@ export async function projectChannelCampaign(input: { workspaceId: string; campa
   const accountIds = [...new Set(senders.map((sender) => sender.channel_account_id))];
   const contactIds = [...new Set(recipients.map((recipient) => recipient.contact_id))];
   const [accountResult, identityResult, recipientStepResult, conversationResult, suppressionResult] = await Promise.all([
-    accountIds.length ? db.from("channel_accounts").select("id,channel_type,status,capabilities", {count:"exact"}).eq("workspace_id", input.workspaceId).in("id", accountIds).limit(MAX_ROWS) : Promise.resolve({ data: [], count: 0, error: null }),
+    accountIds.length ? db.from("channel_accounts").select("id,channel_type,status,capabilities,operator_enabled,provider_health_status,provider_health_checked_at", {count:"exact"}).eq("workspace_id", input.workspaceId).in("id", accountIds).limit(MAX_ROWS) : Promise.resolve({ data: [], count: 0, error: null }),
     contactIds.length ? db.from("contact_channels").select("contact_id,channel_type,channel_value,marketing_consent_status", {count:"exact"}).eq("workspace_id", input.workspaceId).in("contact_id", contactIds).limit(MAX_ROWS) : Promise.resolve({ data: [], count: 0, error: null }),
     db.from("channel_campaign_recipient_steps").select("recipient_id,step_id,status", {count:"exact"}).eq("workspace_id", input.workspaceId).eq("campaign_id", input.campaignId).limit(MAX_ROWS),
     accountIds.length ? db.from("omnichannel_conversations").select("channel_account_id,provider_conversation_id,status,last_message_at", {count:"exact"}).eq("workspace_id", input.workspaceId).in("channel_account_id", accountIds).limit(MAX_ROWS) : Promise.resolve({ data: [], count: 0, error: null }),

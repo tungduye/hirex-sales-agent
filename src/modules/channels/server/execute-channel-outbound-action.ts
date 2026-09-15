@@ -6,6 +6,7 @@ import type { ChannelAdapterRegistry } from "../core/channel-adapter-registry";
 import { CHANNEL_TYPES, type ChannelType, type SendAttachment } from "../core/channel-contracts";
 import { executeOutboundAction, type ClaimedOutboundAction, type CurrentPolicyEvidence, type OutboundActionRecord } from "../core/execute-outbound-action";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
+import { evaluateZaloProviderHealth, PROVIDER_HEALTH_STATUSES, type ProviderHealthStatus } from "../core/provider-health";
 
 interface ActionRow {
   id: unknown; workspace_id: unknown; conversation_id: unknown; channel_account_id: unknown;
@@ -107,6 +108,16 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
       return attachments;
     },
     async validatePreSend({ action, now }) {
+      if(action.channelType==="ZALO"){
+        const accountResult=await client.from("channel_accounts").select("id,workspace_id,operator_enabled,provider_health_status,provider_health_checked_at").eq("id",action.channelAccountId).eq("workspace_id",action.workspaceId).eq("channel_type","ZALO").eq("provider","ZALO_BRIDGE").eq("status","CONNECTED").maybeSingle();
+        const account=accountResult.data;
+        if(accountResult.error||!account||account.operator_enabled!==true)return{allowed:false,safeErrorCode:"ACCOUNT_UNAVAILABLE"};
+        const adapter=adapters.get("ZALO"),started=Date.now(),rawHealth=await adapter.healthCheck(action.channelAccountId),health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(rawHealth as ProviderHealthStatus)?rawHealth as ProviderHealthStatus:"UNKNOWN",checkedAt=new Date().toISOString();
+        const recorded=await client.rpc("record_channel_account_provider_health",{p_workspace_id:action.workspaceId,p_channel_account_id:action.channelAccountId,p_status:health,p_checked_at:checkedAt,p_safe_reason_code:health==="HEALTHY"?null:health,p_latency_ms:Math.min(Date.now()-started,60000)});
+        if(recorded.error||recorded.data!==true)throw new Error("ZALO_HEALTH_PERSISTENCE_UNAVAILABLE");
+        const eligibility=evaluateZaloProviderHealth({operatorEnabled:true,status:health,checkedAt},new Date(now));
+        return{allowed:eligibility.allowed,safeErrorCode:eligibility.allowed?"":"ACCOUNT_UNAVAILABLE"};
+      }
       if (action.channelType !== "FACEBOOK") return { allowed: true, safeErrorCode: "" };
       if (!action.conversationId || !action.providerConversationId || action.providerConversationId !== action.recipientExternalId) return { allowed: false, safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
       const { data: conversation, error: conversationError } = await client.from("omnichannel_conversations")

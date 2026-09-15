@@ -121,7 +121,7 @@ export interface ChannelAdapter {
   }): Promise<VerifiedWebhook>;
   normalizeInbound(input: VerifiedWebhook): Promise<CanonicalInboundMessage[]>;
   sendMessage(command: SendMessageCommand): Promise<ChannelSendResult>;
-  healthCheck(channelAccountId: string): Promise<ChannelAccountStatus>;
+  healthCheck(channelAccountId: string): Promise<ChannelAccountStatus | import("./provider-health").ProviderHealthStatus>;
 }
 
 export function isChannelType(value: unknown): value is ChannelType {

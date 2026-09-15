@@ -11,8 +11,11 @@ import type {
 import { ChannelError } from "../../core/channel-errors";
 import type { ChannelTransport } from "../../core/channel-transport";
 import type { ZaloBridgeCredential, ZaloBridgeEvent } from "./zalo-bridge-contracts";
+import type { ProviderHealthStatus } from "../../core/provider-health";
+import { signZaloBridgeRequest } from "./zalo-bridge-signing";
 
 const MAX_CLOCK_SKEW_SECONDS = 300;
+const SEND_PATH="/v1/messages/send";
 
 function secureEqual(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8");
@@ -46,14 +49,11 @@ function parseEvent(value: unknown): ZaloBridgeEvent {
 export class ZaloBridgeAdapter implements ChannelAdapter {
   readonly channelType = "ZALO" as const;
   readonly capabilities = new Set(["SEND_TEXT", "SEND_IMAGE", "SEND_FILE", "REPLY", "READ_RECEIPTS"] as const);
+  private readonly workspaceId:string;private readonly channelAccountId:string;private readonly credential:ZaloBridgeCredential;private readonly transport:ChannelTransport;private readonly now:()=>number;
 
   constructor(
-    private readonly workspaceId: string,
-    private readonly channelAccountId: string,
-    private readonly credential: ZaloBridgeCredential,
-    private readonly transport: ChannelTransport,
-    private readonly now: () => number = Date.now,
-  ) {}
+    workspaceId: string, channelAccountId: string, credential: ZaloBridgeCredential, transport: ChannelTransport, now: () => number = Date.now,
+  ) {this.workspaceId=workspaceId;this.channelAccountId=channelAccountId;this.credential=credential;this.transport=transport;this.now=now;}
 
   async verifyWebhook(input: { headers: Readonly<Record<string, string>>; body: string }): Promise<VerifiedWebhook> {
     const timestamp = input.headers["x-hirex-timestamp"];
@@ -109,30 +109,36 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       idempotencyKey: command.idempotencyKey,
     });
     const timestamp = Math.floor(this.now() / 1000).toString();
-    const signature = createHmac("sha256", this.credential.signingSecret).update(`${timestamp}.${body}`).digest("hex");
+    const signature = signZaloBridgeRequest(this.credential.signingSecret,{method:"POST",path:SEND_PATH,timestamp,body,idempotencyKey:command.idempotencyKey});
     const response = await this.transport.request({
       method: "POST",
-      url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}/v1/messages/send`,
-      headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp, "x-hirex-signature": signature },
+      url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${SEND_PATH}`,
+      headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp, "x-hirex-signature": signature, "x-hirex-idempotency-key":command.idempotencyKey },
       body,
       timeoutMs: 15_000,
     });
     if (response.status === 401 || response.status === 403) throw new ChannelError("PERMISSION_DENIED", false);
     if (response.status === 429) throw new ChannelError("RATE_LIMITED", true);
     if (response.status < 200 || response.status >= 300) throw new ChannelError(response.status >= 500 ? "DELIVERY_UNKNOWN" : "DELIVERY_REJECTED", response.status >= 500);
-    const result = response.body as { messageId?: unknown; threadId?: unknown };
-    if (!isString(result?.messageId) || !isString(result?.threadId)) throw new ChannelError("DELIVERY_UNKNOWN", false);
+    const result = response.body as { status?: unknown; messageId?: unknown; threadId?: unknown };
+    if(result?.status==="FAILED")throw new ChannelError("DELIVERY_REJECTED",false);
+    if(result?.status==="UNKNOWN")throw new ChannelError("DELIVERY_UNKNOWN",false);
+    if (result?.status!=="SENT"||!isString(result.messageId)||!isString(result.threadId)) throw new ChannelError("DELIVERY_UNKNOWN", false);
     return { providerMessageId: result.messageId, providerConversationId: result.threadId, acceptedAt: new Date(this.now()).toISOString() };
   }
 
-  async healthCheck(): Promise<"CONNECTED" | "REAUTH_REQUIRED" | "ERROR"> {
+  async healthCheck(): Promise<ProviderHealthStatus> {
+    try { const path=`/v1/accounts/${encodeURIComponent(this.credential.bridgeAccountId)}/health`,timestamp=Math.floor(this.now()/1000).toString(),body="",idempotencyKey="";
     const response = await this.transport.request({
       method: "GET",
-      url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}/v1/accounts/${encodeURIComponent(this.credential.bridgeAccountId)}/health`,
-      headers: {},
+      url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${path}`,
+      headers: {"x-hirex-timestamp":timestamp,"x-hirex-signature":signZaloBridgeRequest(this.credential.signingSecret,{method:"GET",path,timestamp,body,idempotencyKey})},
       timeoutMs: 10_000,
     });
-    if (response.status === 401 || response.status === 403) return "REAUTH_REQUIRED";
-    return response.status >= 200 && response.status < 300 ? "CONNECTED" : "ERROR";
+    if (response.status === 401 || response.status === 403) return "AUTH_REQUIRED";
+    if(response.status<200||response.status>=300||!response.body||typeof response.body!=="object")return "UNKNOWN";
+    const status=(response.body as {status?:unknown}).status;
+    return ["HEALTHY","DEGRADED","DISCONNECTED","AUTH_REQUIRED","UNKNOWN"].includes(String(status))?status as ProviderHealthStatus:"UNKNOWN";
+    } catch{return "UNKNOWN";}
   }
 }

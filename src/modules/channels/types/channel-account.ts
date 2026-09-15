@@ -1,4 +1,5 @@
 import type { ChannelAccountStatus, ChannelCapability, ChannelType } from "../core/channel-contracts";
+import type { ProviderHealthStatus } from "../core/provider-health";
 
 export interface ChannelAccountSummary {
   id: string;
@@ -10,6 +11,10 @@ export interface ChannelAccountSummary {
   capabilities: ChannelCapability[];
   lastHealthCheckAt: string | null;
   lastErrorCode: string | null;
+  operatorEnabled: boolean;
+  providerHealthStatus: ProviderHealthStatus;
+  providerHealthCheckedAt: string | null;
+  providerHealthReasonCode: string | null;
 }
 
 export interface ChannelAccountsResult {
