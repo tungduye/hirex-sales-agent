@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
@@ -19,4 +20,14 @@ export async function createChannelCampaign(_state: ChannelActionState, formData
   for (const contactId of parsed.data.contactIds) { const result = await client.rpc("add_channel_campaign_recipient", { p_campaign_id: campaignId, p_contact_id: contactId }); if (result.error || typeof result.data !== "string") return { status: "error", message: "Campaign draft was created, but its audience could not be saved." }; }
   for (const senderId of parsed.data.senderIds) { const result = await client.rpc("add_channel_campaign_sender", { p_campaign_id: campaignId, p_channel_account_id: senderId, p_priority: 100 }); if (result.error || typeof result.data !== "string") return { status: "error", message: "Campaign draft was created, but its sender could not be saved." }; }
   redirect(`/campaigns/omnichannel/${campaignId}`);
+}
+
+export async function startChannelCampaign(campaignId: string): Promise<void> {
+  const parsed = z.string().uuid().safeParse(campaignId);
+  const account = await getAccountContext();
+  if (!parsed.success || !account?.workspaceId) throw new Error("Campaign cannot be started.");
+  const client = await createClient();
+  const { data, error } = await client.rpc("start_channel_campaign", { p_campaign_id: parsed.data });
+  if (error || data !== true) throw new Error("Campaign cannot be started.");
+  revalidatePath(`/campaigns/omnichannel/${parsed.data}`);
 }
