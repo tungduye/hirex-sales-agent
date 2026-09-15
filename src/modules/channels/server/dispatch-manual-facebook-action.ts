@@ -6,7 +6,7 @@ import { ChannelAdapterRegistry } from "../core/channel-adapter-registry";
 import { executeChannelOutboundAction } from "./execute-channel-outbound-action";
 import { loadChannelAdapterByAccountId } from "./load-channel-adapter";
 
-export type ManualFacebookDispatchResult = "SENT" | "FAILED" | "DELIVERY_UNKNOWN" | "NOT_ELIGIBLE" | "UNAVAILABLE";
+export type ManualFacebookDispatchResult = "SENT" | "FAILED" | "RESPONSE_WINDOW_EXPIRED" | "DELIVERY_UNKNOWN" | "NOT_ELIGIBLE" | "UNAVAILABLE";
 
 export async function dispatchManualFacebookAction(actionId: string): Promise<ManualFacebookDispatchResult> {
   const account = await getAccountContext();
@@ -25,7 +25,7 @@ export async function dispatchManualFacebookAction(actionId: string): Promise<Ma
     const registry = new ChannelAdapterRegistry();
     registry.register(loaded.adapter);
     const result = await executeChannelOutboundAction(actionId, registry);
-    return result.status;
+    return result.status === "FAILED" && result.safeErrorCode === "FACEBOOK_RESPONSE_WINDOW_EXPIRED" ? "RESPONSE_WINDOW_EXPIRED" : result.status;
   } catch {
     return "UNAVAILABLE";
   }

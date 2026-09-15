@@ -147,6 +147,7 @@ export async function approveChannelMessage(_state: ChannelActionState, formData
     revalidatePath("/inbox/all");
     if (result === "SENT") return { status: "success", message: "Facebook message sent once." };
     if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not approve or send this message again; inspect the action state." };
+    if (result === "RESPONSE_WINDOW_EXPIRED") return { status: "error", message: "The Facebook reply window has expired. No message was sent." };
     if (result === "FAILED") return { status: "error", message: "Facebook rejected this message. Inspect the safe action error before creating a new draft." };
     return { status: "error", message: "Draft approved, but no confirmed send occurred. Refresh and inspect the action state before retrying." };
   }

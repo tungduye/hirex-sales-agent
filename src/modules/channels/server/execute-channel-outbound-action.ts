@@ -5,6 +5,7 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ChannelAdapterRegistry } from "../core/channel-adapter-registry";
 import { CHANNEL_TYPES, type ChannelType, type SendAttachment } from "../core/channel-contracts";
 import { executeOutboundAction, type ClaimedOutboundAction, type CurrentPolicyEvidence, type OutboundActionRecord } from "../core/execute-outbound-action";
+import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
 
 interface ActionRow {
   id: unknown; workspace_id: unknown; conversation_id: unknown; channel_account_id: unknown;
@@ -104,6 +105,22 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
         attachments.push({ id, filename: row.filename, contentType: row.content_type, sizeBytes: bytes.length, sha256: row.sha256, contentBase64: bytes.toString("base64") });
       }
       return attachments;
+    },
+    async validatePreSend({ action, now }) {
+      if (action.channelType !== "FACEBOOK") return { allowed: true, safeErrorCode: "" };
+      if (!action.conversationId || !action.providerConversationId || action.providerConversationId !== action.recipientExternalId) return { allowed: false, safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
+      const { data: conversation, error: conversationError } = await client.from("omnichannel_conversations")
+        .select("id,status,channel_account_id,provider_conversation_id")
+        .eq("id", action.conversationId).eq("workspace_id", action.workspaceId)
+        .eq("channel_account_id", action.channelAccountId).eq("channel_type", "FACEBOOK")
+        .eq("provider_conversation_id", action.recipientExternalId).maybeSingle();
+      if (conversationError || !conversation || conversation.id !== action.conversationId || conversation.channel_account_id !== action.channelAccountId || conversation.provider_conversation_id !== action.recipientExternalId) throw new Error("FACEBOOK_RESPONSE_WINDOW_UNAVAILABLE");
+      const { data: inbound, error: inboundError } = await client.from("omnichannel_messages")
+        .select("sent_at").eq("workspace_id", action.workspaceId).eq("conversation_id", action.conversationId)
+        .eq("channel_account_id", action.channelAccountId).eq("channel_type", "FACEBOOK").eq("direction", "INBOUND")
+        .order("sent_at", { ascending: false }).limit(1).maybeSingle();
+      if (inboundError) throw new Error("FACEBOOK_RESPONSE_WINDOW_UNAVAILABLE");
+      return { allowed: isFacebookResponseWindowOpen({ status: conversation.status, latestInboundAt: inbound?.sent_at }, new Date(now)), safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
     },
     async finalizeSent(input) {
       const { data, error } = await client.rpc("finalize_channel_outbound_action_sent", { p_workspace_id: input.workspaceId, p_action_id: input.actionId, p_execution_lock_id: input.executionLockId, p_provider_message_id: input.providerMessageId, p_provider_conversation_id: input.providerConversationId, p_accepted_at: input.acceptedAt });

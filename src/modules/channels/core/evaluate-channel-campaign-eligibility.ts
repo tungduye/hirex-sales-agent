@@ -1,3 +1,5 @@
+import { isFacebookResponseWindowOpen } from "./facebook-response-window.ts";
+
 export type IneligibilityReason =
   | "CAMPAIGN_NOT_SENDABLE" | "NOT_DUE" | "STEP_NOT_PENDING"
   | "NOT_OPTED_IN" | "SUPPRESSED" | "NO_OPEN_CONVERSATION"
@@ -53,7 +55,7 @@ export function evaluateChannelCampaignEligibility(snapshot: CampaignEligibility
     if (unsuppressed.length === 0) { mark("SUPPRESSED"); continue; }
     const open = unsuppressed.filter(({ identity, account }) => account.channel_type !== "FACEBOOK" || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && ["OPEN", "PENDING"].includes(conversation.status)));
     if (open.length === 0) { mark("NO_OPEN_CONVERSATION"); continue; }
-    const withinWindow = open.some(({ identity, account }) => account.channel_type !== "FACEBOOK" || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && ["OPEN", "PENDING"].includes(conversation.status) && conversation.last_message_at !== null && Number.isFinite(Date.parse(conversation.last_message_at)) && Date.parse(conversation.last_message_at) >= now.getTime() - 23 * 60 * 60 * 1000));
+    const withinWindow = open.some(({ identity, account }) => account.channel_type !== "FACEBOOK" || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && isFacebookResponseWindowOpen({ status: conversation.status, latestInboundAt: conversation.last_message_at }, now)));
     if (!withinWindow) { mark("RESPONSE_WINDOW_EXPIRED"); continue; }
     eligible += 1;
   }

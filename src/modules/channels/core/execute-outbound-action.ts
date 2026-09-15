@@ -37,6 +37,7 @@ export interface OutboundExecutionDependencies {
   isSuppressed(input: { workspaceId: string; channelType: ChannelType; recipientExternalId: string }): Promise<boolean>;
   claim(input: { actionId: string; workspaceId: string; executionLockId: string }): Promise<ClaimedOutboundAction | null>;
   loadClaimedAttachments(input: { actionId: string; workspaceId: string; executionLockId: string; attachmentIds: string[] }): Promise<SendAttachment[]>;
+  validatePreSend(input: { action: ClaimedOutboundAction; now: string }): Promise<{ allowed: boolean; safeErrorCode: string }>;
   finalizeSent(input: { actionId: string; workspaceId: string; executionLockId: string; providerMessageId: string; providerConversationId: string; acceptedAt: string }): Promise<boolean>;
   finalizeFailed(input: { actionId: string; workspaceId: string; executionLockId: string; safeErrorCode: string }): Promise<boolean>;
   finalizeUnknown(input: { actionId: string; workspaceId: string; executionLockId: string; safeErrorCode: "DELIVERY_UNKNOWN" }): Promise<boolean>;
@@ -95,6 +96,19 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
     try {
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "ACCOUNT_UNAVAILABLE" });
       return finalized === true ? { status: "FAILED", actionId, safeErrorCode: "ACCOUNT_UNAVAILABLE" } : { status: "UNAVAILABLE", actionId };
+    } catch { return { status: "UNAVAILABLE", actionId }; }
+  }
+  try {
+    const eligibility = await dependencies.validatePreSend({ action: claimed, now: dependencies.now() });
+    if (!eligibility || eligibility.allowed !== true) {
+      const safeErrorCode = typeof eligibility?.safeErrorCode === "string" && eligibility.safeErrorCode.trim() ? eligibility.safeErrorCode : "CHANNEL_ELIGIBILITY_UNAVAILABLE";
+      const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode });
+      return finalized === true ? { status: "FAILED", actionId, safeErrorCode } : { status: "UNAVAILABLE", actionId };
+    }
+  } catch {
+    try {
+      const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "CHANNEL_ELIGIBILITY_UNAVAILABLE" });
+      return finalized === true ? { status: "FAILED", actionId, safeErrorCode: "CHANNEL_ELIGIBILITY_UNAVAILABLE" } : { status: "UNAVAILABLE", actionId };
     } catch { return { status: "UNAVAILABLE", actionId }; }
   }
   try {
