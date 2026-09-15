@@ -43,5 +43,8 @@ equal(processor.includes("executeChannelOutboundAction(materialized.data,registr
 equal(processor.indexOf('client.rpc("claim_channel_campaign_recipient_step"') < processor.indexOf("executeChannelOutboundAction(materialized.data,registry)"), true);
 equal(processor.includes("Math.min(Math.max(input.maximumActions??10,1),25)"), true);
 equal(processor.includes('if(result.status==="DELIVERY_UNKNOWN")break'), true);
+equal(processor.includes('row.channel_type==="FACEBOOK"||row.channel_type==="ZALO"'), true);
+equal(processor.includes('contains("metadata",{participantExternalId:row.recipient_external_id})'), true);
+equal(processor.includes("injectedAdapters??new ChannelAdapterRegistry()"), true);
 for (const forbidden of [".insert(", ".update(", ".delete(", ".rpc(", "sendMessage(", "fetch("]) equal(projector.includes(forbidden), false);
 console.log(`PHASE6_CHANNEL_CAMPAIGN_DRY_RUN_PASS assertions=${assertions} providerCalls=0 dbMutations=0`);
