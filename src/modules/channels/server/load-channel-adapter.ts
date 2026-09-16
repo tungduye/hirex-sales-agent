@@ -8,15 +8,22 @@ import { decryptChannelCredential } from "./channel-credential-encryption";
 interface CredentialRow { channel_account_id: unknown; workspace_id: unknown; access_token_encrypted: unknown; webhook_secret_encrypted: unknown; configuration: unknown; channel_accounts: unknown }
 function object(value:unknown):value is Record<string,unknown>{return Boolean(value)&&typeof value==="object"&&!Array.isArray(value)}
 
+export type ChannelAccountLoadCode = "CHANNEL_ACCOUNT_QUERY_FAILED" | "CHANNEL_ACCOUNT_NOT_FOUND" | "CHANNEL_ACCOUNT_ROW_INVALID" | "CHANNEL_CREDENTIAL_DECRYPT_FAILED" | "CHANNEL_CONFIGURATION_INVALID";
+export class ChannelAccountLoadError extends Error {
+  readonly safeCode: ChannelAccountLoadCode;
+  constructor(safeCode: ChannelAccountLoadCode) { super(safeCode); this.safeCode=safeCode; this.name="ChannelAccountLoadError"; }
+}
+
 function build(row:CredentialRow, account:{channel_type:unknown;external_account_id:unknown}){
-  if(typeof row.channel_account_id!=="string"||typeof row.workspace_id!=="string"||typeof row.webhook_secret_encrypted!=="string"||!object(row.configuration)||typeof account.external_account_id!=="string")throw new Error("CHANNEL_ACCOUNT_UNAVAILABLE");
-  const webhookSecret=decryptChannelCredential(row.webhook_secret_encrypted); const transport=new FetchChannelTransport();
+  if(typeof row.channel_account_id!=="string"||typeof row.workspace_id!=="string"||typeof row.webhook_secret_encrypted!=="string"||!object(row.configuration)||typeof account.external_account_id!=="string")throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_ROW_INVALID");
+  let webhookSecret:string; try{webhookSecret=decryptChannelCredential(row.webhook_secret_encrypted)}catch{throw new ChannelAccountLoadError("CHANNEL_CREDENTIAL_DECRYPT_FAILED")}; const transport=new FetchChannelTransport();
   if(account.channel_type==="FACEBOOK"){
-    const version=row.configuration.graphApiVersion; if(typeof row.access_token_encrypted!=="string"||typeof version!=="string"||!/^v[0-9]{1,3}\.[0-9]{1,3}$/u.test(version))throw new Error("CHANNEL_ACCOUNT_UNAVAILABLE");
-    return { channelAccountId: row.channel_account_id, adapter: new FacebookPageAdapter(row.channel_account_id,row.workspace_id,{pageId:account.external_account_id,pageAccessToken:decryptChannelCredential(row.access_token_encrypted),appSecret:webhookSecret,graphApiVersion:version},transport) };
+    const version=row.configuration.graphApiVersion; if(typeof row.access_token_encrypted!=="string"||typeof version!=="string"||!/^v[0-9]{1,3}\.[0-9]{1,3}$/u.test(version))throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID");
+    let pageAccessToken:string;try{pageAccessToken=decryptChannelCredential(row.access_token_encrypted)}catch{throw new ChannelAccountLoadError("CHANNEL_CREDENTIAL_DECRYPT_FAILED")};
+    return { channelAccountId: row.channel_account_id, adapter: new FacebookPageAdapter(row.channel_account_id,row.workspace_id,{pageId:account.external_account_id,pageAccessToken,appSecret:webhookSecret,graphApiVersion:version},transport) };
   }
-  if(account.channel_type!=="ZALO")throw new Error("CHANNEL_ACCOUNT_UNAVAILABLE");
-  const baseUrl=row.configuration.bridgeBaseUrl; if(typeof baseUrl!=="string"||new URL(baseUrl).protocol!=="https:")throw new Error("CHANNEL_ACCOUNT_UNAVAILABLE");
+  if(account.channel_type!=="ZALO")throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_ROW_INVALID");
+  const baseUrl=row.configuration.bridgeBaseUrl; let protocol="";try{protocol=typeof baseUrl==="string"?new URL(baseUrl).protocol:""}catch{}if(typeof baseUrl!=="string"||protocol!=="https:")throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID");
   return { channelAccountId: row.channel_account_id, adapter: new ZaloBridgeAdapter(row.workspace_id,row.channel_account_id,{bridgeAccountId:account.external_account_id,bridgeBaseUrl:baseUrl,signingSecret:webhookSecret},transport) };
 }
 
@@ -26,7 +33,7 @@ export async function loadChannelAdapterByExternalId(channelType:"FACEBOOK"|"ZAL
   const client=createPrivilegedClient();
   const {data,error}=await client.from("channel_account_credentials").select("channel_account_id,workspace_id,access_token_encrypted,webhook_secret_encrypted,configuration,channel_accounts!inner(channel_type,provider,external_account_id,status)").eq("channel_accounts.channel_type",channelType).eq("channel_accounts.provider",provider).eq("channel_accounts.external_account_id",externalAccountId).eq("channel_accounts.status","CONNECTED").maybeSingle();
   const row=data as CredentialRow|null; const account=relation(row?.channel_accounts);
-  if(error||!row||!account)throw new Error("CHANNEL_ACCOUNT_UNAVAILABLE"); return build(row,account);
+  if(error)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_QUERY_FAILED");if(!row||!account)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_NOT_FOUND"); return build(row,account);
 }
 
 export async function loadChannelAdapterByAccountId(channelAccountId:string){

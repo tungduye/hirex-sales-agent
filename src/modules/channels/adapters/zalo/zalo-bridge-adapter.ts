@@ -17,6 +17,22 @@ import { signZaloBridgeRequest } from "./zalo-bridge-signing";
 const MAX_CLOCK_SKEW_SECONDS = 300;
 const SEND_PATH="/v1/messages/send";
 
+export type ZaloWebhookDiagnosticCode =
+  | "TIMESTAMP_INVALID"
+  | "SIGNATURE_INVALID"
+  | "JSON_INVALID"
+  | "SCHEMA_INVALID"
+  | "PROVIDER_ACCOUNT_MISMATCH";
+
+export class ZaloWebhookDiagnosticError extends ChannelError {
+  readonly diagnosticCode: ZaloWebhookDiagnosticCode;
+  constructor(diagnosticCode: ZaloWebhookDiagnosticCode) {
+    super("INVALID_WEBHOOK", false);
+    this.diagnosticCode = diagnosticCode;
+    this.name = "ZaloWebhookDiagnosticError";
+  }
+}
+
 function secureEqual(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8");
   const b = Buffer.from(right, "utf8");
@@ -28,7 +44,7 @@ function isString(value: unknown, maximum = 512): value is string {
 }
 
 function parseEvent(value: unknown): ZaloBridgeEvent {
-  if (!value || typeof value !== "object") throw new ChannelError("INVALID_WEBHOOK", false);
+  if (!value || typeof value !== "object") throw new ZaloWebhookDiagnosticError("SCHEMA_INVALID");
   const event = value as Partial<ZaloBridgeEvent>;
   if (
     !isString(event.eventId) ||
@@ -42,7 +58,7 @@ function parseEvent(value: unknown): ZaloBridgeEvent {
     !Array.isArray(event.attachments) ||
     typeof event.occurredAt !== "string" ||
     !Number.isFinite(Date.parse(event.occurredAt))
-  ) throw new ChannelError("INVALID_WEBHOOK", false);
+  ) throw new ZaloWebhookDiagnosticError("SCHEMA_INVALID");
   return event as ZaloBridgeEvent;
 }
 
@@ -60,14 +76,14 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     const signature = input.headers["x-hirex-signature"];
     const timestampSeconds = Number(timestamp);
     if (!Number.isSafeInteger(timestampSeconds) || Math.abs(Math.floor(this.now() / 1000) - timestampSeconds) > MAX_CLOCK_SKEW_SECONDS || !signature) {
-      throw new ChannelError("INVALID_WEBHOOK", false);
+      throw new ZaloWebhookDiagnosticError("TIMESTAMP_INVALID");
     }
     const expected = createHmac("sha256", this.credential.signingSecret).update(`${timestamp}.${input.body}`).digest("hex");
-    if (!secureEqual(signature, expected)) throw new ChannelError("INVALID_WEBHOOK", false);
+    if (!secureEqual(signature, expected)) throw new ZaloWebhookDiagnosticError("SIGNATURE_INVALID");
     let payload: unknown;
-    try { payload = JSON.parse(input.body); } catch { throw new ChannelError("INVALID_WEBHOOK", false); }
+    try { payload = JSON.parse(input.body); } catch { throw new ZaloWebhookDiagnosticError("JSON_INVALID"); }
     const event = parseEvent(payload);
-    if (event.accountId !== this.credential.bridgeAccountId) throw new ChannelError("INVALID_WEBHOOK", false);
+    if (event.accountId !== this.credential.bridgeAccountId) throw new ZaloWebhookDiagnosticError("PROVIDER_ACCOUNT_MISMATCH");
     return { channelAccountId: this.channelAccountId, providerEventId: event.eventId, receivedAt: new Date(this.now()).toISOString(), payload: event };
   }
 
