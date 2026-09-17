@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { CHANNEL_ACCOUNT_STATUSES, CHANNEL_TYPES, type ChannelCapability } from "../core/channel-contracts";
 import type { ChannelAccountSummary, ChannelAccountsResult } from "../types/channel-account";
@@ -53,7 +53,7 @@ function mapRow(row: ChannelAccountRow): ChannelAccountSummary | null {
 export async function listChannelAccounts(): Promise<ChannelAccountsResult> {
   const account = await getAccountContext();
   if (!account?.configurationComplete || !account.workspaceId) return { accounts: [], error: "Account configuration is incomplete." };
-  const supabase = await createClient();
+  const supabase = createPrivilegedClient();
   const { data, error } = await supabase
     .from("channel_accounts")
     .select("id,channel_type,provider,external_account_id,display_name,status,capabilities,last_health_check_at,last_error_code,operator_enabled,provider_health_status,provider_health_checked_at,provider_health_reason_code")

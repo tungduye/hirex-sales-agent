@@ -58,7 +58,9 @@ async function metrics() {
   return response.json();
 }
 
-const adapter = new ZaloBridgeAdapter("workspace", "channel-account", { bridgeBaseUrl: baseUrl, bridgeAccountId: accountId, signingSecret: secret }, new FetchChannelTransport());
+// Controlled local fixture only: the production adapter still signs for the pinned origin.
+const localTransport = { request: (input) => new FetchChannelTransport().request({ ...input, url: input.url.replace("https://zalo-bridge.hirexmkt.online", baseUrl) }) };
+const adapter = new ZaloBridgeAdapter("workspace", "channel-account", { bridgeBaseUrl: "https://zalo-bridge.hirexmkt.online", bridgeAccountId: accountId, signingSecret: secret }, localTransport);
 const command = { actionId: "action", workspaceId: "workspace", channelAccountId: "channel-account", channelType: "ZALO", providerConversationId: "mock-zalo-thread-001", recipientExternalId: "mock-zalo-user-001", text: "Mock Zalo outbound", attachments: [], idempotencyKey: "stable-mock-idempotency-key", policyDecisionId: "policy" };
 
 try {

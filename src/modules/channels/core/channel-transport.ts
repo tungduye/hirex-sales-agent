@@ -26,6 +26,7 @@ export class FetchChannelTransport implements ChannelTransport {
         body: input.body,
         signal: controller.signal,
         cache: "no-store",
+        redirect: "error",
       });
       const raw = await response.text();
       let body: unknown = null;

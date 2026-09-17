@@ -97,7 +97,9 @@ try {
   let ready = ""; child.stdout.setEncoding("utf8"); child.stdout.on("data", chunk => { ready += chunk; });
   for (let index = 0; index < 100 && !ready.includes("MOCK_ZALO_BRIDGE_READY"); index += 1) await new Promise(resolve => setTimeout(resolve, 25));
   if (!ready.includes("MOCK_ZALO_BRIDGE_READY")) throw new Error("MOCK_START_FAILED");
-  const adapter = new ZaloBridgeAdapter(workspaceId, accountId, { bridgeAccountId: externalAccountId, bridgeBaseUrl: `http://127.0.0.1:${port}`, signingSecret: secret }, new FetchChannelTransport());
+  // Controlled mock fixture: only this test transport maps the pinned origin to localhost.
+  const localTransport = { request: (input) => new FetchChannelTransport().request({ ...input, url: input.url.replace("https://zalo-bridge.hirexmkt.online", `http://127.0.0.1:${port}`) }) };
+  const adapter = new ZaloBridgeAdapter(workspaceId, accountId, { bridgeAccountId: externalAccountId, bridgeBaseUrl: "https://zalo-bridge.hirexmkt.online", signingSecret: secret }, localTransport);
   const registry = new ChannelAdapterRegistry(); registry.register(adapter);
 
   await control({ reset: true, health: "HEALTHY", healthMode: "NORMAL", sendMode: "SENT" });

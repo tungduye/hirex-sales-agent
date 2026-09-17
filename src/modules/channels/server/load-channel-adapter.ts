@@ -2,6 +2,7 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { FacebookPageAdapter } from "../adapters/facebook/facebook-adapter";
 import { ZaloBridgeAdapter } from "../adapters/zalo/zalo-bridge-adapter";
+import { requireTrustedZaloBridgeOrigin } from "../adapters/zalo/trusted-bridge-origin";
 import { FetchChannelTransport } from "../core/channel-transport";
 import { decryptChannelCredential } from "./channel-credential-encryption";
 
@@ -16,6 +17,11 @@ export class ChannelAccountLoadError extends Error {
 
 function build(row:CredentialRow, account:{channel_type:unknown;external_account_id:unknown}){
   if(typeof row.channel_account_id!=="string"||typeof row.workspace_id!=="string"||typeof row.webhook_secret_encrypted!=="string"||!object(row.configuration)||typeof account.external_account_id!=="string")throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_ROW_INVALID");
+  let trustedZaloOrigin: string | null = null;
+  if(account.channel_type==="ZALO") {
+    try { trustedZaloOrigin=requireTrustedZaloBridgeOrigin(row.configuration.bridgeBaseUrl); }
+    catch { throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID"); }
+  }
   let webhookSecret:string; try{webhookSecret=decryptChannelCredential(row.webhook_secret_encrypted)}catch{throw new ChannelAccountLoadError("CHANNEL_CREDENTIAL_DECRYPT_FAILED")}; const transport=new FetchChannelTransport();
   if(account.channel_type==="FACEBOOK"){
     const version=row.configuration.graphApiVersion; if(typeof row.access_token_encrypted!=="string"||typeof version!=="string"||!/^v[0-9]{1,3}\.[0-9]{1,3}$/u.test(version))throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID");
@@ -23,8 +29,8 @@ function build(row:CredentialRow, account:{channel_type:unknown;external_account
     return { channelAccountId: row.channel_account_id, adapter: new FacebookPageAdapter(row.channel_account_id,row.workspace_id,{pageId:account.external_account_id,pageAccessToken,appSecret:webhookSecret,graphApiVersion:version},transport) };
   }
   if(account.channel_type!=="ZALO")throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_ROW_INVALID");
-  const baseUrl=row.configuration.bridgeBaseUrl; let protocol="";try{protocol=typeof baseUrl==="string"?new URL(baseUrl).protocol:""}catch{}if(typeof baseUrl!=="string"||protocol!=="https:")throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID");
-  return { channelAccountId: row.channel_account_id, adapter: new ZaloBridgeAdapter(row.workspace_id,row.channel_account_id,{bridgeAccountId:account.external_account_id,bridgeBaseUrl:baseUrl,signingSecret:webhookSecret},transport) };
+  if(!trustedZaloOrigin)throw new ChannelAccountLoadError("CHANNEL_CONFIGURATION_INVALID");
+  return { channelAccountId: row.channel_account_id, adapter: new ZaloBridgeAdapter(row.workspace_id,row.channel_account_id,{bridgeAccountId:account.external_account_id,bridgeBaseUrl:trustedZaloOrigin,signingSecret:webhookSecret},transport) };
 }
 
 function relation(value:unknown):{channel_type:unknown;external_account_id:unknown}|null{const account=Array.isArray(value)?value[0]:value;return object(account)&&"channel_type" in account&&"external_account_id" in account?{channel_type:account.channel_type,external_account_id:account.external_account_id}:null}

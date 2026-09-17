@@ -13,6 +13,7 @@ import type { ChannelTransport } from "../../core/channel-transport";
 import type { ZaloBridgeCredential, ZaloBridgeEvent } from "./zalo-bridge-contracts";
 import type { ProviderHealthStatus } from "../../core/provider-health";
 import { signZaloBridgeRequest } from "./zalo-bridge-signing";
+import { requireTrustedZaloBridgeOrigin } from "./trusted-bridge-origin";
 
 const MAX_CLOCK_SKEW_SECONDS = 300;
 const SEND_PATH="/v1/messages/send";
@@ -69,7 +70,7 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
 
   constructor(
     workspaceId: string, channelAccountId: string, credential: ZaloBridgeCredential, transport: ChannelTransport, now: () => number = Date.now,
-  ) {this.workspaceId=workspaceId;this.channelAccountId=channelAccountId;this.credential=credential;this.transport=transport;this.now=now;}
+  ) {this.workspaceId=workspaceId;this.channelAccountId=channelAccountId;this.credential={...credential,bridgeBaseUrl:requireTrustedZaloBridgeOrigin(credential.bridgeBaseUrl)};this.transport=transport;this.now=now;}
 
   async verifyWebhook(input: { headers: Readonly<Record<string, string>>; body: string }): Promise<VerifiedWebhook> {
     const timestamp = input.headers["x-hirex-timestamp"];
