@@ -7,6 +7,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import type { ChannelActionState } from "../types/channel-action-state";
 import { randomUUID } from "node:crypto";
 import { dispatchManualFacebookAction } from "./dispatch-manual-facebook-action";
+import { dispatchManualZaloAction } from "./dispatch-manual-zalo-action";
 
 const uuid = z.string().uuid();
 const conversationControlSchema = z.object({
@@ -150,6 +151,14 @@ export async function approveChannelMessage(_state: ChannelActionState, formData
     if (result === "RESPONSE_WINDOW_EXPIRED") return { status: "error", message: "The Facebook reply window has expired. No message was sent." };
     if (result === "FAILED") return { status: "error", message: "Facebook rejected this message. Inspect the safe action error before creating a new draft." };
     return { status: "error", message: "Draft approved, but no confirmed send occurred. Refresh and inspect the action state before retrying." };
+  }
+  if (action.channel_type === "ZALO") {
+    const result = await dispatchManualZaloAction(parsed.data);
+    revalidatePath("/inbox/all");
+    if (result === "SENT") return { status: "success", message: "Zalo message accepted once by the provider." };
+    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not approve or send this message again; inspect the action state." };
+    if (result === "FAILED") return { status: "error", message: "Zalo rejected this message. Inspect the safe action error before creating a new draft." };
+    return { status: "error", message: "Zalo QA delivery is unavailable. No additional send should be attempted." };
   }
   revalidatePath("/inbox/all");
   return { status: "success", message: "Message approved and ready for the channel worker." };
