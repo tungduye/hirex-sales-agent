@@ -50,7 +50,7 @@ export async function sendSalesReply(input: unknown) {
   if (created.status === "IDEMPOTENCY_CONFLICT") return { status: "CONFLICT", reason: created.reason };
   if (created.status !== "CREATED" && created.status !== "EXISTING") return { status: "UNAVAILABLE", reason: created.reason };
   const executed = await sendOneReplyMessage({ sendRequestId: created.sendRequestId!, workspaceId: account.workspaceId, emailAccountId: input.emailAccountId });
-  if (executed.status === "SENT") { revalidatePath("/inbox"); return { status: "SENT", reason: "SENT" }; }
+  if (executed.status === "SENT") { revalidatePath("/inbox"); revalidatePath("/inbox/all"); return { status: "SENT", reason: "SENT" }; }
   if (executed.status === "DELIVERY_STATUS_UNKNOWN") return { status: "DELIVERY_STATUS_UNKNOWN", reason: executed.reason };
   if (executed.status === "FAILED") return { status: executed.reason === "REAUTH_REQUIRED" ? "REAUTH_REQUIRED" : "FAILED", reason: executed.reason };
   return { status: "UNAVAILABLE", reason: executed.reason };

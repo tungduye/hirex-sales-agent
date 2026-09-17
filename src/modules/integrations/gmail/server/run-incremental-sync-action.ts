@@ -24,6 +24,7 @@ export async function runIncrementalSyncBatchAction(
   const progress = progressResult.states.find((item) => item.emailAccountId === emailAccountId.data) ?? null;
   revalidatePath("/settings");
   revalidatePath("/inbox");
+  revalidatePath("/inbox/all");
   return {
     success: result.success,
     completed: result.completed,

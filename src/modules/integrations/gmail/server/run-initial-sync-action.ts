@@ -21,5 +21,6 @@ export async function runInitialSyncBatchAction(
   const progress = progressResult.states.find((state) => state.emailAccountId === emailAccountId.data) ?? null;
   revalidatePath("/settings");
   revalidatePath("/inbox");
+  revalidatePath("/inbox/all");
   return { ...result, progress };
 }
