@@ -10,7 +10,6 @@ interface ChannelAccountRow {
   id: unknown;
   channel_type: unknown;
   provider: unknown;
-  external_account_id: unknown;
   display_name: unknown;
   status: unknown;
   capabilities: unknown;
@@ -30,7 +29,6 @@ function mapRow(row: ChannelAccountRow): ChannelAccountSummary | null {
     typeof row.channel_type !== "string" ||
     !CHANNEL_TYPES.includes(row.channel_type as never) ||
     typeof row.provider !== "string" ||
-    typeof row.external_account_id !== "string" ||
     typeof row.status !== "string" ||
     !CHANNEL_ACCOUNT_STATUSES.includes(row.status as never) ||
     !Array.isArray(row.capabilities) ||
@@ -40,7 +38,6 @@ function mapRow(row: ChannelAccountRow): ChannelAccountSummary | null {
     id: row.id,
     channelType: row.channel_type as ChannelAccountSummary["channelType"],
     provider: row.provider,
-    externalAccountId: row.external_account_id,
     displayName: typeof row.display_name === "string" ? row.display_name : null,
     status: row.status as ChannelAccountSummary["status"],
     capabilities: row.capabilities as ChannelCapability[],
@@ -56,7 +53,7 @@ export async function listChannelAccounts(): Promise<ChannelAccountsResult> {
   const supabase = createPrivilegedClient();
   const { data, error } = await supabase
     .from("channel_accounts")
-    .select("id,channel_type,provider,external_account_id,display_name,status,capabilities,last_health_check_at,last_error_code,operator_enabled,provider_health_status,provider_health_checked_at,provider_health_reason_code")
+    .select("id,channel_type,provider,display_name,status,capabilities,last_health_check_at,last_error_code,operator_enabled,provider_health_status,provider_health_checked_at,provider_health_reason_code")
     .eq("workspace_id", account.workspaceId)
     .order("channel_type")
     .order("display_name");

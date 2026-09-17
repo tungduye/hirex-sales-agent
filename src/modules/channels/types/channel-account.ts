@@ -5,7 +5,6 @@ export interface ChannelAccountSummary {
   id: string;
   channelType: ChannelType;
   provider: string;
-  externalAccountId: string;
   displayName: string | null;
   status: ChannelAccountStatus;
   capabilities: ChannelCapability[];

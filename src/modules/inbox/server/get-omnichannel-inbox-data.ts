@@ -13,7 +13,7 @@ const PAGE_SIZE = 50;
 const MAX_PREVIEW_MESSAGES = 500;
 
 interface AccountRow {
-  id: unknown; channel_type: unknown; external_account_id: unknown; display_name: unknown; status: unknown;
+  id: unknown; channel_type: unknown; display_name: unknown; status: unknown;
   operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown;
 }
 interface ConversationRow {
@@ -42,9 +42,9 @@ function healthLabel(row: AccountRow, channelType: ChannelType): string {
 }
 
 function mapAccount(row: AccountRow): OmnichannelInboxAccount | null {
-  if (typeof row.id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CHANNEL_ACCOUNT_STATUSES.includes(row.status as never) || typeof row.external_account_id !== "string") return null;
+  if (typeof row.id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CHANNEL_ACCOUNT_STATUSES.includes(row.status as never)) return null;
   const channelType = row.channel_type as ChannelType;
-  return { id: row.id, channelType, displayName: typeof row.display_name === "string" ? row.display_name : row.external_account_id, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType) };
+  return { id: row.id, channelType, displayName: typeof row.display_name === "string" && row.display_name.trim() ? row.display_name : `${channelType} account`, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType) };
 }
 
 function safePage(value: string | undefined): number {
@@ -79,7 +79,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
   const supabase = await createClient();
   const accountClient = createPrivilegedClient();
   const [{ data: accountData, error: accountError }, { data: profileData }, { data: tagData }] = await Promise.all([
-    accountClient.from("channel_accounts").select("id,channel_type,external_account_id,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at").eq("workspace_id", accountContext.workspaceId).order("channel_type").order("display_name"),
+    accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at").eq("workspace_id", accountContext.workspaceId).order("channel_type").order("display_name"),
     supabase.from("profiles").select("id,full_name").eq("workspace_id", accountContext.workspaceId).order("full_name"),
     supabase.from("conversation_tags").select("id,name,color").eq("workspace_id", accountContext.workspaceId).order("name"),
   ]);

@@ -8,6 +8,7 @@ import { encryptChannelCredential } from "./channel-credential-encryption";
 import { requireTrustedZaloBridgeOrigin } from "../adapters/zalo/trusted-bridge-origin";
 import { loadChannelAdapterByAccountId } from "./load-channel-adapter";
 import { PROVIDER_HEALTH_STATUSES, type ProviderHealthStatus } from "../core/provider-health";
+import { zaloConnectCapabilities } from "../core/zalo-account-policy";
 import type { ChannelActionState } from "../types/channel-action-state";
 
 const safeText=z.string().trim().min(1).max(256).refine(value=>!/[\u0000-\u001f\u007f-\u009f]/u.test(value));
@@ -23,7 +24,18 @@ export async function connectFacebookPage(_state:ChannelActionState,formData:For
 
 export async function connectZaloBridge(_state:ChannelActionState,formData:FormData):Promise<ChannelActionState>{
   const parsed=zaloSchema.safeParse(Object.fromEntries(formData)),account=await context();if(!parsed.success||!account)return{status:"error",message:"Zalo bridge configuration is invalid."};
-  try{const client=createPrivilegedClient();const {data,error}=await client.rpc("upsert_channel_account_credential",{p_workspace_id:account.workspaceId,p_connected_by:account.userId,p_channel_type:"ZALO",p_provider:"ZALO_BRIDGE",p_external_account_id:parsed.data.accountId,p_display_name:parsed.data.displayName||null,p_capabilities:["SEND_TEXT","SEND_IMAGE","SEND_FILE","REPLY","READ_RECEIPTS"],p_access_token_encrypted:null,p_webhook_secret_encrypted:encryptChannelCredential(parsed.data.bridgeSecret),p_configuration:{bridgeBaseUrl:requireTrustedZaloBridgeOrigin(parsed.data.bridgeBaseUrl)}});if(error||typeof data!=="string")return{status:"error",message:"Zalo bridge could not be connected."};revalidatePath("/settings/channels");return{status:"success",message:"Zalo bridge credential saved securely."}}catch{return{status:"error",message:"Zalo bridge connection is unavailable."}}
+  try{
+    const client=createPrivilegedClient();
+    const {data:existing,error:lookupError}=await client.from("channel_accounts").select("id,capabilities")
+      .eq("workspace_id",account.workspaceId).eq("channel_type","ZALO").eq("provider","ZALO_BRIDGE")
+      .eq("external_account_id",parsed.data.accountId).maybeSingle();
+    if(lookupError)return{status:"error",message:"Zalo bridge could not be connected."};
+    // Never grant outbound to a newly added account. Only preserve the already
+    // reviewed single QA account's existing SEND_TEXT capability on reconnect.
+    const capabilities=zaloConnectCapabilities({isExisting:Boolean(existing),existingCapabilities:existing?.capabilities,
+      providerAccountId:parsed.data.accountId,qaProviderAccountId:process.env.HIREX_ZALO_QA_ACCOUNT_ID});
+    const {data,error}=await client.rpc("upsert_channel_account_credential",{p_workspace_id:account.workspaceId,p_connected_by:account.userId,p_channel_type:"ZALO",p_provider:"ZALO_BRIDGE",p_external_account_id:parsed.data.accountId,p_display_name:parsed.data.displayName||null,p_capabilities:capabilities,p_access_token_encrypted:null,p_webhook_secret_encrypted:encryptChannelCredential(parsed.data.bridgeSecret),p_configuration:{bridgeBaseUrl:requireTrustedZaloBridgeOrigin(parsed.data.bridgeBaseUrl)}});if(error||typeof data!=="string")return{status:"error",message:"Zalo bridge could not be connected."};revalidatePath("/settings/channels");return{status:"success",message:"Zalo bridge credential saved securely."};
+  }catch{return{status:"error",message:"Zalo bridge connection is unavailable."}}
 }
 
 export async function disconnectChannelAccount(_state:ChannelActionState,formData:FormData):Promise<ChannelActionState>{
