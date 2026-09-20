@@ -7,6 +7,7 @@ import { FetchChannelTransport } from "../core/channel-transport";
 import { decryptChannelCredential } from "./channel-credential-encryption";
 
 interface CredentialRow { channel_account_id: unknown; workspace_id: unknown; access_token_encrypted: unknown; webhook_secret_encrypted: unknown; configuration: unknown; channel_accounts: unknown }
+interface AccountRow { id: unknown; channel_type: unknown; external_account_id: unknown }
 function object(value:unknown):value is Record<string,unknown>{return Boolean(value)&&typeof value==="object"&&!Array.isArray(value)}
 
 export type ChannelAccountLoadCode = "CHANNEL_ACCOUNT_QUERY_FAILED" | "CHANNEL_ACCOUNT_NOT_FOUND" | "CHANNEL_ACCOUNT_ROW_INVALID" | "CHANNEL_CREDENTIAL_DECRYPT_FAILED" | "CHANNEL_CONFIGURATION_INVALID";
@@ -37,9 +38,18 @@ function relation(value:unknown):{channel_type:unknown;external_account_id:unkno
 
 export async function loadChannelAdapterByExternalId(channelType:"FACEBOOK"|"ZALO",provider:string,externalAccountId:string){
   const client=createPrivilegedClient();
-  const {data,error}=await client.from("channel_account_credentials").select("channel_account_id,workspace_id,access_token_encrypted,webhook_secret_encrypted,configuration,channel_accounts!inner(channel_type,provider,external_account_id,status)").eq("channel_accounts.channel_type",channelType).eq("channel_accounts.provider",provider).eq("channel_accounts.external_account_id",externalAccountId).eq("channel_accounts.status","CONNECTED").maybeSingle();
-  const row=data as CredentialRow|null; const account=relation(row?.channel_accounts);
-  if(error)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_QUERY_FAILED");if(!row||!account)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_NOT_FOUND"); return build(row,account);
+  const accountResult=await client.from("channel_accounts").select("id,channel_type,external_account_id")
+    .eq("channel_type",channelType).eq("provider",provider).eq("external_account_id",externalAccountId).eq("status","CONNECTED").maybeSingle();
+  if(accountResult.error)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_QUERY_FAILED");
+  const accountRow=accountResult.data as AccountRow|null;
+  if(!accountRow||typeof accountRow.id!=="string")throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_NOT_FOUND");
+  const credentialResult=await client.from("channel_account_credentials")
+    .select("channel_account_id,workspace_id,access_token_encrypted,webhook_secret_encrypted,configuration")
+    .eq("channel_account_id",accountRow.id).maybeSingle();
+  if(credentialResult.error)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_QUERY_FAILED");
+  const row=credentialResult.data as CredentialRow|null;
+  if(!row)throw new ChannelAccountLoadError("CHANNEL_ACCOUNT_NOT_FOUND");
+  return build(row,{channel_type:accountRow.channel_type,external_account_id:accountRow.external_account_id});
 }
 
 export async function loadChannelAdapterByAccountId(channelAccountId:string){
