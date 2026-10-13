@@ -16,7 +16,7 @@ $release = 'auto-gates'
 Set-Location -LiteralPath $root
 
 function Step([string]$text) { Write-Host ''; Write-Host "==> $text" -ForegroundColor Cyan }
-function Fail([string]$text) { Write-Host "STOPPED: $text" -ForegroundColor Red; exit 1 }
+function Fail([string]$text) { Remove-Item Env:SUPABASE_DB_PASSWORD -ErrorAction SilentlyContinue; Write-Host "STOPPED: $text" -ForegroundColor Red; exit 1 }
 # Windows PowerShell 5.1 turns redirected stderr of native tools into terminating errors
 # under ErrorActionPreference=Stop; the Supabase CLI writes progress to stderr.
 function Capture([string]$exe, [string[]]$arguments) {
@@ -53,27 +53,49 @@ if ($staged.Count -gt 0) {
 
 # 2. Unit test --------------------------------------------------------------
 Step 'Unit test: AUTO actions without a human approver'
-node --experimental-strip-types --no-warnings --test tests/outbound-auto-approver.test.mjs
-if ($LASTEXITCODE -ne 0) { Fail 'Unit test failed. Nothing was deployed.' }
+$nodeMajor = [int]((node -p "process.versions.node.split('.')[0]") | Out-String).Trim()
+if ($nodeMajor -lt 22) {
+  Write-Host "WARNING: Node $nodeMajor cannot run .ts imports in tests; skipping. Upgrade to Node 22.18+ for unit tests." -ForegroundColor Yellow
+} else {
+  $test = Capture 'node' @('--test','tests/outbound-auto-approver.test.mjs')
+  if ($test.Code -ne 0) { $test = Capture 'node' @('--experimental-strip-types','--no-warnings','--test','tests/outbound-auto-approver.test.mjs') }
+  Write-Host $test.Text
+  if ($test.Code -ne 0) { Fail 'Unit test failed. Nothing was deployed.' }
+}
 
 # 3. Build ------------------------------------------------------------------
 Step "Build into .next-$release"
-if (Test-Path -LiteralPath "$root\.next-$release") { Fail ".next-$release already exists. Rename or delete it, then run again." }
 if (Test-Path -LiteralPath "$root\.next-before-$release") { Fail ".next-before-$release already exists (an earlier deploy of this release). Rename it, then run again." }
-$env:HIREX_BUILD_DIR = ".next-$release"
-try { npm run build; $buildExit = $LASTEXITCODE } finally { Remove-Item Env:HIREX_BUILD_DIR -ErrorAction SilentlyContinue }
-if ($buildExit -ne 0 -or -not (Test-Path -LiteralPath "$root\.next-$release\BUILD_ID")) { Fail 'Build failed. Nothing was deployed.' }
+$changedSource = @(git status --porcelain -- src supabase package.json next.config.ts)
+if ((Test-Path -LiteralPath "$root\.next-$release\BUILD_ID") -and $changedSource.Count -eq 0) {
+  # A previous run already built this commit (it stopped later, at the migration check).
+  Write-Host "Reusing existing build .next-$release (no source changes since the last commit)."
+} else {
+  if (Test-Path -LiteralPath "$root\.next-$release") { Fail ".next-$release exists but source files changed since it was built. Delete .next-$release, then run again." }
+  $env:HIREX_BUILD_DIR = ".next-$release"
+  try { npm run build; $buildExit = $LASTEXITCODE } finally { Remove-Item Env:HIREX_BUILD_DIR -ErrorAction SilentlyContinue }
+  if ($buildExit -ne 0 -or -not (Test-Path -LiteralPath "$root\.next-$release\BUILD_ID")) { Fail 'Build failed. Nothing was deployed.' }
+}
 
 # 4. Migration dry run ------------------------------------------------------
 Step 'Supabase: which migrations are pending?'
+# The CLI reads SUPABASE_DB_PASSWORD; asking here avoids a hidden prompt while output is captured.
+$secure = Read-Host -AsSecureString 'Supabase database password (press Enter if the CLI does not ask for one)'
+$plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+if ($plain) { $env:SUPABASE_DB_PASSWORD = $plain }
+$plain = $null
 $result = Capture 'npx.cmd' @('supabase','db','push','--dry-run')
 $dry = $result.Text
 Write-Host $dry
 if ($result.Code -ne 0) { Fail 'supabase db push --dry-run failed (login / link / password?). Nothing was deployed.' }
 $pending = @([regex]::Matches($dry, '\b(\d{3})_[A-Za-z0-9_]+\.sql') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 if ($pending.Count -eq 0) { Fail 'No pending migration found. Either 069 is already applied or the CLI output changed; check manually.' }
-if ($pending.Count -ne 1 -or $pending[0] -ne '069') { Fail ("Unexpected pending migrations: " + ($pending -join ', ') + '. Only 069 is expected.') }
-Confirm 'Only 069 is pending. Stop the web app briefly, apply 069 and switch to the new build?'
+# 067 and 068 may already exist remotely if they were applied by hand (outside `supabase db push`).
+# Both are safe to re-run: 067 is `create or replace function`, 068 checks for its own guard first.
+$allowed = @('067','068','069')
+$unexpected = @($pending | Where-Object { $allowed -notcontains $_ })
+if ($unexpected.Count -gt 0 -or $pending -notcontains '069') { Fail ("Unexpected pending migrations: " + ($pending -join ', ') + '. Expected 069, optionally with 067/068.') }
+Confirm ("Pending: " + ($pending -join ', ') + ". Stop the web app briefly, apply them and switch to the new build?")
 
 # 5. Deploy -----------------------------------------------------------------
 Step 'Deploy (web will be down for a short time)'
@@ -85,6 +107,8 @@ Step 'Verify migration history'
 $list = (Capture 'npx.cmd' @('supabase','migration','list')).Text
 Write-Host $list
 if ($list -notmatch '069\s*\|\s*069') { Write-Host 'WARNING: 069 not shown as applied remotely. Check the Supabase dashboard.' -ForegroundColor Yellow }
+
+Remove-Item Env:SUPABASE_DB_PASSWORD -ErrorAction SilentlyContinue
 
 Step 'Push commit to GitHub'
 git push origin HEAD

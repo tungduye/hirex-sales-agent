@@ -81,7 +81,9 @@
     ".next-human-runtime/types/**/*.ts",
     ".next-human-runtime/dev/types/**/*.ts",
     ".next-human-citations/types/**/*.ts",
-    ".next-human-citations/dev/types/**/*.ts"
+    ".next-human-citations/dev/types/**/*.ts",
+    ".next-auto-gates/types/**/*.ts",
+    ".next-auto-gates/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
