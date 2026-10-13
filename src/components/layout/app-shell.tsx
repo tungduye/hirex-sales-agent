@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { AccountProvider } from "@/modules/identity/components/account-context";
 import { AccountSetupRequired } from "@/modules/identity/components/account-setup-required";
+import { AssistantPanel } from "@/modules/assistant/components/assistant-panel";
 import type { AccountContext } from "@/types/account";
 
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
@@ -48,6 +49,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
         <main className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">{account.configurationComplete ? children : <AccountSetupRequired />}</main>
       </div>
     </div>
+    {account.configurationComplete && <AssistantPanel account={account} />}
     </AccountProvider>
   );
 }
