@@ -7,11 +7,13 @@ import { contactBelongsToWorkspace } from "@/modules/crm/contact-channels/server
 import { restorePrimaryChannels, unsetPrimaryChannels } from "@/modules/crm/contact-channels/server/primary-management";
 import type { CreateContactChannelState } from "@/modules/crm/contact-channels/types/create-contact-channel-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function createContactChannel(
   _previousState: CreateContactChannelState,
   formData: FormData,
 ): Promise<CreateContactChannelState> {
+  await requirePermission("contacts.update");
   const parsed = createContactChannelSchema.safeParse({
     contactId: formData.get("contactId"),
     channelType: formData.get("channelType"),

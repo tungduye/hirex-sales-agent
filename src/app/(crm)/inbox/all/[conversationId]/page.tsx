@@ -6,29 +6,37 @@ import { getOmnichannelConversationDetail } from "@/modules/inbox/server/get-omn
 import { getOmnichannelInboxData } from "@/modules/inbox/server/get-omnichannel-inbox-data";
 import { getThreadDetail } from "@/modules/inbox/server/get-thread-detail";
 import { resolveLatestReplyTargetForThread } from "@/modules/inbox/server/resolve-latest-reply-target";
+import { hasPermission } from "@/modules/access/server/access-control";
 
 export default async function OmnichannelConversationPage({ params, searchParams }: {
   params: Promise<{ conversationId: string }>;
-  searchParams: Promise<{ channel?: string | string[]; account?: string | string[]; page?: string | string[] }>;
+  searchParams: Promise<{ channel?: string | string[]; account?: string | string[]; owner?: string | string[]; page?: string | string[]; tag?: string | string[]; tagMode?: string | string[]; firstFrom?: string | string[]; firstTo?: string | string[] }>;
 }) {
   const [{ conversationId }, query] = await Promise.all([params, searchParams]);
   const channel = typeof query.channel === "string" ? query.channel : undefined;
   const account = typeof query.account === "string" ? query.account : undefined;
+  const ownerIds = Array.isArray(query.owner) ? query.owner : typeof query.owner === "string" ? [query.owner] : [];
   const page = typeof query.page === "string" ? query.page : undefined;
-  const [data, detailResult, quickReplies] = await Promise.all([
-    getOmnichannelInboxData({ channelType: channel, accountId: account, page }),
+  const tagIds = Array.isArray(query.tag) ? query.tag : typeof query.tag === "string" ? [query.tag] : [];
+  const tagMatchMode = typeof query.tagMode === "string" ? query.tagMode : undefined;
+  const firstMessageFrom = typeof query.firstFrom === "string" ? query.firstFrom : undefined;
+  const firstMessageTo = typeof query.firstTo === "string" ? query.firstTo : undefined;
+  const [data, detailResult, quickReplies, canUpdateConversation] = await Promise.all([
+    getOmnichannelInboxData({ channelType: channel, accountId: account, ownerIds, page, tagIds, tagMatchMode, firstMessageFrom, firstMessageTo }),
     getOmnichannelConversationDetail(conversationId),
     listQuickReplies(),
+    hasPermission("inbox.update"),
   ]);
   let emailDetail = null;
-  if (detailResult.status === "ready" && detailResult.conversation.channelType === "EMAIL" && detailResult.conversation.legacyEmailAccountId) {
+  if (detailResult.status === "ready" && detailResult.conversation.channelType === "EMAIL" && detailResult.conversation.legacyEmailAccountId && detailResult.conversation.legacyEmailThreadId) {
     const emailAccountId = detailResult.conversation.legacyEmailAccountId;
+    const emailThreadId = detailResult.conversation.legacyEmailThreadId;
     const [threadResult, replyContext] = await Promise.all([
-      getThreadDetail(conversationId, emailAccountId),
-      resolveLatestReplyTargetForThread(conversationId, emailAccountId),
+      getThreadDetail(emailThreadId, emailAccountId),
+      resolveLatestReplyTargetForThread(emailThreadId, emailAccountId),
     ]);
-    emailDetail = <ThreadDetail result={threadResult} replyContext={replyContext} threadId={conversationId}/>;
+    emailDetail = <ThreadDetail result={threadResult} replyContext={replyContext} threadId={emailThreadId}/>;
   }
-  const detail = <OmnichannelConversationDetail result={detailResult} profiles={data.profiles} tags={data.tags} quickReplies={quickReplies.templates} emailDetail={emailDetail}/>;
+  const detail = <OmnichannelConversationDetail result={detailResult} profiles={data.profiles} tags={data.tags} quickReplies={quickReplies.templates} canUpdateConversation={canUpdateConversation} emailDetail={emailDetail}/>;
   return <OmnichannelInboxView {...data} quickReplies={quickReplies.templates} selectedConversationId={conversationId} detail={detail}/>;
 }

@@ -5,6 +5,7 @@ export type ChannelErrorCode =
   | "PERMISSION_DENIED"
   | "RATE_LIMITED"
   | "DELIVERY_REJECTED"
+  | "ACCOUNT_BUSY"
   | "DELIVERY_UNKNOWN";
 
 export class ChannelError extends Error {

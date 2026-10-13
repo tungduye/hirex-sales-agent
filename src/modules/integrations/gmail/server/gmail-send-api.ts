@@ -1,7 +1,9 @@
 import "server-only";
 
 const SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
-const SEND_TIMEOUT_MS = 20_000;
+// Attachment MIME/base64 can be substantially larger than the source file.
+// A timeout is ambiguous and MUST NOT trigger an automatic resend.
+const SEND_TIMEOUT_MS = 120_000;
 
 export class GmailSendDefinitiveError extends Error {
   readonly safeCode:
@@ -17,7 +19,7 @@ export class GmailSendDefinitiveError extends Error {
 }
 
 export class GmailSendAmbiguousError extends Error {
-  constructor() {
+  constructor(readonly reason: "TIMEOUT" | "NETWORK" | "HTTP_AMBIGUOUS" | "INVALID_RESPONSE" = "INVALID_RESPONSE") {
     super("Gmail delivery status is unknown.");
   }
 }
@@ -43,15 +45,15 @@ export async function sendRawGmailMessage(
       cache: "no-store",
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
-  } catch {
-    throw new GmailSendAmbiguousError();
+  } catch (error) {
+    throw new GmailSendAmbiguousError(error instanceof Error && error.name === "TimeoutError" ? "TIMEOUT" : "NETWORK");
   }
 
   if (!response.ok) {
     if (response.status === 401) throw new GmailSendDefinitiveError("REAUTH_REQUIRED");
     if (response.status === 403) throw new GmailSendDefinitiveError("GMAIL_PERMISSION_DENIED");
     if (response.status === 429) throw new GmailSendDefinitiveError("GMAIL_RATE_LIMITED");
-    if (response.status === 408 || response.status >= 500) throw new GmailSendAmbiguousError();
+    if (response.status === 408 || response.status >= 500) throw new GmailSendAmbiguousError("HTTP_AMBIGUOUS");
     throw new GmailSendDefinitiveError("GMAIL_SEND_REJECTED");
   }
 

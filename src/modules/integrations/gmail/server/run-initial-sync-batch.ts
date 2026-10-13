@@ -9,7 +9,10 @@ import { loadSyncCredentials, markReauthenticationRequired, ReauthenticationRequ
 import type { GmailMessageResource } from "@/modules/integrations/gmail/types/gmail-message";
 import type { InitialSyncStatus } from "@/modules/integrations/gmail/types/initial-sync";
 
-const CONCURRENCY = 5;
+// Persist initial-sync messages sequentially. A Gmail page can contain several
+// messages from the same thread; parallel upserts can race while creating that
+// thread and cause an otherwise valid page to stop at its checkpoint.
+const CONCURRENCY = 1;
 const STALE_LOCK_MS = 10 * 60 * 1000;
 
 interface SyncStateRow {
@@ -91,7 +94,7 @@ async function executeInitialSyncBatch(scope: Scope): Promise<BatchResult> {
       try {
         resource = prefetched.get(messageId) ?? await getFullMessage(credentials.accessToken, messageId);
         const parsed = parseGmailMessage(resource, credentials.emailAddress);
-        if (!parsed) return { kind: "skipped", resource };
+        if (!parsed || parsed.direction !== 'INBOUND' || parsed.labels.includes('DRAFT')) return { kind: "skipped", resource };
         const threadId = await upsertMailboxMessage(scope, parsed);
         return { kind: "synced", threadId, resource };
       } catch (error) {

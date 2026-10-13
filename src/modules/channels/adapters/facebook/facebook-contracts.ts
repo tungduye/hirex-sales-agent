@@ -11,11 +11,12 @@ export interface FacebookWebhookEnvelope {
     id: string;
     time: number;
     messaging?: Array<{
-      sender?: { id?: string };
-      recipient?: { id?: string };
+      sender?: { id?: string; name?: string };
+      recipient?: { id?: string; name?: string };
       timestamp?: number;
       message?: {
         mid?: string;
+        is_echo?: boolean;
         text?: string;
         attachments?: Array<{
           type?: string;

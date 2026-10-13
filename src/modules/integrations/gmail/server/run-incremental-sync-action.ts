@@ -6,6 +6,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { listIncrementalSyncStates } from "@/modules/integrations/gmail/server/list-incremental-sync-states";
 import { runIncrementalSyncBatch } from "@/modules/integrations/gmail/server/run-incremental-sync-batch";
 import type { IncrementalSyncActionState } from "@/modules/integrations/gmail/types/incremental-sync";
+import { canAccessEmailAccount, hasPermission } from "@/modules/access/server/access-control";
 
 export async function runIncrementalSyncBatchAction(
   _state: IncrementalSyncActionState,
@@ -15,6 +16,7 @@ export async function runIncrementalSyncBatchAction(
   if (!emailAccountId.success) return failure("This email account could not be synced.");
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return failure("Your account is not ready to sync Gmail.");
+  if (!await hasPermission("channels.manage") || !await canAccessEmailAccount(emailAccountId.data)) return failure("Bạn không có quyền đồng bộ tài khoản Gmail này.");
 
   const result = await runIncrementalSyncBatch({
     workspaceId: account.workspaceId,

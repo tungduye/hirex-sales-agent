@@ -6,11 +6,13 @@ import { deleteContactChannelSchema } from "@/modules/crm/contact-channels/schem
 import { contactBelongsToWorkspace } from "@/modules/crm/contact-channels/server/contact-channel-access";
 import type { DeleteContactChannelState } from "@/modules/crm/contact-channels/types/delete-contact-channel-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function deleteContactChannel(
   _previousState: DeleteContactChannelState,
   formData: FormData,
 ): Promise<DeleteContactChannelState> {
+  await requirePermission("contacts.update");
   const parsed = deleteContactChannelSchema.safeParse({
     contactId: formData.get("contactId"),
     channelId: formData.get("channelId"),

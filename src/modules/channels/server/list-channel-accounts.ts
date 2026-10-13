@@ -5,6 +5,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { CHANNEL_ACCOUNT_STATUSES, CHANNEL_TYPES, type ChannelCapability } from "../core/channel-contracts";
 import type { ChannelAccountSummary, ChannelAccountsResult } from "../types/channel-account";
 import { PROVIDER_HEALTH_STATUSES } from "../core/provider-health";
+import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 
 interface ChannelAccountRow {
   id: unknown;
@@ -51,12 +52,17 @@ export async function listChannelAccounts(): Promise<ChannelAccountsResult> {
   const account = await getAccountContext();
   if (!account?.configurationComplete || !account.workspaceId) return { accounts: [], error: "Account configuration is incomplete." };
   const supabase = createPrivilegedClient();
-  const { data, error } = await supabase
+  const accessibleAccountIds=await getAccessibleChannelAccountIds();
+  if(accessibleAccountIds?.length===0)return {accounts:[],error:null};
+  let query = supabase
     .from("channel_accounts")
     .select("id,channel_type,provider,display_name,status,capabilities,last_health_check_at,last_error_code,operator_enabled,provider_health_status,provider_health_checked_at,provider_health_reason_code")
     .eq("workspace_id", account.workspaceId)
+    .is("deleted_at",null)
     .order("channel_type")
     .order("display_name");
+  if(accessibleAccountIds)query=query.in("id",accessibleAccountIds);
+  const {data,error}=await query;
   if (error) return { accounts: [], error: "Channel accounts are not available yet." };
   const accounts = (data as ChannelAccountRow[]).map(mapRow);
   if (accounts.some((item) => item === null)) return { accounts: [], error: "Channel account data is unavailable." };

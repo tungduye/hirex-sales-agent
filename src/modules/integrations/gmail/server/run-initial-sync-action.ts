@@ -6,6 +6,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { runInitialSyncBatch } from "@/modules/integrations/gmail/server/run-initial-sync-batch";
 import { listInitialSyncStates } from "@/modules/integrations/gmail/server/list-initial-sync-states";
 import type { InitialSyncActionState } from "@/modules/integrations/gmail/types/initial-sync";
+import { canAccessEmailAccount, hasPermission } from "@/modules/access/server/access-control";
 
 export async function runInitialSyncBatchAction(
   _state: InitialSyncActionState,
@@ -15,6 +16,7 @@ export async function runInitialSyncBatchAction(
   if (!emailAccountId.success) return { success: false, completed: false, message: "This email account could not be synced." };
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return { success: false, completed: false, message: "Your account is not ready to sync Gmail." };
+  if (!await hasPermission("channels.manage") || !await canAccessEmailAccount(emailAccountId.data)) return { success: false, completed: false, message: "Bạn không có quyền đồng bộ tài khoản Gmail này." };
 
   const result = await runInitialSyncBatch({ workspaceId: account.workspaceId, emailAccountId: emailAccountId.data });
   const progressResult = await listInitialSyncStates();

@@ -3,6 +3,7 @@ import "server-only";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 import type { EmailAccountMetadata, EmailAccountStatus } from "@/modules/integrations/gmail/types/email-account";
+import { getAccessibleEmailAccountIds } from "@/modules/access/server/access-control";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -29,12 +30,16 @@ export async function listEmailAccounts(): Promise<ListEmailAccountsResult> {
   }
 
   const supabase = createPrivilegedSupabaseClient();
-  const { data, error } = await supabase
+  const accessibleIds=await getAccessibleEmailAccountIds();
+  if(accessibleIds?.length===0)return {accounts:[],error:null};
+  let query = supabase
     .from("email_accounts")
     .select("id, provider, email_address, display_name, status, scopes, last_sync_at, created_at")
     .eq("workspace_id", account.workspaceId)
     .eq("provider", "GMAIL")
     .order("created_at", { ascending: true });
+  if(accessibleIds)query=query.in("id",accessibleIds);
+  const {data,error}=await query;
 
   if (error) {
     return { accounts: [], error: "Email accounts could not be loaded. Please try again." };

@@ -5,11 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { updateCompanySchema } from "@/modules/crm/companies/schemas/company-schema";
 import type { CompanyFormState } from "@/modules/crm/companies/types/create-company-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function updateCompany(
   _previousState: CompanyFormState,
   formData: FormData,
 ): Promise<CompanyFormState> {
+  await requirePermission("companies.update");
   const parsed = updateCompanySchema.safeParse({
     companyId: formData.get("companyId"),
     name: formData.get("name"),

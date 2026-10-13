@@ -25,7 +25,7 @@ export async function dispatchManualFacebookAction(actionId: string): Promise<Ma
     const registry = new ChannelAdapterRegistry();
     registry.register(loaded.adapter);
     const result = await executeChannelOutboundAction(actionId, registry);
-    return result.status === "FAILED" && result.safeErrorCode === "FACEBOOK_RESPONSE_WINDOW_EXPIRED" ? "RESPONSE_WINDOW_EXPIRED" : result.status;
+    return result.status === "DEFERRED" ? "UNAVAILABLE" : result.status === "FAILED" && result.safeErrorCode === "FACEBOOK_RESPONSE_WINDOW_EXPIRED" ? "RESPONSE_WINDOW_EXPIRED" : result.status;
   } catch {
     return "UNAVAILABLE";
   }

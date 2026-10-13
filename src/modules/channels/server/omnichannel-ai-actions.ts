@@ -2,6 +2,8 @@
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { canAccessChannelAccount, hasPermission } from "@/modules/access/server/access-control";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
 
 export interface OmnichannelAiState{status:"idle"|"draft"|"error";message:string|null;draftText:string|null}
 const schema=z.object({conversationId:z.string().uuid(),instruction:z.string().max(1000).refine(value=>!value.includes("\u0000"))});
@@ -10,6 +12,9 @@ function output(value:unknown){if(!object(value)||!Array.isArray(value.output))r
 
 export async function generateOmnichannelDraft(_state:OmnichannelAiState,formData:FormData):Promise<OmnichannelAiState>{
   const parsed=schema.safeParse(Object.fromEntries(formData)),account=await getAccountContext();if(!parsed.success||!account?.workspaceId)return{status:"error",message:"AI draft is unavailable.",draftText:null};
+  if(!await hasPermission("inbox.reply"))return{status:"error",message:"Bạn không có quyền soạn trả lời cho hội thoại.",draftText:null};
+  const {data:conversation}=await createPrivilegedClient().from("omnichannel_conversations").select("channel_account_id").eq("id",parsed.data.conversationId).eq("workspace_id",account.workspaceId).maybeSingle();
+  if(!conversation||!await canAccessChannelAccount(conversation.channel_account_id))return{status:"error",message:"Bạn không có quyền truy cập hội thoại này.",draftText:null};
   const apiKey=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL;if(!apiKey||!model)return{status:"error",message:"AI drafting is not configured.",draftText:null};
   const client=await createClient();const{data,error}=await client.from("omnichannel_messages").select("direction,text_content,created_at").eq("workspace_id",account.workspaceId).eq("conversation_id",parsed.data.conversationId).order("created_at",{ascending:false}).limit(12);if(error)return{status:"error",message:"Conversation context is unavailable.",draftText:null};
   const context=(data??[]).reverse().map(message=>({role:message.direction,text:typeof message.text_content==="string"?message.text_content.slice(0,6000):"[attachment]"}));

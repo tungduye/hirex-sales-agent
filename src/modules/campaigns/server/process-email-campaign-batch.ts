@@ -1,4 +1,5 @@
 import "server-only";
+import { campaignHasQuotaHold } from './gmail-quota';
 
 import { randomUUID } from "node:crypto";
 import { buildCampaignPersonalization, MAX_RECIPIENTS_PER_WORKER_RUN, normalizeCampaignEmail, renderCampaignTemplate, validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
@@ -27,6 +28,7 @@ export async function processEmailCampaignBatch(limit = 10): Promise<CampaignWor
   let consecutiveEmpty=0;
   for(let index=0;index<ceiling;index+=1){
     const campaign=campaigns?.[index%(campaigns?.length||1)]; if(!campaign) break; const token=randomUUID();
+    if(await campaignHasQuotaHold(campaign.workspace_id,campaign.id)) continue;
     const {data,error}=await db.rpc("claim_email_campaign_recipients",{p_workspace_id:campaign.workspace_id,p_campaign_id:campaign.id,p_claim_token:token,p_limit:1});if(error)return {...result,success:false,code:"DATABASE_UNAVAILABLE"};
     const raw=data?.[0]??null;if(!raw){consecutiveEmpty+=1;if(consecutiveEmpty>=result.campaignsConsidered)break;continue;}consecutiveEmpty=0;
     if(!isClaim(raw,campaign.id,campaign.workspace_id,token))return {...result,success:false,code:"MALFORMED_CLAIM"};const claim=raw;

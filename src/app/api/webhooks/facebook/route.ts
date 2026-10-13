@@ -1,6 +1,7 @@
 import { ingestChannelWebhook } from "@/modules/channels/server/ingest-channel-webhook";
 import { loadChannelAdapterByExternalId } from "@/modules/channels/server/load-channel-adapter";
 import { verifyFacebookWebhookChallenge } from "@/modules/channels/adapters/facebook/facebook-webhook-verification";
+import { ChannelError } from "@/modules/channels/core/channel-errors";
 
 export async function GET(request: Request) {
   try {
@@ -20,5 +21,9 @@ export async function POST(request: Request) {
     const headers = Object.fromEntries(request.headers.entries());
     const result = await ingestChannelWebhook({ adapter: loaded.adapter, channelAccountId: loaded.channelAccountId, channelType: "FACEBOOK", headers, body });
     return Response.json({ accepted: result.accepted });
-  } catch { return Response.json({ error: "Webhook could not be processed." }, { status: 400 }); }
+  } catch (error) {
+    console.error("FACEBOOK_WEBHOOK_INGEST_FAILED", error instanceof Error ? error.message : "UNKNOWN");
+    const invalid = error instanceof SyntaxError || (error instanceof Error && error.message === "INVALID_WEBHOOK") || (error instanceof ChannelError && error.code === "INVALID_WEBHOOK");
+    return Response.json({ error: "Webhook could not be processed." }, { status: invalid ? 400 : 503 });
+  }
 }

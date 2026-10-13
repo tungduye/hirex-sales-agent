@@ -6,6 +6,7 @@ import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/ser
 import { createReplySendRequest } from "@/modules/integrations/gmail/server/create-reply-send-request";
 import { sendOneReplyMessage } from "@/modules/integrations/gmail/server/send-one-reply-message";
 import { resolveLatestReplyTargetForThread } from "@/modules/inbox/server/resolve-latest-reply-target";
+import { canAccessChannelAccount, hasPermission } from "@/modules/access/server/access-control";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validText = (value: unknown, max = 100000): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= max && !value.includes("\0");
@@ -44,6 +45,10 @@ export async function sendSalesReply(input: unknown) {
   if (!isSendInput(input)) return { status: "INVALID_INPUT", reason: "INVALID_INPUT" };
   const account = await getAccountContext();
   if (!account?.workspaceId) return { status: "UNAVAILABLE", reason: "UNAVAILABLE" };
+  if(!await hasPermission("inbox.reply"))return {status:"UNAVAILABLE",reason:"FORBIDDEN"};
+  const db=createPrivilegedSupabaseClient();
+  const {data:channelAccount}=await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).eq("legacy_email_account_id",input.emailAccountId).maybeSingle();
+  if(!channelAccount||!await canAccessChannelAccount(channelAccount.id))return {status:"UNAVAILABLE",reason:"ACCOUNT_NOT_ASSIGNED"};
   const created = await createReplySendRequest({ workspaceId: account.workspaceId, emailAccountId: input.emailAccountId,
     replyToEmailMessageId: input.replyToEmailMessageId, bodyText: input.bodyText, idempotencyKey: input.idempotencyKey });
   if (created.status === "NOT_REPLYABLE") return { status: "NOT_REPLYABLE", reason: created.reason };

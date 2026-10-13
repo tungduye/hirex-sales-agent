@@ -20,6 +20,7 @@ export const sendNewMessageSchema = z.object({
   bodyText: z.string()
     .max(100_000)
     .refine((value) => value.trim().length > 0, "Message is required."),
+  bodyHtml: z.string().max(200_000).nullable().optional(),
 }).strict();
 
 export type SendNewMessageInput = z.infer<typeof sendNewMessageSchema>;

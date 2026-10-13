@@ -1,8 +1,43 @@
 # HireX Sales Agent Platform — Roadmap
 
+## Status (October 2026)
+
+Status is derived from the code and migrations `001`–`068` present in the repository, not from live-environment verification. The phases were not delivered in numeric order.
+
+| Phase | Status | Notes |
+| --- | --- | --- |
+| 0 Architecture | Done | Revised Oct 2026 to match the running system |
+| 1 CRM foundation | Mostly done | Companies, contacts, contact channels, notes, audit log. Opportunities and duplicate merge not implemented |
+| 2 Security & operations | Partial | Workspace RBAC + RLS hardening (`029`–`034`), encrypted credentials. No CI, structured logging, tracing or tested backup/restore |
+| 3 Conversations & unified inbox | Done | Canonical omnichannel conversations/messages (`021`) |
+| 4 Jobs & workers | Replaced | Postgres-table queues + two Node workers + Windows scheduled tasks instead of Redis/BullMQ |
+| 5 Gmail connector | Done | OAuth, initial + incremental sync on a 5-minute task |
+| 6 Email sending & omnichannel foundation | Done | Idempotent send, ambiguous-send locking, reply sending |
+| 7 AI drafting | Done | Inbox AI suggestions, AI Recruiter DRAFT mode |
+| 8 Reply understanding | Partial | Intent classification only inside AI Recruiter |
+| 9 AI reply suggestions | Partial | Grounded suggestions for AI Recruiter; general inbox suggestions are basic |
+| 10 Campaigns | Done | Email and multichannel (Zalo, Facebook profile) campaigns with pacing, archiving, random content |
+| 11 Follow-up sequences | Done for email | `016`, `068`; channel campaigns have reply completion (`037`) |
+| 12 Tracking & analytics | Partial | Delivery report, reply counts, late-reply signal; no open/click attribution model |
+| 13 Inbox & human takeover | Done | Assignment, tags, quick replies, takeover, preferences |
+| 14 Facebook | Done | Official Page connector + reconciler; also an unofficial personal-profile bridge (see risks in ARCHITECTURE) |
+| 15 WhatsApp | Not started | |
+| 16 Zalo & Viber | Zalo done, Viber not started | Zalo through the Deplao bridge with personal accounts, multi-account pacing |
+| 17 Lead research & scoring | Partial | CV scan and website scan; no scoring model |
+| 18 Autonomous mode | **Delivered for AI Recruiter** | AUTO is an approved mode for AI Recruiter conversations only; see Phase 18 below |
+
+Additional delivered work not in the original plan: AI Recruiter (four bots, `049`–`054`, `061`), Human documents Q&A, n8n monitoring, CV/website scan.
+
+### Next priorities
+
+1. Commit and back up the current state; keep `.gitignore` covering logs, build backups and `runtime/`.
+2. Deploy migration `069` (database gate, audit attribution, mode-change audit), then close the remaining AUTO gaps in ARCHITECTURE §4.2 (volume caps, fallback metric).
+3. Add a CI gate (lint, typecheck, `node:test` unit tests) and break up the largest server modules, starting with `process-ai-recruiter.ts`.
+4. Decide the long-term plan for personal-account channels (Facebook profile, Zalo via Deplao) and for the single Windows host.
+
 ## Delivery principles
 
-Each phase is independently reviewable, migration-driven, observable, and protected by workspace authorization. `MANUAL` and `AI_ASSIST` are the only operating modes before Phase 18. Channel adapters remain separate from Agent logic, and no AI-generated side effect bypasses the action policy/service layer.
+Each phase is independently reviewable, migration-driven, observable, and protected by workspace authorization. Outside AI Recruiter, `MANUAL` and `AI_ASSIST` are the only operating modes. AI Recruiter may run in `AUTO` within the gates documented in ARCHITECTURE §4.1. Channel adapters remain separate from Agent logic, and no AI-generated side effect bypasses the action policy/service layer, including AUTO sends.
 
 ## Phase 0 — Architecture
 
@@ -121,14 +156,28 @@ Exit: a user can securely manage workspace-isolated CRM records and multiple cha
 - Implement explainable, versioned scoring with historical snapshots, bias/quality evaluation, and feedback loops.
 - AI proposes CRM changes and scores; policy and human workflows control application.
 
-## Phase 18 — Autonomous Mode (Future, Gated)
+## Phase 18 — Autonomous Mode (AI Recruiter: delivered; elsewhere: gated)
+
+**Decision (October 2026):** AUTO is an official mode for AI Recruiter conversations. The direction is for AUTO to become the only AI Recruiter mode; DRAFT stays until the readiness criteria in ARCHITECTURE §4.3 are met.
+
+Delivered for AI Recruiter:
+
+- Two explicit switches (bot and conversation), deterministic policy rewrites after inference, service-role database function that re-checks state and suppression, idempotent outbound actions through the shared executor, human takeover and bot pause.
+
+Remaining for AI Recruiter before DRAFT is removed (ARCHITECTURE §4.2–4.3):
+
+- ~~Database gate requires both switches; AUTO actions carry no human approver; mode changes are written to `audit_logs`.~~ Done in migration `069` (pending deployment).
+- Per-bot and per-account send caps plus a workspace kill switch enforced in the database function.
+- Regression replay set for prompt/model/policy changes, daily AUTO metrics and alerts.
+- Switch the conversation override from opt-in to opt-out.
+
+Any other module (campaigns, Gmail replies, inbox suggestions) stays `MANUAL`/`AI_ASSIST`. Extending AUTO to it needs a separate decision with the same evaluation, budgets, kill switch, takeover and audit requirements:
 
 - Treat autonomy as a new product/security capability, not a flag enabled by default.
 - Require offline/online evaluations, scoped action budgets, allowlists, confidence thresholds, staged rollout, kill switches, anomaly detection, approval escalation, and incident runbooks.
 - Permit only narrowly defined actions after policy authorization; connectors remain inaccessible to the model and side effects still flow through the action executor.
 - Preserve immediate human takeover and complete auditability.
 
-Exit: only after explicit governance approval and demonstrated safety/reliability targets; otherwise remain in `MANUAL` or `AI_ASSIST`.
-# Phase 4AB implementation note (review snapshot)
+## Historical note — Phase 4AB (superseded)
 
-Migration 014 and the Campaigns product surface now prepare campaign, sender, recipient, suppression, events, atomic quota reservation, CSV/XLSX import, signed unsubscribe, lifecycle actions, scheduling activation and bounded worker execution. Migration 014 has not been applied, the worker has not been invoked, and no campaign has been sent. Phase 4C retains tracking, bounce/reply detection, stop-on-reply, HTML/attachments, unsubscribe transport headers and analytics expansion.
+The original review snapshot said migration 014 was unapplied and no campaign had been sent. That is no longer true: campaigns, sequences, attachments, HTML editing, pacing and reply tracking were delivered through migrations `014`–`068`.

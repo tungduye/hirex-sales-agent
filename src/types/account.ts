@@ -5,4 +5,5 @@ export interface AccountContext {
   workspaceId: string | null;
   workspaceName: string | null;
   configurationComplete: boolean;
+  permissions: string[];
 }

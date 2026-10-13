@@ -18,6 +18,7 @@ export interface EmailSendRequestRow {
   to_addresses: string[];
   subject: string;
   body_text: string | null;
+  body_html: string | null;
   idempotency_key: string;
   safe_error_code: string | null;
   rfc_message_id: string | null;
@@ -61,7 +62,7 @@ export async function createOrLoadSendRequest(
     bcc_addresses: [],
     subject: input.subject,
     body_text: input.bodyText,
-    body_html: null,
+    body_html: input.bodyHtml ?? null,
     send_after: null,
     idempotency_key: input.idempotencyKey,
     rfc_message_id: rfcMessageId,
@@ -168,7 +169,8 @@ export function payloadMatches(row: EmailSendRequestRow, input: SendNewMessageIn
     && row.to_addresses.length === 1
     && row.to_addresses[0] === input.to
     && row.subject === input.subject
-    && row.body_text === input.bodyText;
+    && row.body_text === input.bodyText
+    && row.body_html === (input.bodyHtml ?? null);
 }
 
-const sendRequestColumns = "id, email_account_id, send_type, status, to_addresses, subject, body_text, idempotency_key, safe_error_code, rfc_message_id";
+const sendRequestColumns = "id, email_account_id, send_type, status, to_addresses, subject, body_text, body_html, idempotency_key, safe_error_code, rfc_message_id";

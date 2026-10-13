@@ -19,25 +19,40 @@ export interface OmnichannelInboxConversation {
   assignedTo: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
+  isPinned: boolean;
+  isMuted: boolean;
+  folder: "PRIMARY" | "OTHER";
   latestText: string | null;
   latestDirection: "INBOUND" | "OUTBOUND" | null;
   senderExternalId: string | null;
   contactName: string | null;
   participantName: string | null;
+  avatarUrl: string | null;
   accountDisplayName: string;
   lastInboundAt: string | null;
   tagIds: string[];
   proposedActions: Array<{ id: string; text: string | null; proposedBy: string }>;
 }
 
-export interface OmnichannelInboxProfile { id: string; fullName: string }
+export interface OmnichannelInboxProfile {
+  id: string;
+  fullName: string;
+  allChannelAccounts: boolean;
+  channelAccountIds: string[];
+}
 export interface OmnichannelInboxTag { id: string; name: string; color: string | null }
 
 export interface OmnichannelInboxData {
+  workspaceId: string | null;
   accounts: OmnichannelInboxAccount[];
   conversations: OmnichannelInboxConversation[];
   selectedChannelType: ChannelType | null;
   selectedAccountId: string | null;
+  selectedOwnerIds: string[];
+  selectedTagIds: string[];
+  tagMatchMode: "all" | "any";
+  firstMessageFrom: string | null;
+  firstMessageTo: string | null;
   selectedPage: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
@@ -56,6 +71,16 @@ export interface OmnichannelInboxMessage {
   timestamp: string;
   providerMessageId: string;
   attachmentCount: number;
+  attachments: Array<{
+    id: string | null;
+    filename: string | null;
+    contentType: string | null;
+    sizeBytes: number | null;
+    downloadUrl: string | null;
+  }>;
+  deliveryStatus: "RECEIVED" | "PENDING" | "SENDING" | "SENT" | "DELIVERY_UNKNOWN" | "FAILED" | "BLOCKED";
+  actionId?: string;
+  reconciliationStatus?: "NONE" | "NEEDS_REVIEW" | "ACKNOWLEDGED_NO_RETRY";
 }
 
 export interface OmnichannelConversationDetail {
@@ -66,6 +91,7 @@ export interface OmnichannelConversationDetail {
   accountHealthLabel: string;
   contactName: string | null;
   participantName: string | null;
+  avatarUrl: string | null;
   senderExternalId: string | null;
   providerConversationId: string;
   subject: string | null;
@@ -77,7 +103,9 @@ export interface OmnichannelConversationDetail {
   timelineTruncated: boolean;
   tagIds: string[];
   proposedActions: Array<{ id: string; text: string | null; proposedBy: string }>;
+  pendingActions: Array<{ id: string; text: string | null }>;
   legacyEmailAccountId: string | null;
+  legacyEmailThreadId: string | null;
 }
 
 export type OmnichannelConversationDetailResult =

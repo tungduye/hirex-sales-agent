@@ -5,11 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteContactSchema } from "@/modules/crm/contacts/schemas/contact-schema";
 import type { DeleteContactState } from "@/modules/crm/contacts/types/delete-contact-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function deleteContact(
   _previousState: DeleteContactState,
   formData: FormData,
 ): Promise<DeleteContactState> {
+  await requirePermission("contacts.delete");
   const parsed = deleteContactSchema.safeParse({ contactId: formData.get("contactId") });
 
   if (!parsed.success) {

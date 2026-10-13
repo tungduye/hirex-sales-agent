@@ -2,6 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { canAccessChannelAccount } from "@/modules/access/server/access-control";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import type { InboxMessage, ThreadDetailResult } from "@/modules/inbox/types/inbox";
 
@@ -17,7 +19,16 @@ export async function getThreadDetail(threadId: string, selectedAccountId: strin
   if (!z.uuid().safeParse(threadId).success) return { status: "not_found", messages: [] };
   const account = await getAccountContext();
   if (!account?.workspaceId) return { status: "not_found", messages: [] };
-  const supabase = await createClient();
+  let supabase = await createClient();
+  if (selectedAccountId) {
+    const privileged = createPrivilegedClient();
+    const { data: channelAccount, error: channelAccountError } = await privileged.from("channel_accounts").select("id")
+      .eq("workspace_id", account.workspaceId).eq("channel_type", "EMAIL")
+      .eq("legacy_email_account_id", selectedAccountId).is("deleted_at", null).maybeSingle();
+    if (channelAccountError) return { status: "error", messages: [] };
+    if (!channelAccount?.id || !await canAccessChannelAccount(channelAccount.id)) return { status: "not_found", messages: [] };
+    supabase = privileged;
+  }
   let threadQuery = supabase.from("email_threads").select("id").eq("id", threadId).eq("workspace_id", account.workspaceId);
   if (selectedAccountId) threadQuery = threadQuery.eq("email_account_id", selectedAccountId);
   const { data: thread, error: threadError } = await threadQuery.maybeSingle();

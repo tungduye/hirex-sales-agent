@@ -1,40 +1,49 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Clock3, Download, Send, Users } from "lucide-react";
+import { hasPermission } from "@/modules/access/server/access-control";
+import { ConfirmSubmitButton } from "@/modules/campaigns/components/confirm-submit-button";
+import { CampaignAutoRefresh } from "@/modules/channels/components/campaign-auto-refresh";
 import { getChannelCampaign } from "@/modules/channels/server/get-channel-campaign-data";
-import { startChannelCampaign } from "@/modules/channels/server/channel-campaign-actions";
+import { setChannelCampaignPaused, startChannelCampaign } from "@/modules/channels/server/channel-campaign-actions";
 
-export default async function OmnichannelCampaignDetail({ params }: { params: Promise<{ campaignId: string }> }) {
-  const { campaignId } = await params;
+const statusLabels: Record<string, string> = { DRAFT: "Bản nháp", RUNNING: "Đang chạy", PAUSED: "Tạm dừng", COMPLETED: "Hoàn thành", CANCELLED: "Đã huỷ" };
+const recipientStatusLabels: Record<string, string> = { ACTIVE: "Chờ xử lý", COMPLETED: "Đã gửi", FAILED: "Gửi thất bại", DELIVERY_UNKNOWN: "Chưa rõ kết quả", SUPPRESSED: "Đã chặn", REPLIED: "Đã phản hồi" };
+const stopReasonLabels: Record<string, string> = { ZALO_NOT_FOUND: "Không tìm thấy Zalo", ZALO_LOOKUP_FAILED: "Tra cứu Zalo thất bại" };
+
+export default async function OmnichannelCampaignDetail({ params, searchParams }: { params: Promise<{ campaignId: string }>; searchParams: Promise<{ startError?: string; controlError?: string; controlResult?: string }> }) {
+  const [{ campaignId }, query] = await Promise.all([params, searchParams]);
   const data = await getChannelCampaign(campaignId);
   if (!data) notFound();
-  const deliveryLabels = ["Sent", "Failed", "Delivery unknown"] as const;
-
+  const step = data.steps[0];
+  const contentVariants: string[] = step?.content_variants?.length ? step.content_variants as string[] : step?.text_template ? [step.text_template] : [];
+  const replyCount = data.recipients.filter((recipient) => recipient.status === "REPLIED").length;
+  const canExport = await hasPermission("campaigns.export");
+  const startErrors: Record<string, string> = {
+    audience: "Bản nháp này chưa lưu người nhận nên chưa thể chạy. Tạo lại chiến dịch, chọn người nhận rồi mới xác nhận chạy.",
+    senders: "Bản nháp này chưa lưu tài khoản Zalo gửi. Tạo lại chiến dịch và chọn ít nhất một tài khoản gửi.",
+    content: "Bản nháp chưa có nội dung gửi nên chưa thể chạy.",
+    check: "Chưa kiểm tra được cấu hình chiến dịch. Vui lòng tải lại trang; nếu vẫn lỗi hãy báo quản trị viên.",
+    consent: "Chưa ghi nhận được xác nhận nhận marketing cho người nhận. Chưa có tin nào được gửi; vui lòng thử lại.",
+    blocked: "Máy chủ chưa thể khởi chạy chiến dịch. Bản nháp vẫn được giữ nguyên và chưa gửi tin.",
+    permission: "Tài khoản của anh chưa có quyền chạy chiến dịch hoặc một tài khoản gửi chưa được phân quyền.",
+    workspace: "Không xác định được không gian làm việc. Vui lòng đăng nhập lại rồi thử lại.",
+  };
+  const startError = data.campaign.status === "DRAFT" && query.startError ? startErrors[query.startError] : null;
+  const controlError = query.controlError === "permission" ? "Anh chưa có quyền điều khiển chiến dịch." : query.controlError === "changed" ? "Trạng thái chiến dịch đã thay đổi. Vui lòng tải lại trang." : query.controlError ? "Không thể đổi trạng thái chiến dịch. Vui lòng thử lại." : null;
+  const launchBlock = data.recipients.length === 0 ? "Cần có ít nhất một người nhận đã lưu để chạy chiến dịch." : data.senders.length === 0 ? "Cần có ít nhất một tài khoản Zalo gửi đã lưu để chạy chiến dịch." : data.steps.length === 0 ? "Cần có nội dung chiến dịch trước khi chạy." : null;
   return <div className="space-y-6">
-    <header>
-      <p className="text-xs font-bold uppercase tracking-[.18em] text-blue-600">Omnichannel campaign</p>
-      <h1 className="text-3xl font-bold">{data.campaign.name}</h1>
-      <p className="text-sm text-slate-500">{data.campaign.status}</p>
-      {data.campaign.status === "DRAFT" && <form action={startChannelCampaign.bind(null, campaignId)}>
-        <button type="submit" className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Start campaign</button>
-      </form>}
-    </header>
-    <section className="grid gap-3 sm:grid-cols-3" aria-label="Delivery status">
-      {deliveryLabels.map((label, index) => <div key={label} className="rounded-xl border bg-white p-4">
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-semibold">{data.deliveryCounts[index] ?? "—"}</p>
-      </div>)}
-    </section>
-    <section className="rounded-xl border bg-white p-5">
-      <h2 className="font-semibold">Sequence steps</h2>
-      {data.steps.map(step => <div key={step.id} className="mt-3 rounded-lg border p-3 text-sm">Step {step.position} · delay {step.delay_minutes} min · {step.allowed_channels.join(", ")}</div>)}
-    </section>
-    <section className="rounded-xl border bg-white p-5">
-      <h2 className="font-semibold">Recipients</h2>
-      <p className="mt-2 text-sm text-slate-500">{data.recipients.length} recipients</p>
-      {data.recipients.map(recipient => <p key={recipient.id} className="mt-2 text-sm">{recipient.contacts?.[0]?.full_name ?? "Contact"} · {recipient.status}</p>)}
-    </section>
-    <section className="rounded-xl border bg-white p-5">
-      <h2 className="font-semibold">Timeline</h2>
-      {data.events.map(event => <p key={event.id} className="mt-2 text-sm">{event.event_type} · {new Date(event.created_at).toLocaleString()}</p>)}
-    </section>
+    <CampaignAutoRefresh />
+    <header className="flex flex-col gap-4 rounded-2xl border bg-white p-6 shadow-sm sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-blue-600">Zalo Marketing</p><h1 className="mt-1 text-3xl font-bold">{data.campaign.name}</h1><p className="mt-2 text-sm text-slate-500">Trạng thái: <strong className="text-slate-700">{statusLabels[data.campaign.status] ?? data.campaign.status}</strong></p></div><div className="flex flex-wrap gap-2">{canExport && replyCount > 0 ? <Link href={`/api/campaigns/omnichannel/${campaignId}/export`} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100"><Download className="size-4" />Xuất người phản hồi ({replyCount})</Link> : canExport ? <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-400" title="Chiến dịch chưa có người phản hồi Zalo"><Download className="size-4" />Chưa có phản hồi để xuất</span> : null}{data.campaign.status === "DRAFT" && !launchBlock ? <form action={startChannelCampaign.bind(null, campaignId)}><ConfirmSubmitButton message={`Xác nhận chạy chiến dịch “${data.campaign.name}”? Hệ thống sẽ bắt đầu gửi Zalo tới ${data.recipients.length} người nhận đủ điều kiện.`} className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">Xác nhận và chạy chiến dịch</ConfirmSubmitButton></form> : null}</div></header>
+    {data.campaign.status === "RUNNING" ? <form action={setChannelCampaignPaused.bind(null,campaignId,true)}><ConfirmSubmitButton message={`Tạm dừng chiến dịch “${data.campaign.name}”? Hệ thống sẽ không bắt đầu lượt tra cứu/gửi mới; thao tác đang xử lý có thể hoàn tất.`} className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100">Tạm dừng chiến dịch</ConfirmSubmitButton></form> : null}
+    {data.campaign.status === "PAUSED" ? <form action={setChannelCampaignPaused.bind(null,campaignId,false)}><ConfirmSubmitButton message={`Tiếp tục chiến dịch “${data.campaign.name}”? Chỉ người nhận còn chờ xử lý được tiếp tục; tin đã gửi và kết quả chưa rõ không được đặt lại.`} className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">Tiếp tục chiến dịch</ConfirmSubmitButton></form> : null}
+    {controlError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{controlError}</p> : null}
+    {query.controlResult === "paused" ? <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Chiến dịch đã tạm dừng. Lượt tra cứu hoặc gửi đang xử lý có thể hoàn tất; không có lượt mới được bắt đầu.</p> : null}
+    {query.controlResult === "resumed" ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">Chiến dịch đã tiếp tục. Tin đã gửi và kết quả chưa rõ được giữ nguyên.</p> : null}
+    {startError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{startError}</p> : null}
+    {data.campaign.status === "DRAFT" && launchBlock ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{launchBlock} Bản nháp hiện có {data.recipients.length} người nhận, {data.senders.length} tài khoản gửi và {data.steps.length} bước nội dung. <Link href="/campaigns/omnichannel/new" className="font-bold underline">Tạo chiến dịch mới</Link></p> : null}
+    <section className="grid gap-3 sm:grid-cols-4">{[[Users, "Người nhận", data.recipients.length], [Send, "Đã gửi", data.deliveryCounts[0] ?? "—"], [AlertTriangle, "Lỗi/không rõ", (data.deliveryCounts[1] ?? 0) + (data.deliveryCounts[2] ?? 0)], [Clock3, "Số bước", data.steps.length]].map(([Icon, label, value]) => { const Component = Icon as typeof Users; return <div key={String(label)} className="rounded-2xl border bg-white p-4"><Component className="size-5 text-blue-600" /><p className="mt-3 text-xs text-slate-500">{String(label)}</p><p className="mt-1 text-2xl font-bold">{String(value)}</p></div>; })}</section>
+    <div className="grid gap-5 lg:grid-cols-2"><section className="rounded-2xl border bg-white p-5"><h2 className="font-bold">Nội dung Zalo ({contentVariants.length} mẫu)</h2><div className="mt-4 space-y-2">{contentVariants.length?contentVariants.map((variant,index)=><div key={index} className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm"><p className="mb-2 text-xs font-bold text-slate-500">Mẫu {index+1}</p>{variant}</div>):<div className="text-sm">—</div>}</div><p className="mt-3 text-xs text-slate-500">Mỗi người nhận được chọn ngẫu nhiên một mẫu. Độ trễ bước đầu: {step?.delay_minutes ?? 0} phút</p><div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-slate-700"><span><b>{data.campaign.daily_message_limit}</b> tin/ngày</span><span>Nghỉ <b>{data.campaign.min_delay_seconds}–{data.campaign.max_delay_seconds}</b> giây/tin</span><span><b>{data.campaign.batch_size}</b> tin/đợt</span><span>Nghỉ đợt <b>{data.campaign.batch_pause_minutes}</b> phút</span>{data.campaign.pacing_next_at?<span className="col-span-2">Lượt tiếp theo: <b>{new Date(data.campaign.pacing_next_at).toLocaleString("vi-VN")}</b></span>:null}</div></section><section className="rounded-2xl border bg-white p-5"><h2 className="font-bold">Tài khoản gửi</h2><p className="mt-1 text-xs text-slate-500">Tra cứu SĐT dùng nhịp chung theo tài khoản, kể cả khi nhiều chiến dịch cùng chạy.</p><div className="mt-3 space-y-2">{data.senders.map((sender) => {const pace=data.lookupPacing.find(row=>row.channel_account_id===sender.channel_account_id);return <div key={sender.id} className="rounded-xl border p-3 text-sm"><div className="flex items-center gap-2"><CheckCircle2 className="size-4 text-emerald-500" />{sender.channel_accounts?.[0]?.display_name ?? "Tài khoản Zalo"}</div><p className="mt-1 text-xs text-slate-500">{pace?.last_error_code?`Đã gặp lỗi ${pace.last_error_code}`:pace?.last_lookup_at?"Đã bắt đầu tra cứu":"Chưa tra cứu"}{pace?.next_allowed_at?` · Không tra cứu trước ${new Date(pace.next_allowed_at).toLocaleString("vi-VN")}`:""}</p></div>})}</div></section></div>
+    <section className="rounded-2xl border bg-white p-5"><h2 className="font-bold">Người nhận</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{data.recipients.map((recipient) => <div key={recipient.id} className="rounded-xl border p-3 text-sm"><strong>{recipient.phone ? `SĐT: ${recipient.phone}` : recipient.contacts?.[0]?.full_name ?? "Chưa có số điện thoại"}</strong><p className="mt-1 text-xs text-slate-500">{recipient.stop_reason ? (stopReasonLabels[recipient.stop_reason] ?? recipient.stop_reason) : (recipientStatusLabels[recipient.status] ?? recipient.status)}</p></div>)}</div></section>
   </div>;
 }

@@ -15,8 +15,10 @@ export interface OutboundActionRecord {
   attachmentIds: string[];
   idempotencyKey: string;
   policyDecisionId: string;
-  approvedBy: string;
+  /** Null only for AI Recruiter AUTO sends (dispatchSource AI_AUTOMATION): no human approved them. */
+  approvedBy: string | null;
   approvedAt: string;
+  dispatchSource: "HUMAN_MANUAL" | "AI_AUTOMATION" | "CAMPAIGN" | "SYSTEM";
 }
 
 export interface ClaimedOutboundAction extends OutboundActionRecord {
@@ -41,6 +43,7 @@ export interface OutboundExecutionDependencies {
   finalizeSent(input: { actionId: string; workspaceId: string; executionLockId: string; providerMessageId: string; providerConversationId: string; acceptedAt: string }): Promise<boolean>;
   finalizeFailed(input: { actionId: string; workspaceId: string; executionLockId: string; safeErrorCode: string }): Promise<boolean>;
   finalizeUnknown(input: { actionId: string; workspaceId: string; executionLockId: string; safeErrorCode: "DELIVERY_UNKNOWN" }): Promise<boolean>;
+  deferConfirmedBusy(input: { actionId: string; workspaceId: string; executionLockId: string; providerRejected: boolean }): Promise<boolean>;
   adapters: ChannelAdapterRegistry;
   createLockId(): string;
   now(): string;
@@ -51,12 +54,13 @@ export type OutboundExecutionResult =
   | { status: "NOT_ELIGIBLE"; actionId: string }
   | { status: "FAILED"; actionId: string; safeErrorCode: string }
   | { status: "DELIVERY_UNKNOWN"; actionId: string }
+  | { status: "DEFERRED"; actionId: string }
   | { status: "UNAVAILABLE"; actionId: string };
 
 function eligibleAction(value: OutboundActionRecord | null, actionId: string): value is OutboundActionRecord {
   return Boolean(
     value && value.id === actionId && (value.status === "APPROVED" || value.status === "QUEUED") &&
-    value.approvedBy && Number.isFinite(Date.parse(value.approvedAt)),
+    (value.approvedBy || value.dispatchSource === "AI_AUTOMATION") && Number.isFinite(Date.parse(value.approvedAt)),
   );
 }
 
@@ -83,7 +87,11 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
       return finalized === true ? { status: "FAILED", actionId, safeErrorCode: "DELIVERY_REJECTED" } : { status: "UNAVAILABLE", actionId };
     } catch { return { status: "UNAVAILABLE", actionId }; }
   }
-  const command: SendMessageCommand = { actionId: claimed.id, workspaceId: claimed.workspaceId, channelAccountId: claimed.channelAccountId, channelType: claimed.channelType, providerConversationId: claimed.providerConversationId, recipientExternalId: claimed.recipientExternalId, text: claimed.textContent, attachments, idempotencyKey: claimed.idempotencyKey, policyDecisionId: claimed.policyDecisionId };
+  const command: SendMessageCommand = { actionId: claimed.id, conversationId: claimed.conversationId,
+    workspaceId: claimed.workspaceId, channelAccountId: claimed.channelAccountId, channelType: claimed.channelType,
+    providerConversationId: claimed.providerConversationId, recipientExternalId: claimed.recipientExternalId,
+    text: claimed.textContent, attachments, idempotencyKey: claimed.idempotencyKey,
+    policyDecisionId: claimed.policyDecisionId, source: claimed.dispatchSource };
   if (!isSendMessageCommand(command)) {
     try {
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_REJECTED" });
@@ -102,6 +110,12 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
     const eligibility = await dependencies.validatePreSend({ action: claimed, now: dependencies.now() });
     if (!eligibility || eligibility.allowed !== true) {
       const safeErrorCode = typeof eligibility?.safeErrorCode === "string" && eligibility.safeErrorCode.trim() ? eligibility.safeErrorCode : "CHANNEL_ELIGIBILITY_UNAVAILABLE";
+      if (claimed.channelType === "ZALO" && claimed.dispatchSource === "CAMPAIGN" && safeErrorCode === "ACCOUNT_BUSY") {
+        try {
+          const deferred = await dependencies.deferConfirmedBusy({ actionId, workspaceId: action.workspaceId, executionLockId, providerRejected: false });
+          return deferred === true ? { status: "DEFERRED", actionId } : { status: "UNAVAILABLE", actionId };
+        } catch { return { status: "UNAVAILABLE", actionId }; }
+      }
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode });
       return finalized === true ? { status: "FAILED", actionId, safeErrorCode } : { status: "UNAVAILABLE", actionId };
     }
@@ -116,6 +130,17 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
     const finalized = await dependencies.finalizeSent({ actionId, workspaceId: action.workspaceId, executionLockId, ...sent });
     return finalized === true ? { status: "SENT", actionId } : { status: "DELIVERY_UNKNOWN", actionId };
   } catch (error) {
+    if (error instanceof ChannelError && error.code === "ACCOUNT_BUSY" && claimed.channelType === "ZALO" && claimed.dispatchSource === "CAMPAIGN") {
+      try {
+        const deferred = await dependencies.deferConfirmedBusy({ actionId, workspaceId: action.workspaceId, executionLockId, providerRejected: true });
+        if (deferred === true) return { status: "DEFERRED", actionId };
+        try { await dependencies.finalizeUnknown({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_UNKNOWN" }); } catch { /* fail closed */ }
+        return { status: "DELIVERY_UNKNOWN", actionId };
+      } catch {
+        try { await dependencies.finalizeUnknown({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_UNKNOWN" }); } catch { /* fail closed */ }
+        return { status: "DELIVERY_UNKNOWN", actionId };
+      }
+    }
     if (error instanceof ChannelError && error.code !== "DELIVERY_UNKNOWN" && !error.retryable) {
       try {
         const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: error.code });

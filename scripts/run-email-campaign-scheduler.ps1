@@ -25,7 +25,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($secret)) { throw "CONFIG_UNAVAILABLE" }
     $headers = @{ Authorization = "Bearer $secret" }
     if ($env:HIREX_SCHEDULER_DRY_RUN -eq "1") { $headers["X-HireX-Dry-Run"] = "1" }
-    $response = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -TimeoutSec 240
+    $response = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -TimeoutSec 1800
     if ($response.success -eq $false) { $exitCode=2; Write-SafeLog "WORKER_FAILURE" $exitCode; exit $exitCode }
     $exitCode=0; Write-SafeLog $(if($env:HIREX_SCHEDULER_DRY_RUN -eq "1"){"DRY_RUN_SUCCESS"}else{"SUCCESS"}) $exitCode; exit $exitCode
 } catch { Write-SafeLog "UNAVAILABLE" $exitCode; exit $exitCode } finally { $secret=$null;$matches=$null;$headers=$null;if($lockStream){$lockStream.Dispose()};Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }

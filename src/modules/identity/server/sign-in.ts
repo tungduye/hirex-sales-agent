@@ -13,7 +13,7 @@ export async function signIn(_state: LoginState, formData: FormData): Promise<Lo
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
 
   if (error) {
     return {
@@ -25,8 +25,10 @@ export async function signIn(_state: LoginState, formData: FormData): Promise<Lo
     };
   }
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) return { error: "UNAVAILABLE" };
+  // signInWithPassword already returns the authenticated user and writes the
+  // session cookies. A second getUser request here can race the fresh cookie
+  // propagation and incorrectly turn a successful login into an error.
+  if (!data.user || !data.session) return { error: "UNAVAILABLE" };
 
   redirect("/campaigns");
 }

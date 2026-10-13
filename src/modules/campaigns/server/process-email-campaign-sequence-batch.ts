@@ -1,4 +1,5 @@
 import "server-only";
+import { campaignHasQuotaHold } from './gmail-quota';
 import { randomUUID } from "node:crypto";
 import { buildCampaignPersonalization,normalizeCampaignEmail,renderCampaignTemplate,validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
 import { isSafeThreadMetadata } from "@/modules/campaigns/domain/sequence-rules";
@@ -6,6 +7,7 @@ import { createCampaignAttachmentLoader } from "@/modules/campaigns/server/campa
 import { createUnsubscribeUrl } from "@/modules/campaigns/server/unsubscribe-token";
 import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 import { sendOneNewGmailMessage } from "@/modules/integrations/gmail/server/send-one-new-message";
+import {renderCampaignHtml} from "@/modules/campaigns/server/campaign-html";
 
 interface Claim{delivery_id:string;recipient_id:string;step_order:number;email:string;display_name:string|null;company:string|null;recipient_position:string|null;personalization_json:Record<string,unknown>;sender_email_account_id:string;idempotency_key:string;subject_template:string;body_text_template:string;previous_provider_thread_id:string|null;previous_rfc_message_id:string|null}
 const ATTACHMENT_FAILURES=new Set(["ATTACHMENT_FETCH_FAILED","ATTACHMENT_INTEGRITY_FAILED","ATTACHMENT_MISSING","ATTACHMENT_SIZE_LIMIT","ATTACHMENT_INVALID"]);
@@ -20,10 +22,15 @@ export async function processEmailCampaignSequenceBatch(limit=10,campaignId?:str
   if(error)return {...result,success:false,code:"DATABASE_UNAVAILABLE" as const};
   result.campaignsConsidered=campaigns?.length??0;let remaining=Math.min(Math.max(limit,1),25);
   for(const campaign of campaigns??[]){
+    if(await campaignHasQuotaHold(campaign.workspace_id,campaign.id)) continue;
     if(remaining<=0)break;
     await db.rpc("initialize_email_campaign_sequence",{p_workspace_id:campaign.workspace_id,p_campaign_id:campaign.id});
+    const {data:reservation,error:reservationError}=await db.rpc("reserve_email_campaign_dispatch_slot",{p_workspace_id:campaign.workspace_id,p_campaign_id:campaign.id});
+    if(reservationError)return {...result,success:false,code:"DATABASE_UNAVAILABLE" as const};
+    const pacing=Array.isArray(reservation)?reservation[0]:reservation;
+    if(!pacing?.reserved)continue;
     const token=randomUUID();
-    const {data,error:claimError}=await db.rpc("claim_email_campaign_sequence_steps",{p_workspace_id:campaign.workspace_id,p_campaign_id:campaign.id,p_claim_token:token,p_limit:remaining});
+    const {data,error:claimError}=await db.rpc("claim_email_campaign_sequence_steps",{p_workspace_id:campaign.workspace_id,p_campaign_id:campaign.id,p_claim_token:token,p_limit:1});
     if(claimError)return {...result,success:false,code:"DATABASE_UNAVAILABLE" as const};
     for(const raw of data??[]){
       if(!isClaim(raw))return {...result,success:false,code:"MALFORMED_CLAIM" as const};
@@ -31,14 +38,18 @@ export async function processEmailCampaignSequenceBatch(limit=10,campaignId?:str
       const custom=Object.fromEntries(Object.entries(claim.personalization_json).filter((entry):entry is [string,string]=>typeof entry[1]==="string"));
       const values=buildCampaignPersonalization({email:claim.email,displayName:claim.display_name,company:claim.company,position:claim.recipient_position,custom});
       const subject=renderCampaignTemplate(claim.subject_template,values).rendered;
-      const body=`${renderCampaignTemplate(claim.body_text_template,values).rendered}\n\nUnsubscribe: ${createUnsubscribeUrl(campaign.workspace_id,claim.email)}`;
+      const unsubscribeUrl=createUnsubscribeUrl(campaign.workspace_id,claim.email);
+      const body=`${renderCampaignTemplate(claim.body_text_template,values).rendered}\n\nUnsubscribe: ${unsubscribeUrl}`;
+      const {data:delivery}=await db.from("email_campaign_recipient_steps").select("campaign_step_id").eq("id",claim.delivery_id).eq("workspace_id",campaign.workspace_id).maybeSingle();
+      const {data:step}=delivery?await db.from("email_campaign_steps").select("body_html_template").eq("id",delivery.campaign_step_id).eq("workspace_id",campaign.workspace_id).maybeSingle():{data:null};
+      const bodyHtml=step?.body_html_template?`${renderCampaignHtml(step.body_html_template,values)}<p style="margin-top:24px"><a href="${unsubscribeUrl}">Unsubscribe</a></p>`:null;
       const invalid=validateRenderedCampaignMessage(subject,body);
       if(invalid){if(!await finalize(db,campaign.workspace_id,claim,token,"FAILED",null,invalid))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.failed+=1;continue;}
       let thread:{providerThreadId:string;parentRfcMessageId:string}|undefined;
       if(claim.step_order>0){if(!isSafeThreadMetadata(claim.previous_provider_thread_id)||!isRfcMessageId(claim.previous_rfc_message_id)){if(!await finalize(db,campaign.workspace_id,claim,token,"FAILED",null,"THREAD_METADATA_UNAVAILABLE"))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.failed+=1;continue;}thread={providerThreadId:claim.previous_provider_thread_id,parentRfcMessageId:claim.previous_rfc_message_id};}
       const loaded=await loadCampaignDeliveryAttachments(campaign.workspace_id,campaign.id,claim.delivery_id);
       if(!loaded.ok){const code=ATTACHMENT_FAILURES.has(loaded.code)?loaded.code:"ATTACHMENT_FETCH_FAILED";if(!await finalize(db,campaign.workspace_id,claim,token,"FAILED",null,code))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.failed+=1;continue;}
-      const send=await sendOneNewGmailMessage({emailAccountId:claim.sender_email_account_id,idempotencyKey:claim.idempotency_key,to:claim.email,subject,bodyText:body},campaign.workspace_id,thread,loaded.attachments);
+      const send=await sendOneNewGmailMessage({emailAccountId:claim.sender_email_account_id,idempotencyKey:claim.idempotency_key,to:claim.email,subject,bodyText:body,bodyHtml},campaign.workspace_id,thread,loaded.attachments);
       if(send.success&&send.code==="SENT"){if(!await finalize(db,campaign.workspace_id,claim,token,"SENT",send.sendRequestId,null))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.sent+=1;}
       else if(send.code==="DELIVERY_STATUS_UNKNOWN"||send.code==="SEND_IN_PROGRESS"){if(!await finalize(db,campaign.workspace_id,claim,token,"DELIVERY_UNKNOWN",send.sendRequestId,"DELIVERY_STATUS_UNKNOWN"))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.deliveryUnknown+=1;}
       else{if(!await finalize(db,campaign.workspace_id,claim,token,"FAILED",send.sendRequestId,send.code))return {...result,success:false,code:"CAMPAIGN_FINALIZATION_UNAVAILABLE" as const};result.failed+=1;}

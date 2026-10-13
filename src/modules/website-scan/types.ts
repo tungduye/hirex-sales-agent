@@ -1,0 +1,33 @@
+export type WebsiteScanMode = "FULL" | "CONTACT" | "EVALUATION";
+
+export type WebsiteScanResult = {
+  id: string;
+  companyName: string;
+  website: string;
+  domain: string;
+  status: "DONE" | "PARTIAL" | "FAILED";
+  companyType: string;
+  headhuntScore: number | null;
+  priority: "Cao" | "Trung bình" | "Thấp" | "Cần kiểm tra";
+  foundedYear: string;
+  ceo: string;
+  legalRepresentative: string;
+  charterCapital: string;
+  ownershipNationality: string;
+  headquarters: string;
+  employeeCount: string;
+  legalProfile: string;
+  operationsAndHiring: string;
+  headhuntAssessment: string;
+  fullReport: string;
+  emails: { primary: string; hr: string[]; sales: string[]; general: string[]; other: string[] };
+  phones: string[];
+  linkedIn: string;
+  facebook: string;
+  pagesCrawled: number;
+  sources: string[];
+  error: string;
+  contactEvidence?: Array<{ kind: "email" | "phone" | "linkedin" | "facebook"; value: string; source: string; label: string }>;
+  businessRelationship?: string;
+  scannedAt?: string;
+};

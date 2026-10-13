@@ -3,17 +3,21 @@ import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-emai
 import { listInitialSyncStates } from "@/modules/integrations/gmail/server/list-initial-sync-states";
 import { listIncrementalSyncStates } from "@/modules/integrations/gmail/server/list-incremental-sync-states";
 import Link from "next/link";
+import { hasPermission, isWorkspaceAdmin } from "@/modules/access/server/access-control";
 
 export default async function SettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{ gmail?: string }>;
 }) {
-  const [{ gmail }, result, syncResult, incrementalSyncResult] = await Promise.all([
+  const [{ gmail }, result, syncResult, incrementalSyncResult, canManageAutomation, canViewRoles, canViewChannels] = await Promise.all([
     searchParams,
     listEmailAccounts(),
     listInitialSyncStates(),
     listIncrementalSyncStates(),
+    isWorkspaceAdmin(),
+    hasPermission("roles.view"),
+    hasPermission("channels.view"),
   ]);
   const allowedFeedback = [
     "connected",
@@ -28,7 +32,8 @@ export default async function SettingsPage({
   const feedback = allowedFeedback.find((value) => value === gmail) ?? null;
 
   return (
-    <><div className="mb-4 flex justify-end gap-2"><Link href="/settings/channels" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Channel accounts</Link><Link href="/settings/email-automation" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Email Automation health</Link></div><EmailAccountsSettings
+    <><div className="mb-4">{canManageAutomation && <Link href="/settings/human" className="inline-block rounded-lg border bg-white px-4 py-2 text-sm text-blue-700">Kết nối Human · Tài liệu</Link>}</div>
+    <><div className="mb-4 flex flex-wrap justify-end gap-2">{canViewRoles && <Link href="/settings/roles" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Vai trò và phân quyền</Link>}{canViewChannels && <Link href="/settings/channels" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Tài khoản kênh</Link>}{canManageAutomation && <Link href="/settings/automation" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Tự động hoá</Link>}{canViewChannels && <Link href="/settings/email-automation" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Trạng thái tự động hóa email</Link>}</div><EmailAccountsSettings
       accounts={result.accounts}
       loadError={result.error}
       feedback={feedback}
@@ -37,5 +42,6 @@ export default async function SettingsPage({
       incrementalSyncStates={incrementalSyncResult.states}
       incrementalSyncStatesError={incrementalSyncResult.error}
     /></>
+    </>
   );
 }

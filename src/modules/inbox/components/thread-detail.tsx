@@ -11,16 +11,16 @@ export function ThreadDetail({ result, replyContext, threadId }: { result: Threa
 
   const subject = [...result.messages].reverse().find((message) => message.subject)?.subject ?? "(No subject)";
   return (
-    <div className="flex min-h-[650px] flex-col">
-      <header className="border-b bg-white px-5 py-4 md:px-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="shrink-0 border-b bg-white px-5 py-4 md:px-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Conversation</p>
         <h2 className="mt-1 text-lg font-bold text-slate-950">{subject}</h2>
         <p className="mt-1 text-xs text-slate-500">{result.messages.length} synchronized {result.messages.length === 1 ? "message" : "messages"}</p>
       </header>
-      <div className="flex-1 space-y-4 p-4 md:p-6">
+      <div className="min-h-[140px] flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4 md:p-5">
         {result.messages.map((message) => <MessageCard key={message.id} message={message} />)}
       </div>
-      <SalesReplyComposer context={replyContext} threadId={threadId} />
+      <div className="shrink-0 border-t bg-white"><SalesReplyComposer context={replyContext} threadId={threadId} /></div>
     </div>
   );
 }

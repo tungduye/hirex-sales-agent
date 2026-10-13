@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { AccountContext } from "@/types/account";
+import { allPermissionKeys } from "@/modules/access/core/permission-catalog";
 
 interface ProfileRow {
   id: string;
@@ -38,6 +39,7 @@ async function loadAccountContext(): Promise<AccountContext | null> {
       workspaceId: null,
       workspaceName: null,
       configurationComplete: false,
+      permissions: [],
     };
   }
 
@@ -48,6 +50,8 @@ async function loadAccountContext(): Promise<AccountContext | null> {
     .maybeSingle();
   const workspace = workspaceData as WorkspaceRow | null;
 
+  const {data:permissionData,error:permissionError}=await supabase.rpc("current_workspace_permissions");
+  const permissions=permissionError?[]:(permissionData??[]).filter((value:unknown):value is string=>typeof value==="string"&&allPermissionKeys.includes(value as (typeof allPermissionKeys)[number]));
   return {
     userId: user.id,
     email: user.email ?? "Email unavailable",
@@ -55,6 +59,7 @@ async function loadAccountContext(): Promise<AccountContext | null> {
     workspaceId: profile.workspace_id,
     workspaceName: workspace?.name ?? null,
     configurationComplete: !workspaceError && Boolean(workspace),
+    permissions,
   };
 }
 

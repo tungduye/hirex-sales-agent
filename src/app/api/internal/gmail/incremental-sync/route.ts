@@ -20,7 +20,8 @@ export async function POST(request: Request) {
       status: 200,
       headers: { "Cache-Control": "no-store" },
     });
-  } catch {
+  } catch (error) {
+    console.error('[gmail-automatic-sync]', error instanceof Error ? error.message : 'UNKNOWN');
     return Response.json({ success: false, message: "Automatic sync could not be started." }, { status: 500 });
   }
 }

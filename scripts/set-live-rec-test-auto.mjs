@@ -1,0 +1,12 @@
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL??process.env["\uFEFFNEXT_PUBLIC_SUPABASE_URL"],key=process.env.SUPABASE_SECRET_KEY;
+if(!url||!key)throw new Error("Missing Supabase environment");
+const headers={apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json",Prefer:"return=representation"};
+const conversationId="de8902d7-666d-46b4-a023-b65297142d07";
+const response=await fetch(`${url}/rest/v1/omnichannel_conversations?id=eq.${conversationId}&select=id,metadata`,{headers});
+if(!response.ok)throw new Error(`GET ${response.status}`);
+const [conversation]=await response.json();
+if(!conversation)throw new Error("Conversation not found");
+const metadata=conversation.metadata&&typeof conversation.metadata==="object"&&!Array.isArray(conversation.metadata)?conversation.metadata:{};
+const update=await fetch(`${url}/rest/v1/omnichannel_conversations?id=eq.${conversationId}`,{method:"PATCH",headers,body:JSON.stringify({takeover_mode:"BOT_ALLOWED",metadata:{...metadata,aiRecruiterModeOverride:"AUTO"}})});
+if(!update.ok)throw new Error(`PATCH ${update.status}: ${await update.text()}`);
+console.log(JSON.stringify(await update.json(),null,2));

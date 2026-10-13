@@ -5,6 +5,7 @@ interface BuildMimeInput {
   to: string;
   subject: string;
   bodyText: string;
+  bodyHtml?: string | null;
   rfcMessageId: string;
   sendRequestId: string;
   attachments?: readonly MimeAttachment[];
@@ -47,14 +48,17 @@ function buildMessage(input:BuildMimeInput,threadHeaders:string[]) {
     "MIME-Version: 1.0",
   ];
   const attachments=input.attachments??[];
-  const mime=attachments.length===0?[...baseHeaders,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",encodedBody,""].join("\r\n"):buildMultipart(baseHeaders,encodedBody,attachments);
+  const bodyPart=input.bodyHtml?buildAlternativePart(input.bodyText,input.bodyHtml):["Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",encodedBody].join("\r\n");
+  const mime=attachments.length===0?[...baseHeaders,bodyPart,""].join("\r\n"):buildMultipart(baseHeaders,bodyPart,attachments);
 
   return Buffer.from(mime, "utf8").toString("base64url");
 }
 
+function buildAlternativePart(text:string,html:string){const boundary=`hirex-alt-${Buffer.from(text.slice(0,32)+html.slice(0,32)).toString("base64url").slice(0,24)}`;return [`Content-Type: multipart/alternative; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",wrapBase64(Buffer.from(text,"utf8").toString("base64")),`--${boundary}`,"Content-Type: text/html; charset=UTF-8","Content-Transfer-Encoding: base64","",wrapBase64(Buffer.from(html,"utf8").toString("base64")),`--${boundary}--`].join("\r\n");}
+
 function buildMultipart(headers:string[],body:string,attachments:readonly MimeAttachment[]){
   const boundary=`hirex-${headers.length}-${attachments.length}-${Buffer.from(headers.join(""),"utf8").toString("base64url").slice(0,24)}`;
-  const parts=[...headers,`Content-Type: multipart/mixed; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",body];
+  const parts=[...headers,`Content-Type: multipart/mixed; boundary="${boundary}"`,"",`--${boundary}`,body];
   for(const item of attachments){if(!item.filename||/[\r\n\u0000-\u001f\u007f-\u009f]/.test(item.filename)||!item.mimeType||/[\r\n]/.test(item.mimeType))throw new Error("MIME_ATTACHMENT_INVALID");const encodedName=`UTF-8''${encodeURIComponent(item.filename)}`;parts.push(`--${boundary}`,`Content-Type: ${item.mimeType}`,`Content-Disposition: attachment; filename*=UTF-8''${encodedName.slice(7)}`,"Content-Transfer-Encoding: base64","",wrapBase64(item.bytes.toString("base64")));}
   parts.push(`--${boundary}--`,"");return parts.join("\r\n");
 }

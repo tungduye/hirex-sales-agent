@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 import type { CreateContactChannelState } from "../types/create-contact-channel-state";
 
 const schema=z.object({
@@ -14,6 +15,7 @@ const schema=z.object({
 }).superRefine((value,context)=>{if(value.status!=="UNKNOWN"&&!value.source)context.addIssue({code:"custom",path:["source"],message:"Consent source is required."})});
 
 export async function setContactChannelMarketingConsent(_state:CreateContactChannelState,formData:FormData):Promise<CreateContactChannelState>{
+  await requirePermission("contacts.update");
   const parsed=schema.safeParse({contactId:formData.get("contactId"),channelId:formData.get("channelId"),status:formData.get("status"),source:formData.get("source")});
   if(!parsed.success)return{success:false,message:"Choose a valid consent status and source."};
   const account=await getAccountContext();if(!account?.workspaceId||!account.configurationComplete)return{success:false,message:"Your account is not ready to update consent."};

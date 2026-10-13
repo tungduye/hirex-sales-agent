@@ -9,7 +9,7 @@ import type {
   VerifiedWebhook,
 } from "../../core/channel-contracts";
 import { ChannelError } from "../../core/channel-errors";
-import type { ChannelTransport } from "../../core/channel-transport";
+import type { ChannelHttpResponse, ChannelTransport } from "../../core/channel-transport";
 import type { ZaloBridgeCredential, ZaloBridgeEvent } from "./zalo-bridge-contracts";
 import type { ProviderHealthStatus } from "../../core/provider-health";
 import { signZaloBridgeRequest } from "./zalo-bridge-signing";
@@ -17,6 +17,10 @@ import { requireTrustedZaloBridgeOrigin } from "./trusted-bridge-origin";
 
 const MAX_CLOCK_SKEW_SECONDS = 300;
 const SEND_PATH="/v1/messages/send";
+const RECONCILE_PATH="/v1/deliveries/reconcile";
+const FIND_BY_PHONE_PATH="/v1/zalo/users/find-by-phone";
+const FRIEND_REQUEST_PATH="/v1/zalo/friend-requests/send";
+const SEND_TIMEOUT_MS=20_000;
 
 export type ZaloWebhookDiagnosticCode =
   | "TIMESTAMP_INVALID"
@@ -44,6 +48,21 @@ function isString(value: unknown, maximum = 512): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
 }
 
+function isOptionalName(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null ||
+    (typeof value === "string" && value.trim().length > 0 && value.length <= 255 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value));
+}
+
+function isAttachment(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const attachment = value as Record<string, unknown>;
+  return (attachment.id === null || isString(attachment.id)) &&
+    (attachment.filename === null || isString(attachment.filename, 255)) &&
+    (attachment.contentType === null || typeof attachment.contentType === "string" && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/u.test(attachment.contentType)) &&
+    (attachment.sizeBytes === null || Number.isSafeInteger(attachment.sizeBytes) && Number(attachment.sizeBytes) >= 0 && Number(attachment.sizeBytes) <= 100_000_000) &&
+    attachment.url === null;
+}
+
 function parseEvent(value: unknown): ZaloBridgeEvent {
   if (!value || typeof value !== "object") throw new ZaloWebhookDiagnosticError("SCHEMA_INVALID");
   const event = value as Partial<ZaloBridgeEvent>;
@@ -53,12 +72,20 @@ function parseEvent(value: unknown): ZaloBridgeEvent {
     !isString(event.threadId) ||
     !isString(event.messageId) ||
     !isString(event.senderId) ||
+    !isOptionalName(event.senderName) ||
+    !isOptionalName(event.accountName) ||
     !Array.isArray(event.recipientIds) ||
     !event.recipientIds.every((recipient) => isString(recipient)) ||
     (event.text !== null && typeof event.text !== "string") ||
+    typeof event.isSelf !== "boolean" ||
     !Array.isArray(event.attachments) ||
+    event.attachments.length > 20 ||
+    !event.attachments.every(isAttachment) ||
     typeof event.occurredAt !== "string" ||
-    !Number.isFinite(Date.parse(event.occurredAt))
+    !Number.isFinite(Date.parse(event.occurredAt)) ||
+    (event.isSelf
+      ? event.senderId !== event.accountId || event.recipientIds.length !== 1 || event.recipientIds[0] === event.accountId
+      : event.senderId === event.accountId || !event.recipientIds.includes(event.accountId))
   ) throw new ZaloWebhookDiagnosticError("SCHEMA_INVALID");
   return event as ZaloBridgeEvent;
 }
@@ -95,10 +122,12 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       workspaceId: this.workspaceId,
       channelAccountId: this.channelAccountId,
       channelType: "ZALO",
+      accountDisplayName: event.accountName?.trim() || null,
       providerConversationId: event.threadId,
       providerMessageId: event.messageId,
       providerEventId: event.eventId,
-      sender: { contactId: null, channelType: "ZALO", externalId: event.senderId, displayName: null },
+      direction: event.isSelf ? "OUTBOUND" : "INBOUND",
+      sender: { contactId: null, channelType: "ZALO", externalId: event.senderId, displayName: event.senderName?.trim() || null },
       recipients: event.recipientIds.map((externalId) => ({ contactId: null, channelType: "ZALO" as const, externalId, displayName: null })),
       text: event.text,
       attachments: event.attachments.map((attachment) => ({
@@ -117,13 +146,20 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     if (command.workspaceId !== this.workspaceId || command.channelAccountId !== this.channelAccountId || command.channelType !== "ZALO") {
       throw new ChannelError("ACCOUNT_UNAVAILABLE", false);
     }
+    if (typeof command.conversationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(command.conversationId))
+      throw new ChannelError("DELIVERY_REJECTED", false);
     const body = JSON.stringify({
+      workspaceId: command.workspaceId,
+      connectedAccountId: command.channelAccountId,
+      conversationId: command.conversationId,
+      actionId: command.actionId,
       accountId: this.credential.bridgeAccountId,
       recipientId: command.recipientExternalId,
       threadId: command.providerConversationId,
       text: command.text,
       attachments: command.attachments,
       idempotencyKey: command.idempotencyKey,
+      source: command.source,
     });
     const timestamp = Math.floor(this.now() / 1000).toString();
     const signature = signZaloBridgeRequest(this.credential.signingSecret,{method:"POST",path:SEND_PATH,timestamp,body,idempotencyKey:command.idempotencyKey});
@@ -132,16 +168,74 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${SEND_PATH}`,
       headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp, "x-hirex-signature": signature, "x-hirex-idempotency-key":command.idempotencyKey },
       body,
-      timeoutMs: 15_000,
+      timeoutMs: SEND_TIMEOUT_MS,
     });
+    const result = response.body as { status?: unknown; messageId?: unknown; threadId?: unknown; errorCode?: unknown };
+    if (response.status === 409 && result?.status === "BLOCKED" && result.errorCode === "ACCOUNT_BUSY") throw new ChannelError("ACCOUNT_BUSY", false);
     if (response.status === 401 || response.status === 403) throw new ChannelError("PERMISSION_DENIED", false);
     if (response.status === 429) throw new ChannelError("RATE_LIMITED", true);
     if (response.status < 200 || response.status >= 300) throw new ChannelError(response.status >= 500 ? "DELIVERY_UNKNOWN" : "DELIVERY_REJECTED", response.status >= 500);
-    const result = response.body as { status?: unknown; messageId?: unknown; threadId?: unknown };
     if(result?.status==="FAILED")throw new ChannelError("DELIVERY_REJECTED",false);
     if(result?.status==="UNKNOWN")throw new ChannelError("DELIVERY_UNKNOWN",false);
     if (result?.status!=="SENT"||!isString(result.messageId)||!isString(result.threadId)) throw new ChannelError("DELIVERY_UNKNOWN", false);
     return { providerMessageId: result.messageId, providerConversationId: result.threadId, acceptedAt: new Date(this.now()).toISOString() };
+  }
+
+  async acknowledgeUnknownNoRetry(idempotencyKey: string): Promise<boolean> {
+    if (!isString(idempotencyKey, 512)) return false;
+    const body = JSON.stringify({ idempotencyKey, decision: "ACKNOWLEDGE_NO_RETRY" });
+    const timestamp = Math.floor(this.now() / 1000).toString();
+    const response = await this.transport.request({
+      method: "POST", url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${RECONCILE_PATH}`,
+      headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp,
+        "x-hirex-signature": signZaloBridgeRequest(this.credential.signingSecret,{method:"POST",path:RECONCILE_PATH,timestamp,body,idempotencyKey}),
+        "x-hirex-idempotency-key": idempotencyKey },
+      body, timeoutMs: 10_000,
+    });
+    return response.status === 200 && Boolean(response.body) && typeof response.body === "object" &&
+      (response.body as { status?: unknown }).status === "ACKNOWLEDGED_NO_RETRY";
+  }
+
+  private async contactRequest(path: string, payload: Record<string, unknown>, idempotencyKey: string) {
+    const body = JSON.stringify({ accountId: this.credential.bridgeAccountId, ...payload, idempotencyKey, source: "HUMAN_MANUAL" });
+    const timestamp = Math.floor(this.now() / 1000).toString();
+    let response: ChannelHttpResponse;
+    try {
+      response = await this.transport.request({ method: "POST", url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${path}`,
+        headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp,
+          "x-hirex-signature": signZaloBridgeRequest(this.credential.signingSecret, { method: "POST", path, timestamp, body, idempotencyKey }),
+          "x-hirex-idempotency-key": idempotencyKey }, body, timeoutMs: 15_000 });
+    } catch {
+      throw new ChannelError("ACCOUNT_UNAVAILABLE", true);
+    }
+    if (response.status === 401 || response.status === 403) throw new ChannelError("PERMISSION_DENIED", false);
+    if (response.status === 429) throw new ChannelError("RATE_LIMITED", true);
+    if (response.status === 409 && response.body && typeof response.body === "object" &&
+      (response.body as { status?: unknown; errorCode?: unknown }).status === "BLOCKED" &&
+      (response.body as { errorCode?: unknown }).errorCode === "ACCOUNT_BUSY") throw new ChannelError("ACCOUNT_BUSY", true);
+    if (response.status < 200 || response.status >= 300 || !response.body || typeof response.body !== "object")
+      throw new ChannelError("ACCOUNT_UNAVAILABLE", response.status >= 500);
+    return response.body as Record<string, unknown>;
+  }
+
+  async findUserByPhone(phone: string, idempotencyKey: string) {
+    if (!/^\+84[1-9][0-9]{8,9}$/u.test(phone) || !isString(idempotencyKey)) throw new ChannelError("DELIVERY_REJECTED", false);
+    const result = await this.contactRequest(FIND_BY_PHONE_PATH, { phone }, idempotencyKey);
+    if (result.status === "NOT_FOUND") return null;
+    if (result.status === "BLOCKED" && result.errorCode === "ACCOUNT_BUSY") throw new ChannelError("ACCOUNT_BUSY", true);
+    if (result.status === "FAILED" && result.errorCode === "RATE_LIMITED") throw new ChannelError("RATE_LIMITED", true);
+    if (result.status === "FAILED" && result.errorCode === "ACCOUNT_UNAVAILABLE") throw new ChannelError("ACCOUNT_UNAVAILABLE", true);
+    if (result.status !== "FOUND" || !isString(result.userId) || !isString(result.displayName, 255) ||
+      !(result.avatarUrl === null || typeof result.avatarUrl === "string") || typeof result.isFriend !== "boolean")
+      throw new ChannelError("ACCOUNT_UNAVAILABLE", false);
+    return { userId: result.userId, displayName: result.displayName, avatarUrl: result.avatarUrl as string | null, isFriend: result.isFriend };
+  }
+
+  async sendFriendRequest(userId: string, message: string, idempotencyKey: string) {
+    if (!isString(userId) || message.length > 150 || !isString(idempotencyKey)) throw new ChannelError("DELIVERY_REJECTED", false);
+    const result = await this.contactRequest(FRIEND_REQUEST_PATH, { userId, message, confirmed: true }, idempotencyKey);
+    if (!["SENT", "ALREADY_FRIEND", "ALREADY_PENDING"].includes(String(result.status))) throw new ChannelError("DELIVERY_REJECTED", false);
+    return result.status as "SENT" | "ALREADY_FRIEND" | "ALREADY_PENDING";
   }
 
   async healthCheck(): Promise<ProviderHealthStatus> {

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { isGmailQuotaNotice,isGmailDeliveryNotice,isHiddenSystemEmail,vietnamDayStart } from '../src/modules/campaigns/domain/gmail-quota.ts';
+assert.equal(isHiddenSystemEmail({from_email:'help@example.com',auto_submitted:'auto-generated',snippet:'We acknowledge that we have received your request and a ticket has been created.'}),true);
+assert.equal(isHiddenSystemEmail({from_email:'help@example.com',snippet:'We acknowledge that we have received your request'}),false);
+assert.equal(isHiddenSystemEmail({from_email:'service@example.com',snippet:'Here is our response'}),false);
+assert.equal(isGmailDeliveryNotice('mailer-daemon@googlemail.com'),true);
+assert.equal(isGmailDeliveryNotice('service.jp@tesmart.com'),false);
+assert.equal(isGmailDeliveryNotice('customer@example.com'),false);
+assert.equal(isGmailQuotaNotice('mailer-daemon@googlemail.com','You have reached a limit for sending mail. Your message was not sent.'),true);
+assert.equal(isGmailQuotaNotice('mailer-daemon@googlemail.com','Bạn đã đạt đến giới hạn gửi thư.'),true);
+assert.equal(isGmailQuotaNotice('customer@example.com','You have reached a limit for sending mail'),false);
+assert.equal(isGmailQuotaNotice('mailer-daemon@googlemail.com','Address not found'),false);
+assert.equal(vietnamDayStart(new Date('2026-10-11T17:01:00Z')),'2026-10-11T17:00:00.000Z');
+assert.equal(vietnamDayStart(new Date('2026-10-11T16:59:59Z')),'2026-10-10T17:00:00.000Z');
+console.log('PASS quota notice recognition and Vietnam midnight boundary');

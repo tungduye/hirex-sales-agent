@@ -9,6 +9,7 @@ import { recomputeThreadAggregates, upsertMailboxMessage } from "@/modules/integ
 import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 import { loadSyncCredentials, markReauthenticationRequired, ReauthenticationRequiredError, TransientCredentialError } from "@/modules/integrations/gmail/server/sync-credentials";
 import type { GmailSyncState } from "@/modules/integrations/gmail/types/sync-state";
+import { canAccessEmailAccount, hasPermission } from "@/modules/access/server/access-control";
 
 const accountIdSchema = z.uuid();
 
@@ -17,6 +18,7 @@ export async function syncLatestGmailMessages(_state: GmailSyncState, formData: 
   if (!parsedId.success) return failure("This email account could not be synced.");
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return failure("Your account is not ready to sync Gmail.");
+  if (!await hasPermission("channels.manage") || !await canAccessEmailAccount(parsedId.data)) return failure("Bạn không có quyền đồng bộ tài khoản Gmail này.");
   const scope = { workspaceId: account.workspaceId, emailAccountId: parsedId.data };
 
   try {
@@ -41,7 +43,7 @@ export async function syncLatestGmailMessages(_state: GmailSyncState, formData: 
       try {
         const resource = await getFullMessage(credentials.accessToken, messageId);
         const message = parseGmailMessage(resource, credentials.emailAddress);
-        if (!message) { skippedCount += 1; continue; }
+        if (!message || message.direction !== 'INBOUND' || message.labels.includes('DRAFT')) { skippedCount += 1; continue; }
         touchedThreads.add(await upsertMailboxMessage(scope, message));
         syncedCount += 1;
       } catch (error) {

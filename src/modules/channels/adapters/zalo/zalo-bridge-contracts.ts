@@ -10,8 +10,11 @@ export interface ZaloBridgeEvent {
   threadId: string;
   messageId: string;
   senderId: string;
+  senderName?: string | null;
+  accountName?: string | null;
   recipientIds: string[];
   text: string | null;
+  isSelf: boolean;
   attachments: Array<{
     id: string | null;
     filename: string | null;

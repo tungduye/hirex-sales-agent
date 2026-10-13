@@ -5,7 +5,6 @@ import { encryptCredential } from "@/modules/integrations/gmail/server/credentia
 import { getGmailServerConfig } from "@/modules/integrations/gmail/server/config";
 import {
   createGoogleOAuthClient,
-  GMAIL_OAUTH_SCOPES,
   GMAIL_SEND_SCOPE,
 } from "@/modules/integrations/gmail/server/oauth-client";
 import {
@@ -31,8 +30,8 @@ export async function GET(request: NextRequest) {
   const stateCookie = cookieStore.get(GMAIL_OAUTH_STATE_COOKIE)?.value;
   clearStateCookie(cookieStore, request);
 
-  if (!account) return NextResponse.redirect(new URL("/login", request.url));
-  if (!account.workspaceId || !account.configurationComplete) return gmailErrorRedirect(request);
+  if (!account) return NextResponse.redirect(appUrl("/login"));
+  if (!account.workspaceId || !account.configurationComplete) return gmailErrorRedirect();
 
   const oauthState = verifyGmailOAuthState(
     stateCookie,
@@ -40,13 +39,13 @@ export async function GET(request: NextRequest) {
     account.userId,
     account.workspaceId,
   );
-  if (!oauthState) return gmailErrorRedirect(request);
+  if (!oauthState) return gmailErrorRedirect();
 
   const oauthError = request.nextUrl.searchParams.get("error");
   if (oauthError) {
     return oauthState.purpose === "ENABLE_SEND"
       ? sendFeedbackRedirect(request, oauthError === "access_denied" ? "send_denied" : "send_error")
-      : gmailErrorRedirect(request);
+      : gmailErrorRedirect();
   }
 
   const code = request.nextUrl.searchParams.get("code");
@@ -82,10 +81,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const grantedScopes = tokens.scope
-      ? normalizeScopes(tokens.scope.split(/\s+/))
-      : [...GMAIL_OAUTH_SCOPES];
-    if (!grantedScopes.includes(GMAIL_READONLY_SCOPE)) return gmailErrorRedirect(request);
+    // Requested permissions are not proof of consent: verify the issued token.
+    if (!tokens.access_token) return gmailErrorRedirect();
+    const tokenInfo = await oauthClient.getTokenInfo(tokens.access_token);
+    if (tokenInfo.aud !== getGmailServerConfig().googleClientId
+      || (tokenInfo.sub && tokenInfo.sub !== identity.sub)
+      || !Number.isFinite(tokenInfo.expiry_date)
+      || tokenInfo.expiry_date <= Date.now()) return gmailErrorRedirect();
+    const grantedScopes = normalizeScopes(tokenInfo.scopes);
+    if (!grantedScopes.includes(GMAIL_READONLY_SCOPE)) return gmailErrorRedirect();
 
     const stored = await storeConnectedGmailAccount({
       workspaceId: account.workspaceId,
@@ -99,9 +103,8 @@ export async function GET(request: NextRequest) {
       scopes: grantedScopes,
     });
 
-    return NextResponse.redirect(new URL(
+    return NextResponse.redirect(appUrl(
       stored ? "/settings?gmail=connected" : "/settings?gmail=error",
-      request.url,
     ));
   } catch {
     return purposeErrorRedirect(request, oauthState.purpose);
@@ -187,13 +190,19 @@ function clearStateCookie(
 function purposeErrorRedirect(request: NextRequest, purpose: GmailOAuthPurpose) {
   return purpose === "ENABLE_SEND"
     ? sendFeedbackRedirect(request, "send_error")
-    : gmailErrorRedirect(request);
+    : gmailErrorRedirect();
 }
 
 function sendFeedbackRedirect(request: NextRequest, feedback: string) {
-  return NextResponse.redirect(new URL(`/settings?gmail=${feedback}`, request.url));
+  return NextResponse.redirect(appUrl(`/settings?gmail=${feedback}`));
 }
 
-function gmailErrorRedirect(request: NextRequest) {
-  return NextResponse.redirect(new URL("/settings?gmail=error", request.url));
+function gmailErrorRedirect() {
+  return NextResponse.redirect(appUrl("/settings?gmail=error"));
+}
+
+function appUrl(path: string) {
+  const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
+  if (!configuredBaseUrl) throw new Error("APP_BASE_URL_MISSING");
+  return new URL(path, new URL(configuredBaseUrl));
 }

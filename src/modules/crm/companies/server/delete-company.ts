@@ -5,11 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteCompanySchema } from "@/modules/crm/companies/schemas/company-schema";
 import type { DeleteCompanyState } from "@/modules/crm/companies/types/delete-company-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function deleteCompany(
   _previousState: DeleteCompanyState,
   formData: FormData,
 ): Promise<DeleteCompanyState> {
+  await requirePermission("companies.delete");
   const parsed = deleteCompanySchema.safeParse({ companyId: formData.get("companyId") });
 
   if (!parsed.success) {

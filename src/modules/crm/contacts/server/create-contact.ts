@@ -6,11 +6,13 @@ import { createContactSchema } from "@/modules/crm/contacts/schemas/contact-sche
 import { companyBelongsToWorkspace } from "@/modules/crm/contacts/server/company-belongs-to-workspace";
 import type { CreateContactState } from "@/modules/crm/contacts/types/create-contact-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function createContact(
   _previousState: CreateContactState,
   formData: FormData,
 ): Promise<CreateContactState> {
+  await requirePermission("contacts.create");
   const parsed = createContactSchema.safeParse({
     fullName: formData.get("fullName"),
     companyId: formData.get("companyId"),

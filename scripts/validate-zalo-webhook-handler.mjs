@@ -11,7 +11,7 @@ registerHooks({resolve(specifier,context,nextResolve){
   return nextResolve(specifier,context);
 }});
 
-const {handleZaloWebhook}=await import("../src/app/api/webhooks/zalo/route.ts");
+const {handleZaloWebhook}=await import("../src/modules/channels/server/handle-zalo-webhook.ts");
 const {ZaloWebhookDiagnosticError}=await import("../src/modules/channels/adapters/zalo/zalo-bridge-adapter.ts");
 const {ChannelAccountLoadError}=await import("../src/modules/channels/server/load-channel-adapter.ts");
 let assertions=0,ingestCalls=0;
@@ -31,4 +31,5 @@ response=await handleZaloWebhook(new Request("http://127.0.0.1/api/webhooks/zalo
 for(const [code,status] of [["TIMESTAMP_INVALID",401],["SIGNATURE_INVALID",401],["SCHEMA_INVALID",400],["PROVIDER_ACCOUNT_MISMATCH",400]]){response=await handleZaloWebhook(request(),{load:async()=>({channelAccountId:"fixture-channel",adapter}),ingest:async()=>{throw new ZaloWebhookDiagnosticError(code)}});eq(response.status,status);eq(await response.json(),{ok:false,code})}
 for(const [code,status] of [["CHANNEL_ACCOUNT_NOT_FOUND",404],["CHANNEL_ACCOUNT_QUERY_FAILED",500],["CHANNEL_ACCOUNT_ROW_INVALID",400],["CHANNEL_CREDENTIAL_DECRYPT_FAILED",500],["CHANNEL_CONFIGURATION_INVALID",400]]){response=await handleZaloWebhook(request(),{load:async()=>{throw new ChannelAccountLoadError(code)},ingest:async()=>({accepted:0})});eq(response.status,status);eq(await response.json(),{ok:false,code})}
 for(const [error,code] of [["CONTACT_PERSISTENCE_FAILED","CONTACT_PROVISION_FAILED"],["CONTACT_CHANNEL_PERSISTENCE_FAILED","CONTACT_CHANNEL_PROVISION_FAILED"],["CONVERSATION_PERSISTENCE_FAILED","CONVERSATION_PROVISION_FAILED"],["MESSAGE_PERSISTENCE_FAILED","MESSAGE_PERSIST_FAILED"]]){response=await handleZaloWebhook(request(),{load:async()=>({channelAccountId:"fixture-channel",adapter}),ingest:async()=>{throw Error(error)}});eq(response.status,500);eq(await response.json(),{ok:false,code})}
+response=await handleZaloWebhook(request(),{load:async()=>({channelAccountId:"fixture-channel",adapter}),ingest:async()=>{throw Error("WEBHOOK_DIRECTION_INVALID")}});eq(response.status,400);eq(await response.json(),{ok:false,code:"SCHEMA_INVALID"});
 console.log(`ZALO_WEBHOOK_HANDLER_PASS assertions=${assertions} remoteCalls=0 providerCalls=0`);

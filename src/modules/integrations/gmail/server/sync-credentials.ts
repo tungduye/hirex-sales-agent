@@ -73,7 +73,8 @@ function isInvalidGrantError(error: unknown) {
   const response = error.response;
   if (!isRecord(response)) return false;
   const data = response.data;
-  return isRecord(data) && data.error === "invalid_grant";
+  // A denied refresh cannot be repaired by retrying the same credentials.
+  return isRecord(data) && (data.error === "invalid_grant" || data.error === "access_denied");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

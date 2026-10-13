@@ -1,0 +1,11 @@
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL??process.env["\uFEFFNEXT_PUBLIC_SUPABASE_URL"],key=process.env.SUPABASE_SECRET_KEY;
+if(!url||!key)throw new Error("Missing Supabase environment");
+const headers={apikey:key,Authorization:`Bearer ${key}`};
+const get=path=>fetch(`${url}/rest/v1/${path}`,{headers}).then(async r=>{if(!r.ok)throw new Error(`GET ${r.status}`);return r.json()});
+const [account]=await get("channel_accounts?id=eq.dd301e9a-579e-4aa7-ba93-093ab094e8e0&select=id,display_name,status,operator_enabled,provider_health_status,provider_health_reason_code,provider_health_checked_at");
+const runs=await get("ai_recruiter_runs?conversation_id=eq.de8902d7-666d-46b4-a023-b65297142d07&select=id,status,mode,safe_error_code,created_at,proposed_text_parts&order=created_at.desc&limit=3");
+const actions=await get("channel_outbound_actions?conversation_id=eq.de8902d7-666d-46b4-a023-b65297142d07&select=id,status,safe_error_code,dispatch_source,updated_at,text_content&order=updated_at.desc&limit=3");
+const conversations=await get("omnichannel_conversations?id=eq.de8902d7-666d-46b4-a023-b65297142d07&select=id,metadata,takeover_mode,updated_at");
+const states=await get("ai_recruiter_conversation_states?conversation_id=eq.de8902d7-666d-46b4-a023-b65297142d07&select=conversation_id,current_stage,profile,status,bot_paused,pause_reason,updated_at");
+const jobs=await get("ai_recruiter_jobs?active=eq.true&select=external_job_id,priority,sale_stage,company_name,job_title,location,japanese_level_min,japan_years_min&order=priority.asc");
+console.log(JSON.stringify({account,conversations,states,runs,actions,jobs},null,2));

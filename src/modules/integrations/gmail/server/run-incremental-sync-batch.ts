@@ -45,7 +45,7 @@ type ClaimResult =
   | { kind: "EXPIRED" }
   | { kind: "CURSOR_CHANGED" };
 type PageWork = { kind: "REFETCH" | "DELETE"; messageId: string; threadId: string | null };
-type WorkResult = { kind: "SYNCED" | "DELETED"; threadId: string | null } | { kind: "FAILED"; code: IncrementalSyncSafeErrorCode };
+type WorkResult = { kind: "SYNCED" | "DELETED" | "SKIPPED"; threadId: string | null } | { kind: "FAILED"; code: IncrementalSyncSafeErrorCode };
 
 export async function runIncrementalSyncBatch(scope: Scope): Promise<IncrementalBatchResult> {
   try {
@@ -265,6 +265,7 @@ async function processWork(scope: Scope, accessToken: string, emailAddress: stri
       const resource = await getFullMessage(accessToken, work.messageId);
       const parsed = parseGmailMessage(resource, emailAddress);
       if (!parsed) return { kind: "FAILED", code: "MAILBOX_PERSISTENCE_ERROR" };
+      if (parsed.direction !== 'INBOUND' || parsed.labels.includes('DRAFT')) return { kind: 'SKIPPED', threadId: null };
       if (parsed.labels.includes("SPAM") || parsed.labels.includes("TRASH")) {
         return {
           kind: "DELETED",

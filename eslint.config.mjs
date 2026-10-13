@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local bridge retry fixture; website lint should only include maintained app code.
+    "runtime/bridge-retry-validation/**",
   ]),
 ]);
 

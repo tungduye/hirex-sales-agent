@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
@@ -20,7 +24,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -29,7 +35,56 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    ".next-recruiter-fix/types/**/*.ts",
+    ".next-recruiter-fix/dev/types/**/*.ts",
+    ".next-recruiter-tone/types/**/*.ts",
+    ".next-recruiter-tone/dev/types/**/*.ts",
+    ".next-profile-gate/types/**/*.ts",
+    ".next-profile-gate/dev/types/**/*.ts",
+    ".next-intro-memory/types/**/*.ts",
+    ".next-intro-memory/dev/types/**/*.ts",
+    ".next-anonymous-preview/types/**/*.ts",
+    ".next-anonymous-preview/dev/types/**/*.ts",
+    ".next-intro-flow/types/**/*.ts",
+    ".next-intro-flow/dev/types/**/*.ts",
+    ".next-approved-flow/types/**/*.ts",
+    ".next-approved-flow/dev/types/**/*.ts",
+    ".next-gmail-bootstrap/types/**/*.ts",
+    ".next-gmail-bootstrap/dev/types/**/*.ts",
+    ".next-gmail-inbound/types/**/*.ts",
+    ".next-gmail-inbound/dev/types/**/*.ts",
+    ".next-auth-diagnostics/types/**/*.ts",
+    ".next-auth-diagnostics/dev/types/**/*.ts",
+    ".next-reply-counts/types/**/*.ts",
+    ".next-reply-counts/dev/types/**/*.ts",
+    ".next-quota-hold/types/**/*.ts",
+    ".next-quota-hold/dev/types/**/*.ts",
+    ".next-quota-hold-final/types/**/*.ts",
+    ".next-quota-hold-final/dev/types/**/*.ts",
+    ".next-delivery-notices/types/**/*.ts",
+    ".next-delivery-notices/dev/types/**/*.ts",
+    ".next-human-connection/types/**/*.ts",
+    ".next-human-connection/dev/types/**/*.ts",
+    ".next-human-documents/types/**/*.ts",
+    ".next-human-documents/dev/types/**/*.ts",
+    ".next-human-documents-ai/types/**/*.ts",
+    ".next-human-documents-ai/dev/types/**/*.ts",
+    ".next-human-document-tree/types/**/*.ts",
+    ".next-human-document-tree/dev/types/**/*.ts",
+    ".next-human-hierarchy/types/**/*.ts",
+    ".next-human-hierarchy/dev/types/**/*.ts",
+    ".next-human-speed/types/**/*.ts",
+    ".next-human-speed/dev/types/**/*.ts",
+    ".next-human-summary/types/**/*.ts",
+    ".next-human-summary/dev/types/**/*.ts",
+    ".next-human-runtime/types/**/*.ts",
+    ".next-human-runtime/dev/types/**/*.ts",
+    ".next-human-citations/types/**/*.ts",
+    ".next-human-citations/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "runtime/bridge-retry-validation"
+  ]
 }

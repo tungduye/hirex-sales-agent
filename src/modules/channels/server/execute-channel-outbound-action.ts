@@ -6,6 +6,7 @@ import type { ChannelAdapterRegistry } from "../core/channel-adapter-registry";
 import { CHANNEL_TYPES, type ChannelType, type SendAttachment } from "../core/channel-contracts";
 import { executeOutboundAction, type ClaimedOutboundAction, type CurrentPolicyEvidence, type OutboundActionRecord } from "../core/execute-outbound-action";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
+import { evaluateFacebookProfileRecipientEvidence } from "../core/facebook-profile-recipient-policy";
 import { evaluateZaloProviderHealth, PROVIDER_HEALTH_STATUSES, type ProviderHealthStatus } from "../core/provider-health";
 
 interface ActionRow {
@@ -13,6 +14,7 @@ interface ActionRow {
   channel_type: unknown; recipient_external_id: unknown; status: unknown; text_content: unknown;
   attachment_ids: unknown; idempotency_key: unknown; policy_decision_id: unknown;
   approved_by: unknown; approved_at: unknown;
+  dispatch_source: unknown;
 }
 interface AttachmentRow { id: unknown; storage_bucket: unknown; storage_path: unknown; filename: unknown; content_type: unknown; size_bytes: unknown; sha256: unknown }
 
@@ -47,20 +49,20 @@ async function persistSentConversationMessage(client: PrivilegedClient, actionId
 }
 
 async function mapAction(client: PrivilegedClient, row: ActionRow | null): Promise<OutboundActionRecord | null> {
-  if (!row || !isUuid(row.id) || !isUuid(row.workspace_id) || (row.conversation_id !== null && !isUuid(row.conversation_id)) || !isUuid(row.channel_account_id) || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || !["APPROVED","QUEUED","EXECUTING"].includes(String(row.status)) || typeof row.recipient_external_id !== "string" || (row.text_content !== null && typeof row.text_content !== "string") || !Array.isArray(row.attachment_ids) || !row.attachment_ids.every(isUuid) || typeof row.idempotency_key !== "string" || !isUuid(row.policy_decision_id) || !isUuid(row.approved_by) || typeof row.approved_at !== "string") return null;
+  if (!row || !isUuid(row.id) || !isUuid(row.workspace_id) || (row.conversation_id !== null && !isUuid(row.conversation_id)) || !isUuid(row.channel_account_id) || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || !["APPROVED","QUEUED","EXECUTING"].includes(String(row.status)) || typeof row.recipient_external_id !== "string" || (row.text_content !== null && typeof row.text_content !== "string") || !Array.isArray(row.attachment_ids) || !row.attachment_ids.every(isUuid) || typeof row.idempotency_key !== "string" || !isUuid(row.policy_decision_id) || !(isUuid(row.approved_by) || (row.approved_by === null && row.dispatch_source === "AI_AUTOMATION")) || typeof row.approved_at !== "string" || !["HUMAN_MANUAL","AI_AUTOMATION","CAMPAIGN","SYSTEM"].includes(String(row.dispatch_source))) return null;
   let providerConversationId: string | null = null;
   if (row.conversation_id) {
     const { data, error } = await client.from("omnichannel_conversations").select("provider_conversation_id").eq("id", row.conversation_id).eq("workspace_id", row.workspace_id).eq("channel_account_id", row.channel_account_id).maybeSingle();
     if (error || typeof data?.provider_conversation_id !== "string") return null;
     providerConversationId = data.provider_conversation_id;
   }
-  return { id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: row.approved_by, approvedAt: row.approved_at };
+  return { id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: isUuid(row.approved_by) ? row.approved_by : null, approvedAt: row.approved_at, dispatchSource: row.dispatch_source as OutboundActionRecord["dispatchSource"] };
 }
 
 export async function executeChannelOutboundAction(actionId: string, adapters: ChannelAdapterRegistry) {
   const client = createPrivilegedClient();
   const loadAction = async (id: string) => {
-    const { data, error } = await client.from("channel_outbound_actions").select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,status,text_content,attachment_ids,idempotency_key,policy_decision_id,approved_by,approved_at").eq("id", id).maybeSingle();
+    const { data, error } = await client.from("channel_outbound_actions").select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,status,text_content,attachment_ids,idempotency_key,policy_decision_id,approved_by,approved_at,dispatch_source").eq("id", id).maybeSingle();
     return error ? null : mapAction(client, data as ActionRow | null);
   };
   return executeOutboundAction(actionId, {
@@ -112,11 +114,48 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
         const accountResult=await client.from("channel_accounts").select("id,workspace_id,operator_enabled,provider_health_status,provider_health_checked_at").eq("id",action.channelAccountId).eq("workspace_id",action.workspaceId).eq("channel_type","ZALO").eq("provider","ZALO_BRIDGE").eq("status","CONNECTED").maybeSingle();
         const account=accountResult.data;
         if(accountResult.error||!account||account.operator_enabled!==true)return{allowed:false,safeErrorCode:"ACCOUNT_UNAVAILABLE"};
-        const adapter=adapters.get("ZALO"),started=Date.now(),rawHealth=await adapter.healthCheck(action.channelAccountId),health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(rawHealth as ProviderHealthStatus)?rawHealth as ProviderHealthStatus:"UNKNOWN",checkedAt=new Date().toISOString();
+        if(action.dispatchSource==="CAMPAIGN"){
+          const {data:slotRows,error:slotError}=await client.rpc("reserve_zalo_account_operation",{
+            p_workspace_id:action.workspaceId,p_channel_account_id:action.channelAccountId,p_operation:"SEND",
+          });
+          if(slotError||!Array.isArray(slotRows)||slotRows.length!==1)throw new Error("ZALO_SEND_SLOT_UNAVAILABLE");
+          if(slotRows[0].granted!==true)return{allowed:false,safeErrorCode:"ACCOUNT_BUSY"};
+        }
+        const adapter=adapters.get("ZALO"),started=Date.now();
+        let rawHealth=await adapter.healthCheck(action.channelAccountId);
+        // A bridge health request can briefly race with a reconnect. Retry once before
+        // permanently failing an action that has not reached the provider send endpoint.
+        if(rawHealth==="UNKNOWN"){await new Promise((resolve)=>setTimeout(resolve,350));rawHealth=await adapter.healthCheck(action.channelAccountId);}
+        const health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(rawHealth as ProviderHealthStatus)?rawHealth as ProviderHealthStatus:"UNKNOWN",checkedAt=new Date().toISOString();
         const recorded=await client.rpc("record_channel_account_provider_health",{p_workspace_id:action.workspaceId,p_channel_account_id:action.channelAccountId,p_status:health,p_checked_at:checkedAt,p_safe_reason_code:health==="HEALTHY"?null:health,p_latency_ms:Math.min(Date.now()-started,60000)});
         if(recorded.error||recorded.data!==true)throw new Error("ZALO_HEALTH_PERSISTENCE_UNAVAILABLE");
         const eligibility=evaluateZaloProviderHealth({operatorEnabled:true,status:health,checkedAt},new Date(now));
         return{allowed:eligibility.allowed,safeErrorCode:eligibility.allowed?"":"ACCOUNT_UNAVAILABLE"};
+      }
+      if(action.channelType==="FACEBOOK_PROFILE"){
+        if(!action.conversationId||!action.providerConversationId)return{allowed:false,safeErrorCode:"FACEBOOK_PROFILE_CONVERSATION_REQUIRED"};
+        const [{data:conversation,error:conversationError},{data:inbound,error:inboundError},{count:connectedAccountCount,error:connectedAccountError}]=await Promise.all([
+          client.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata")
+            .eq("id",action.conversationId).eq("workspace_id",action.workspaceId)
+            .eq("channel_account_id",action.channelAccountId).eq("channel_type","FACEBOOK_PROFILE").maybeSingle(),
+          client.from("omnichannel_messages").select("sender_external_id")
+            .eq("workspace_id",action.workspaceId).eq("conversation_id",action.conversationId)
+            .eq("channel_account_id",action.channelAccountId).eq("channel_type","FACEBOOK_PROFILE").eq("direction","INBOUND")
+            .order("received_at",{ascending:false}).limit(1).maybeSingle(),
+          client.from("channel_accounts").select("id",{count:"exact",head:true})
+            .eq("workspace_id",action.workspaceId).eq("channel_type","FACEBOOK_PROFILE")
+            .eq("external_account_id",action.recipientExternalId).is("deleted_at",null),
+        ]);
+        if(conversationError||inboundError||connectedAccountError||!conversation)throw new Error("FACEBOOK_PROFILE_IDENTITY_UNAVAILABLE");
+        const metadata=conversation.metadata&&typeof conversation.metadata==="object"&&!Array.isArray(conversation.metadata)?conversation.metadata as Record<string,unknown>:{};
+        return evaluateFacebookProfileRecipientEvidence({
+          conversationId:conversation.id,
+          providerConversationId:conversation.provider_conversation_id,
+          recipientExternalId:action.recipientExternalId,
+          participantExternalId:typeof metadata.participantExternalId==="string"?metadata.participantExternalId:null,
+          latestInboundSenderExternalId:typeof inbound?.sender_external_id==="string"?inbound.sender_external_id:null,
+          recipientIsConnectedAccount:(connectedAccountCount??0)>0,
+        });
       }
       if (action.channelType !== "FACEBOOK") return { allowed: true, safeErrorCode: "" };
       if (!action.conversationId || !action.providerConversationId || action.providerConversationId !== action.recipientExternalId) return { allowed: false, safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
@@ -127,11 +166,11 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
         .eq("provider_conversation_id", action.recipientExternalId).maybeSingle();
       if (conversationError || !conversation || conversation.id !== action.conversationId || conversation.channel_account_id !== action.channelAccountId || conversation.provider_conversation_id !== action.recipientExternalId) throw new Error("FACEBOOK_RESPONSE_WINDOW_UNAVAILABLE");
       const { data: inbound, error: inboundError } = await client.from("omnichannel_messages")
-        .select("sent_at").eq("workspace_id", action.workspaceId).eq("conversation_id", action.conversationId)
+        .select("received_at").eq("workspace_id", action.workspaceId).eq("conversation_id", action.conversationId)
         .eq("channel_account_id", action.channelAccountId).eq("channel_type", "FACEBOOK").eq("direction", "INBOUND")
-        .order("sent_at", { ascending: false }).limit(1).maybeSingle();
+        .order("received_at", { ascending: false }).limit(1).maybeSingle();
       if (inboundError) throw new Error("FACEBOOK_RESPONSE_WINDOW_UNAVAILABLE");
-      return { allowed: isFacebookResponseWindowOpen({ status: conversation.status, latestInboundAt: inbound?.sent_at }, new Date(now)), safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
+      return { allowed: isFacebookResponseWindowOpen({ status: conversation.status, latestInboundAt: inbound?.received_at }, new Date(now)), safeErrorCode: "FACEBOOK_RESPONSE_WINDOW_EXPIRED" };
     },
     async finalizeSent(input) {
       const { data, error } = await client.rpc("finalize_channel_outbound_action_sent", { p_workspace_id: input.workspaceId, p_action_id: input.actionId, p_execution_lock_id: input.executionLockId, p_provider_message_id: input.providerMessageId, p_provider_conversation_id: input.providerConversationId, p_accepted_at: input.acceptedAt });
@@ -147,6 +186,14 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
     async finalizeUnknown(input) {
       const { data, error } = await client.rpc("finalize_channel_outbound_action_unknown", { p_workspace_id: input.workspaceId, p_action_id: input.actionId, p_execution_lock_id: input.executionLockId });
       return !error && data === true;
+    },
+    async deferConfirmedBusy(input) {
+      const {data,error}=await client.rpc("defer_zalo_campaign_action_account_busy",{
+        p_workspace_id:input.workspaceId,p_action_id:input.actionId,
+        p_execution_lock_id:input.executionLockId,p_provider_rejected:input.providerRejected,
+      });
+      if(error)throw new Error("ZALO_BUSY_DEFER_UNAVAILABLE");
+      return data===true;
     },
   });
 }

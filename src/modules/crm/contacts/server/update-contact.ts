@@ -6,11 +6,13 @@ import { updateContactSchema } from "@/modules/crm/contacts/schemas/contact-sche
 import { companyBelongsToWorkspace } from "@/modules/crm/contacts/server/company-belongs-to-workspace";
 import type { ContactFormState } from "@/modules/crm/contacts/types/create-contact-state";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { requirePermission } from "@/modules/access/server/access-control";
 
 export async function updateContact(
   _previousState: ContactFormState,
   formData: FormData,
 ): Promise<ContactFormState> {
+  await requirePermission("contacts.update");
   const parsed = updateContactSchema.safeParse({
     contactId: formData.get("contactId"),
     fullName: formData.get("fullName"),

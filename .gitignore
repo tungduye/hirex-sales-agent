@@ -44,3 +44,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local process logs (may contain contact names)
+*.log
+
+# build outputs kept on the host for rollback by deploy-recruiter-tone.ps1
+/.next-*/
+
+# local working folders: ad-hoc scripts, QA captures, exported drafts
+/tmp/
+/outputs/

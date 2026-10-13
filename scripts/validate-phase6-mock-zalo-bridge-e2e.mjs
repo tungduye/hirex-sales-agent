@@ -118,7 +118,7 @@ try {
   await assert.rejects(() => adapter.sendMessage({ ...command, idempotencyKey: "timeout-after-accept-key" }), /Abort|abort/u); assertions += 1;
   current = await metrics(); equal(current.sendCalls, 1); equal(current.deliveries, 1);
 
-  const inboundBody = JSON.stringify({ eventId: "mock-event-001", accountId, threadId: "mock-zalo-thread-001", messageId: "mock-inbound-001", senderId: "mock-zalo-user-001", recipientIds: [accountId], text: "Test HireX mock Zalo inbound 01", attachments: [], occurredAt: new Date().toISOString() });
+  const inboundBody = JSON.stringify({ eventId: "mock-event-001", accountId, threadId: "mock-zalo-thread-001", messageId: "mock-inbound-001", senderId: "mock-zalo-user-001", recipientIds: [accountId], text: "Test HireX mock Zalo inbound 01", isSelf: false, attachments: [], occurredAt: new Date().toISOString() });
   const inboundTimestamp = Math.floor(Date.now() / 1000).toString();
   const { createHmac } = await import("node:crypto");
   const inboundSignature = createHmac("sha256", secret).update(`${inboundTimestamp}.${inboundBody}`).digest("hex");

@@ -8,15 +8,14 @@ export function zaloContactIdentity(workspaceId: string, channelAccountId: strin
   return { contactId: uuid("contact"), channelId: uuid("contact-channel") };
 }
 
-/** Reconfiguration cannot silently turn a second account into a sender. */
+/** Reconfiguration never grants send, but preserves an operator-reviewed grant. */
 export function zaloConnectCapabilities(input: {
   isExisting: boolean;
   existingCapabilities: unknown;
   providerAccountId: string;
   qaProviderAccountId: string | undefined;
 }): string[] {
-  const preserveQaSend = input.isExisting && Boolean(input.qaProviderAccountId) &&
-    input.providerAccountId === input.qaProviderAccountId && Array.isArray(input.existingCapabilities) &&
+  const preserveReviewedSend = input.isExisting && Array.isArray(input.existingCapabilities) &&
     input.existingCapabilities.includes("SEND_TEXT");
-  return preserveQaSend ? ["SEND_TEXT", "REPLY", "READ_RECEIPTS"] : ["READ_RECEIPTS"];
+  return preserveReviewedSend ? ["SEND_TEXT", "REPLY", "READ_RECEIPTS"] : ["READ_RECEIPTS"];
 }

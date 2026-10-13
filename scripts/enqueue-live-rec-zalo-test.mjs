@@ -1,0 +1,12 @@
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL??process.env["\uFEFFNEXT_PUBLIC_SUPABASE_URL"],key=process.env.SUPABASE_SECRET_KEY;
+const secret=process.env.AUTOMATION_CRON_SECRET,app=(process.env.APP_BASE_URL??"https://app.hirexmkt.online").replace(/\/$/,"");
+if(!url||!key||!secret)throw new Error("Missing environment");
+const headers={apikey:key,Authorization:`Bearer ${key}`};
+const get=path=>fetch(`${url}/rest/v1/${path}`,{headers}).then(async r=>{if(!r.ok)throw new Error(`GET ${r.status}`);return r.json()});
+const patch=(path,body)=>fetch(`${url}/rest/v1/${path}`,{method:"PATCH",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(async r=>{if(!r.ok)throw new Error(`PATCH ${r.status}`);return true});
+const [conversation]=await get("omnichannel_conversations?id=eq.de8902d7-666d-46b4-a023-b65297142d07&select=id,workspace_id,channel_account_id");
+const [message]=await get("omnichannel_messages?conversation_id=eq.de8902d7-666d-46b4-a023-b65297142d07&direction=eq.INBOUND&select=id,text_content,created_at&order=created_at.desc&limit=1");
+if(!conversation||!message||message.text_content?.trim().toLowerCase()!=="hi em")throw new Error("Expected latest inbound hi em");
+await patch(`ai_recruiter_channel_bindings?channel_account_id=eq.${conversation.channel_account_id}`,{created_at:new Date(Date.parse(message.created_at)-1000).toISOString()});
+const response=await fetch(`${app}/api/internal/ai-recruiter/enqueue`,{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({workspaceId:conversation.workspace_id,channelAccountId:conversation.channel_account_id,conversationId:conversation.id,messageId:message.id})});
+console.log(JSON.stringify({status:response.status,result:await response.json(),messageId:message.id}));

@@ -1,0 +1,14 @@
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL??process.env["\uFEFFNEXT_PUBLIC_SUPABASE_URL"],key=process.env.SUPABASE_SECRET_KEY;
+if(!url||!key)throw new Error("Missing Supabase environment");
+const headers={apikey:key,Authorization:`Bearer ${key}`};
+const get=async path=>{const response=await fetch(`${url}/rest/v1/${path}`,{headers});if(!response.ok)throw new Error(`GET ${response.status}: ${await response.text()}`);return response.json()};
+const accounts=await get("channel_accounts?channel_type=eq.FACEBOOK_PROFILE&display_name=in.(Phuong%20Anh%20Tran,Tung%20Duy)&select=id,display_name,status,provider_health_status,operator_enabled,external_account_id");
+const accountIds=accounts.map(account=>account.id);
+const bindings=accountIds.length?await get(`ai_recruiter_channel_bindings?channel_account_id=in.(${accountIds.join(",")})&select=id,bot_id,channel_account_id,enabled,created_at`):[];
+const bots=await get("ai_recruiter_bots?select=id,name,bot_type,enabled,mode");
+const conversations=accountIds.length?await get(`omnichannel_conversations?channel_account_id=in.(${accountIds.join(",")})&select=id,channel_account_id,subject,status,takeover_mode,last_message_at,metadata&order=last_message_at.desc&limit=30`):[];
+const actions=await get("channel_outbound_actions?conversation_id=eq.60c1d5c0-cdaf-4aaa-b3c1-cbf5bc59cbc0&select=id,status,safe_error_code,text_content,created_at,updated_at&order=created_at.desc&limit=5");
+const states=await get("ai_recruiter_conversation_states?conversation_id=in.(60c1d5c0-cdaf-4aaa-b3c1-cbf5bc59cbc0,7edacbe5-5a1a-40f2-a620-0bcb723f8495)&select=conversation_id,current_stage,profile,status,bot_paused,pause_reason,updated_at");
+const runs=await get("ai_recruiter_runs?conversation_id=in.(60c1d5c0-cdaf-4aaa-b3c1-cbf5bc59cbc0,7edacbe5-5a1a-40f2-a620-0bcb723f8495)&select=conversation_id,status,mode,input_snapshot,output_json,proposed_text_parts,created_at&order=created_at.desc&limit=8");
+const scheduled=await get("ai_recruiter_scheduled_actions?conversation_id=in.(60c1d5c0-cdaf-4aaa-b3c1-cbf5bc59cbc0,7edacbe5-5a1a-40f2-a620-0bcb723f8495)&select=conversation_id,status,action_type,due_at,completed_at&order=created_at.desc&limit=12");
+console.log(JSON.stringify({accounts,bindings:bindings.map(binding=>({...binding,bot:bots.find(bot=>bot.id===binding.bot_id)??null})),states,scheduled,runs,actions,conversations},null,2));

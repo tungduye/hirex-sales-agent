@@ -27,6 +27,11 @@ function parseEnvelope(value: unknown): FacebookWebhookEnvelope {
   return envelope as FacebookWebhookEnvelope;
 }
 
+function safeParticipantName(value: unknown): string | null {
+  return typeof value === "string" && value.trim() && value.length <= 255 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)
+    ? value.trim() : null;
+}
+
 export class FacebookPageAdapter implements ChannelAdapter {
   private readonly channelAccountId:string;
   private readonly workspaceId:string;
@@ -46,6 +51,15 @@ export class FacebookPageAdapter implements ChannelAdapter {
     credential: FacebookPageCredential,
     transport: ChannelTransport,
   ) {this.channelAccountId=channelAccountId;this.workspaceId=workspaceId;this.credential=credential;this.transport=transport;}
+
+  async resolveParticipantName(senderId:string):Promise<string|null>{
+    try{
+      const response=await this.transport.request({method:"GET",url:`https://graph.facebook.com/${encodeURIComponent(this.credential.graphApiVersion)}/${encodeURIComponent(senderId)}?fields=name`,headers:{authorization:`Bearer ${this.credential.pageAccessToken}`},timeoutMs:10_000});
+      if(response.status<200||response.status>=300||!response.body||typeof response.body!=="object")return null;
+      const name=(response.body as {name?:unknown}).name;
+      return typeof name==="string"&&name.trim()&&name.length<=255&&!/[\u0000-\u001f\u007f-\u009f]/u.test(name)?name.trim():null;
+    }catch{return null}
+  }
 
   async verifyWebhook(input: {
     headers: Readonly<Record<string, string>>;
@@ -77,6 +91,7 @@ export class FacebookPageAdapter implements ChannelAdapter {
   async normalizeInbound(input: VerifiedWebhook): Promise<CanonicalInboundMessage[]> {
     const envelope = parseEnvelope(input.payload);
     const messages: CanonicalInboundMessage[] = [];
+    const names=new Map<string,string|null>();
     for (const entry of envelope.entry) {
       for (const event of entry.messaging ?? []) {
         const senderId = event.sender?.id;
@@ -96,15 +111,22 @@ export class FacebookPageAdapter implements ChannelAdapter {
           }];
         });
         if (!event.message?.text && attachments.length === 0) continue;
+        const isOutbound=event.message?.is_echo===true||senderId===this.credential.pageId;
+        const participantId=isOutbound?recipientId:senderId;
+        if(!names.has(participantId)){
+          const supplied=safeParticipantName(isOutbound?event.recipient?.name:event.sender?.name);
+          names.set(participantId,supplied??await this.resolveParticipantName(participantId));
+        }
         messages.push({
           workspaceId: this.workspaceId,
           channelAccountId: this.channelAccountId,
           channelType: "FACEBOOK",
-          providerConversationId: senderId,
+          providerConversationId: participantId,
           providerMessageId: messageId,
           providerEventId: messageId,
-          sender: { contactId: null, channelType: "FACEBOOK", externalId: senderId, displayName: null },
-          recipients: [{ contactId: null, channelType: "FACEBOOK", externalId: recipientId, displayName: null }],
+          direction:isOutbound?"OUTBOUND":"INBOUND",
+          sender: { contactId: null, channelType: "FACEBOOK", externalId: senderId, displayName: isOutbound?null:names.get(participantId)??null },
+          recipients: [{ contactId: null, channelType: "FACEBOOK", externalId: recipientId, displayName: isOutbound?names.get(participantId)??null:null }],
           text: event.message?.text ?? null,
           attachments,
           occurredAt: new Date(occurredAt).toISOString(),

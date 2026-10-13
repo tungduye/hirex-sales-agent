@@ -1,6 +1,7 @@
 export const CHANNEL_TYPES = [
   "EMAIL",
   "FACEBOOK",
+  "FACEBOOK_PROFILE",
   "ZALO",
   "WHATSAPP",
   "VIBER",
@@ -75,9 +76,11 @@ export interface CanonicalInboundMessage {
   workspaceId: string;
   channelAccountId: string;
   channelType: ChannelType;
+  accountDisplayName?: string | null;
   providerConversationId: string;
   providerMessageId: string;
   providerEventId: string | null;
+  direction?: MessageDirection;
   sender: CanonicalParticipant;
   recipients: CanonicalParticipant[];
   text: string | null;
@@ -88,6 +91,7 @@ export interface CanonicalInboundMessage {
 
 export interface SendMessageCommand {
   actionId: string;
+  conversationId?: string | null;
   workspaceId: string;
   channelAccountId: string;
   channelType: ChannelType;
@@ -97,6 +101,7 @@ export interface SendMessageCommand {
   attachments: SendAttachment[];
   idempotencyKey: string;
   policyDecisionId: string;
+  source: "HUMAN_MANUAL" | "AI_AUTOMATION" | "CAMPAIGN" | "SYSTEM";
 }
 
 export interface ChannelSendResult {
@@ -178,5 +183,6 @@ export function isSendMessageCommand(value: unknown): value is SendMessageComman
     (command.text !== null || command.attachments.length > 0) &&
     hasSafeIdentifier(command.idempotencyKey, 256) &&
     hasSafeIdentifier(command.policyDecisionId, 128)
+    && ["HUMAN_MANUAL", "AI_AUTOMATION", "CAMPAIGN", "SYSTEM"].includes(String(command.source))
   );
 }

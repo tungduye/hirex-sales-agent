@@ -48,7 +48,7 @@ for (const insert of inserts) { const result = await insert(); if (result.error)
 
 async function send(eventId, messageId, text) {
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const body = JSON.stringify({ eventId, accountId: EXTERNAL_ACCOUNT, threadId: THREAD, messageId, senderId: SENDER, recipientIds: [EXTERNAL_ACCOUNT], text, attachments: [], occurredAt: new Date().toISOString() });
+  const body = JSON.stringify({ eventId, accountId: EXTERNAL_ACCOUNT, threadId: THREAD, messageId, senderId: SENDER, recipientIds: [EXTERNAL_ACCOUNT], text, isSelf: false, attachments: [], occurredAt: new Date().toISOString() });
   const signature = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
   return fetch("https://app.hirexmkt.online/api/webhooks/zalo", { method: "POST", headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp, "x-hirex-signature": signature }, body });
 }

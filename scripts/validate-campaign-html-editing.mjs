@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import {existsSync,readFileSync} from "node:fs";
+import {registerHooks} from "node:module";
+import path from "node:path";
+import {fileURLToPath,pathToFileURL} from "node:url";
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
+registerHooks({resolve(specifier,context,nextResolve){if(specifier==="server-only")return{url:"data:text/javascript,export {};",shortCircuit:true};if(specifier.startsWith("@/")){const base=path.join(root,"src",specifier.slice(2));const found=[base,`${base}.ts`,`${base}.tsx`].find(existsSync);if(found)return{url:pathToFileURL(found).href,shortCircuit:true};}return nextResolve(specifier,context);}});
+const mime=await import("../src/modules/integrations/gmail/server/gmail-send-mime.ts");
+const html=await import("../src/modules/campaigns/server/campaign-html.ts");
+let n=0;const eq=(a,b)=>{assert.equal(a,b);n++};
+const cleaned=html.sanitizeCampaignHtml('<p onclick="bad()">Xin <strong>chào</strong><script>alert(1)</script><a href="javascript:bad()">link</a></p>');
+eq(cleaned.includes("script"),false);eq(cleaned.includes("onclick"),false);eq(cleaned.includes("javascript:"),false);eq(cleaned.includes("<strong>chào</strong>"),true);
+const styled=html.sanitizeCampaignHtml('<font color="#ff0000" size="5">Đỏ lớn</font><font color="red" size="99">không hợp lệ</font>');
+eq(styled.includes("color:#ff0000"),true);eq(styled.includes("font-size:24px"),true);eq(styled.includes("font-size:99"),false);eq(styled.includes("color:red"),false);
+const browserStyled=html.sanitizeCampaignHtml('<span style="color: rgb(255, 0, 0); font-size: 24px">Màu trình duyệt</span>\u200B');
+eq(browserStyled.includes("rgb(255, 0, 0)"),true);eq(browserStyled.includes("font-size:24px"),true);eq(browserStyled.includes("\u200B"),false);
+eq(html.htmlToPlainText("<p>Xin <b>chào</b></p>"),"Xin chào");
+const raw=mime.buildPlainTextGmailMessage({from:"a@example.com",to:"b@example.com",subject:"HTML",bodyText:"Xin chào",bodyHtml:"<p>Xin <strong>chào</strong></p>",rfcMessageId:"<x@example.com>",sendRequestId:"94000000-0000-4000-8000-000000000001",attachments:[{filename:"safe.txt",mimeType:"text/plain",bytes:Buffer.from("ok")}]});
+const decoded=Buffer.from(raw,"base64url").toString("utf8");for(const value of ["multipart/mixed","multipart/alternative","text/plain","text/html","Content-Disposition: attachment"])eq(decoded.includes(value),true);
+const migration=readFileSync(path.join(root,"supabase/migrations/028_campaign_html_editing_and_archiving.sql"),"utf8");for(const value of ["body_html_template","archived_at"])eq(migration.includes(value),true);
+const actions=readFileSync(path.join(root,"src/modules/campaigns/server/campaign-actions.ts"),"utf8");for(const value of ["deleteDraftCampaign","archiveCampaign","removeCampaignSender","sanitizeCampaignHtml"])eq(actions.includes(value),true);
+console.log(`CAMPAIGN_HTML_EDITING_PASS assertions=${n}`);

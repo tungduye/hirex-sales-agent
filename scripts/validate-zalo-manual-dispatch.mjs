@@ -5,6 +5,7 @@ const check = (condition, label) => { assertions += 1; if (!condition) throw new
 const dispatcher = readFileSync("src/modules/channels/server/dispatch-manual-zalo-action.ts", "utf8");
 const route = readFileSync("src/app/api/internal/channels/dispatch-approved-zalo-qa/route.ts", "utf8");
 const actions = readFileSync("src/modules/channels/server/channel-actions.ts", "utf8");
+const composer = readFileSync("src/modules/channels/components/conversation-composer.tsx", "utf8");
 
 check(dispatcher.includes('const QA_TEXT = "HireX outbound QA 01"'), "exact QA text");
 check(dispatcher.includes('HIREX_ZALO_REAL_OUTBOUND_QA_ENABLED !== "1"'), "QA environment gate");
@@ -23,6 +24,19 @@ check(route.includes("bodySchema.safeParse"), "strict request validation");
 check(route.includes("dispatchApprovedZaloQaAction(parsed.data.actionId)"), "existing action dispatch only");
 check(!route.includes("recipient") && !route.includes("text_content") && !route.includes("idempotency"), "browser cannot supply recipient, text, or idempotency");
 check(actions.includes("dispatchManualZaloAction(parsed.data)"), "manual approval path uses same dispatcher");
+check(actions.includes("export async function sendManualChannelMessage"), "human manual send has a dedicated server action");
+check(actions.includes('p_proposed_by: "HUMAN"'), "manual send is explicitly human-authored");
+check(actions.includes("idempotencyKey: uuid") && actions.includes("p_idempotency_key: parsed.data.idempotencyKey"), "manual send uses the client request idempotency key");
+check(actions.includes('.eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle()'), "manual send checks an existing idempotent request");
+check(actions.includes("existingRequest") && actions.includes("racedRequest"), "duplicate submissions fail closed without a second action");
+check(actions.includes('rpc("approve_channel_outbound_action"'), "manual send retains final policy approval check");
+check(actions.includes("await dispatchManualZaloAction(actionId)"), "manual send dispatches the exact approved Zalo action");
+check(composer.includes('action={send}') && composer.includes('"Gửi"'), "composer sends human replies directly");
+check(composer.includes('name="idempotencyKey"') && composer.includes("createRequestId()") && composer.includes("crypto.getRandomValues"), "composer supplies a stable Web Crypto request id per draft");
+check(composer.includes("proposeChannelMessage") && composer.includes('value="AI_ASSIST"'), "AI drafts remain proposals requiring review");
+check(!dispatcher.slice(dispatcher.indexOf("export async function dispatchManualZaloAction"), dispatcher.indexOf("export async function dispatchApprovedZaloQaAction")).includes("HIREX_ZALO_REAL_OUTBOUND_QA_ENABLED"), "human Zalo dispatch is not restricted to the legacy QA text gate");
+check(dispatcher.includes('execution.safeErrorCode === "ACCOUNT_BUSY" ? "BLOCKED"'), "account busy is not a provider rejection");
+check(actions.includes('result === "BLOCKED"') && actions.includes('tài khoản Zalo đang xử lý'), "manual UI reports busy without claiming provider rejection");
 
 console.log(`ZALO_MANUAL_DISPATCH_ASSERTIONS=${assertions}`);
 console.log("ZALO_MANUAL_DISPATCH_VALIDATOR=PASS");

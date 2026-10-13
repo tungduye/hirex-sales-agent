@@ -1,4 +1,5 @@
 import "server-only";
+import { gmailQuotaReached } from '@/modules/campaigns/server/gmail-quota';
 
 import { randomUUID } from "node:crypto";
 import { GMAIL_SEND_SCOPE } from "@/modules/integrations/gmail/server/oauth-client";
@@ -51,6 +52,9 @@ export async function sendOneNewGmailMessage(
 
   const existingResult = resultForExistingRequest(request);
   if (existingResult) return existingResult;
+  try {
+    if(await gmailQuotaReached(workspaceId,input.emailAccountId)) return result(false,'GMAIL_RATE_LIMITED',request.id);
+  } catch { return result(false,'GMAIL_TEMPORARY_ERROR',request.id); }
 
   const lockId = randomUUID();
   const claimed = await claimSendRequest(request.id, workspaceId, input.emailAccountId, lockId);
@@ -69,6 +73,7 @@ export async function sendOneNewGmailMessage(
       to: input.to,
       subject: input.subject,
       bodyText: input.bodyText,
+      bodyHtml: input.bodyHtml,
       rfcMessageId: request.rfc_message_id,
       sendRequestId: request.id,
       attachments,
@@ -117,6 +122,7 @@ export async function sendOneNewGmailMessage(
       : result(false, "DELIVERY_STATUS_UNKNOWN", request.id);
   } catch (error) {
     if (error instanceof GmailSendAmbiguousError) {
+      console.warn("GMAIL_SEND_AMBIGUOUS", { requestId: request.id, reason: error.reason });
       return result(false, "DELIVERY_STATUS_UNKNOWN", request.id);
     }
     if (error instanceof GmailSendDefinitiveError) {
