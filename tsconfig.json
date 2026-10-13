@@ -93,7 +93,9 @@
     ".next-content-library/types/**/*.ts",
     ".next-content-library/dev/types/**/*.ts",
     ".next-content-templates/types/**/*.ts",
-    ".next-content-templates/dev/types/**/*.ts"
+    ".next-content-templates/dev/types/**/*.ts",
+    ".next-content-follow-template/types/**/*.ts",
+    ".next-content-follow-template/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

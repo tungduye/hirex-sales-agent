@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { CreateContentDialog } from "@/modules/content/components/create-content-dialog";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
+import { copyText, postText } from "@/modules/content/components/copy-text";
 import type { ContentTemplate } from "@/modules/content/server/template-row";
 import { deleteContentItem } from "@/modules/content/server/content-actions";
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, departmentLabel, formatLabel, languageLabel, styleLabel, type ContentDepartment, type ContentFormat, type ContentLanguage } from "@/modules/content/core/content-options";
@@ -174,12 +175,13 @@ function ContentDetailDialog({ item, canDelete, onClose, onDeleted }: { item: Co
   const [error, setError] = useState<string | null>(null);
   const [deleting, startDelete] = useTransition();
 
+  // Copies headline + body so the result can be posted as it is.
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(item.format === "EMAIL" || item.format === "POST" ? `${item.title}\n\n${item.body}` : item.body);
+    setError(null);
+    if (await copyText(postText(item.title, item.body))) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
+    } else {
       setError("Trình duyệt không cho phép sao chép. Hãy bôi đen và sao chép thủ công.");
     }
   }

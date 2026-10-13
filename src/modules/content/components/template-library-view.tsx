@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
+import { copyText } from "@/modules/content/components/copy-text";
 import { CONTENT_DEPARTMENTS, TEMPLATE_LANGUAGES, departmentLabel, languageLabel, type ContentDepartment } from "@/modules/content/core/content-options";
 import { initialTemplateFormState } from "@/modules/content/core/content-state";
 import { deleteTemplate, saveTemplate, setTemplateActive } from "@/modules/content/server/template-actions";
@@ -134,7 +135,7 @@ function TemplateDetail({ template, canManage, onClose, onEdit, onDone }: { temp
               <Button variant="outline" size="sm" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? "Tắt mẫu" : "Bật mẫu"}</Button>
               <Button variant="outline" size="sm" onClick={onEdit} disabled={busy}>Sửa</Button>
             </>)}
-        <Button size="sm" onClick={async () => { try { await navigator.clipboard.writeText(template.body); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setError("Trình duyệt không cho phép sao chép."); } }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
+        <Button size="sm" onClick={async () => { if (await copyText(template.body)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else setError("Trình duyệt không cho phép sao chép. Hãy bôi đen và sao chép thủ công."); }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
       </>}>
       <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{template.body}</div>
       {template.tags && <p className="mt-4 text-xs text-slate-500">Tags: {template.tags}</p>}
