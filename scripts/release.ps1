@@ -86,6 +86,11 @@ if ($reuse) {
     # No BUILD_ID: left over from a failed build of this release, never deployed.
     Remove-Item -LiteralPath "$root\.next-$Release" -Recurse -Force
   }
+  # A build needs a few GB (output + Turbopack cache); a full disk fails half-way.
+  $freeGb = [math]::Round((Get-Item -LiteralPath $root).PSDrive.Free / 1GB, 1)
+  if ($freeGb -lt 4) {
+    Fail "Only $freeGb GB free on the disk (need about 4 GB to build). Free space first: powershell -NoProfile -ExecutionPolicy Bypass -File $root\scripts\cleanup-old-builds.ps1"
+  }
   # Turbopack reads files under runtime\ while tracing. The campaign schedulers hold their lock
   # files exclusively while they run, which makes the build fail ("being used by another process").
   # Hold both locks ourselves, readable by others, for the length of the build: the schedulers then
@@ -165,4 +170,6 @@ git push origin HEAD
 if ($LASTEXITCODE -ne 0) { Write-Host 'WARNING: git push failed; the commit is safe locally. Push it later.' -ForegroundColor Yellow }
 
 Write-Host ''
+$backupCount = @(Get-ChildItem -LiteralPath $root -Directory -Force -Filter '.next-before-*').Count
+if ($backupCount -gt 3) { Write-Host "Note: $backupCount old builds are kept for rollback. Free disk space with scripts\cleanup-old-builds.ps1" -ForegroundColor Yellow }
 Write-Host "DONE. Release $Release is live. Roll back: stop task 'HireX Local App', rename .next, rename .next-before-$Release to .next, start the task." -ForegroundColor Green
