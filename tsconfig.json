@@ -85,7 +85,9 @@
     ".next-auto-gates/types/**/*.ts",
     ".next-auto-gates/dev/types/**/*.ts",
     ".next-openai-refactor/types/**/*.ts",
-    ".next-openai-refactor/dev/types/**/*.ts"
+    ".next-openai-refactor/dev/types/**/*.ts",
+    ".next-ui-fixes-1/types/**/*.ts",
+    ".next-ui-fixes-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

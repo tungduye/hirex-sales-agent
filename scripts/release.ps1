@@ -149,7 +149,7 @@ if (($pending -join ',') -ne ($expected -join ',')) {
 }
 $migrate = $pending.Count -gt 0
 $what = if ($migrate) { "apply migrations $($pending -join ', ') and " } else { '' }
-Confirm "Stop the web app briefly, $($what)switch to .next-$Release?"
+Confirm "Stop the web app briefly, $($what)switch to .next-${Release}?"
 
 # 5. Deploy -----------------------------------------------------------------
 Step 'Deploy (web will be down for a short time)'

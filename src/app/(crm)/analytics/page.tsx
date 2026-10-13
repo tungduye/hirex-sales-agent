@@ -29,7 +29,7 @@ export default async function AnalyticsPage() {
       <p className="text-sm text-slate-500">Số liệu tính từ các lệnh gửi qua Zalo, Facebook và Email. Biên nhận giao/đọc chỉ có khi nhà cung cấp gửi về.</p>
     </header>
     {data.error ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{data.error}</div> : null}
-    {data.truncated ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Đang tính trên 10.000 lệnh gửi gần nhất.</div> : null}
+    {data.truncated ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Đang tính trên 20.000 lệnh gửi gần nhất.</div> : null}
 
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       {cards.map((card) => <div key={card.label} className="rounded-xl border bg-white p-5">

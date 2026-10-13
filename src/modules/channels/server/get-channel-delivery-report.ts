@@ -3,7 +3,20 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { DELIVERY_EVENT_TYPES, summarizeDeliveryEvents, type DeliveryEventType } from "../core/delivery-reporting";
 
-const ACTION_LIMIT = 10_000;
+const ACTION_LIMIT = 20_000;
+const PAGE_SIZE = 1_000;
+
+type PageResult<Row> = PromiseLike<{ data: Row[] | null; error: unknown }>;
+async function readAllPages<Row>(page: (from: number, to: number) => PageResult<Row>): Promise<{ data: Row[]; error: unknown }> {
+  const rows: Row[] = [];
+  for (let from = 0; from < ACTION_LIMIT; from += PAGE_SIZE) {
+    const { data, error } = await page(from, Math.min(from + PAGE_SIZE, ACTION_LIMIT) - 1);
+    if (error) return { data: rows, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
 
 export interface ChannelActionCounts { channelType: string; actions: number; sent: number; pending: number; failed: number; unknown: number }
 function emptyCounts(channelType: string): ChannelActionCounts { return { channelType, actions: 0, sent: 0, pending: 0, failed: 0, unknown: 0 }; }
@@ -14,9 +27,11 @@ export async function getChannelDeliveryReport() {
   const account = await getAccountContext();
   if (!account?.workspaceId) return { report: empty, ...none, error: "Không tải được dữ liệu báo cáo." };
   const client = await createClient();
+  // Supabase returns at most 1,000 rows per request, so read in pages (the first version of this
+  // page stopped at exactly 1,000 actions).
   const [events, actions] = await Promise.all([
-    client.from("channel_delivery_events").select("outbound_action_id,event_type").eq("workspace_id", account.workspaceId).not("outbound_action_id", "is", null).order("occurred_at", { ascending: false }).limit(10_000),
-    client.from("channel_outbound_actions").select("id,channel_type,status").eq("workspace_id", account.workspaceId).order("created_at", { ascending: false }).limit(ACTION_LIMIT),
+    readAllPages<{ outbound_action_id: unknown; event_type: unknown }>((from, to) => client.from("channel_delivery_events").select("outbound_action_id,event_type").eq("workspace_id", account.workspaceId).not("outbound_action_id", "is", null).order("occurred_at", { ascending: false }).order("id", { ascending: false }).range(from, to)),
+    readAllPages<{ id: unknown; channel_type: unknown; status: unknown }>((from, to) => client.from("channel_outbound_actions").select("id,channel_type,status").eq("workspace_id", account.workspaceId).order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to)),
   ]);
   if (events.error || actions.error) return { report: empty, ...none, error: "Báo cáo đa kênh tạm thời không khả dụng." };
   const normalized = (events.data ?? []).flatMap((row) => typeof row.outbound_action_id === "string" && typeof row.event_type === "string" && DELIVERY_EVENT_TYPES.includes(row.event_type as DeliveryEventType) ? [{ outboundActionId: row.outbound_action_id, eventType: row.event_type as DeliveryEventType }] : []);
