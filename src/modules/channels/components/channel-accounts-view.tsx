@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useState, type ComponentType } from "react";
+import { useActionState, type ComponentType } from "react";
 import { ChevronDown, Mail, MessageCircle, MessageSquareMore, PanelsTopLeft, ShieldCheck } from "lucide-react";
-import { checkZaloBridgeHealth, deleteChannelAccount, disconnectChannelAccount, setChannelAccountOperatorEnabled } from "../server/connect-channel-actions";
+import { checkFacebookProfileBridgeHealth, checkZaloBridgeHealth, deleteChannelAccount, disconnectChannelAccount, setChannelAccountOperatorEnabled } from "../server/connect-channel-actions";
 import type { ChannelAccountsResult, ChannelAccountSummary } from "../types/channel-account";
 import type { ChannelActionState } from "../types/channel-action-state";
 
@@ -40,20 +40,16 @@ function AccountCard({ account }: { account: ChannelAccountSummary }) {
   return <article className="flex min-h-44 flex-col rounded-xl border border-slate-200 bg-white p-5">
     <div className="flex items-center justify-between gap-3"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold">{channelLabel(account.channelType)}</span><span className="text-xs text-slate-500">{statusLabel(account.status)}</span></div>
     <h3 className="mt-4 truncate font-semibold" title={account.displayName ?? undefined}>{account.displayName ?? `${channelLabel(account.channelType)} account`}</h3><p className="text-sm text-slate-500">{account.provider}</p>
-    {account.channelType === "FACEBOOK_PROFILE" ? <ReconnectFacebook id={account.id}/> : null}
+    {account.channelType === "FACEBOOK_PROFILE" ? <div className="mt-3 space-y-1 text-xs text-slate-600"><p>Trạng thái vận hành: {account.operatorEnabled ? "Đang bật" : "Đang tắt"}</p><p>Sức khỏe kết nối: {account.providerHealthStatus.replaceAll("_", " ")}</p><p>Kiểm tra gần nhất: {account.providerHealthCheckedAt ? new Date(account.providerHealthCheckedAt).toLocaleString("vi-VN") : "Chưa kiểm tra"}</p><div className="flex gap-4"><OperatorToggle id={account.id} enabled={account.operatorEnabled}/><FacebookProfileHealthCheck id={account.id}/></div></div> : null}
     {account.channelType === "ZALO" ? <div className="mt-3 space-y-1 text-xs text-slate-600"><p>Trạng thái vận hành: {account.operatorEnabled ? "Đang bật" : "Đang tắt"}</p><p>Sức khỏe kết nối: {account.providerHealthStatus.replaceAll("_", " ")}</p><p>Kiểm tra gần nhất: {account.providerHealthCheckedAt ? new Date(account.providerHealthCheckedAt).toLocaleString("vi-VN") : "Chưa kiểm tra"}</p><div className="flex gap-4"><OperatorToggle id={account.id} enabled={account.operatorEnabled}/><ZaloHealthCheck id={account.id}/></div></div> : null}
     <div className="mt-auto flex items-end justify-between gap-2 pt-4 text-xs text-slate-500"><span className="inline-flex items-center gap-2"><ShieldCheck size={14}/>Thông tin xác thực được bảo mật</span>{account.channelType !== "EMAIL" ? <AccountActions id={account.id} canDisconnect={account.status !== "DISCONNECTED"}/> : null}</div>
   </article>;
 }
 
 function channelLabel(value: string) { return value === "FACEBOOK" ? "Facebook Page" : value === "FACEBOOK_PROFILE" ? "Facebook cá nhân" : value === "ZALO" ? "Zalo" : value === "EMAIL" ? "Email" : value; }
-function ReconnectFacebook({id}:{id:string}) {
-  const [pending,setPending]=useState(false),[message,setMessage]=useState("");
-  async function reopen(){setPending(true);setMessage("");try{const response=await fetch("/api/integrations/facebook-profile/reconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accountId:id})});const data=await response.json();setMessage(response.ok?data.message:"Chưa mở được phiên Messenger. Bộ kết nối có thể đang tắt hoặc cần cập nhật; không cần xóa tài khoản.");}catch{setMessage("Không kết nối được máy chủ. Anh thử lại sau.");}finally{setPending(false);}}
-  return <div className="mt-3"><button type="button" disabled={pending} onClick={reopen} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 disabled:opacity-50">{pending?"Đang mở Messenger…":"Kết nối lại"}</button><p className="mt-2 text-xs text-slate-500">Mở phiên hiện tại trên máy chạy HireX để đăng nhập/PIN. Giữ nguyên lịch sử và liên kết chatbot.</p>{message?<p role="status" className="mt-2 text-xs text-slate-700">{message}</p>:null}</div>;
-}
 function statusLabel(value: string) { return value === "CONNECTED" ? "Đã kết nối" : value === "DISCONNECTED" ? "Mất kết nối" : value === "REAUTH_REQUIRED" ? "Cần kết nối lại" : value; }
 function ZaloHealthCheck({ id }: { id: string }) { const [state, action, pending] = useActionState(checkZaloBridgeHealth, initial); return <form action={action}><input type="hidden" name="id" value={id}/><button disabled={pending} className="font-semibold text-blue-700">Kiểm tra kết nối</button>{state.message ? <span role="status" className="sr-only">{state.message}</span> : null}</form>; }
+function FacebookProfileHealthCheck({ id }: { id: string }) { const [state, action, pending] = useActionState(checkFacebookProfileBridgeHealth, initial); return <form action={action}><input type="hidden" name="id" value={id}/><button disabled={pending} className="font-semibold text-blue-700">{pending?"Đang kiểm tra…":"Kiểm tra kết nối"}</button>{state.message ? <span role="status" className="sr-only">{state.message}</span> : null}</form>; }
 function AccountActions({ id, canDisconnect }: { id: string; canDisconnect: boolean }) { return <div className="flex shrink-0 items-center gap-3">{canDisconnect ? <Disconnect id={id}/> : null}<DeleteAccount id={id}/></div>; }
 function Disconnect({ id }: { id: string }) { const [state, action, pending] = useActionState(disconnectChannelAccount, initial); return <form action={action}><input type="hidden" name="id" value={id}/><button disabled={pending} className="font-semibold text-amber-700">Ngắt kết nối</button>{state.message ? <span className="sr-only">{state.message}</span> : null}</form>; }
 function DeleteAccount({ id }: { id: string }) { const [state, action, pending] = useActionState(deleteChannelAccount, initial); return <form action={action} onSubmit={(event) => { if (!window.confirm("Xóa tài khoản kênh này? Credential sẽ bị xóa và tài khoản sẽ biến mất khỏi danh sách. Lịch sử hội thoại, chiến dịch và báo cáo vẫn được giữ.")) event.preventDefault(); }}><input type="hidden" name="id" value={id}/><button disabled={pending} className="font-semibold text-rose-600">{pending ? "Đang xóa…" : "Xóa tài khoản"}</button>{state.message ? <span role="status" className="sr-only">{state.message}</span> : null}</form>; }

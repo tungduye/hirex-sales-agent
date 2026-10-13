@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, Building2, CheckSquare, ContactRound, FileScan, Inbox, LayoutDashboard, Megaphone, Settings, Sparkles, Workflow } from "lucide-react";
+import { BarChart3, Bot, Building2, CheckSquare, ContactRound, FileScan, FileText, Inbox, LayoutDashboard, Megaphone, Settings, Sparkles, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -15,6 +15,7 @@ const navigation = [
   { label: "Hồ Chứa", href: "/inbox", icon: Inbox, permission:"inbox.view" },
   { label: "Scan", href: "/scan", icon: FileScan, permission:"scan.view" },
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
+  { label: "Kho content", href: "/content", icon: FileText, permission:"content.view" },
   { label: "Công việc", href: "/tasks", icon: CheckSquare, permission:"tasks.view" },
   { label: "Phân tích", href: "/analytics", icon: BarChart3, permission:"analytics.view" },
   { label: "Tự động hoá", href: "/settings/automation", icon: Workflow, permission:"roles.manage" },

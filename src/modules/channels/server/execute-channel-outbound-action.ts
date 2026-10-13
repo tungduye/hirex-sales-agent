@@ -7,7 +7,7 @@ import { CHANNEL_TYPES, type ChannelType, type SendAttachment } from "../core/ch
 import { executeOutboundAction, type ClaimedOutboundAction, type CurrentPolicyEvidence, type OutboundActionRecord } from "../core/execute-outbound-action";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
 import { evaluateFacebookProfileRecipientEvidence } from "../core/facebook-profile-recipient-policy";
-import { evaluateZaloProviderHealth, PROVIDER_HEALTH_STATUSES, type ProviderHealthStatus } from "../core/provider-health";
+import { evaluateChannelProviderHealth, PROVIDER_HEALTH_STATUSES, type ProviderHealthStatus } from "../core/provider-health";
 
 interface ActionRow {
   id: unknown; workspace_id: unknown; conversation_id: unknown; channel_account_id: unknown;
@@ -129,12 +129,13 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
         const health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(rawHealth as ProviderHealthStatus)?rawHealth as ProviderHealthStatus:"UNKNOWN",checkedAt=new Date().toISOString();
         const recorded=await client.rpc("record_channel_account_provider_health",{p_workspace_id:action.workspaceId,p_channel_account_id:action.channelAccountId,p_status:health,p_checked_at:checkedAt,p_safe_reason_code:health==="HEALTHY"?null:health,p_latency_ms:Math.min(Date.now()-started,60000)});
         if(recorded.error||recorded.data!==true)throw new Error("ZALO_HEALTH_PERSISTENCE_UNAVAILABLE");
-        const eligibility=evaluateZaloProviderHealth({operatorEnabled:true,status:health,checkedAt},new Date(now));
+        const eligibility=evaluateChannelProviderHealth({operatorEnabled:true,status:health,checkedAt},new Date(now));
         return{allowed:eligibility.allowed,safeErrorCode:eligibility.allowed?"":"ACCOUNT_UNAVAILABLE"};
       }
       if(action.channelType==="FACEBOOK_PROFILE"){
         if(!action.conversationId||!action.providerConversationId)return{allowed:false,safeErrorCode:"FACEBOOK_PROFILE_CONVERSATION_REQUIRED"};
-        const [{data:conversation,error:conversationError},{data:inbound,error:inboundError},{count:connectedAccountCount,error:connectedAccountError}]=await Promise.all([
+        const [{data:account,error:accountError},{data:conversation,error:conversationError},{data:inbound,error:inboundError},{count:connectedAccountCount,error:connectedAccountError}]=await Promise.all([
+          client.from("channel_accounts").select("id,operator_enabled").eq("id",action.channelAccountId).eq("workspace_id",action.workspaceId).eq("channel_type","FACEBOOK_PROFILE").eq("provider","FACEBOOK_PROFILE_BRIDGE").eq("status","CONNECTED").maybeSingle(),
           client.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata")
             .eq("id",action.conversationId).eq("workspace_id",action.workspaceId)
             .eq("channel_account_id",action.channelAccountId).eq("channel_type","FACEBOOK_PROFILE").maybeSingle(),
@@ -146,7 +147,16 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
             .eq("workspace_id",action.workspaceId).eq("channel_type","FACEBOOK_PROFILE")
             .eq("external_account_id",action.recipientExternalId).is("deleted_at",null),
         ]);
+        if(accountError||!account||account.operator_enabled!==true)return{allowed:false,safeErrorCode:"ACCOUNT_UNAVAILABLE"};
         if(conversationError||inboundError||connectedAccountError||!conversation)throw new Error("FACEBOOK_PROFILE_IDENTITY_UNAVAILABLE");
+        const adapter=adapters.get("FACEBOOK_PROFILE"),started=Date.now();
+        let rawHealth=await adapter.healthCheck(action.channelAccountId);
+        if(rawHealth==="UNKNOWN"){await new Promise((resolve)=>setTimeout(resolve,350));rawHealth=await adapter.healthCheck(action.channelAccountId);}
+        const health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(rawHealth as ProviderHealthStatus)?rawHealth as ProviderHealthStatus:"UNKNOWN",checkedAt=new Date().toISOString();
+        const recorded=await client.rpc("record_channel_account_provider_health",{p_workspace_id:action.workspaceId,p_channel_account_id:action.channelAccountId,p_status:health,p_checked_at:checkedAt,p_safe_reason_code:health==="HEALTHY"?null:health,p_latency_ms:Math.min(Date.now()-started,60000)});
+        if(recorded.error||recorded.data!==true)throw new Error("FACEBOOK_PROFILE_HEALTH_PERSISTENCE_UNAVAILABLE");
+        const healthEligibility=evaluateChannelProviderHealth({operatorEnabled:true,status:health,checkedAt},new Date(now));
+        if(!healthEligibility.allowed)return{allowed:false,safeErrorCode:"ACCOUNT_UNAVAILABLE"};
         const metadata=conversation.metadata&&typeof conversation.metadata==="object"&&!Array.isArray(conversation.metadata)?conversation.metadata as Record<string,unknown>:{};
         return evaluateFacebookProfileRecipientEvidence({
           conversationId:conversation.id,

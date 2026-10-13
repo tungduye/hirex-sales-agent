@@ -206,15 +206,36 @@ export async function createFacebookProfileCampaign(_state:ChannelActionState,fo
   const allowedSenderIds=await getAccessibleChannelAccountIds();
   if(allowedSenderIds!==null&&parsed.data.senderIds.some(id=>!allowedSenderIds.includes(id)))return{status:"error",message:"Bạn chưa được cấp quyền sử dụng tài khoản gửi đã chọn."};
   const privileged=createPrivilegedClient();
+  const targetIds=targets.map(target=>target.externalId);
+  const {data:targetChannels,error:targetChannelError}=await privileged.from("contact_channels")
+    .select("contact_id,channel_value,marketing_consent_status").eq("workspace_id",account.workspaceId)
+    .eq("channel_type","FACEBOOK_PROFILE").in("channel_value",targetIds);
+  if(targetChannelError)return{status:"error",message:"Không thể kiểm tra sự đồng ý nhận tin của danh sách Facebook."};
+  const channelByTarget=new Map((targetChannels??[]).filter(row=>row.marketing_consent_status==="OPTED_IN").map(row=>[row.channel_value,row]));
+  if(targets.some(target=>!channelByTarget.has(target.externalId)))
+    return{status:"error",message:"Chiến dịch Facebook chỉ nhận liên hệ đã đồng ý nhận tin và đã có hội thoại Messenger được đồng bộ. UID/link mới chưa đủ điều kiện gửi."};
   const{data:senderRows,error:senderError}=await privileged.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).eq("channel_type","FACEBOOK_PROFILE").eq("status","CONNECTED").in("id",parsed.data.senderIds);
   if(senderError||senderRows?.length!==parsed.data.senderIds.length)return{status:"error",message:"Một tài khoản Facebook cá nhân không khả dụng."};
+  const {data:conversations,error:conversationError}=await privileged.from("omnichannel_conversations")
+    .select("id,channel_account_id,provider_conversation_id").eq("workspace_id",account.workspaceId)
+    .eq("channel_type","FACEBOOK_PROFILE").in("channel_account_id",parsed.data.senderIds)
+    .in("provider_conversation_id",targetIds).in("status",["OPEN","PENDING"]);
+  if(conversationError)return{status:"error",message:"Không thể kiểm tra hội thoại Facebook đã đồng bộ."};
+  const conversationIds=(conversations??[]).map(row=>row.id).filter((value):value is string=>typeof value==="string");
+  const {data:inboundRows,error:inboundError}=conversationIds.length
+    ?await privileged.from("omnichannel_messages").select("conversation_id").eq("workspace_id",account.workspaceId)
+      .eq("channel_type","FACEBOOK_PROFILE").eq("direction","INBOUND").in("conversation_id",conversationIds)
+    :{data:[],error:null};
+  if(inboundError)return{status:"error",message:"Không thể xác minh tin nhắn đến trong hội thoại Facebook."};
+  const inboundConversationIds=new Set((inboundRows??[]).map(row=>row.conversation_id));
+  const verifiedTargets=new Set((conversations??[]).filter(row=>inboundConversationIds.has(row.id)).map(row=>row.provider_conversation_id));
+  if(targets.some(target=>!verifiedTargets.has(target.externalId)))
+    return{status:"error",message:"Mỗi người nhận cần có ít nhất một hội thoại Facebook đã đồng bộ tin nhắn đến trước khi được đưa vào chiến dịch."};
   const client=await createClient();
   const{data:campaignId,error}=await client.rpc("create_channel_campaign_draft",{p_name:parsed.data.name});
   if(error||typeof campaignId!=="string")return{status:"error",message:"Không thể tạo bản nháp chiến dịch."};
-  const createdContactIds:string[]=[];
   const rollback=async(message:string):Promise<ChannelActionState>=>{
     await privileged.from("channel_campaigns").delete().eq("id",campaignId).eq("workspace_id",account.workspaceId).eq("status","DRAFT");
-    if(createdContactIds.length)await privileged.from("contacts").delete().eq("workspace_id",account.workspaceId).in("id",createdContactIds).eq("source","FACEBOOK_PROFILE_CAMPAIGN_IMPORT");
     return{status:"error",message};
   };
   const metadata=await privileged.from("channel_campaigns").update({campaign_type:parsed.data.campaignType,campaign_type_color:parsed.data.campaignTypeColor,combo_uv:parsed.data.comboUv||null,placement:parsed.data.placement||null,channel_rank:parsed.data.channelRank||null,owner_name:parsed.data.ownerName||null,am_rank:parsed.data.amRank||null,daily_message_limit:parsed.data.dailyMessageLimit,min_delay_seconds:parsed.data.minDelaySeconds,max_delay_seconds:parsed.data.maxDelaySeconds,batch_size:parsed.data.batchSize,batch_pause_minutes:parsed.data.batchPauseMinutes}).eq("id",campaignId).eq("workspace_id",account.workspaceId).eq("status","DRAFT");
@@ -224,22 +245,10 @@ export async function createFacebookProfileCampaign(_state:ChannelActionState,fo
   const variants=await privileged.from("channel_campaign_steps").update({content_variants:parsed.data.messageVariants}).eq("id",step.data).eq("workspace_id",account.workspaceId).eq("campaign_id",campaignId);
   if(variants.error)return rollback("Không thể lưu các mẫu nội dung Facebook cá nhân.");
   for(const target of targets){
-    const existing=await privileged.from("contact_channels").select("contact_id").eq("workspace_id",account.workspaceId).eq("channel_type","FACEBOOK_PROFILE").eq("channel_value",target.externalId).limit(1).maybeSingle();
-    if(existing.error)return rollback(`Không thể kiểm tra UID ${target.sourceValue}.`);
-    let contactId=existing.data?.contact_id as string|undefined;
-    if(!contactId){
-      const created=await privileged.from("contacts").insert({workspace_id:account.workspaceId,full_name:`Facebook ${target.externalId}`,source:"FACEBOOK_PROFILE_CAMPAIGN_IMPORT"}).select("id").single();
-      if(created.error||!created.data)return rollback(`Không thể tạo liên hệ cho ${target.sourceValue}.`);
-      contactId=created.data.id;createdContactIds.push(created.data.id);
-      const channel=await privileged.from("contact_channels").insert({workspace_id:account.workspaceId,contact_id:contactId,channel_type:"FACEBOOK_PROFILE",channel_value:target.externalId,marketing_consent_status:"UNKNOWN",metadata:{source:"FACEBOOK_PROFILE_CAMPAIGN_IMPORT",input:target.sourceValue}});
-      if(channel.error)return rollback(`Không thể lưu UID ${target.sourceValue}.`);
-    }
+    const contactId=channelByTarget.get(target.externalId)?.contact_id;
+    if(typeof contactId!=="string")return rollback(`Không thể xác định liên hệ đã đồng ý nhận tin cho ${target.sourceValue}.`);
     const recipient=await client.rpc("add_channel_campaign_recipient",{p_campaign_id:campaignId,p_contact_id:contactId});
     if(recipient.error||typeof recipient.data!=="string")return rollback("Không thể thêm một người nhận vào chiến dịch.");
-    for(const senderId of parsed.data.senderIds){
-      const conversation=await privileged.from("omnichannel_conversations").upsert({workspace_id:account.workspaceId,channel_account_id:senderId,channel_type:"FACEBOOK_PROFILE",provider_conversation_id:target.externalId,contact_id:contactId,status:"OPEN",metadata:{participantExternalId:target.externalId,source:"FACEBOOK_PROFILE_CAMPAIGN_IMPORT"}},{onConflict:"workspace_id,channel_account_id,provider_conversation_id"});
-      if(conversation.error)return rollback(`Không thể chuẩn bị hội thoại cho ${target.sourceValue}.`);
-    }
   }
   for(const senderId of parsed.data.senderIds){
     const sender=await client.rpc("add_channel_campaign_sender",{p_campaign_id:campaignId,p_channel_account_id:senderId,p_priority:100});

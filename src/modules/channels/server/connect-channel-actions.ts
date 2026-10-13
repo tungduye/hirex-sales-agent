@@ -58,7 +58,7 @@ export async function connectFacebookProfileBridge(_state:ChannelActionState,for
     });
     if(error||typeof data!=="string")return{status:"error",message:"Không thể kết nối bridge Facebook cá nhân."};
     revalidatePath("/settings/channels");revalidatePath("/inbox/all");
-    return{status:"success",message:"Đã lưu bridge Facebook cá nhân an toàn. Chỉ bật đọc và trả lời thủ công."};
+    return{status:"success",message:"Đã lưu cấu hình bridge Facebook cá nhân. Hãy dùng “Kiểm tra kết nối”; inbox/chiến dịch chỉ hoạt động khi Deplao báo HEALTHY."};
   }catch{return{status:"error",message:"Bridge Facebook cá nhân hiện không khả dụng."}}
 }
 
@@ -101,4 +101,27 @@ export async function checkZaloBridgeHealth(_state:ChannelActionState,formData:F
     revalidatePath("/settings/channels");revalidatePath("/inbox/all");
     return{status:health==="HEALTHY"?"success":"error",message:health==="HEALTHY"?"Zalo bridge is healthy.":"Zalo bridge health is not healthy."};
   }catch{return{status:"error",message:"Zalo health check is unavailable."}}
+}
+
+/** Authenticated, workspace-scoped health probe for the Deplao Facebook bridge. */
+export async function checkFacebookProfileBridgeHealth(_state:ChannelActionState,formData:FormData):Promise<ChannelActionState>{
+  const id=z.string().uuid().safeParse(formData.get("id")),account=await context();
+  if(!id.success||!account)return{status:"error",message:"Không thể kiểm tra kết nối Facebook cá nhân."};
+  try{
+    const client=createPrivilegedClient();
+    const {data:target,error:lookupError}=await client.from("channel_accounts").select("id")
+      .eq("id",id.data).eq("workspace_id",account.workspaceId).eq("channel_type","FACEBOOK_PROFILE")
+      .eq("provider","FACEBOOK_PROFILE_BRIDGE").eq("status","CONNECTED").maybeSingle();
+    if(lookupError||!target)return{status:"error",message:"Không tìm thấy bridge Facebook cá nhân đang kết nối."};
+    const loaded=await loadChannelAdapterByAccountId(id.data),started=Date.now();
+    const raw=await loaded.adapter.healthCheck();
+    const health:ProviderHealthStatus=PROVIDER_HEALTH_STATUSES.includes(raw as ProviderHealthStatus)?raw as ProviderHealthStatus:"UNKNOWN";
+    const {data:recorded,error:recordError}=await client.rpc("record_channel_account_provider_health",{
+      p_workspace_id:account.workspaceId,p_channel_account_id:id.data,p_status:health,p_checked_at:new Date().toISOString(),
+      p_safe_reason_code:health==="HEALTHY"?null:health,p_latency_ms:Math.min(Date.now()-started,60000),
+    });
+    if(recordError||recorded!==true)return{status:"error",message:"Không lưu được trạng thái kiểm tra Facebook cá nhân."};
+    revalidatePath("/settings/channels");revalidatePath("/inbox/all");revalidatePath("/campaigns/facebook-profile");
+    return{status:health==="HEALTHY"?"success":"error",message:health==="HEALTHY"?"Bridge Deplao Facebook đang hoạt động.":`Bridge Facebook chưa sẵn sàng (${health}). Kiểm tra Deplao và địa chỉ HTTPS.`};
+  }catch{return{status:"error",message:"Không thể kết nối tới bridge Deplao Facebook."}}
 }

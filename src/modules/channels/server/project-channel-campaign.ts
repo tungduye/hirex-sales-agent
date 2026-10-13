@@ -48,12 +48,16 @@ export async function projectChannelCampaign(input: { workspaceId: string; campa
   const accountIds = [...new Set(senders.map((sender) => sender.channel_account_id))];
   const contactIds = [...new Set(recipients.map((recipient) => recipient.contact_id))];
   const channelTypes=[...new Set(steps.flatMap(step=>step.allowed_channels))];
-  const facebookAccountIds=accountIds.filter(id=>senders.some(sender=>sender.channel_account_id===id&&sender.enabled)&&channelTypes.includes("FACEBOOK"));
+  const facebookAccountIds=accountIds.filter(id=>senders.some(sender=>sender.channel_account_id===id&&sender.enabled)&&channelTypes.some(type=>type==="FACEBOOK"||type==="FACEBOOK_PROFILE"));
   const [accounts, recipientSteps, conversations] = await Promise.all([
     accountIds.length ? readPaged(fromTo=>db.from("channel_accounts").select("id,channel_type,status,capabilities,operator_enabled,provider_health_status,provider_health_checked_at", {count:"exact"}).eq("workspace_id", input.workspaceId).in("id", accountIds).range(fromTo,fromTo+PAGE_SIZE-1)) : Promise.resolve([]),
     readPaged((from,to)=>db.from("channel_campaign_recipient_steps").select("recipient_id,step_id,status", {count:"exact"}).eq("workspace_id", input.workspaceId).eq("campaign_id", input.campaignId).range(from,to)),
-    facebookAccountIds.length ? readPaged((from,to)=>db.from("omnichannel_conversations").select("channel_account_id,provider_conversation_id,status,last_message_at", {count:"exact"}).eq("workspace_id", input.workspaceId).in("channel_account_id", facebookAccountIds).range(from,to)) : Promise.resolve([]),
+    facebookAccountIds.length ? readPaged((from,to)=>db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,status,last_message_at", {count:"exact"}).eq("workspace_id", input.workspaceId).in("channel_account_id", facebookAccountIds).range(from,to)) : Promise.resolve([]),
   ]);
+  const conversationIds=conversations.map(conversation=>conversation.id).filter((id):id is string=>typeof id==="string");
+  const inboundRows=conversationIds.length?await readInBatches(conversationIds,(batch,from,to)=>db.from("omnichannel_messages").select("conversation_id",{count:"exact"}).eq("workspace_id",input.workspaceId).eq("channel_type","FACEBOOK_PROFILE").eq("direction","INBOUND").in("conversation_id",batch).range(from,to)):[];
+  const inboundConversationIds=new Set(inboundRows.map(row=>row.conversation_id));
+  const projectedConversations=conversations.map(conversation=>({...conversation,hasInbound:inboundConversationIds.has(conversation.id)}));
   const identities=contactIds.length&&channelTypes.length?await readInBatches(contactIds,(batch,from,to)=>db.from("contact_channels").select("contact_id,channel_type,channel_value,marketing_consent_status",{count:"exact"}).eq("workspace_id",input.workspaceId).in("contact_id",batch).in("channel_type",channelTypes).range(from,to)):[];
   const suppressionValues=new Map<string,Set<string>>();
   for(const identity of identities){const values=suppressionValues.get(identity.channel_type)??new Set<string>();values.add(identity.channel_value.trim().toLowerCase());suppressionValues.set(identity.channel_type,values)}
@@ -72,7 +76,7 @@ export async function projectChannelCampaign(input: { workspaceId: string; campa
     recipients: recipients as CampaignEligibilitySnapshot["recipients"],
     recipientSteps: recipientSteps as CampaignEligibilitySnapshot["recipientSteps"],
     identities: identities as CampaignEligibilitySnapshot["identities"],
-    conversations: conversations as CampaignEligibilitySnapshot["conversations"],
+    conversations: projectedConversations as CampaignEligibilitySnapshot["conversations"],
     suppressions: suppressionRows as CampaignEligibilitySnapshot["suppressions"],
   };
   return evaluateChannelCampaignEligibility(snapshot, new Date(), input.maximumActions);

@@ -8,14 +8,14 @@ import {requireTrustedFacebookProfileBridgeOrigin} from "./trusted-bridge-origin
 
 const MAX_CLOCK_SKEW_SECONDS=300;
 const SEND_PATH="/v1/messages/send";
-type BridgeEvent={eventId:string;accountId:string;threadId:string;messageId:string;senderId:string;senderName?:string|null;accountName?:string|null;recipientIds:string[];text:string|null;isSelf:boolean;occurredAt:string;attachments:Array<{id:string|null;filename:string|null;contentType:string|null;sizeBytes:number|null;url:string|null}>};
+type BridgeEvent={eventId:string;accountId:string;threadId:string;messageId:string;senderId:string;senderName?:string|null;accountName?:string|null;recipientIds:string[];text:string|null;isSelf:boolean;occurredAt:string;occurredAtVerified?:boolean;attachments:Array<{id:string|null;filename:string|null;contentType:string|null;sizeBytes:number|null;url:string|null}>};
 
 function safe(value:unknown,max=512):value is string{return typeof value==="string"&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f-\u009f]/u.test(value)}
 function equal(left:string,right:string){const a=Buffer.from(left),b=Buffer.from(right);return a.length===b.length&&timingSafeEqual(a,b)}
 function parse(value:unknown):BridgeEvent{
   if(!value||typeof value!=="object"||Array.isArray(value))throw new ChannelError("INVALID_WEBHOOK",false);
   const event=value as Partial<BridgeEvent>;
-  if(!safe(event.eventId)||!safe(event.accountId)||!safe(event.threadId)||!safe(event.messageId)||!safe(event.senderId)||!Array.isArray(event.recipientIds)||!event.recipientIds.every(id=>safe(id))||(event.text!==null&&typeof event.text!=="string")||typeof event.isSelf!=="boolean"||!Array.isArray(event.attachments)||event.attachments.length>20||typeof event.occurredAt!=="string"||!Number.isFinite(Date.parse(event.occurredAt)))throw new ChannelError("INVALID_WEBHOOK",false);
+  if(!safe(event.eventId)||!safe(event.accountId)||!safe(event.threadId)||!safe(event.messageId)||!safe(event.senderId)||!Array.isArray(event.recipientIds)||!event.recipientIds.every(id=>safe(id))||(event.text!==null&&typeof event.text!=="string")||typeof event.isSelf!=="boolean"||(event.occurredAtVerified!==undefined&&typeof event.occurredAtVerified!=="boolean")||!Array.isArray(event.attachments)||event.attachments.length>20||typeof event.occurredAt!=="string"||!Number.isFinite(Date.parse(event.occurredAt)))throw new ChannelError("INVALID_WEBHOOK",false);
   return event as BridgeEvent;
 }
 
@@ -34,7 +34,7 @@ export class FacebookProfileBridgeAdapter implements ChannelAdapter{
   }
   async normalizeInbound(input:VerifiedWebhook):Promise<CanonicalInboundMessage[]>{
     const event=parse(input.payload);if(event.text===null&&event.attachments.length===0)return[];
-    return[{workspaceId:this.workspaceId,channelAccountId:this.channelAccountId,channelType:"FACEBOOK_PROFILE",accountDisplayName:event.accountName?.trim()||null,providerConversationId:event.threadId,providerMessageId:event.messageId,providerEventId:event.eventId,direction:event.isSelf?"OUTBOUND":"INBOUND",sender:{contactId:null,channelType:"FACEBOOK_PROFILE",externalId:event.senderId,displayName:event.senderName?.trim()||null},recipients:event.recipientIds.map(externalId=>({contactId:null,channelType:"FACEBOOK_PROFILE" as const,externalId,displayName:null})),text:event.text,attachments:event.attachments.map(item=>({externalId:item.id,filename:item.filename,contentType:item.contentType,sizeBytes:item.sizeBytes,providerUrl:item.url})),occurredAt:event.occurredAt,rawPayloadReference:null}];
+    return[{workspaceId:this.workspaceId,channelAccountId:this.channelAccountId,channelType:"FACEBOOK_PROFILE",accountDisplayName:event.accountName?.trim()||null,providerConversationId:event.threadId,providerMessageId:event.messageId,providerEventId:event.eventId,direction:event.isSelf?"OUTBOUND":"INBOUND",sender:{contactId:null,channelType:"FACEBOOK_PROFILE",externalId:event.senderId,displayName:event.senderName?.trim()||null},recipients:event.recipientIds.map(externalId=>({contactId:null,channelType:"FACEBOOK_PROFILE" as const,externalId,displayName:null})),text:event.text,attachments:event.attachments.map(item=>({externalId:item.id,filename:item.filename,contentType:item.contentType,sizeBytes:item.sizeBytes,providerUrl:item.url})),occurredAt:event.occurredAt,occurredAtVerified:event.occurredAtVerified!==false,rawPayloadReference:null}];
   }
   async sendMessage(command:SendMessageCommand):Promise<ChannelSendResult>{
     const allowedSource=command.source==="HUMAN_MANUAL"||command.source==="CAMPAIGN"||(command.source==="AI_AUTOMATION"&&/^ai-recruiter:[0-9a-f-]{36}:part:\d+$/iu.test(command.idempotencyKey));

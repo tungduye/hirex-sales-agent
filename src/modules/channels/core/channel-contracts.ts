@@ -86,6 +86,8 @@ export interface CanonicalInboundMessage {
   text: string | null;
   attachments: CanonicalAttachment[];
   occurredAt: string;
+  /** False when a bridge had to substitute sync time for the provider message time. */
+  occurredAtVerified?: boolean;
   rawPayloadReference: string | null;
 }
 

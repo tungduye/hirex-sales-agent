@@ -1,0 +1,107 @@
+import "server-only";
+
+import { createClient } from "@/lib/supabase/server";
+import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import type { ContentBatchSummary } from "@/modules/content/core/batch-status";
+import { contentSearchPattern, normalizeContentListQuery, type ContentListQuery } from "@/modules/content/core/content-list-query";
+
+export interface ContentListItem {
+  id: string;
+  code: string;
+  title: string;
+  body: string;
+  jobTitle: string;
+  language: string;
+  format: string;
+  department: string;
+  style: string;
+  maxSimilarity: number;
+  createdAt: string;
+  createdByName: string | null;
+}
+
+export interface ListContentResult {
+  items: ContentListItem[];
+  /** The signed-in user's batches from the last 24 hours, newest first. */
+  batches: ContentBatchSummary[];
+  total: number;
+  libraryTotal: number;
+  query: ContentListQuery;
+  error: string | null;
+}
+
+interface BatchRow {
+  id: string; job_title: string; quantity: number; status: string; saved_count: number; rejected_count: number; error_code: string | null; created_at: string;
+}
+
+interface ContentRow {
+  id: string; code: string; title: string; body: string; job_title: string; content_language: string; content_format: string;
+  department: string; style: string; max_similarity: number | string; created_at: string; created_by: string;
+}
+
+export async function listContent(raw: Record<string, string | string[] | undefined> = {}): Promise<ListContentResult> {
+  const query = normalizeContentListQuery(raw);
+  const account = await getAccountContext();
+  if (!account?.workspaceId) return { items: [], batches: [], total: 0, libraryTotal: 0, query, error: null };
+
+  const supabase = await createClient();
+  let itemsQuery = supabase
+    .from("content_items")
+    .select("id, code, title, body, job_title, content_language, content_format, department, style, max_similarity, created_at, created_by", { count: "exact" })
+    .eq("workspace_id", account.workspaceId);
+  const pattern = contentSearchPattern(query.q);
+  if (pattern) itemsQuery = itemsQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
+  if (query.language !== "ALL") itemsQuery = itemsQuery.eq("content_language", query.language);
+  if (query.format !== "ALL") itemsQuery = itemsQuery.eq("content_format", query.format);
+  const from = (query.page - 1) * query.pageSize;
+
+  const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const [itemsResult, totalResult, batchesResult] = await Promise.all([
+    itemsQuery.order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, from + query.pageSize - 1),
+    supabase.from("content_items").select("id", { count: "exact", head: true }).eq("workspace_id", account.workspaceId),
+    supabase.from("content_batches").select("id, job_title, quantity, status, saved_count, rejected_count, error_code, created_at")
+      .eq("workspace_id", account.workspaceId).eq("created_by", account.userId).gte("created_at", since)
+      .order("created_at", { ascending: false }).limit(5),
+  ]);
+  if (itemsResult.error) return { items: [], batches: [], total: 0, libraryTotal: 0, query, error: "Không tải được kho content. Vui lòng thử lại." };
+  const batches = ((batchesResult.data ?? []) as BatchRow[]).map((row) => ({
+    id: row.id,
+    jobTitle: row.job_title,
+    quantity: row.quantity,
+    status: row.status,
+    savedCount: row.saved_count,
+    rejectedCount: row.rejected_count,
+    errorCode: row.error_code,
+    createdAt: row.created_at,
+  }));
+
+  const rows = itemsResult.data as ContentRow[];
+  const creatorIds = [...new Set(rows.map((row) => row.created_by))];
+  const names = new Map<string, string>();
+  if (creatorIds.length > 0) {
+    const { data } = await supabase.from("profiles").select("id, full_name").in("id", creatorIds);
+    for (const profile of (data ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
+  }
+
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      title: row.title,
+      body: row.body,
+      jobTitle: row.job_title,
+      language: row.content_language,
+      format: row.content_format,
+      department: row.department,
+      style: row.style,
+      maxSimilarity: Number(row.max_similarity),
+      createdAt: row.created_at,
+      createdByName: names.get(row.created_by) ?? null,
+    })),
+    batches,
+    total: itemsResult.count ?? rows.length,
+    libraryTotal: totalResult.count ?? itemsResult.count ?? rows.length,
+    query,
+    error: null,
+  };
+}

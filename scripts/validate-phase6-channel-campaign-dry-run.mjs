@@ -35,6 +35,16 @@ f = fixture(); f.recipients.push({ id: "recipient-2", contact_id: "contact-2", s
 f = fixture(); f.campaign.status = "RUNNING"; f.recipients[0].next_step_at = fresh; f.recipientSteps = [{ recipient_id: "recipient-1", step_id: "step-1", status: "PENDING" }]; p = project(f); equal(p.eligibleRecipientCount, 1);
 f.recipientSteps[0].status = "CLAIMED"; p = project(f); equal(p.eligibleRecipientCount, 0); equal(p.reasons.STEP_NOT_PENDING, 1);
 
+f = fixture();
+f.steps[0].allowed_channels = ["FACEBOOK_PROFILE"];
+f.senders[0].channel_account_id = "profile-1";
+f.accounts[0] = { id: "profile-1", channel_type: "FACEBOOK_PROFILE", status: "CONNECTED", capabilities: ["SEND_TEXT"], operator_enabled: true, provider_health_status: "HEALTHY", provider_health_checked_at: new Date(now.getTime() - 60_000).toISOString() };
+f.identities[0] = { contact_id: "contact-1", channel_type: "FACEBOOK_PROFILE", channel_value: "profile-uid-1", marketing_consent_status: "OPTED_IN" };
+f.conversations[0] = { channel_account_id: "profile-1", provider_conversation_id: "profile-uid-1", status: "OPEN", last_message_at: fresh, hasInbound: true };
+p = project(f); equal(p.eligibleRecipientCount, 1); equal(p.projectedActions, 1);
+f.conversations[0].hasInbound = false; p = project(f); equal(p.eligibleRecipientCount, 0); equal(p.reasons.NO_OPEN_CONVERSATION, 1);
+f.conversations[0].hasInbound = true; f.accounts[0].provider_health_status = "DISCONNECTED"; p = project(f); equal(p.eligibleRecipientCount, 0); equal(p.reasons.PROVIDER_DISCONNECTED, 1);
+
 const processor = readFileSync(new URL("../src/modules/channels/server/process-channel-campaign-batch.ts", import.meta.url), "utf8");
 const projector = readFileSync(new URL("../src/modules/channels/server/project-channel-campaign.ts", import.meta.url), "utf8");
 equal(processor.indexOf("projectChannelCampaign(") < processor.indexOf("if(input.dryRun)"), true);
@@ -46,5 +56,7 @@ equal(processor.includes('if(result.status==="DELIVERY_UNKNOWN")break'), true);
 equal(processor.includes('row.channel_type==="FACEBOOK"||row.channel_type==="FACEBOOK_PROFILE"||row.channel_type==="ZALO"'), true);
 equal(processor.includes('contains("metadata",{participantExternalId:row.recipient_external_id})'), true);
 equal(processor.includes("injectedAdapters??new ChannelAdapterRegistry()"), true);
+equal(projector.includes('type==="FACEBOOK"||type==="FACEBOOK_PROFILE"'), true);
+equal(projector.includes('eq("direction","INBOUND")'), true);
 for (const forbidden of [".insert(", ".update(", ".delete(", ".rpc(", "sendMessage(", "fetch("]) equal(projector.includes(forbidden), false);
 console.log(`PHASE6_CHANNEL_CAMPAIGN_DRY_RUN_PASS assertions=${assertions} providerCalls=0 dbMutations=0`);

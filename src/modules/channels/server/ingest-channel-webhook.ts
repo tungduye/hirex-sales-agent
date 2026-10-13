@@ -185,22 +185,25 @@ export async function ingestChannelWebhook(input: {
     if (input.channelType === "ZALO" && direction === "INBOUND") await refreshZaloIdentity({ client, workspaceId: account.workspace_id,
       accountId: account.id, externalId: participant.externalId, contactId,
       contactName: participant.displayName, accountName: message.accountDisplayName });
-    const previousConversation = await client.from("omnichannel_conversations").select("metadata")
+    const previousConversation = await client.from("omnichannel_conversations").select("metadata,last_message_at")
       .eq("workspace_id", account.workspace_id).eq("channel_account_id", account.id)
       .eq("provider_conversation_id", message.providerConversationId).maybeSingle();
     if (previousConversation.error) throw new Error("CONVERSATION_PERSISTENCE_FAILED");
     const existingMetadata = previousConversation.data?.metadata;
     const metadata = existingMetadata && typeof existingMetadata === "object" && !Array.isArray(existingMetadata)
       ? existingMetadata : {};
+    const previousLastMessageAt = previousConversation.data?.last_message_at;
+    const lastMessageAt = typeof previousLastMessageAt === "string" && Date.parse(previousLastMessageAt) > Date.parse(message.occurredAt)
+      ? previousLastMessageAt : message.occurredAt;
     // History reconciliation may already know the group name/avatar. An
     // individual sender in that group must not replace the group's identity.
     const participantMetadata = participant.displayName && metadata.conversationKind !== "GROUP"
       ? { metadata: { ...metadata, participantExternalId: participant.externalId, participantDisplayName: participant.displayName } }
       : {};
-    const { data: conversation, error: conversationError } = await client.from("omnichannel_conversations").upsert({ workspace_id: account.workspace_id, channel_account_id: account.id, channel_type: input.channelType, provider_conversation_id: message.providerConversationId, ...(contactId?{contact_id:contactId}:{}), last_message_at: message.occurredAt, ...participantMetadata }, { onConflict: "workspace_id,channel_account_id,provider_conversation_id" }).select("id").single();
+    const { data: conversation, error: conversationError } = await client.from("omnichannel_conversations").upsert({ workspace_id: account.workspace_id, channel_account_id: account.id, channel_type: input.channelType, provider_conversation_id: message.providerConversationId, ...(contactId?{contact_id:contactId}:{}), last_message_at: lastMessageAt, ...participantMetadata }, { onConflict: "workspace_id,channel_account_id,provider_conversation_id" }).select("id").single();
     if (conversationError || !conversation) throw new Error("CONVERSATION_PERSISTENCE_FAILED");
     const metadataAttachments=message.attachments.map(attachment=>({...attachment,providerUrl:attachment.providerUrl?.startsWith("data:")?null:attachment.providerUrl}));
-    const { data: insertedMessage, error: messageError } = await client.from("omnichannel_messages").upsert({ workspace_id: account.workspace_id, conversation_id: conversation.id, channel_account_id: account.id, channel_type: input.channelType, provider_message_id: message.providerMessageId, provider_event_id: message.providerEventId, direction, sender_external_id: message.sender.externalId, recipient_external_ids: message.recipients.map((recipient) => recipient.externalId), text_content: message.text, attachment_count: message.attachments.length, ...(direction === "INBOUND" ? { received_at: message.occurredAt } : { sent_at: message.occurredAt }), metadata: { rawPayloadReference: message.rawPayloadReference, attachments: metadataAttachments } }, { onConflict: "workspace_id,channel_account_id,provider_message_id", ignoreDuplicates: true }).select("id").maybeSingle();
+    const { data: insertedMessage, error: messageError } = await client.from("omnichannel_messages").upsert({ workspace_id: account.workspace_id, conversation_id: conversation.id, channel_account_id: account.id, channel_type: input.channelType, provider_message_id: message.providerMessageId, provider_event_id: message.providerEventId, direction, sender_external_id: message.sender.externalId, recipient_external_ids: message.recipients.map((recipient) => recipient.externalId), text_content: message.text, attachment_count: message.attachments.length, ...(direction === "INBOUND" ? { received_at: message.occurredAt } : { sent_at: message.occurredAt }), metadata: { rawPayloadReference: message.rawPayloadReference, occurredAtVerified: message.occurredAtVerified ?? true, attachments: metadataAttachments } }, { onConflict: "workspace_id,channel_account_id,provider_message_id", ignoreDuplicates: true }).select("id").maybeSingle();
     if (messageError) throw new Error("MESSAGE_PERSISTENCE_FAILED");
     let messageId=insertedMessage?.id;
     if(typeof messageId!=="string"){const existing=await client.from("omnichannel_messages").select("id").eq("workspace_id",account.workspace_id).eq("channel_account_id",account.id).eq("provider_message_id",message.providerMessageId).maybeSingle();messageId=existing.data?.id}

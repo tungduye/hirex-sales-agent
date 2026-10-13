@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { facebookProfileMessageTimestamp } from "./lib/facebook-profile-message-timestamp.mjs";
 
 const slot=process.env.HIREX_FB_PROFILE_SLOT?.trim()||"default";if(!/^[a-z0-9-]{1,64}$/u.test(slot))throw new Error("INVALID_FACEBOOK_PROFILE_SLOT");
 const suffix=slot==="default"?"":`-${slot}`;
@@ -201,11 +202,12 @@ async function syncThreadEntries(threadEntries,mode){
     const headingName=await page.locator('h1,h2,h3,[role="heading"]').evaluateAll(nodes=>nodes.map(node=>(node.textContent??"").trim()).find(text=>text.startsWith("Conversation with "))?.slice("Conversation with ".length).trim()||null);
     const sidebarName=await page.locator(`a[href*="/t/${threadId}"]`).first().evaluate(node=>(node.innerText??"").trim().split(/\r?\n/u)[0]?.trim()||null).catch(()=>null);
     const conversationName=headingName||sidebarName;
-    const messages=await page.locator('[role="article"] [data-scope="messages_table"][aria-label]').evaluateAll(nodes=>{const placeholders=new Set(["không khôi phục được tin nhắn","couldn't restore message","could not restore message","this message could not be restored"]),delivery=/^(?:đã gửi|đã xem|sent|seen)(?:\s+.*)?$/iu;return nodes.map(node=>{const providerMessageId=node.getAttribute("data-message-id"),label=node.getAttribute("aria-label"),lines=(node.innerText??"").trim().split(/\r?\n/u).map(line=>line.trim()).filter(Boolean),hasDeliveryStatus=lines.some(line=>delivery.test(line)),text=lines.filter(line=>!delivery.test(line)).join("\n").trim();const attachments=[...node.querySelectorAll('img[alt="Open photo"]')].map((image,index)=>{const url=image.currentSrc||image.src;const match=url.match(/^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/u);if(!match)return null;const extension=match[1]==="image/png"?"png":"jpg";return{id:providerMessageId?`${providerMessageId}:${index}`:null,filename:`facebook-${index+1}.${extension}`,contentType:match[1],sizeBytes:Math.floor(match[2].length*3/4),url}}).filter(Boolean);return{label,providerMessageId,text,attachments,isSelfHint:hasDeliveryStatus||/(?:^|[,\s])(you|bạn)(?:\s+(?:sent|đã gửi)|\s*[:,])/iu.test(label??"")}}).filter(item=>item.label&&(item.text||item.attachments.length)&&!(item.attachments.length===0&&placeholders.has(item.text.toLocaleLowerCase("vi")))).slice(-100)});
+    const messageNodes=await page.locator('[role="article"] [data-scope="messages_table"][aria-label]').evaluateAll(nodes=>{const placeholders=new Set(["không khôi phục được tin nhắn","couldn't restore message","could not restore message","this message could not be restored"]),delivery=/^(?:đã gửi|đã xem|sent|seen)(?:\s+.*)?$/iu;return nodes.map(node=>{const providerMessageId=node.getAttribute("data-message-id"),label=node.getAttribute("aria-label"),lines=(node.innerText??"").trim().split(/\r?\n/u).map(line=>line.trim()).filter(Boolean),hasDeliveryStatus=lines.some(line=>delivery.test(line)),text=lines.filter(line=>!delivery.test(line)).join("\n").trim(),timeNode=node.querySelector('time[datetime]'),unixNode=node.querySelector('[data-utime]');const attachments=[...node.querySelectorAll('img[alt="Open photo"]')].map((image,index)=>{const url=image.currentSrc||image.src;const match=url.match(/^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/u);if(!match)return null;const extension=match[1]==="image/png"?"png":"jpg";return{id:providerMessageId?`${providerMessageId}:${index}`:null,filename:`facebook-${index+1}.${extension}`,contentType:match[1],sizeBytes:Math.floor(match[2].length*3/4),url}}).filter(Boolean);return{label,providerMessageId,text,attachments,datetime:timeNode?.getAttribute("datetime")??null,unixTimestamp:unixNode?.getAttribute("data-utime")??null,isSelfHint:hasDeliveryStatus||/(?:^|[,\s])(you|bạn)(?:\s+(?:sent|đã gửi)|\s*[:,])/iu.test(label??"")}}).filter(item=>item.label&&(item.text||item.attachments.length)&&!(item.attachments.length===0&&placeholders.has(item.text.toLocaleLowerCase("vi")))).slice(-100)});
+    const messages=messageNodes.map(item=>{const timestamp=facebookProfileMessageTimestamp({datetime:item.datetime,unixTimestamp:item.unixTimestamp});return{...item,...timestamp}});
     if(messages.length===0&&preview){
       const lines=preview.split(/\r?\n/u).map(line=>line.trim()).filter(Boolean),name=lines[0]||"Facebook contact";
       const text=lines.slice(1).find(line=>line!=="Unread message:"&&line!=="·"&&!/^\d+[mhd]$/iu.test(line));
-      if(text)messages.push({label:`Preview, ${name}: ${text}`,providerMessageId:null,text,attachments:[]});
+      if(text)messages.push({label:`Preview, ${name}: ${text}`,providerMessageId:null,text,attachments:[],occurredAt:new Date().toISOString(),verified:false});
     }
     discovered+=messages.length;
     for(const item of messages){
@@ -221,7 +223,7 @@ async function syncThreadEntries(threadEntries,mode){
       const stableMessageId=item.providerMessageId||eventHash(`${threadId}:${item.label}:${item.text??""}:${item.attachments.map(attachment=>attachment.url).join("|")}`);
       const eventId=eventHash(`${config.accountId}:${threadId}:${isSelf?"OUT":"IN"}:${stableMessageId}`);if(seen.has(eventId))continue;
       const messageId=eventHash(`message:${eventId}`);
-      const event={eventId,accountId:config.accountId,threadId,messageId,senderId:isSelf?config.accountId:participantExternalId,senderName:isSelf?"You":conversationName||match[1].trim(),accountName:"Facebook cá nhân",recipientIds:[isSelf?participantExternalId:config.accountId],text:item.text||null,isSelf,attachments:item.attachments,occurredAt:new Date().toISOString()};
+      const event={eventId,accountId:config.accountId,threadId,messageId,senderId:isSelf?config.accountId:participantExternalId,senderName:isSelf?"You":conversationName||match[1].trim(),accountName:"Facebook cá nhân",recipientIds:[isSelf?participantExternalId:config.accountId],text:item.text||null,isSelf,attachments:item.attachments,occurredAt:item.occurredAt,occurredAtVerified:item.verified??true};
       if(await pushEvent(event)){seen.add(eventId);accepted++;await writeFile(seenPath,JSON.stringify([...seen].slice(-10000)),"utf8")}
     }
   }

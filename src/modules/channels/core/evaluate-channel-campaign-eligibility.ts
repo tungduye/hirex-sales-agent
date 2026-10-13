@@ -1,5 +1,5 @@
 import { isFacebookResponseWindowOpen } from "./facebook-response-window.ts";
-import { evaluateZaloProviderHealth, type ProviderHealthStatus } from "./provider-health.ts";
+import { evaluateChannelProviderHealth, type ProviderHealthStatus } from "./provider-health.ts";
 
 export type IneligibilityReason =
   | "CAMPAIGN_NOT_SENDABLE" | "NOT_DUE" | "STEP_NOT_PENDING"
@@ -16,7 +16,7 @@ export interface CampaignEligibilitySnapshot {
   recipients: { id: string; contact_id: string; status: string; current_step_position: number; next_step_at: string | null }[];
   recipientSteps: { recipient_id: string; step_id: string; status: string }[];
   identities: { contact_id: string; channel_type: string; channel_value: string; marketing_consent_status: string }[];
-  conversations: { channel_account_id: string; provider_conversation_id: string; status: string; last_message_at: string | null }[];
+  conversations: { channel_account_id: string; provider_conversation_id: string; status: string; last_message_at: string | null; hasInbound?: boolean }[];
   suppressions: { channel_type: string; normalized_recipient: string }[];
 }
 
@@ -53,11 +53,11 @@ export function evaluateChannelCampaignEligibility(snapshot: CampaignEligibility
     const optedIn = identities.filter((identity) => identity.marketing_consent_status === "OPTED_IN" && identity.channel_value.trim());
     const matched = optedIn.flatMap((identity) => senderAccounts.filter((account) => account.status === "CONNECTED" && account.channel_type === identity.channel_type && ["FACEBOOK", "FACEBOOK_PROFILE", "ZALO"].includes(account.channel_type) && (step.text_template === null || account.capabilities.includes("SEND_TEXT")) && (step.attachment_ids.length === 0 || account.capabilities.includes("SEND_FILE"))).map((account) => ({ identity, account })));
     if (matched.length === 0) { mark("ACCOUNT_MISMATCH"); continue; }
-    const healthEligible=matched.filter(({account})=>{if(account.channel_type!=="ZALO")return true;const result=evaluateZaloProviderHealth({operatorEnabled:account.operator_enabled,status:account.provider_health_status,checkedAt:account.provider_health_checked_at},now);if(!result.allowed)mark(result.reason);return result.allowed});
+    const healthEligible=matched.filter(({account})=>{if(account.channel_type!=="ZALO"&&account.channel_type!=="FACEBOOK_PROFILE")return true;const result=evaluateChannelProviderHealth({operatorEnabled:account.operator_enabled,status:account.provider_health_status,checkedAt:account.provider_health_checked_at},now);if(!result.allowed)mark(result.reason);return result.allowed});
     if(healthEligible.length===0)continue;
     const unsuppressed = healthEligible.filter(({ identity, account }) => !snapshot.suppressions.some((suppression) => suppression.channel_type === account.channel_type && suppression.normalized_recipient.trim().toLowerCase() === identity.channel_value.trim().toLowerCase()));
     if (unsuppressed.length === 0) { mark("SUPPRESSED"); continue; }
-    const open = unsuppressed.filter(({ identity, account }) => account.channel_type !== "FACEBOOK" || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && ["OPEN", "PENDING"].includes(conversation.status)));
+    const open = unsuppressed.filter(({ identity, account }) => !["FACEBOOK", "FACEBOOK_PROFILE"].includes(account.channel_type) || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && ["OPEN", "PENDING"].includes(conversation.status) && (account.channel_type !== "FACEBOOK_PROFILE" || conversation.hasInbound === true)));
     if (open.length === 0) { mark("NO_OPEN_CONVERSATION"); continue; }
     const withinWindow = open.some(({ identity, account }) => account.channel_type !== "FACEBOOK" || snapshot.conversations.some((conversation) => conversation.channel_account_id === account.id && conversation.provider_conversation_id === identity.channel_value && isFacebookResponseWindowOpen({ status: conversation.status, latestInboundAt: conversation.last_message_at }, now)));
     if (!withinWindow) { mark("RESPONSE_WINDOW_EXPIRED"); continue; }
