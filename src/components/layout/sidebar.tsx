@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Bot, Building2, CheckSquare, ContactRound, FileScan, Inbox, LayoutDashboard, Megaphone, Settings, Sparkles, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
 import type { AccountContext } from "@/types/account";
 
@@ -24,6 +25,8 @@ const navigation = [
 
 export function Sidebar({ account, workspaceAdmin, onNavigate }: { account: AccountContext; workspaceAdmin: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
+  const visible = navigation.filter(item => account.permissions.includes(item.permission) && (!item.href.startsWith("/settings/ai-recruiter") && item.href !== "/settings/automation" && item.href !== "/documents" || workspaceAdmin));
+  const activeHref = activeNavigationHref(pathname, visible.map(item => item.href));
 
   return (
     <aside className="fixed inset-y-0 flex w-[264px] flex-col border-r border-slate-800 bg-slate-950 text-slate-300">
@@ -35,8 +38,8 @@ export function Sidebar({ account, workspaceAdmin, onNavigate }: { account: Acco
         </div>
       </div>
       <nav className="flex-1 space-y-1 p-3" aria-label="Điều hướng chính">
-        {navigation.filter(item => account.permissions.includes(item.permission) && (!item.href.startsWith("/settings/ai-recruiter") && item.href !== "/settings/automation" && item.href !== "/documents" || workspaceAdmin)).map((item) => {
-          const active = item.href === "/" ? pathname === "/" : item.href === "/settings" ? pathname.startsWith("/settings") && !pathname.startsWith("/settings/automation") : pathname.startsWith(item.href);
+        {visible.map((item) => {
+          const active = item.href === activeHref;
           return (
             <Link key={item.href} href={item.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors", active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-900 hover:text-white")}>
               <item.icon className="size-[18px]" />{item.label}

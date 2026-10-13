@@ -115,6 +115,7 @@ if ($reuse) {
         Start-Sleep -Seconds 20
         Remove-Item -LiteralPath "$root\.next-$Release" -Recurse -Force -ErrorAction SilentlyContinue
       }
+      Write-Host 'Building (usually 2-5 minutes; output is shown when it finishes)...'
       $env:HIREX_BUILD_DIR = ".next-$Release"
       try {
         $build = Capture 'npm.cmd' @('run', 'build')

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ContactRound, Mail, MoreHorizontal, Pencil, Phone, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, ContactRound, Mail, MoreHorizontal, Pencil, Phone, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/modules/crm/components/status-badge";
@@ -12,31 +12,48 @@ import { DeleteContactDialog } from "@/modules/crm/contacts/components/delete-co
 import { EditContactDialog } from "@/modules/crm/contacts/components/edit-contact-dialog";
 import type { CompanyOption, ContactListItem } from "@/modules/crm/contacts/types/contact";
 import { LEAD_STATUSES, type LeadStatus } from "@/types/crm";
+import { contactListHref, pageCount, type ContactListQuery } from "@/modules/crm/contacts/core/contact-list-query";
 
 interface ContactsViewProps {
   contacts: ContactListItem[];
   companyOptions: CompanyOption[];
+  total: number;
+  workspaceTotal: number;
+  query: ContactListQuery;
   loadError: string | null;
 }
 
-export function ContactsView({ contacts, companyOptions, loadError }: ContactsViewProps) {
+export function ContactsView({ contacts, companyOptions, total, workspaceTotal, query, loadError }: ContactsViewProps) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<LeadStatus | "ALL">("ALL");
+  const [search, setSearch] = useState(query.q);
+  const [isNavigating, startNavigation] = useTransition();
+  const lastSubmitted = useRef(query.q);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editContact, setEditContact] = useState<ContactListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContactListItem | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return contacts.filter((contact) => {
-      const matchesQuery = !normalizedQuery || [contact.fullName, contact.companyName, contact.jobTitle, contact.email, contact.phone, contact.country, contact.source]
-        .some((value) => value?.toLowerCase().includes(normalizedQuery));
-      return matchesQuery && (status === "ALL" || contact.leadStatus === status);
-    });
-  }, [contacts, query, status]);
+  // Search and status filters run on the server across the whole workspace (see list-contacts.ts).
+  const go = useCallback((next: Partial<Pick<ContactListQuery, "q" | "status" | "page">>) => {
+    startNavigation(() => router.replace(contactListHref({ q: query.q, status: query.status, page: 1, ...next }), { scroll: false }));
+  }, [router, query.q, query.status]);
+
+  // Keep the box in step when the URL changes from outside (browser back/forward).
+  useEffect(() => {
+    if (query.q !== lastSubmitted.current) { lastSubmitted.current = query.q; setSearch(query.q); }
+  }, [query.q]);
+
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (trimmed === lastSubmitted.current) return;
+    const timer = setTimeout(() => { lastSubmitted.current = trimmed; go({ q: trimmed, page: 1 }); }, 350);
+    return () => clearTimeout(timer);
+  }, [search, go]);
+
+  const pages = pageCount(total, query.pageSize);
+  const firstShown = total === 0 ? 0 : (query.page - 1) * query.pageSize + 1;
+  const lastShown = Math.min(total, (query.page - 1) * query.pageSize + contacts.length);
 
   const handleCreated = useCallback((message: string) => {
     setDialogOpen(false);
@@ -69,7 +86,7 @@ export function ContactsView({ contacts, companyOptions, loadError }: ContactsVi
           <p className="mt-1 text-sm text-slate-500">{loadError}</p>
           <Button variant="outline" className="mt-5" onClick={() => router.refresh()}>Try again</Button>
         </div>
-      ) : contacts.length === 0 ? (
+      ) : workspaceTotal === 0 ? (
         <div className="rounded-xl border border-dashed bg-white px-6 py-16 text-center shadow-sm">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600"><ContactRound className="size-7" /></div>
           <h2 className="mt-5 text-xl font-bold">No contacts yet</h2>
@@ -79,15 +96,15 @@ export function ContactsView({ contacts, companyOptions, loadError }: ContactsVi
       ) : (
         <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center">
-            <div className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Search contacts..." /></div>
-            <div className="relative"><SlidersHorizontal className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select value={status} onChange={(event) => setStatus(event.target.value as LeadStatus | "ALL")} className="h-10 min-w-48 appearance-none rounded-lg border bg-white pl-9 pr-8 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">All lead statuses</option>{LEAD_STATUSES.map((leadStatus) => <option key={leadStatus} value={leadStatus}>{leadStatus.replaceAll("_", " ")}</option>)}</select></div>
-            <span className="ml-auto text-xs font-medium text-slate-500">{filtered.length} contacts</span>
+            <div className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Search contacts..." /></div>
+            <div className="relative"><SlidersHorizontal className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select value={query.status} onChange={(event) => go({ status: event.target.value as LeadStatus | "ALL", page: 1 })} className="h-10 min-w-48 appearance-none rounded-lg border bg-white pl-9 pr-8 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">All lead statuses</option>{LEAD_STATUSES.map((leadStatus) => <option key={leadStatus} value={leadStatus}>{leadStatus.replaceAll("_", " ")}</option>)}</select></div>
+            <span className="ml-auto text-xs font-medium text-slate-500">{isNavigating ? "Loading…" : `${total.toLocaleString("en-US")} of ${workspaceTotal.toLocaleString("en-US")} contacts`}</span>
           </div>
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto transition-opacity ${isNavigating ? "opacity-60" : ""}`}>
             <table className="w-full min-w-[1260px] text-left">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Contact</th><th className="px-4 py-3 font-semibold">Company & role</th><th className="px-4 py-3 font-semibold">Contact details</th><th className="px-4 py-3 font-semibold">Country</th><th className="px-4 py-3 font-semibold">Source</th><th className="px-4 py-3 font-semibold">Lead status</th><th className="px-4 py-3 text-right font-semibold">Score</th><th className="px-5 py-3 text-right font-semibold">Actions</th></tr></thead>
               <tbody className="divide-y">
-                {filtered.map((contact) => (
+                {contacts.map((contact) => (
                   <tr key={contact.id} className="transition-colors hover:bg-slate-50/70">
                     <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">{contact.initials}</div><Link href={`/contacts/${contact.id}`} className="text-sm font-semibold hover:text-blue-600 hover:underline">{contact.fullName}</Link></div></td>
                     <td className="px-4 py-4"><p className="text-sm font-medium">{contact.companyName ?? "—"}</p><p className="mt-0.5 text-xs text-slate-500">{contact.jobTitle ?? "—"}</p></td>
@@ -105,7 +122,15 @@ export function ContactsView({ contacts, companyOptions, loadError }: ContactsVi
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && <div className="px-5 py-14 text-center text-sm text-slate-500">No contacts match the current filters.</div>}
+          {total === 0 && <div className="px-5 py-14 text-center text-sm text-slate-500">No contacts match the current filters.</div>}
+          {total > 0 && <div className="flex flex-col gap-3 border-t px-5 py-3 text-sm text-slate-600 sm:flex-row sm:items-center">
+            <span className="tabular-nums">Showing {firstShown.toLocaleString("en-US")}–{lastShown.toLocaleString("en-US")} of {total.toLocaleString("en-US")}</span>
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <Button variant="outline" size="sm" disabled={query.page <= 1 || isNavigating} onClick={() => go({ q: query.q, page: query.page - 1 })}><ChevronLeft className="size-4" />Previous</Button>
+              <span className="tabular-nums text-xs text-slate-500">Page {query.page} / {pages}</span>
+              <Button variant="outline" size="sm" disabled={query.page >= pages || isNavigating} onClick={() => go({ q: query.q, page: query.page + 1 })}>Next<ChevronRight className="size-4" /></Button>
+            </div>
+          </div>}
         </div>
       )}
       {dialogOpen && <AddContactDialog companies={companyOptions} onClose={() => setDialogOpen(false)} onCreated={handleCreated} />}
