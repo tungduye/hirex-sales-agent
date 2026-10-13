@@ -81,10 +81,55 @@ if (Test-Path -LiteralPath $buildMarker) {
 if ($reuse) {
   Write-Host "Reusing existing build .next-$Release (built after the last source commit)."
 } else {
-  if (Test-Path -LiteralPath "$root\.next-$Release") { Fail ".next-$Release is older than the latest source commit. Delete it, then run again." }
-  $env:HIREX_BUILD_DIR = ".next-$Release"
-  try { npm run build; $buildExit = $LASTEXITCODE } finally { Remove-Item Env:HIREX_BUILD_DIR -ErrorAction SilentlyContinue }
-  if ($buildExit -ne 0 -or -not (Test-Path -LiteralPath $buildMarker)) { Fail 'Build failed. Nothing was deployed.' }
+  if (Test-Path -LiteralPath "$root\.next-$Release") {
+    if (Test-Path -LiteralPath $buildMarker) { Fail ".next-$Release is older than the latest source commit. Delete it, then run again." }
+    # No BUILD_ID: left over from a failed build of this release, never deployed.
+    Remove-Item -LiteralPath "$root\.next-$Release" -Recurse -Force
+  }
+  # Turbopack reads files under runtime\ while tracing. The campaign schedulers hold their lock
+  # files exclusively while they run, which makes the build fail ("being used by another process").
+  # Hold both locks ourselves, readable by others, for the length of the build: the schedulers then
+  # skip their run (OVERLAP_SKIPPED) and resume on the next tick.
+  $lockNames = @('channel-campaign-scheduler.lock', 'email-campaign-scheduler.lock')
+  $locks = @()
+  try {
+    foreach ($name in $lockNames) {
+      $path = Join-Path "$root\runtime" $name
+      $deadline = [DateTime]::UtcNow.AddMinutes(6)
+      $stream = $null
+      while (-not $stream) {
+        try { $stream = [IO.File]::Open($path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read) }
+        catch {
+          if ([DateTime]::UtcNow -gt $deadline) { Fail "A campaign scheduler has held $name for 6 minutes. Try again later." }
+          Write-Host "Waiting for the running campaign scheduler to finish ($name)..."
+          Start-Sleep -Seconds 5
+        }
+      }
+      $locks += $stream
+    }
+    Write-Host 'Campaign schedulers paused for the build.'
+    $buildExit = 1
+    for ($attempt = 1; $attempt -le 2 -and $buildExit -ne 0; $attempt++) {
+      if ($attempt -gt 1) {
+        Write-Host 'Build hit a locked file; retrying once in 20 seconds...' -ForegroundColor Yellow
+        Start-Sleep -Seconds 20
+        Remove-Item -LiteralPath "$root\.next-$Release" -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      $env:HIREX_BUILD_DIR = ".next-$Release"
+      try {
+        $build = Capture 'npm.cmd' @('run', 'build')
+        $buildExit = $build.Code
+      } finally { Remove-Item Env:HIREX_BUILD_DIR -ErrorAction SilentlyContinue }
+      Write-Host ($build.Text -split "`n" | Select-Object -Last 25 | Out-String)
+      if ($buildExit -ne 0 -and $build.Text -notmatch 'being used by another process') { break }
+    }
+  } finally {
+    foreach ($stream in $locks) { $stream.Dispose() }
+  }
+  if ($buildExit -ne 0 -or -not (Test-Path -LiteralPath $buildMarker)) {
+    Remove-Item -LiteralPath "$root\.next-$Release" -Recurse -Force -ErrorAction SilentlyContinue
+    Fail 'Build failed. Nothing was deployed.'
+  }
 }
 
 # 4. Migrations -------------------------------------------------------------
