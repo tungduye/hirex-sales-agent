@@ -18,6 +18,8 @@ export interface ContentListItem {
   maxSimilarity: number;
   createdAt: string;
   createdByName: string | null;
+  /** Code of the sample template this content was written from. */
+  templateCode: string | null;
 }
 
 export interface ListContentResult {
@@ -36,7 +38,7 @@ interface BatchRow {
 
 interface ContentRow {
   id: string; code: string; title: string; body: string; job_title: string; content_language: string; content_format: string;
-  department: string; style: string; max_similarity: number | string; created_at: string; created_by: string;
+  department: string; style: string; max_similarity: number | string; created_at: string; created_by: string; template_id: string | null;
 }
 
 export async function listContent(raw: Record<string, string | string[] | undefined> = {}): Promise<ListContentResult> {
@@ -47,7 +49,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
   const supabase = await createClient();
   let itemsQuery = supabase
     .from("content_items")
-    .select("id, code, title, body, job_title, content_language, content_format, department, style, max_similarity, created_at, created_by", { count: "exact" })
+    .select("id, code, title, body, job_title, content_language, content_format, department, style, max_similarity, created_at, created_by, template_id", { count: "exact" })
     .eq("workspace_id", account.workspaceId);
   const pattern = contentSearchPattern(query.q);
   if (pattern) itemsQuery = itemsQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
@@ -84,6 +86,13 @@ export async function listContent(raw: Record<string, string | string[] | undefi
     for (const profile of (data ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
   }
 
+  const templateIds = [...new Set(rows.flatMap((row) => row.template_id ? [row.template_id] : []))];
+  const templateCodes = new Map<string, string>();
+  if (templateIds.length > 0) {
+    const { data } = await supabase.from("content_templates").select("id, code").in("id", templateIds);
+    for (const template of (data ?? []) as { id: string; code: string }[]) templateCodes.set(template.id, template.code);
+  }
+
   return {
     items: rows.map((row) => ({
       id: row.id,
@@ -98,6 +107,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
       maxSimilarity: Number(row.max_similarity),
       createdAt: row.created_at,
       createdByName: names.get(row.created_by) ?? null,
+      templateCode: row.template_id ? templateCodes.get(row.template_id) ?? null : null,
     })),
     batches,
     total: itemsResult.count ?? rows.length,

@@ -200,7 +200,7 @@ function ContentDetailDialog({ item, canDelete, onClose, onDeleted }: { item: Co
             <p className="font-mono text-xs font-semibold text-blue-700">{item.code}</p>
             <h2 id="content-detail-title" className="mt-1 text-lg font-bold tracking-tight">{item.title}</h2>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-              {[item.jobTitle, languageLabel(item.language), formatLabel(item.format), departmentLabel(item.department), styleLabel(item.style), `Trùng cao nhất ${percent(item.maxSimilarity)}`].map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}
+              {[item.jobTitle, languageLabel(item.language), formatLabel(item.format), departmentLabel(item.department), styleLabel(item.style), item.templateCode ? `Theo mẫu ${item.templateCode}` : null, `Trùng cao nhất ${percent(item.maxSimilarity)}`].filter((tag): tag is string => Boolean(tag)).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}
             </div>
           </div>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} disabled={deleting} aria-label="Đóng"><X className="size-5" /></Button>

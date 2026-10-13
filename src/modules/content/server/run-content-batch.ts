@@ -3,9 +3,10 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ContentBrief } from "@/modules/content/core/content-options";
 import { contentShingles, storedSimilarity, type IndexedContent } from "@/modules/content/core/content-similarity";
-import { produceUniqueContent, recheckAgainst } from "@/modules/content/core/produce-unique-content";
-import { applyTitlePrefix, assignTemplates, findBlockedTerm, parseBlockedTerms, pickTemplates, titlePrefixFor, type TemplateSample } from "@/modules/content/core/template-plan";
-import { generateContentRound } from "@/modules/content/server/generate-content";
+import { briefFactText, languageParts } from "@/modules/content/core/content-prompt";
+import { produceUniqueContent, recheckAgainst, type Draft } from "@/modules/content/core/produce-unique-content";
+import { applyTitlePrefix, assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, titlePrefixFor, type TemplateSample } from "@/modules/content/core/template-plan";
+import { generateContentRound, generateFromTemplate } from "@/modules/content/server/generate-content";
 import { mapTemplateRow, TEMPLATE_COLUMNS, type TemplateRow } from "@/modules/content/server/template-row";
 
 const PAGE_SIZE = 1000;
@@ -43,6 +44,29 @@ async function loadTemplates(db: Db, workspaceId: string, brief: ContentBrief): 
   }
   const { data } = await db.from("content_templates").select(TEMPLATE_COLUMNS).eq("workspace_id", workspaceId).eq("department", brief.department).eq("active", true).limit(500);
   return { chosen: [], candidates: ((data ?? []) as TemplateRow[]).map(mapTemplateRow) };
+}
+
+/** The "Content mẫu tự dán" text is used like a chosen template, ahead of the others. */
+const PASTED_ID = "pasted";
+function pastedTemplate(brief: ContentBrief): TemplateSample | null {
+  if (!brief.sampleContent) return null;
+  return { id: PASTED_ID, code: "MẪU DÁN", department: brief.department, language: brief.contentLanguage, groupName: null, tone: null, cta: null, body: brief.sampleContent, weight: 10, active: true };
+}
+
+/** Runs `task` for every item with at most `limit` running at once; failed items become null. */
+async function mapLimit<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<(R | null)[]> {
+  const results: (R | null)[] = new Array(items.length).fill(null);
+  const errors: unknown[] = [];
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const current = next++;
+      try { results[current] = await task(items[current], current); } catch (error) { errors.push(error); }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (errors.length === items.length && errors.length > 0) throw errors[0];
+  return results;
 }
 
 const index = (rows: LibraryRow[]): IndexedContent[] => rows.map((row) => ({ id: row.id, shingles: contentShingles(row.body) }));
@@ -84,9 +108,41 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
     const jobKey = brief.jobTitle.toLocaleLowerCase("vi");
     const recentSameJob = libraryRows.filter((row) => row.job_title.toLocaleLowerCase("vi") === jobKey).slice(-RECENT_SAME_JOB).map((row) => row.body);
 
-    const templates = pickTemplates({ ...templateSource, department: brief.department, language: brief.contentLanguage, quantity: brief.quantity, seed: brief.jobTitle });
+    const pasted = pastedTemplate(brief);
+    const chosen = pasted ? [pasted, ...templateSource.chosen] : templateSource.chosen;
+    const templates = pickTemplates({ chosen, candidates: templateSource.candidates, department: brief.department, language: brief.contentLanguage, quantity: brief.quantity, seed: brief.jobTitle });
+    const templateById = new Map(templates.map((template) => [template.id, template]));
     const prefix = titlePrefixFor(brief.department, brief.location);
     const blocked = parseBlockedTerms(brief.blockedTerms);
+    const facts = briefFactText(brief);
+    const languageCount = languageParts(brief.contentLanguage).length;
+
+    // With samples, each content is written from one sample in its own call (closer to the sample
+    // than a single call writing everything); without samples, one call writes the whole round.
+    const generate = async ({ count, round, avoid }: { count: number; round: number; avoid: string[] }): Promise<Draft[]> => {
+      if (templates.length === 0) return generateContentRound({ brief, count, round, avoid, model });
+      const plan = assignTemplates(templates, count, round).filter((template): template is TemplateSample => Boolean(template));
+      const drafts = await mapLimit<TemplateSample, Draft | null>(plan, 3, async (template) => {
+        const draft = await generateFromTemplate({ brief, template, round, avoid, model });
+        return draft ? { ...draft, templateId: template.id } : null;
+      });
+      return drafts.flatMap((draft) => draft ? [draft] : []);
+    };
+
+    const prepare = (draft: Draft): Draft | null => {
+      const item: Draft = { ...draft, title: applyTitlePrefix(draft.title, prefix) };
+      if (findBlockedTerm(`${item.title}\n${item.body}`, blocked)) return null;
+      const template = draft.templateId ? templateById.get(draft.templateId) : undefined;
+      if (template) {
+        // Facts copied from the sample (its salary, years, headcount…) are never saved.
+        if (leakedNumbers(`${item.title}\n${item.body}`, template.body, facts).length > 0) return null;
+        if (brief.contentFormat === "POST") {
+          const [min, max] = lengthRange(templateProfile(template.body), languageCount);
+          if (item.body.length < min || item.body.length > max) return null;
+        }
+      }
+      return { ...item, templateId: template && template.id !== PASTED_ID ? template.id : null };
+    };
 
     const result = await produceUniqueContent({
       quantity: brief.quantity,
@@ -94,11 +150,8 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       // A new content must not be a near-copy of the sample it followed either.
       references: templates.map((template) => ({ id: `template:${template.code}`, shingles: contentShingles(template.body) })),
       initialAvoid: recentSameJob,
-      generate: ({ count, round, avoid }) => generateContentRound({ brief, count, round, avoid, model, templates: assignTemplates(templates, count, round) }),
-      prepare: (draft) => {
-        const item = { title: applyTitlePrefix(draft.title, prefix), body: draft.body };
-        return findBlockedTerm(`${item.title}\n${item.body}`, blocked) ? null : item;
-      },
+      generate,
+      prepare,
     });
 
     // Items saved elsewhere (another server process) while this batch was generated.
@@ -119,6 +172,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
         style: brief.style,
         max_similarity: storedSimilarity(item.similarity),
         most_similar_item_id: item.similarItemId,
+        template_id: item.templateId ?? null,
         created_by: userId,
       }))).select("id");
       if (error || !data) throw new Error("SAVE_FAILED");
@@ -130,7 +184,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       status: rejected === 0 ? "COMPLETED" : saved > 0 ? "PARTIAL" : "FAILED",
       saved_count: saved,
       rejected_count: rejected,
-      error_code: saved === 0 ? (result.dropped > 0 && result.accepted.length === 0 ? "BLOCKED_TERMS" : "ALL_TOO_SIMILAR") : null,
+      error_code: saved === 0 ? (result.dropped > 0 ? "DRAFTS_REJECTED" : "ALL_TOO_SIMILAR") : null,
     });
   } catch (error) {
     const code = error instanceof Error && KNOWN_ERRORS.has(error.message) ? error.message : "AI_UNAVAILABLE";

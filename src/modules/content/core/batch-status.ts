@@ -16,6 +16,7 @@ export const STALE_BATCH_MS = 15 * 60_000;
 
 const ERROR_TEXT: Record<string, string> = {
   ALL_TOO_SIMILAR: "Tất cả content đều trùng quá 50% với kho nên không được lưu. Hãy đổi điểm nổi bật, phong cách hoặc định dạng rồi thử lại.",
+  DRAFTS_REJECTED: "Các bài AI viết chưa đạt (lấy dữ kiện của mẫu, lệch độ dài so với mẫu, chứa từ khóa cấm hoặc trùng quá 50%) nên không được lưu. Thử chọn mẫu khác hoặc bổ sung brief.",
   BLOCKED_TERMS: "Mọi content AI viết đều chứa từ khóa cấm nên không được lưu. Kiểm tra lại brief và danh sách từ khóa cấm.",
   AI_NOT_CONFIGURED: "Máy chủ chưa cấu hình OpenAI.",
   AI_UNAVAILABLE: "Dịch vụ AI không phản hồi. Vui lòng thử lại sau ít phút.",
@@ -39,7 +40,7 @@ export function batchStatus(batch: ContentBatchSummary, now: number): { tone: Ba
   }
   if (batch.status === "COMPLETED") return { tone: "success", text: `Đã lưu ${batch.savedCount}/${batch.quantity} content.` };
   if (batch.status === "PARTIAL") {
-    return { tone: "warning", text: `Đã lưu ${batch.savedCount}/${batch.quantity} content. ${batch.rejectedCount} content bị loại (trùng quá 50% hoặc chứa từ khóa cấm) sau 2 lần viết lại.` };
+    return { tone: "warning", text: `Đã lưu ${batch.savedCount}/${batch.quantity} content. ${batch.rejectedCount} content bị loại sau 2 lần viết lại (trùng quá 50%, lấy dữ kiện của mẫu, lệch độ dài hoặc chứa từ khóa cấm).` };
   }
   return { tone: "error", text: ERROR_TEXT[batch.errorCode ?? ""] ?? "Không tạo được content. Vui lòng thử lại." };
 }

@@ -7,7 +7,18 @@
 import { contentShingles, isTooSimilar, mostSimilar, type IndexedContent } from "./content-similarity.ts";
 import type { GeneratedItem } from "./content-prompt.ts";
 
-export interface AcceptedContent extends GeneratedItem {
+/**
+ * Following a sample closely is the point, so a draft may share more with its sample than with
+ * other content; only a near-copy of a sample (above this) is refused.
+ */
+export const MAX_REFERENCE_SIMILARITY = 0.7;
+
+export interface Draft extends GeneratedItem {
+  /** Sample template the draft was written from, when any. */
+  templateId?: string | null;
+}
+
+export interface AcceptedContent extends Draft {
   similarity: number;
   /** Most similar saved library item, or null when the closest text is a reference/this batch/nothing. */
   similarItemId: string | null;
@@ -18,13 +29,13 @@ export interface ProduceUniqueContentInput {
   quantity: number;
   /** Saved content items, by id. */
   library: IndexedContent[];
-  /** Other texts the drafts must not copy (e.g. sample templates). Ids must contain ":". */
+  /** Other texts the drafts must not copy (e.g. sample templates), compared at MAX_REFERENCE_SIMILARITY. */
   references?: IndexedContent[];
   /** Drafts to keep away from from the first round on (e.g. recent items for the same job). */
   initialAvoid?: string[];
-  generate: (request: { count: number; round: number; avoid: string[] }) => Promise<GeneratedItem[]>;
-  /** Normalizes a draft (e.g. title prefix) or returns null to drop it (e.g. blocked term). */
-  prepare?: (draft: GeneratedItem) => GeneratedItem | null;
+  generate: (request: { count: number; round: number; avoid: string[] }) => Promise<Draft[]>;
+  /** Normalizes a draft (e.g. title prefix) or returns null to drop it (blocked term, fact leak, wrong length). */
+  prepare?: (draft: Draft) => Draft | null;
   maxRewriteRounds?: number;
 }
 
@@ -41,7 +52,6 @@ const isSavedItemId = (id: string | null) => Boolean(id && !id.includes(":"));
 export async function produceUniqueContent({ quantity, library, references = [], initialAvoid = [], generate, prepare, maxRewriteRounds = 2 }: ProduceUniqueContentInput): Promise<ProduceUniqueContentResult> {
   const accepted: AcceptedContent[] = [];
   const avoid = [...initialAvoid];
-  const fixed = [...library, ...references];
   let rounds = 0;
   let dropped = 0;
 
@@ -55,8 +65,9 @@ export async function produceUniqueContent({ quantity, library, references = [],
       const shingles = contentShingles(draft.body);
       if (shingles.size === 0) continue;
       const batchIndex = accepted.map((item, index) => ({ id: `batch:${index}`, shingles: item.shingles }));
-      const match = mostSimilar(shingles, [...fixed, ...batchIndex]);
-      if (isTooSimilar(match.similarity)) {
+      const match = mostSimilar(shingles, [...library, ...batchIndex]);
+      const copiesSample = references.length > 0 && mostSimilar(shingles, references).similarity > MAX_REFERENCE_SIMILARITY;
+      if (isTooSimilar(match.similarity) || copiesSample) {
         avoid.push(draft.body);
         continue;
       }

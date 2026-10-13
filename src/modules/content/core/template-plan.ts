@@ -101,3 +101,65 @@ export function findBlockedTerm(text: string, terms: string[]): string | null {
   const haystack = text.normalize("NFC").toLocaleLowerCase("vi");
   return terms.find((term) => haystack.includes(term.normalize("NFC").toLocaleLowerCase("vi"))) ?? null;
 }
+
+// --- Following a template closely ------------------------------------------------------------
+
+export interface TemplateProfile {
+  /** First line of the sample when it reads as a headline, else null. */
+  title: string | null;
+  titleUppercase: boolean;
+  /** Characters of the sample without its title line. */
+  bodyChars: number;
+  paragraphs: number;
+  lines: number;
+  bulletLines: number;
+  bulletMarker: string | null;
+  emoji: number;
+  /** A one- or two-line teaser rather than a full post. */
+  teaser: boolean;
+}
+
+const BULLET = /^\s*([-+•*–]|\d+[.)])\s+/;
+const EMOJI = /\p{Extended_Pictographic}/gu;
+
+export function templateProfile(sample: string): TemplateProfile {
+  const text = sample.replace(/\r\n?/g, "\n").trim();
+  const allLines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const firstLine = allLines[0] ?? "";
+  const hasTitle = allLines.length >= 2 && firstLine.length <= 140 && !BULLET.test(firstLine);
+  const body = hasTitle ? text.slice(text.indexOf(firstLine) + firstLine.length).trim() : text;
+  const bodyLines = body.split("\n").map((line) => line.trim()).filter(Boolean);
+  const bulletLines = bodyLines.filter((line) => BULLET.test(line));
+  const letters = (hasTitle ? firstLine : "").replace(/[^\p{L}]/gu, "");
+  return {
+    title: hasTitle ? firstLine : null,
+    titleUppercase: letters.length >= 4 && letters === letters.toLocaleUpperCase("vi"),
+    bodyChars: body.length,
+    paragraphs: body ? body.split(/\n\s*\n/).filter((part) => part.trim()).length : 0,
+    lines: bodyLines.length,
+    bulletLines: bulletLines.length,
+    bulletMarker: bulletLines[0]?.match(BULLET)?.[1] ?? null,
+    emoji: (text.match(EMOJI) ?? []).length,
+    teaser: allLines.length <= 2 && text.length <= 220,
+  };
+}
+
+/** Allowed body length when following a sample: a teaser may be 1–2 lines, a full post 70–135%. */
+export function lengthRange(profile: TemplateProfile, languageCount: number): [number, number] {
+  if (profile.teaser || profile.bodyChars < 120) return [0, Math.max(400, profile.bodyChars * 3) * languageCount];
+  return [Math.round(profile.bodyChars * 0.7 * languageCount), Math.round(profile.bodyChars * 1.35 * languageCount + 60)];
+}
+
+function numbersIn(text: string): Set<string> {
+  return new Set((text.match(/\d+(?:[.,]\d+)*/g) ?? []).map((value) => value.replace(/[.,]/g, "")).filter((value) => value !== "0" && value !== "1"));
+}
+
+/**
+ * Numbers (salary, years, N-levels, headcount…) that the draft took from the sample instead of
+ * from the brief. A draft with any of them is a fact leak and is not saved.
+ */
+export function leakedNumbers(draft: string, sample: string, briefText: string): string[] {
+  const allowed = numbersIn(briefText);
+  const fromSample = numbersIn(sample);
+  return [...numbersIn(draft)].filter((value) => fromSample.has(value) && !allowed.has(value));
+}

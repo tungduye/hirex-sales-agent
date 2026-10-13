@@ -87,12 +87,12 @@ export function CreateContentDialog({ templates, onClose, onCreated }: { templat
             <TemplatePicker templates={departmentTemplates} selected={selected} onChange={setSelected} disabled={pending} />
             {error("templateIds") && <p className="text-xs text-rose-600">{error("templateIds")}</p>}
             <button type="button" className="flex items-center gap-1 text-sm font-medium text-blue-700 hover:underline" onClick={() => setShowSample((value) => !value)}>{showSample ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}Dán thêm một bài mẫu khác</button>
-            {showSample && <Field label="Content mẫu tự dán" hint="Chỉ để AI tham khảo giọng văn và bố cục, không chép lại." error={error("sampleContent")}><textarea name="sampleContent" rows={4} maxLength={6000} disabled={pending} className={cn(inputClass, "py-2")} /></Field>}
+            {showSample && <Field label="Content mẫu tự dán" hint="Dùng như một mẫu: AI viết theo bố cục và giọng của bài này, dữ kiện lấy từ brief." error={error("sampleContent")}><textarea name="sampleContent" rows={4} maxLength={6000} disabled={pending} className={cn(inputClass, "py-2")} /></Field>}
           </Section>
 
           <Section title="Cách viết">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Phong cách" required error={error("style")}>
+              <Field label="Phong cách" required hint="Dùng khi không có mẫu; có mẫu thì giọng văn theo mẫu." error={error("style")}>
                 <select name="style" value={style} onChange={(event) => setStyle(event.target.value)} disabled={pending} className={cn(inputClass, "h-11")}>
                   {CONTENT_STYLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   <option value={OTHER_OPTION}>Khác…</option>
@@ -131,7 +131,7 @@ function TemplatePicker({ templates, selected, onChange, disabled }: { templates
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-slate-500">Chọn tối đa {MAX_TEMPLATES_PER_BATCH} mẫu để AI học giọng văn, bố cục và CTA (không lấy dữ kiện trong mẫu). Mỗi content sẽ theo một mẫu khác nhau. Không chọn: hệ thống tự chọn mẫu phù hợp nhất. <span className="font-semibold text-slate-700">Đã chọn {selected.length}/{MAX_TEMPLATES_PER_BATCH}</span></p>
+      <p className="text-xs text-slate-500">Mỗi content được viết sát theo một mẫu: cùng kiểu tiêu đề, mở bài, bố cục, độ dài, cách xưng hô và CTA, nhưng toàn bộ dữ kiện lấy từ brief ở trên. Chọn tối đa {MAX_TEMPLATES_PER_BATCH} mẫu; không chọn thì hệ thống tự chọn mẫu phù hợp nhất. <span className="font-semibold text-slate-700">Đã chọn {selected.length}/{MAX_TEMPLATES_PER_BATCH}</span></p>
       {selected.map((id) => <input key={id} type="hidden" name="templateId" value={id} />)}
       {templates.length === 0 ? (
         <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-slate-500">Bộ phận này chưa có mẫu. Thêm mẫu ở tab “Kho mẫu”.</p>
