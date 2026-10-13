@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { hasPermission } from "@/modules/access/server/access-control";
 
@@ -20,14 +21,9 @@ const resultSchema = z.object({
   translated_cv_markdown: z.string().max(80_000),
 });
 
+// CV scan historically accepts every text part, not only "output_text".
 function responseText(value: unknown): string | null {
-  if (!value || typeof value !== "object" || !("output" in value) || !Array.isArray(value.output)) return null;
-  const values: string[] = [];
-  for (const item of value.output) {
-    if (!item || typeof item !== "object" || !("content" in item) || !Array.isArray(item.content)) continue;
-    for (const part of item.content) if (part && typeof part === "object" && "text" in part && typeof part.text === "string") values.push(part.text);
-  }
-  return values.join("").trim() || null;
+  return responseOutputText(value, { onlyOutputText: false }).trim() || null;
 }
 
 function extension(filename: string) { return filename.split(".").pop()?.toLowerCase() ?? ""; }
@@ -65,8 +61,8 @@ export async function POST(request: Request) {
     important_phrases: { type: "array", items: { type: "string" } }, translated_cv_markdown: { type: "string" },
   }};
   try {
-    const ai = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, store: false, max_output_tokens: 8000, instructions, input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "cv_scan_result", strict: true, schema } } }), signal: AbortSignal.timeout(170_000) });
+    const ai = await postOpenAIResponse({ apiKey, timeoutMs: 170_000,
+      body: { model, max_output_tokens: 8000, instructions, input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "cv_scan_result", strict: true, schema } } } });
     if (!ai.ok) {
       console.error("CV_SCAN_AI_FAILED", ai.status, ai.headers.get("x-request-id") ?? "NO_REQUEST_ID");
       return Response.json({ error: "AI_UNAVAILABLE" }, { status: 502 });

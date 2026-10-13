@@ -142,14 +142,14 @@ A reply is sent automatically only if every check below passes. Any failure fall
 | Enqueue | Bot bound to this channel account and enabled; message is inbound and newer than the binding; conversation is not a group, is `OPEN`/`PENDING`, `BOT_ALLOWED`, and the bot is not paused | `enqueue-ai-recruiter.ts` |
 | Enqueue | Run mode is `AUTO` only when **both** the bot mode and the conversation override (`metadata.aiRecruiterModeOverride`) are `AUTO`; anything missing or unknown means `DRAFT` | `enqueue-ai-recruiter.ts` |
 | Processing | 8-second debounce so a burst of candidate messages gets one reply; a newer inbound message supersedes the run | `process-ai-recruiter.ts` |
-| Generation | OpenAI Responses with strict JSON schema, `store: false`, 45 s timeout, input capped at 90k characters; output re-validated with Zod | `process-ai-recruiter.ts` |
+| Generation | OpenAI Responses with strict JSON schema, `store: false`, 45 s timeout, input capped at 90k characters; output re-validated with Zod | `generate-recruiter-reply.ts`, `recruiter-result-schema.ts` |
 | Grounding | Candidate facts are stored only with a verbatim evidence quote from the candidate; `cv_received` requires a real CV attachment; offered jobs must exist, be active and pass eligibility (rejected companies, management experience); replies naming an unoffered company are replaced with a clarification question | `process-ai-recruiter.ts`, `ai-recruiter-job-policy.ts` |
 | Disclosure | RECRUITER bot offers no job until the four intro facts (role, location, Japanese level, years in Japan) are known | `profile-disclosure-gate.ts` |
 | Escalation | Model `handoffRequested` switches the conversation to `HUMAN_TAKEOVER`; `stopBot` pauses the bot; neither sends an AI reply | `process-ai-recruiter.ts` |
 | Pacing | At most one AI send per conversation per 20 seconds; otherwise the run is `QUEUED` and resumed later | `process-ai-recruiter.ts` |
 | Database | `propose_ai_recruiter_message_service` (service role only) re-checks run, bot, binding, conversation state, recipient (= latest inbound sender) and channel suppression, writes a 10-minute `channel_policy_decisions` row and an idempotent action keyed `ai-recruiter:<run>:part:<n>` | migrations `049`, `052` |
 | Delivery | The shared executor applies account health, Zalo send slots and busy-defer, Facebook response window, and never retries an unknown delivery automatically | `execute-channel-outbound-action.ts` |
-| Failure | Generation is retried twice; after that a deterministic template reply (no model text) is sent in AUTO | `sendGenerationFallback` |
+| Failure | Generation is retried twice; after that a deterministic template reply (no model text) is sent in AUTO | `send-generation-fallback.ts` |
 
 Who can switch AUTO on: only workspace admins (`requireWorkspaceAdmin`), per bot and per conversation, at `/settings/ai-recruiter` and in the Inbox conversation view. From migration 069 every switch is written to `audit_logs` (`AI_RECRUITER_BOT_MODE_CHANGED`, `AI_RECRUITER_CONVERSATION_MODE_CHANGED`) with the admin as actor; changes made outside the app are logged with a null actor.
 
@@ -297,7 +297,7 @@ Route files remain thin transport adapters. Business mutations live in applicati
 
 ## 9. Proposed dependencies
 
-These were the Phase 0 recommendations. **Adopted:** Tailwind CSS, Radix, Zod, `@supabase/supabase-js` + `@supabase/ssr`, Supabase CLI, `google-auth-library`, Playwright. **Not adopted (yet):** BullMQ/Redis, the OpenAI SDK (OpenAI is called with `fetch` in several modules), Pino, OpenTelemetry/Sentry, Vitest (unit tests use `node:test`).
+These were the Phase 0 recommendations. **Adopted:** Tailwind CSS, Radix, Zod, `@supabase/supabase-js` + `@supabase/ssr`, Supabase CLI, `google-auth-library`, Playwright. **Not adopted (yet):** BullMQ/Redis, the OpenAI SDK (all Responses API calls go through the small `src/lib/openai/responses.ts` wrapper, which enforces `store: false`), Pino, OpenTelemetry/Sentry, Vitest (unit tests use `node:test`; CI in `.github/workflows/ci.yml`).
 
 | Concern | Proposed choice | Notes |
 | --- | --- | --- |

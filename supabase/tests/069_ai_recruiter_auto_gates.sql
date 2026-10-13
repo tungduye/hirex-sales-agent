@@ -1,13 +1,9 @@
--- Verifies migration 069. Run on a disposable database with migrations 001-069 applied:
---   psql -v ON_ERROR_STOP=1 -f supabase/tests/069_ai_recruiter_auto_gates.sql
+-- Verifies migration 069. Run through supabase/tests/run-local.sh (disposable database,
+-- local_postgres_supabase_bootstrap.sql + every migration).
 -- Everything runs inside one transaction and is rolled back.
 begin;
--- Supabase provides auth.role(); the disposable local bootstrap does not.
-do $$begin
-  if to_regprocedure('auth.role()') is null then
-    execute $f$create function auth.role() returns text language sql stable as 'select coalesce(nullif(current_setting(''request.jwt.claim.role'',true),''''),''service_role'')'$f$;
-  end if;
-end$$;
+-- The AI Recruiter worker and the server actions use the service-role client.
+select set_config('request.jwt.claim.role','service_role',true);
 create function pg_temp.assert_true(value boolean,label text) returns void language plpgsql as $$begin if value is not true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end$$;
 
 -- Fixture: one workspace, one admin, one Zalo account, one conversation with an inbound message, one bot bound to the account.

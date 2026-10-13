@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Rebuilds a disposable database from every migration and runs the SQL regression tests.
+# Usage: PGHOST=... PGPORT=... PGUSER=... supabase/tests/run-local.sh
+# Never point this at a real Supabase project: it drops and recreates the target database.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+DB="${HIREX_TEST_DB:-hirex_sql_test}"
+psql -v ON_ERROR_STOP=1 -q -d postgres -c "drop database if exists ${DB}" -c "create database ${DB}"
+psql -v ON_ERROR_STOP=1 -q -d "$DB" -f supabase/tests/local_postgres_supabase_bootstrap.sql
+for migration in $(ls supabase/migrations/*.sql | sort); do
+  psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$migration" > /dev/null
+done
+echo "Applied $(ls supabase/migrations/*.sql | wc -l) migrations"
+for test in supabase/tests/021_omnichannel_foundation.sql supabase/tests/022_multichannel_campaigns.sql supabase/tests/069_ai_recruiter_auto_gates.sql; do
+  output=$(psql -v ON_ERROR_STOP=1 -q -o /dev/null -d "$DB" -f "$test" 2>&1) || { echo "$output" | tail -5; echo "FAILED: $test"; exit 1; }
+  echo "PASS $test ($(echo "$output" | grep -c 'PASS:') checks)"
+done

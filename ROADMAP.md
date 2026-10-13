@@ -8,7 +8,7 @@ Status is derived from the code and migrations `001`–`068` present in the repo
 | --- | --- | --- |
 | 0 Architecture | Done | Revised Oct 2026 to match the running system |
 | 1 CRM foundation | Mostly done | Companies, contacts, contact channels, notes, audit log. Opportunities and duplicate merge not implemented |
-| 2 Security & operations | Partial | Workspace RBAC + RLS hardening (`029`–`034`), encrypted credentials. No CI, structured logging, tracing or tested backup/restore |
+| 2 Security & operations | Partial | Workspace RBAC + RLS hardening (`029`–`034`), encrypted credentials, CI. No structured logging, tracing or tested backup/restore |
 | 3 Conversations & unified inbox | Done | Canonical omnichannel conversations/messages (`021`) |
 | 4 Jobs & workers | Replaced | Postgres-table queues + two Node workers + Windows scheduled tasks instead of Redis/BullMQ |
 | 5 Gmail connector | Done | OAuth, initial + incremental sync on a 5-minute task |
@@ -32,7 +32,7 @@ Additional delivered work not in the original plan: AI Recruiter (four bots, `04
 
 1. Commit and back up the current state; keep `.gitignore` covering logs, build backups and `runtime/`.
 2. Deploy migration `069` (database gate, audit attribution, mode-change audit), then close the remaining AUTO gaps in ARCHITECTURE §4.2 (volume caps, fallback metric).
-3. Add a CI gate (lint, typecheck, `node:test` unit tests) and break up the largest server modules, starting with `process-ai-recruiter.ts`.
+3. ~~Add a CI gate and split `process-ai-recruiter.ts`~~ Done: `.github/workflows/ci.yml` (typecheck, unit tests, migrations + SQL tests; lint reported). Next candidates to split: `channel-campaign-actions.ts`, `campaign-actions.ts`, `scan-website.ts`.
 4. Decide the long-term plan for personal-account channels (Facebook profile, Zalo via Deplao) and for the single Windows host.
 
 ## Delivery principles

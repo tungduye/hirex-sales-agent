@@ -7,7 +7,8 @@ Tài liệu liên quan:
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): kiến trúc, ranh giới AI, chế độ AUTO.
 - [`ROADMAP.md`](ROADMAP.md): trạng thái hiện tại và các giai đoạn tiếp theo.
 - [`DATABASE_DESIGN.md`](DATABASE_DESIGN.md): mô hình dữ liệu gốc (Contact/ContactChannel).
-- [`docs/`](docs): ghi chú theo từng tính năng (Gmail send, chiến dịch email, omnichannel, Zalo, n8n, Human documents, Task Scheduler).
+- [`docs/RISK_ASSESSMENT.md`](docs/RISK_ASSESSMENT.md): rủi ro kênh cá nhân, máy chủ đơn, dữ liệu cá nhân và kế hoạch xử lý.
+- [`docs/`](docs): ghi chú theo từng tính năng (Gmail send, chiến dịch email, omnichannel, Zalo, n8n, Human documents, Task Scheduler). Các file `PHASE_*` và `ZALO_MULTI_ACCOUNT_FOUNDATION.md` là ảnh chụp tại thời điểm từng giai đoạn; nhiều giới hạn ghi trong đó (ví dụ “AI/chiến dịch chưa được gửi Zalo”) đã không còn đúng.
 
 > `AGENTS.md`/`CLAUDE.md` do `next dev` tự sinh: dự án dùng **Next.js 16.3**, có thay đổi phá vỡ so với các bản cũ (ví dụ `src/proxy.ts` thay cho `middleware.ts`). Đọc `node_modules/next/dist/docs/` trước khi sửa phần routing.
 
@@ -56,7 +57,7 @@ Schema **chỉ** được thay đổi bằng migration mới, đánh số tiếp
 | `SUPABASE_SECRET_KEY` | Có | Client đặc quyền phía server, worker và script |
 | `AUTOMATION_CRON_SECRET` | Có | Bearer token cho mọi endpoint `/api/internal/*` (worker, scheduler) |
 | `APP_BASE_URL` | Có | Link tuyệt đối (hủy đăng ký, OAuth) |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | Có nếu dùng AI | AI Recruiter, Scan CV, gợi ý trả lời |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Có nếu dùng AI | AI Recruiter, Scan CV, gợi ý trả lời. Mọi lời gọi OpenAI đi qua `src/lib/openai/responses.ts` (luôn `store: false`) |
 | `OPENAI_WEBSITE_SCAN_MODEL` | Không | Model riêng cho Scan Website (mặc định `gpt-4.1-mini`) |
 | `HUMAN_DOCUMENTS_AI_MODEL`, `HUMAN_API_BASE_URL` | Không | Hỏi đáp tài liệu Human |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GMAIL_OAUTH_REDIRECT_URI` | Có nếu dùng Gmail | OAuth Gmail |
@@ -127,9 +128,18 @@ Cách dừng AI ngay lập tức:
 
 ```powershell
 npm run lint
-node --test tests/*.test.mjs          # unit test cho logic thuần
+npm run typecheck                     # tsc --noEmit
+npm test                              # unit test (node:test) trong tests/
 npx playwright test                   # e2e (cần auth đã capture trong playwright/.auth)
 ```
+
+Test SQL chạy trên một PostgreSQL **tạm** (không bao giờ trỏ vào Supabase thật): script tạo database mới, áp toàn bộ migration rồi chạy `supabase/tests/021`, `022`, `069`.
+
+```bash
+PGHOST=localhost PGUSER=postgres PGPASSWORD=... npm run test:sql
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) chạy cả hai nhóm trên mỗi lần push. Lint đang ở chế độ chỉ báo cáo cho tới khi dọn xong cảnh báo cũ.
 
 Thư mục `scripts/validate-*.mjs` chứa các kịch bản kiểm tra theo từng giai đoạn, chạy tay khi cần.
 

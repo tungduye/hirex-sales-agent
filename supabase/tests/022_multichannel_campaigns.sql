@@ -22,7 +22,16 @@ select pg_temp.assert_true(has_function_privilege('service_role','public.finaliz
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','99000000-0000-4000-8000-000000000001','authenticated','authenticated','phase6@example.test','',clock_timestamp(),'{}','{}',clock_timestamp(),clock_timestamp());
 insert into public.workspaces(id,name) values('99000000-0000-4000-8000-000000000002','Phase 6 SQL Test');
-insert into public.profiles(id,workspace_id,full_name) values('99000000-0000-4000-8000-000000000001','99000000-0000-4000-8000-000000000002','Phase 6');
+-- Since migration 029 every profile needs a role; new workspaces get no roles automatically.
+insert into public.workspace_roles(id,workspace_id,name,is_system) values('99000000-0000-4000-8000-0000000000a0','99000000-0000-4000-8000-000000000002','Quản trị viên',true);
+insert into public.workspace_role_permissions(workspace_id,role_id,permission_key)
+select '99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-0000000000a0',k from unnest(array[
+  'dashboard.view','companies.view','companies.create','companies.update','companies.delete','companies.export','companies.import',
+  'contacts.view','contacts.create','contacts.update','contacts.delete','contacts.export','contacts.import',
+  'inbox.view','inbox.reply','inbox.update','scan.view','scan.cv','scan.website','scan.export',
+  'campaigns.view','campaigns.create','campaigns.update','campaigns.delete','campaigns.launch','campaigns.export','campaigns.import',
+  'tasks.view','tasks.create','tasks.update','tasks.delete','analytics.view','settings.view','channels.view','channels.manage','roles.view','roles.manage']) k;
+insert into public.profiles(id,workspace_id,full_name,role_id,all_channel_accounts) values('99000000-0000-4000-8000-000000000001','99000000-0000-4000-8000-000000000002','Phase 6','99000000-0000-4000-8000-0000000000a0',true);
 insert into public.contacts(id,workspace_id,full_name) values('99000000-0000-4000-8000-000000000003','99000000-0000-4000-8000-000000000002','Recipient');
 insert into public.contact_channels(id,workspace_id,contact_id,channel_type,channel_value,is_primary,marketing_consent_status,marketing_consent_source,marketing_consent_recorded_at) values('99000000-0000-4000-8000-000000000004','99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-000000000003','FACEBOOK','recipient-page-id',true,'OPTED_IN','SYNTHETIC_TEST',now());
 insert into public.channel_accounts(id,workspace_id,connected_by,channel_type,provider,external_account_id,status,capabilities) values('99000000-0000-4000-8000-000000000005','99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-000000000001','FACEBOOK','META_GRAPH','page-id','CONNECTED',array['SEND_TEXT']);
@@ -44,9 +53,12 @@ reset role;
 update public.contact_channels set marketing_consent_status='UNKNOWN',marketing_consent_source=null,marketing_consent_recorded_at=null where id='99000000-0000-4000-8000-000000000004';
 select pg_temp.assert_true((select count(*)=0 from public.claim_channel_campaign_recipient_step('99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-000000000006','99000000-0000-4000-8000-000000000012')),'unknown marketing consent blocks claim');
 update public.contact_channels set marketing_consent_status='OPTED_IN',marketing_consent_source='SYNTHETIC_TEST',marketing_consent_recorded_at=now() where id='99000000-0000-4000-8000-000000000004';
+-- Migration 045 stops last_message_at from moving backwards; switch that guard off to simulate an old conversation.
+alter table public.omnichannel_conversations disable trigger omnichannel_conversations_preserve_recency;
 update public.omnichannel_conversations set last_message_at=now()-interval '24 hours' where id='99000000-0000-4000-8000-000000000013';
 select pg_temp.assert_true((select count(*)=0 from public.claim_channel_campaign_recipient_step('99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-000000000006','99000000-0000-4000-8000-000000000012')),'Facebook response-window expiry blocks claim');
 update public.omnichannel_conversations set last_message_at=now() where id='99000000-0000-4000-8000-000000000013';
+alter table public.omnichannel_conversations enable trigger omnichannel_conversations_preserve_recency;
 create temporary table claimed as select * from public.claim_channel_campaign_recipient_step('99000000-0000-4000-8000-000000000002','99000000-0000-4000-8000-000000000006','99000000-0000-4000-8000-000000000010');
 select pg_temp.assert_true((select count(*)=1 from claimed),'one due step claimed');
 select pg_temp.assert_true((select recipient_external_id='recipient-page-id' from claimed),'recipient channel selected');

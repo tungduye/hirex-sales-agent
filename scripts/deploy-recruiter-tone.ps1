@@ -1,4 +1,4 @@
-param([ValidateSet('recruiter-tone','profile-gate','intro-memory','anonymous-preview','opening-restore','intro-flow','approved-flow','gmail-bootstrap','gmail-inbound','auth-diagnostics','reply-counts','quota-hold','quota-hold-final','delivery-notices','human-connection','human-documents','human-documents-ai','human-document-tree','human-hierarchy','human-speed','human-summary','human-runtime','human-citations','human-summary-citations-v2','auto-gates')][string]$Release='recruiter-tone',[switch]$MigrateDatabase)
+param([ValidatePattern('^[a-z0-9][a-z0-9-]{1,40}$')][string]$Release='recruiter-tone',[switch]$MigrateDatabase)
 $ErrorActionPreference='Stop'
 $root='C:\Users\Admin\hirex-sales-agent'
 $source=(Resolve-Path -LiteralPath "$root\.next-$Release").Path

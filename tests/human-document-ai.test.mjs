@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as zod from 'zod';
 import * as retrieval from '../src/modules/human-documents/core/retrieval.ts';
+import * as openai from '../src/lib/openai/responses.ts';
 function loadSummaryBatchBuilder() {
   const output = { exports: {} };
   const source = ts.transpileModule(fs.readFileSync('src/modules/human-documents/core/summary-batches.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -23,6 +24,7 @@ function load({ denied = false, fetcher, snapshot, folderResolver } = {}) {
     if (name === '../core/local-query') return { localDocumentQuery: () => null };
     if (name === '../core/hierarchy') return { documentsForFolderQuery: folderResolver ?? (() => null) };
     if (name === '../core/summary-batches') return { buildFolderSummaryBatches };
+    if (name === '@/lib/openai/responses') return { responseOutputText: openai.responseOutputText, postOpenAIResponse: request => openai.postOpenAIResponse({ ...request, fetchImpl: fetcher }) };
     return { retrieveEvidence: () => [{ id: 1, name: 'Tài liệu thử nghiệm', text: quote }], validateCitations: retrieval.validateCitations };
   }, process: { env: { OPENAI_API_KEY: 'synthetic-test-key' } }, fetch: fetcher, AbortSignal, Map, Date });
   return output.exports.askDocuments;
