@@ -5,7 +5,7 @@ export const permissionGroups = [
   { key:"inbox", label:"Hồ Chứa", actions:[["view","Xem"],["reply","Trả lời"],["update","Cập nhật"]] },
   { key:"scan", label:"Scan", actions:[["view","Xem"],["cv","Chạy Scan CV"],["website","Chạy Scan Website"],["export","Xuất kết quả"]] },
   { key:"campaigns", label:"Chiến dịch", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"],["launch","Khởi chạy"],["export","Xuất"],["import","Nhập"]] },
-  { key:"content", label:"Kho content", actions:[["view","Xem"],["create","Tạo"],["delete","Xóa"]] },
+  { key:"content", label:"Kho content", actions:[["view","Xem"],["create","Tạo"],["delete","Xóa"],["templates","Quản lý kho mẫu"]] },
   { key:"tasks", label:"Công việc", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"]] },
   { key:"analytics", label:"Phân tích", actions:[["view","Xem"]] },
   { key:"settings", label:"Cài đặt", actions:[["view","Xem"]] },

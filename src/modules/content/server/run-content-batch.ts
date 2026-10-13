@@ -4,7 +4,9 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ContentBrief } from "@/modules/content/core/content-options";
 import { contentShingles, storedSimilarity, type IndexedContent } from "@/modules/content/core/content-similarity";
 import { produceUniqueContent, recheckAgainst } from "@/modules/content/core/produce-unique-content";
+import { applyTitlePrefix, assignTemplates, findBlockedTerm, parseBlockedTerms, pickTemplates, titlePrefixFor, type TemplateSample } from "@/modules/content/core/template-plan";
 import { generateContentRound } from "@/modules/content/server/generate-content";
+import { mapTemplateRow, TEMPLATE_COLUMNS, type TemplateRow } from "@/modules/content/server/template-row";
 
 const PAGE_SIZE = 1000;
 const LIBRARY_LIMIT = 200_000;
@@ -30,6 +32,17 @@ async function loadLibrary(db: Db, workspaceId: string, since?: string): Promise
     if (page.length < PAGE_SIZE) return rows;
     if (rows.length >= LIBRARY_LIMIT) throw new Error("LIBRARY_TOO_LARGE");
   }
+}
+
+/** Templates picked in the popup, or the department's active templates to choose from. */
+async function loadTemplates(db: Db, workspaceId: string, brief: ContentBrief): Promise<{ chosen: TemplateSample[]; candidates: TemplateSample[] }> {
+  if (brief.templateIds.length > 0) {
+    const { data } = await db.from("content_templates").select(TEMPLATE_COLUMNS).eq("workspace_id", workspaceId).in("id", brief.templateIds);
+    const byId = new Map(((data ?? []) as TemplateRow[]).map((row) => [row.id, mapTemplateRow(row)]));
+    return { chosen: brief.templateIds.flatMap((id) => byId.get(id) ?? []), candidates: [] };
+  }
+  const { data } = await db.from("content_templates").select(TEMPLATE_COLUMNS).eq("workspace_id", workspaceId).eq("department", brief.department).eq("active", true).limit(500);
+  return { chosen: [], candidates: ((data ?? []) as TemplateRow[]).map(mapTemplateRow) };
 }
 
 const index = (rows: LibraryRow[]): IndexedContent[] => rows.map((row) => ({ id: row.id, shingles: contentShingles(row.body) }));
@@ -66,16 +79,26 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
 
   try {
     const startedAt = new Date(Date.now() - 5_000).toISOString();
-    const libraryRows = await loadLibrary(db, workspaceId);
+    const [libraryRows, templateSource] = await Promise.all([loadLibrary(db, workspaceId), loadTemplates(db, workspaceId, brief)]);
     const knownIds = new Set(libraryRows.map((row) => row.id));
     const jobKey = brief.jobTitle.toLocaleLowerCase("vi");
     const recentSameJob = libraryRows.filter((row) => row.job_title.toLocaleLowerCase("vi") === jobKey).slice(-RECENT_SAME_JOB).map((row) => row.body);
 
+    const templates = pickTemplates({ ...templateSource, department: brief.department, language: brief.contentLanguage, quantity: brief.quantity, seed: brief.jobTitle });
+    const prefix = titlePrefixFor(brief.department, brief.location);
+    const blocked = parseBlockedTerms(brief.blockedTerms);
+
     const result = await produceUniqueContent({
       quantity: brief.quantity,
       library: index(libraryRows),
+      // A new content must not be a near-copy of the sample it followed either.
+      references: templates.map((template) => ({ id: `template:${template.code}`, shingles: contentShingles(template.body) })),
       initialAvoid: recentSameJob,
-      generate: ({ count, round, avoid }) => generateContentRound({ brief, count, round, avoid, model }),
+      generate: ({ count, round, avoid }) => generateContentRound({ brief, count, round, avoid, model, templates: assignTemplates(templates, count, round) }),
+      prepare: (draft) => {
+        const item = { title: applyTitlePrefix(draft.title, prefix), body: draft.body };
+        return findBlockedTerm(`${item.title}\n${item.body}`, blocked) ? null : item;
+      },
     });
 
     // Items saved elsewhere (another server process) while this batch was generated.
@@ -87,7 +110,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       const { data, error } = await db.from("content_items").insert(toSave.map((item) => ({
         workspace_id: workspaceId,
         batch_id: batchId,
-        title: item.title,
+        title: item.title.slice(0, 300),
         body: item.body,
         job_title: brief.jobTitle,
         content_language: brief.contentLanguage,
@@ -107,7 +130,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       status: rejected === 0 ? "COMPLETED" : saved > 0 ? "PARTIAL" : "FAILED",
       saved_count: saved,
       rejected_count: rejected,
-      error_code: saved === 0 ? "ALL_TOO_SIMILAR" : null,
+      error_code: saved === 0 ? (result.dropped > 0 && result.accepted.length === 0 ? "BLOCKED_TERMS" : "ALL_TOO_SIMILAR") : null,
     });
   } catch (error) {
     const code = error instanceof Error && KNOWN_ERRORS.has(error.message) ? error.message : "AI_UNAVAILABLE";

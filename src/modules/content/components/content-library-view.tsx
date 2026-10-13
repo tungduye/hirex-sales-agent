@@ -6,8 +6,10 @@ import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Fi
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { CreateContentDialog } from "@/modules/content/components/create-content-dialog";
+import { ContentTabs } from "@/modules/content/components/content-tabs";
+import type { ContentTemplate } from "@/modules/content/server/template-row";
 import { deleteContentItem } from "@/modules/content/server/content-actions";
-import { CONTENT_FORMATS, CONTENT_LANGUAGES, departmentLabel, formatLabel, languageLabel, styleLabel, type ContentFormat, type ContentLanguage } from "@/modules/content/core/content-options";
+import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, departmentLabel, formatLabel, languageLabel, styleLabel, type ContentDepartment, type ContentFormat, type ContentLanguage } from "@/modules/content/core/content-options";
 import { contentListHref, type ContentListQuery } from "@/modules/content/core/content-list-query";
 import type { ContentListItem } from "@/modules/content/server/list-content";
 import { batchStatus, isBatchRunning, type BatchTone, type ContentBatchSummary } from "@/modules/content/core/batch-status";
@@ -18,6 +20,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 
 interface ContentLibraryViewProps {
   items: ContentListItem[];
+  templates: ContentTemplate[];
   batches: ContentBatchSummary[];
   total: number;
   libraryTotal: number;
@@ -27,7 +30,7 @@ interface ContentLibraryViewProps {
   canDelete: boolean;
 }
 
-export function ContentLibraryView({ items, batches, total, libraryTotal, query, loadError, canCreate, canDelete }: ContentLibraryViewProps) {
+export function ContentLibraryView({ items, templates, batches, total, libraryTotal, query, loadError, canCreate, canDelete }: ContentLibraryViewProps) {
   const router = useRouter();
   const [search, setSearch] = useState(query.q);
   const [isNavigating, startNavigation] = useTransition();
@@ -36,9 +39,9 @@ export function ContentLibraryView({ items, batches, total, libraryTotal, query,
   const [selected, setSelected] = useState<ContentListItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const go = useCallback((next: Partial<Pick<ContentListQuery, "q" | "language" | "format" | "page">>) => {
-    startNavigation(() => router.replace(contentListHref({ q: query.q, language: query.language, format: query.format, page: 1, ...next }), { scroll: false }));
-  }, [router, query.q, query.language, query.format]);
+  const go = useCallback((next: Partial<Pick<ContentListQuery, "q" | "language" | "format" | "department" | "page">>) => {
+    startNavigation(() => router.replace(contentListHref({ q: query.q, language: query.language, format: query.format, department: query.department, page: 1, ...next }), { scroll: false }));
+  }, [router, query.q, query.language, query.format, query.department]);
 
   useEffect(() => {
     if (query.q !== lastSubmitted.current) { lastSubmitted.current = query.q; setSearch(query.q); }
@@ -79,7 +82,8 @@ export function ContentLibraryView({ items, batches, total, libraryTotal, query,
 
   return (
     <>
-      <PageHeader title="Kho content" description="Content do AI viết theo brief. Mỗi content có mã riêng và không trùng quá 50% với content khác trong kho." action={createButton} />
+      <PageHeader title="Kho content" description="Content do AI viết theo brief và mẫu đã chọn. Mỗi content có mã riêng và không trùng quá 50% với content khác trong kho." action={createButton} />
+      <ContentTabs active="/content" />
       {notice && <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status">{notice}</div>}
       {batches.length > 0 && <RecentBatches batches={batches} now={now} />}
       {loadError ? (
@@ -96,6 +100,7 @@ export function ContentLibraryView({ items, batches, total, libraryTotal, query,
           <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center">
             <div className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Tìm theo mã, tiêu đề, job, nội dung…" /></div>
             <div className="grid grid-cols-2 gap-3 sm:flex">
+              <select aria-label="Bộ phận" value={query.department} onChange={(event) => go({ department: event.target.value as ContentDepartment | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi bộ phận</option>{CONTENT_DEPARTMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <select aria-label="Ngôn ngữ" value={query.language} onChange={(event) => go({ language: event.target.value as ContentLanguage | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi ngôn ngữ</option>{CONTENT_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <select aria-label="Định dạng" value={query.format} onChange={(event) => go({ format: event.target.value as ContentFormat | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi định dạng</option>{CONTENT_FORMATS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
             </div>
@@ -103,17 +108,17 @@ export function ContentLibraryView({ items, batches, total, libraryTotal, query,
           </div>
           <div className={`overflow-x-auto transition-opacity ${isNavigating ? "opacity-60" : ""}`}>
             <table className="w-full min-w-[960px] text-left">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Mã</th><th className="px-4 py-3 font-semibold">Tiêu đề · Job</th><th className="px-4 py-3 font-semibold">Ngôn ngữ</th><th className="px-4 py-3 font-semibold">Định dạng</th><th className="px-4 py-3 font-semibold">Bộ phận</th><th className="px-4 py-3 text-right font-semibold">Trùng cao nhất</th><th className="px-5 py-3 font-semibold">Người tạo · Ngày</th></tr></thead>
+              <thead className="whitespace-nowrap bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Mã</th><th className="px-4 py-3 font-semibold">Tiêu đề · Job</th><th className="px-4 py-3 font-semibold">Ngôn ngữ</th><th className="px-4 py-3 font-semibold">Định dạng</th><th className="px-4 py-3 font-semibold">Bộ phận</th><th className="px-4 py-3 text-right font-semibold">Trùng cao nhất</th><th className="px-5 py-3 font-semibold">Người tạo · Ngày</th></tr></thead>
               <tbody className="divide-y">
                 {items.map((item) => (
                   <tr key={item.id} className="cursor-pointer transition-colors hover:bg-slate-50/70" onClick={() => setSelected(item)}>
-                    <td className="px-5 py-4"><button type="button" className="font-mono text-sm font-semibold text-blue-700 hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.code}</button></td>
+                    <td className="whitespace-nowrap px-5 py-4"><button type="button" className="font-mono text-sm font-semibold text-blue-700 hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.code}</button></td>
                     <td className="max-w-[360px] px-4 py-4"><p className="truncate text-sm font-semibold text-slate-900">{item.title}</p><p className="mt-0.5 truncate text-xs text-slate-500">{item.jobTitle}</p></td>
-                    <td className="px-4 py-4 text-sm text-slate-600">{languageLabel(item.language)}</td>
-                    <td className="px-4 py-4 text-sm text-slate-600">{formatLabel(item.format)}</td>
-                    <td className="px-4 py-4 text-sm text-slate-600">{departmentLabel(item.department)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{languageLabel(item.language)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{formatLabel(item.format)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{departmentLabel(item.department)}</td>
                     <td className="px-4 py-4 text-right text-sm tabular-nums text-slate-600">{percent(item.maxSimilarity)}</td>
-                    <td className="px-5 py-4"><p className="text-sm text-slate-700">{item.createdByName ?? "—"}</p><p className="mt-0.5 text-xs tabular-nums text-slate-500">{formatDate(item.createdAt)}</p></td>
+                    <td className="whitespace-nowrap px-5 py-4"><p className="text-sm text-slate-700">{item.createdByName ?? "—"}</p><p className="mt-0.5 text-xs tabular-nums text-slate-500">{formatDate(item.createdAt)}</p></td>
                   </tr>
                 ))}
               </tbody>
@@ -129,7 +134,7 @@ export function ContentLibraryView({ items, batches, total, libraryTotal, query,
           </div>}
         </div>
       )}
-      {dialogOpen && <CreateContentDialog onClose={() => setDialogOpen(false)} onCreated={handleCreated} />}
+      {dialogOpen && <CreateContentDialog templates={templates} onClose={() => setDialogOpen(false)} onCreated={handleCreated} />}
       {selected && <ContentDetailDialog item={selected} canDelete={canDelete} onClose={() => setSelected(null)} onDeleted={handleDeleted} />}
     </>
   );
@@ -171,7 +176,7 @@ function ContentDetailDialog({ item, canDelete, onClose, onDeleted }: { item: Co
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(item.format === "EMAIL" ? `${item.title}\n\n${item.body}` : item.body);
+      await navigator.clipboard.writeText(item.format === "EMAIL" || item.format === "POST" ? `${item.title}\n\n${item.body}` : item.body);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

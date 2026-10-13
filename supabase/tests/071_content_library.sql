@@ -39,24 +39,24 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000711',true);
 select set_config('request.jwt.claim.role','authenticated',true);
 insert into public.content_batches(id,workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007c1','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java Developer','PROFESSIONAL','VI_JA','EMAIL','RECRUITING',3);
+  values('00000000-0000-4000-8000-0000000007c1','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java Developer','PROFESSIONAL','VI_JA','EMAIL','REC',3);
 insert into public.content_items(id,workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,max_similarity,created_by)
-  values('00000000-0000-4000-8000-0000000007d1','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','Tiêu đề 1','Nội dung 1','Java Developer','VI_JA','EMAIL','RECRUITING','PROFESSIONAL',0,'00000000-0000-4000-8000-000000000711');
+  values('00000000-0000-4000-8000-0000000007d1','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','Tiêu đề 1','Nội dung 1','Java Developer','VI_JA','EMAIL','REC','PROFESSIONAL',0,'00000000-0000-4000-8000-000000000711');
 insert into public.content_items(id,workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,max_similarity,most_similar_item_id,created_by)
-  values('00000000-0000-4000-8000-0000000007d2','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','Tiêu đề 2','Nội dung 2','Java Developer','VI_JA','EMAIL','RECRUITING','PROFESSIONAL',0.5,'00000000-0000-4000-8000-0000000007d1','00000000-0000-4000-8000-000000000711');
+  values('00000000-0000-4000-8000-0000000007d2','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','Tiêu đề 2','Nội dung 2','Java Developer','VI_JA','EMAIL','REC','PROFESSIONAL',0.5,'00000000-0000-4000-8000-0000000007d1','00000000-0000-4000-8000-000000000711');
 select pg_temp.assert_true((select count(*) from public.content_items where batch_id='00000000-0000-4000-8000-0000000007c1')=2,'writer sees own items');
 select pg_temp.assert_true((select bool_and(code ~ '^CT-[0-9]{6,}$') from public.content_items),'codes have CT-000001 shape');
 select pg_temp.assert_true((select count(distinct code) from public.content_items)=2,'each item has its own code');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_items(workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,max_similarity,created_by)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','x','y','Java','VI','EMAIL','RECRUITING','PROFESSIONAL',0.51,'00000000-0000-4000-8000-000000000711')$$),'more than 50% similar is rejected by the database');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','x','y','Java','VI','EMAIL','REC','PROFESSIONAL',0.51,'00000000-0000-4000-8000-000000000711')$$),'more than 50% similar is rejected by the database');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_items(workspace_id,batch_id,code,title,body,job_title,content_language,content_format,department,style,created_by)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','CT-999999','x','y','Java','VI','EMAIL','RECRUITING','PROFESSIONAL','00000000-0000-4000-8000-000000000711')$$),'explicit code is refused');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','CT-999999','x','y','Java','VI','EMAIL','REC','PROFESSIONAL','00000000-0000-4000-8000-000000000711')$$),'explicit code is refused');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java','PROFESSIONAL','FR','EMAIL','RECRUITING',1)$$),'unknown language is refused');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java','PROFESSIONAL','FR','EMAIL','REC',1)$$),'unknown language is refused');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java','PROFESSIONAL','VI','EMAIL','RECRUITING',11)$$),'more than 10 per batch is refused');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000711','Java','PROFESSIONAL','VI','EMAIL','REC',11)$$),'more than 10 per batch is refused');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000712','Java','PROFESSIONAL','VI','EMAIL','RECRUITING',1)$$),'cannot create a batch as someone else');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000712','Java','PROFESSIONAL','VI','EMAIL','REC',1)$$),'cannot create a batch as someone else');
 update public.content_batches set status='PARTIAL',saved_count=2,rejected_count=1,completed_at=now() where id='00000000-0000-4000-8000-0000000007c1';
 select pg_temp.assert_true((select status from public.content_batches where id='00000000-0000-4000-8000-0000000007c1')='PARTIAL','creator records batch outcome');
 select pg_temp.assert_true(pg_temp.fails($$delete from public.content_items where id='00000000-0000-4000-8000-0000000007d1'$$) or (select count(*) from public.content_items)=2,'writer without content.delete cannot delete');
@@ -65,7 +65,7 @@ select pg_temp.assert_true(pg_temp.fails($$delete from public.content_items wher
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000712',true);
 select pg_temp.assert_true((select count(*) from public.content_items)=2,'reader sees workspace items');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000712','Java','PROFESSIONAL','VI','EMAIL','RECRUITING',1)$$),'reader cannot create');
+  values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-000000000712','Java','PROFESSIONAL','VI','EMAIL','REC',1)$$),'reader cannot create');
 update public.content_batches set status='FAILED' where id='00000000-0000-4000-8000-0000000007c1';
 select pg_temp.assert_true((select status from public.content_batches where id='00000000-0000-4000-8000-0000000007c1')='PARTIAL','reader cannot change a batch');
 

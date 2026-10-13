@@ -44,6 +44,9 @@ export async function createContentBatch(_previous: CreateContentState, formData
     content_language: brief.contentLanguage,
     content_format: brief.contentFormat,
     department: brief.department,
+    jd_text: brief.jdText,
+    blocked_terms: brief.blockedTerms,
+    template_ids: brief.templateIds,
     quantity: brief.quantity,
     model,
   }).select("id").single();

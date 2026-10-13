@@ -1,5 +1,6 @@
 // Generates content until the requested quantity is reached without breaking the 50% rule.
-// Each draft is compared with the whole library and with drafts already accepted in this batch.
+// Each draft is compared with the whole library (plus any reference texts such as the sample
+// templates, which must not be copied) and with drafts already accepted in this batch.
 // Drafts that are too similar are sent back as "avoid" examples and regenerated, at most
 // `maxRewriteRounds` times; whatever is still missing after that is reported as rejected.
 // The generator is injected, so this is unit-tested without OpenAI (tests/content-generation.test.mjs).
@@ -8,17 +9,22 @@ import type { GeneratedItem } from "./content-prompt.ts";
 
 export interface AcceptedContent extends GeneratedItem {
   similarity: number;
-  /** Most similar saved library item, or null when the closest text is from this batch / nothing. */
+  /** Most similar saved library item, or null when the closest text is a reference/this batch/nothing. */
   similarItemId: string | null;
   shingles: Set<string>;
 }
 
 export interface ProduceUniqueContentInput {
   quantity: number;
+  /** Saved content items, by id. */
   library: IndexedContent[];
+  /** Other texts the drafts must not copy (e.g. sample templates). Ids must contain ":". */
+  references?: IndexedContent[];
   /** Drafts to keep away from from the first round on (e.g. recent items for the same job). */
   initialAvoid?: string[];
   generate: (request: { count: number; round: number; avoid: string[] }) => Promise<GeneratedItem[]>;
+  /** Normalizes a draft (e.g. title prefix) or returns null to drop it (e.g. blocked term). */
+  prepare?: (draft: GeneratedItem) => GeneratedItem | null;
   maxRewriteRounds?: number;
 }
 
@@ -26,38 +32,39 @@ export interface ProduceUniqueContentResult {
   accepted: AcceptedContent[];
   rejected: number;
   rounds: number;
+  /** Drafts dropped by `prepare`. */
+  dropped: number;
 }
 
-const BATCH_ID_PREFIX = "batch:";
+const isSavedItemId = (id: string | null) => Boolean(id && !id.includes(":"));
 
-export async function produceUniqueContent({ quantity, library, initialAvoid = [], generate, maxRewriteRounds = 2 }: ProduceUniqueContentInput): Promise<ProduceUniqueContentResult> {
+export async function produceUniqueContent({ quantity, library, references = [], initialAvoid = [], generate, prepare, maxRewriteRounds = 2 }: ProduceUniqueContentInput): Promise<ProduceUniqueContentResult> {
   const accepted: AcceptedContent[] = [];
   const avoid = [...initialAvoid];
+  const fixed = [...library, ...references];
   let rounds = 0;
+  let dropped = 0;
 
   for (let round = 0; round <= maxRewriteRounds && accepted.length < quantity; round++) {
     const needed = quantity - accepted.length;
     rounds++;
     const drafts = (await generate({ count: needed, round, avoid: [...avoid] })).slice(0, needed);
-    for (const draft of drafts) {
+    for (const raw of drafts) {
+      const draft = prepare ? prepare(raw) : raw;
+      if (!draft) { dropped++; continue; }
       const shingles = contentShingles(draft.body);
       if (shingles.size === 0) continue;
-      const batchIndex = accepted.map((item, index) => ({ id: `${BATCH_ID_PREFIX}${index}`, shingles: item.shingles }));
-      const match = mostSimilar(shingles, [...library, ...batchIndex]);
+      const batchIndex = accepted.map((item, index) => ({ id: `batch:${index}`, shingles: item.shingles }));
+      const match = mostSimilar(shingles, [...fixed, ...batchIndex]);
       if (isTooSimilar(match.similarity)) {
         avoid.push(draft.body);
         continue;
       }
-      accepted.push({
-        ...draft,
-        similarity: match.similarity,
-        similarItemId: match.id && !match.id.startsWith(BATCH_ID_PREFIX) ? match.id : null,
-        shingles,
-      });
+      accepted.push({ ...draft, similarity: match.similarity, similarItemId: isSavedItemId(match.id) ? match.id : null, shingles });
     }
   }
 
-  return { accepted, rejected: quantity - accepted.length, rounds };
+  return { accepted, rejected: quantity - accepted.length, rounds, dropped };
 }
 
 /**

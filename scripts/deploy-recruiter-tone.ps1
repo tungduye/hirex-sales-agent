@@ -19,7 +19,7 @@ function Get-Port3000Owner {
   return $null
 }
 function Show-Process($p) {
-  $started = try { $p.CreationDate.ToString('yyyy-MM-dd HH:mm:ss') } catch { '?' }
+  $started = if ($p.CreationDate) { $p.CreationDate.ToString('yyyy-MM-dd HH:mm:ss') } else { '?' }
   Write-Output ("  PID {0}  parent {1}  started {2}  {3}" -f $p.ProcessId, $p.ParentProcessId, $started, $p.CommandLine)
 }
 
@@ -31,7 +31,7 @@ try {
   }
   if(-not $lock){throw 'ACTIVE_SEND_DEPLOY_NOT_STARTED'}
 
-  $web = Get-WebProcesses
+  $web = @(Get-WebProcesses)
   $owner = Get-Port3000Owner
   Write-Output "Web processes found: $($web.Count); port 3000 owner PID: $(if($owner){$owner}else{'none'})"
   foreach ($p in $web) { Show-Process $p }
@@ -52,8 +52,8 @@ try {
   # Stopping "next start" makes its start-production.mjs parent stop the workers it launched.
   foreach ($p in $toStop) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
   $waitUntil=[DateTime]::UtcNow.AddSeconds(20)
-  while (((Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) -and [DateTime]::UtcNow -lt $waitUntil) { Start-Sleep -Seconds 1 }
-  if ((Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) {
+  while ((@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) -and [DateTime]::UtcNow -lt $waitUntil) { Start-Sleep -Seconds 1 }
+  if (@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) {
     Start-ScheduledTask -TaskName 'HireX Local App'
     throw 'WEB_DID_NOT_STOP'
   }
@@ -78,7 +78,7 @@ try {
     Start-Sleep -Seconds 8
     $result=Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/login -TimeoutSec 30
     Write-Output "DEPLOYED HTTP=$($result.StatusCode)"
-    $after = Get-WebProcesses
+    $after = @(Get-WebProcesses)
     if ($after.Count -ne 1) { Write-Output "WARNING: $($after.Count) web processes are running after deploy:"; foreach ($p in $after) { Show-Process $p } }
   } catch {
     Write-Output 'DEPLOY_VERIFY_FAILED_BACKUP_PRESERVED'

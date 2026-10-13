@@ -13,3 +13,11 @@ export interface ContentActionResult {
   ok: boolean;
   message: string;
 }
+
+export interface TemplateFormState {
+  success: boolean;
+  message: string | null;
+  fieldErrors?: Record<string, string[] | undefined>;
+}
+
+export const initialTemplateFormState: TemplateFormState = { success: false, message: null };

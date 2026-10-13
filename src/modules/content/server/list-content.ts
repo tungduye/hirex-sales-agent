@@ -53,6 +53,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
   if (pattern) itemsQuery = itemsQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
   if (query.language !== "ALL") itemsQuery = itemsQuery.eq("content_language", query.language);
   if (query.format !== "ALL") itemsQuery = itemsQuery.eq("content_format", query.format);
+  if (query.department !== "ALL") itemsQuery = itemsQuery.eq("department", query.department);
   const from = (query.page - 1) * query.pageSize;
 
   const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
