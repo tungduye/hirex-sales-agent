@@ -89,7 +89,9 @@
     ".next-ui-fixes-1/types/**/*.ts",
     ".next-ui-fixes-1/dev/types/**/*.ts",
     ".next-ui-fixes-2/types/**/*.ts",
-    ".next-ui-fixes-2/dev/types/**/*.ts"
+    ".next-ui-fixes-2/dev/types/**/*.ts",
+    ".next-content-library/types/**/*.ts",
+    ".next-content-library/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
