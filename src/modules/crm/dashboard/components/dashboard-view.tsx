@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -18,6 +19,8 @@ import type {
 interface DashboardViewProps {
   fullName: string | null;
   data: DashboardData;
+  /** "Bản tin hôm nay" of Trợ lý HireX, shown under the header. */
+  brief?: ReactNode;
 }
 
 const metrics: Array<{
@@ -31,7 +34,7 @@ const metrics: Array<{
   { key: "qualifiedLeads", label: "Khách hàng đủ điều kiện", icon: Target },
 ];
 
-export function DashboardView({ fullName, data }: DashboardViewProps) {
+export function DashboardView({ fullName, data, brief }: DashboardViewProps) {
   return (
     <>
       <PageHeader
@@ -46,6 +49,8 @@ export function DashboardView({ fullName, data }: DashboardViewProps) {
           </Button>
         }
       />
+
+      {brief}
 
       {data.metricsHaveError && (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

@@ -173,6 +173,14 @@ export function isGroupConversation(metadata: unknown) {
 
 export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   {
+    name: "ban_tin_hom_nay",
+    permission: "dashboard.view",
+    label: "Xem bản tin hôm nay",
+    description: "Bản tin hôm nay của người đang hỏi (theo đúng quyền): việc cần xử lý gấp/nên xem (tin chờ trả lời, kênh lỗi, bộ gửi email, chiến dịch lỗi, công việc quá hạn, AI Recruiter) và các phần đang ổn. Dùng đầu tiên cho câu hỏi tổng quát kiểu \"hôm nay có gì cần xử lý\".",
+    parameters: noArgs,
+    args: z.object({}).strict(),
+  },
+  {
     name: "tong_quan_crm",
     permission: "dashboard.view",
     label: "Xem tổng quan CRM",
@@ -208,7 +216,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     name: "hoi_thoai_cho_tra_loi",
     permission: "inbox.view",
     label: "Tìm tin nhắn chưa trả lời",
-    description: "Các hội thoại trong Hồ Chứa mà tin cuối cùng là của khách/ứng viên và đã chờ ít nhất N giờ (trong 7 ngày gần đây), mới nhất trước.",
+    description: "Các hội thoại trong Hồ Chứa mà tin cuối cùng là của khách/ứng viên và đã chờ ít nhất N giờ (trong 7 ngày gần đây), chờ lâu nhất trước; nhom_chat = nhóm chat.",
     parameters: {
       type: "object", additionalProperties: false, required: ["gio_toi_thieu", "so_luong"],
       properties: {

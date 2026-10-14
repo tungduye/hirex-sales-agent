@@ -3,6 +3,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
+import { briefForModel } from "@/modules/assistant/core/daily-brief";
 import { CONVERSATION_NAME_KEYS, isGroupConversation, metadataName, type AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
 import { createProposal, type ActionContext, type PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
@@ -36,6 +37,59 @@ function maskPhone(phone: unknown) {
   if (typeof phone !== "string") return null;
   const digits = phone.replace(/\D/g, "");
   return digits.length >= 4 ? `SĐT …${digits.slice(-3)}` : null;
+}
+
+export interface WaitingRow { id: string; channel: string; account: string | null; name: string | null; group: boolean; since: string; hours: number; unread: number; assigned: boolean; lastText: string | null; link: string }
+
+/**
+ * Conversations (last 7 days, scoped to the member's channel accounts) whose latest message is from
+ * the customer and is at least minHours old, longest wait first. Used by the assistant and the brief.
+ */
+export async function listWaitingConversations(workspaceId: string, minHours: number): Promise<{ rows: WaitingRow[] } | { loi: string }> {
+  const supabase = await createClient();
+  const accessible = await getAccessibleChannelAccountIds();
+  if (accessible?.length === 0) return { rows: [] };
+  let query = supabase.from("omnichannel_conversations")
+    .select("id,channel_account_id,channel_type,contact_id,last_message_at,unread_count,assigned_to,metadata")
+    .eq("workspace_id", workspaceId)
+    .gte("last_message_at", new Date(Date.now() - 7 * 24 * HOUR).toISOString())
+    .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
+    .order("last_message_at", { ascending: false }).limit(300);
+  if (accessible) query = query.in("channel_account_id", accessible);
+  const { data: conversations, error } = await query;
+  if (error) return { loi: "Không tải được Hồ Chứa." };
+  const rows = conversations ?? [];
+  const latest = new Map<string, { direction: string; text: string | null; at: string }>();
+  for (let offset = 0; offset < rows.length; offset += 25) {
+    const ids = rows.slice(offset, offset + 25).map((row) => row.id);
+    const { data: messages } = await supabase.from("omnichannel_messages").select("conversation_id,direction,text_content,received_at,sent_at,created_at")
+      .eq("workspace_id", workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(1000);
+    for (const message of messages ?? []) {
+      if (latest.has(message.conversation_id)) continue;
+      latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
+    }
+  }
+  const cutoff = Date.now() - minHours * HOUR;
+  const waiting = rows.filter((row) => { const last = latest.get(row.id); return last?.direction === "INBOUND" && Date.parse(last.at) <= cutoff; });
+  const contactIds = [...new Set(waiting.flatMap((row) => row.contact_id ? [row.contact_id] : []))];
+  const accountIds = [...new Set(waiting.map((row) => row.channel_account_id))];
+  const [contacts, accounts] = await Promise.all([
+    contactIds.length ? supabase.from("contacts").select("id,full_name").in("id", contactIds.slice(0, 300)) : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
+    accountIds.length ? createPrivilegedClient().from("channel_accounts").select("id,display_name").eq("workspace_id", workspaceId).in("id", accountIds) : Promise.resolve({ data: [] as { id: string; display_name: string | null }[] }),
+  ]);
+  const contactName = new Map((contacts.data ?? []).map((row) => [row.id, row.full_name]));
+  const accountName = new Map((accounts.data ?? []).map((row) => [row.id, row.display_name]));
+  return {
+    rows: waiting.map((row) => {
+      const last = latest.get(row.id)!;
+      return {
+        id: row.id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
+        name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata), group: isGroupConversation(row.metadata),
+        since: last.at, hours: (Date.now() - Date.parse(last.at)) / HOUR, unread: row.unread_count, assigned: Boolean(row.assigned_to),
+        lastText: last.text, link: `/inbox/all/${row.id}`,
+      };
+    }).sort((a, b) => b.hours - a.hours),
+  };
 }
 
 type Runner = (args: Record<string, unknown>, scope: ToolScope) => Promise<unknown>;
@@ -106,56 +160,24 @@ const runners: Record<string, Runner> = {
   async hoi_thoai_cho_tra_loi(args, scope) {
     const minHours = typeof args.gio_toi_thieu === "number" ? args.gio_toi_thieu : 2;
     const limit = typeof args.so_luong === "number" ? args.so_luong : 15;
-    const supabase = await createClient();
-    const accessible = await getAccessibleChannelAccountIds();
-    if (accessible?.length === 0) return { hoi_thoai: [], ghi_chu: "Tài khoản chưa được cấp kênh nào." };
-    let query = supabase.from("omnichannel_conversations")
-      .select("id,channel_account_id,channel_type,contact_id,last_message_at,unread_count,assigned_to,metadata")
-      .eq("workspace_id", scope.workspaceId)
-      .gte("last_message_at", new Date(Date.now() - 7 * 24 * HOUR).toISOString())
-      .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
-      .order("last_message_at", { ascending: false }).limit(300);
-    if (accessible) query = query.in("channel_account_id", accessible);
-    const { data: conversations, error } = await query;
-    if (error) return { loi: "Không tải được Hồ Chứa." };
-    const rows = conversations ?? [];
-    const latest = new Map<string, { direction: string; text: string | null; at: string }>();
-    for (let offset = 0; offset < rows.length; offset += 25) {
-      const ids = rows.slice(offset, offset + 25).map((row) => row.id);
-      const { data: messages } = await supabase.from("omnichannel_messages").select("conversation_id,direction,text_content,received_at,sent_at,created_at")
-        .eq("workspace_id", scope.workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(1000);
-      for (const message of messages ?? []) {
-        if (latest.has(message.conversation_id)) continue;
-        latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
-      }
-    }
-    const cutoff = Date.now() - minHours * HOUR;
-    const waiting = rows.filter((row) => { const last = latest.get(row.id); return last?.direction === "INBOUND" && Date.parse(last.at) <= cutoff; });
-    const shown = waiting.slice(0, limit);
-    const contactIds = [...new Set(shown.flatMap((row) => row.contact_id ? [row.contact_id] : []))];
-    const accountIds = [...new Set(shown.map((row) => row.channel_account_id))];
-    const [contacts, accounts] = await Promise.all([
-      contactIds.length ? supabase.from("contacts").select("id,full_name").in("id", contactIds) : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
-      accountIds.length ? createPrivilegedClient().from("channel_accounts").select("id,display_name").eq("workspace_id", scope.workspaceId).in("id", accountIds) : Promise.resolve({ data: [] as { id: string; display_name: string | null }[] }),
-    ]);
-    const contactName = new Map((contacts.data ?? []).map((row) => [row.id, row.full_name]));
-    const accountName = new Map((accounts.data ?? []).map((row) => [row.id, row.display_name]));
+    const result = await listWaitingConversations(scope.workspaceId, minHours);
+    if ("loi" in result) return result;
     return {
-      tong_cho_tra_loi: waiting.length,
+      tong_cho_tra_loi: result.rows.length,
       dieu_kien: `tin cuối của khách, chờ từ ${minHours} giờ trở lên, hội thoại có tin trong 7 ngày`,
-      hoi_thoai: shown.map((row) => {
-        const last = latest.get(row.id)!;
-        const metadata = (row.metadata ?? {}) as Record<string, unknown>;
-        return {
-          kenh: row.channel_type, tai_khoan: accountName.get(row.channel_account_id) ?? null,
-          ten_khach: contactName.get(row.contact_id ?? "") ?? clip(metadata.participantName, 80) ?? clip(metadata.displayName, 80),
-          cho_tu: last.at, so_gio_cho: Math.round((Date.now() - Date.parse(last.at)) / HOUR * 10) / 10,
-          chua_doc: row.unread_count, da_giao_cho_ai: Boolean(row.assigned_to),
-          tin_cuoi_khach_viet: clip(last.text, 200),
-          link: `/inbox/all/${row.id}`,
-        };
-      }),
+      hoi_thoai: result.rows.slice(0, limit).map((row) => ({
+        kenh: row.channel, tai_khoan: row.account, ten_khach: row.name, nhom_chat: row.group || undefined,
+        cho_tu: row.since, so_gio_cho: Math.round(row.hours * 10) / 10, chua_doc: row.unread, da_giao_cho_ai: row.assigned,
+        tin_cuoi_khach_viet: clip(row.lastText, 200), link: row.link,
+      })),
     };
+  },
+
+  async ban_tin_hom_nay() {
+    const { getDailyBrief } = await import("@/modules/assistant/server/daily-brief");
+    const result = await getDailyBrief({ refresh: false });
+    if (!result.ok) return { loi: result.message };
+    return { ...briefForModel(result.brief), link: "/" };
   },
 
   async tim_hoi_thoai(args, scope) {
@@ -340,6 +362,13 @@ const runners: Record<string, Runner> = {
     };
   },
 };
+
+/** Runs one read-only tool directly (used by the daily brief). */
+export async function runReadTool(name: string, args: Record<string, unknown>, scope: ToolScope): Promise<unknown> {
+  const runner = runners[name];
+  if (!runner) throw new Error("UNKNOWN_TOOL");
+  return runner(args, scope);
+}
 
 export async function runAssistantTool(tool: AssistantToolDefinition, args: Record<string, unknown>, scope: ToolScope): Promise<unknown> {
   if (tool.proposal) return createProposal(tool.name, args, scope.context, scope.proposals);

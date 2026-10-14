@@ -80,6 +80,20 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
     }
   }, [busy, messages, pathname]);
 
+  // Other parts of the app (e.g. the dashboard brief) open the panel with a question.
+  const askRef = useRef(ask);
+  useEffect(() => { askRef.current = ask; }, [ask]);
+  useEffect(() => {
+    function onAsk(event: Event) {
+      const question = (event as CustomEvent<{ question?: unknown }>).detail?.question;
+      if (typeof question !== "string" || !question.trim()) return;
+      setOpen(true);
+      void askRef.current(question.slice(0, 1000));
+    }
+    window.addEventListener("hirex:assistant-ask", onAsk);
+    return () => window.removeEventListener("hirex:assistant-ask", onAsk);
+  }, []);
+
   function submit(event: FormEvent) { event.preventDefault(); void ask(draft); }
   function onInputKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(draft); }
