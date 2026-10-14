@@ -109,7 +109,9 @@
     ".next-assistant-send-reply/types/**/*.ts",
     ".next-assistant-send-reply/dev/types/**/*.ts",
     ".next-assistant-send-reply-fix1/types/**/*.ts",
-    ".next-assistant-send-reply-fix1/dev/types/**/*.ts"
+    ".next-assistant-send-reply-fix1/dev/types/**/*.ts",
+    ".next-assistant-daily-brief/types/**/*.ts",
+    ".next-assistant-daily-brief/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
