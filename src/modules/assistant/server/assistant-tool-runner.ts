@@ -41,16 +41,22 @@ function maskPhone(phone: unknown) {
 
 const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|alerts?)[@+.]/i;
 
-export interface WaitingRow { id: string; channel: string; account: string | null; name: string | null; group: boolean; automated: boolean; since: string; hours: number; unread: number; assigned: boolean; lastText: string | null; link: string }
+export interface WaitingRow { id: string; channelAccountId: string; channel: string; account: string | null; name: string | null; group: boolean; automated: boolean; since: string; hours: number; unread: number; assigned: boolean; assignedTo: string | null; lastMessageId: string; lastText: string | null; link: string }
+
+type ReadClient = Pick<ReturnType<typeof createPrivilegedClient>, "from">;
 
 /**
  * Conversations (last 7 days, scoped to the member's channel accounts) whose latest message is from
  * the customer and is at least minHours old, longest wait first. Used by the assistant and the brief.
  */
 export async function listWaitingConversations(workspaceId: string, minHours: number): Promise<{ rows: WaitingRow[] } | { loi: string }> {
-  const supabase = await createClient();
   const accessible = await getAccessibleChannelAccountIds();
   if (accessible?.length === 0) return { rows: [] };
+  return queryWaitingConversations(await createClient() as unknown as ReadClient, workspaceId, minHours, accessible);
+}
+
+/** Same query with any client: the member's session (RLS) or the server (background alert scan). */
+export async function queryWaitingConversations(supabase: ReadClient, workspaceId: string, minHours: number, accessible: string[] | null): Promise<{ rows: WaitingRow[] } | { loi: string }> {
   let query = supabase.from("omnichannel_conversations")
     .select("id,channel_account_id,channel_type,contact_id,last_message_at,unread_count,assigned_to,metadata")
     .eq("workspace_id", workspaceId)
@@ -61,12 +67,12 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
   const { data: conversations, error } = await query;
   if (error) return { loi: "Không tải được Hồ Chứa." };
   const rows = conversations ?? [];
-  const latest = new Map<string, { direction: string; text: string | null; at: string; sender: string }>();
+  const latest = new Map<string, { id: string; direction: string; text: string | null; at: string; sender: string }>();
   // Several different people writing in one conversation = a group chat (no explicit flag exists).
   const inboundSenders = new Map<string, Set<string>>();
   for (let offset = 0; offset < rows.length; offset += 25) {
     const ids = rows.slice(offset, offset + 25).map((row) => row.id);
-    const { data: messages } = await supabase.from("omnichannel_messages").select("conversation_id,direction,sender_external_id,text_content,received_at,sent_at,created_at")
+    const { data: messages } = await supabase.from("omnichannel_messages").select("id,conversation_id,direction,sender_external_id,text_content,received_at,sent_at,created_at")
       .eq("workspace_id", workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(1000);
     for (const message of messages ?? []) {
       if (message.direction === "INBOUND") {
@@ -75,7 +81,7 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
         inboundSenders.set(message.conversation_id, senders);
       }
       if (latest.has(message.conversation_id)) continue;
-      latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at, sender: message.sender_external_id });
+      latest.set(message.conversation_id, { id: message.id, direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at, sender: message.sender_external_id });
     }
   }
   const cutoff = Date.now() - minHours * HOUR;
@@ -92,12 +98,12 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
     rows: waiting.map((row) => {
       const last = latest.get(row.id)!;
       return {
-        id: row.id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
+        id: row.id, channelAccountId: row.channel_account_id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
         name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata) ?? (row.channel_type === "EMAIL" ? clip(last.sender, 80) : null),
         group: isGroupConversation(row.metadata) || (inboundSenders.get(row.id)?.size ?? 0) > 1,
         automated: row.channel_type === "EMAIL" && AUTOMATED_SENDER.test(last.sender),
         since: last.at, hours: (Date.now() - Date.parse(last.at)) / HOUR, unread: row.unread_count, assigned: Boolean(row.assigned_to),
-        lastText: last.text, link: `/inbox/all/${row.id}`,
+        assignedTo: row.assigned_to ?? null, lastMessageId: last.id, lastText: last.text, link: `/inbox/all/${row.id}`,
       };
     }).sort((a, b) => b.hours - a.hours),
   };

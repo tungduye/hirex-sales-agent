@@ -3,6 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { verifyAndStoreHumanConnection } from "./connection";
+import { storeHumanApiToken, syncHumanApi } from "./api-sync";
+
+export async function saveHumanApiToken(_previous: { message: string; ok: boolean }, form: FormData) {
+  const account = await requireWorkspaceAdmin();
+  if (form.get("consent") !== "yes") return { ok: false, message: "Cần xác nhận sử dụng HTTP cho máy chủ lab Human." };
+  try {
+    await storeHumanApiToken(account.workspaceId, String(form.get("token") ?? "").trim().replace(/^Bearer\s+/i, ""));
+    return { ok: true, message: "Đã lưu token mã hóa. Anh có thể cập nhật tài liệu từ Human." };
+  } catch { return { ok: false, message: "Không lưu được token. Kiểm tra định dạng và cấu hình mã hóa máy chủ." }; }
+}
+export async function refreshHumanDocuments() {
+  const account = await requireWorkspaceAdmin();
+  try {
+    const count = await syncHumanApi(account.workspaceId);
+    revalidatePath("/documents");
+    return { ok: true, message: `Đã cập nhật ${count.toLocaleString("vi-VN")} tài liệu từ Human.` };
+  } catch { return { ok: false, message: "Chưa cập nhật được: kiểm tra token đã lưu, hạn đăng nhập và kết nối Human. Dữ liệu cũ được giữ nguyên." }; }
+}
 
 export async function saveHumanConnection(_previous: { message: string; ok: boolean }, form: FormData) {
   await requireWorkspaceAdmin();

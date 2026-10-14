@@ -7,8 +7,8 @@ import { decryptCredential } from "@/modules/integrations/gmail/server/credentia
 import { normalize, documentIndex } from "../core/retrieval";
 import { VersionCache } from "../core/version-cache";
 
-type Document = { id: number; name: string; group: string; status: string };
-type Snapshot = { importedAt: string; documents: Document[] };
+type Document = { id: number; name: string; group: string; status: string; groupId?: number; folderPath?: string[] };
+type Snapshot = { importedAt: string; documents: Document[]; folderPaths?: string[][] };
 const snapshots = new VersionCache<Snapshot>();
 
 export async function loadHumanSnapshot() {
@@ -43,7 +43,8 @@ export async function readHumanDocuments(query: string, page: number, selectedId
   return {
     importedAt: snapshot.importedAt, total: snapshot.documents.length, matched: matches.length, pages, currentPage,
     groups: [...new Set(snapshot.documents.map(doc => doc.group))].sort((a,b) => a.localeCompare(b,"vi")),
-    treeDocuments: matches.map(({ id, name, group }) => ({ id, name, group })),
+    folderPaths: snapshot.folderPaths,
+    treeDocuments: matches.map(({ id, name, group, groupId, folderPath }) => ({ id, name, group, groupId, folderPath })),
     documents: matches.slice((currentPage - 1) * 30, currentPage * 30).map(({ id, name, group }) => ({ id, name, group })),
     selected: selected ? { ...selected, status: sanitizeHtml(selected.status, {
       allowedTags: ["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "table", "tbody", "thead", "tr", "td", "th"],

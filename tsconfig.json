@@ -113,7 +113,17 @@
     ".next-assistant-daily-brief/types/**/*.ts",
     ".next-assistant-daily-brief/dev/types/**/*.ts",
     ".next-assistant-daily-brief-fix1/types/**/*.ts",
-    ".next-assistant-daily-brief-fix1/dev/types/**/*.ts"
+    ".next-assistant-daily-brief-fix1/dev/types/**/*.ts",
+    ".next-assistant-daily-brief-fix2/types/**/*.ts",
+    ".next-assistant-daily-brief-fix2/dev/types/**/*.ts",
+    ".next-human-api/types/**/*.ts",
+    ".next-human-api/dev/types/**/*.ts",
+    ".next-human-popup/types/**/*.ts",
+    ".next-human-popup/dev/types/**/*.ts",
+    ".next-human-tree-api/types/**/*.ts",
+    ".next-human-tree-api/dev/types/**/*.ts",
+    ".next-human-root-order/types/**/*.ts",
+    ".next-human-root-order/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

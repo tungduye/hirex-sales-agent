@@ -1,6 +1,6 @@
 import sanitizeHtml from "sanitize-html";
 
-export type HumanDocument = { id: number; name: string; group: string; status: string };
+export type HumanDocument = { id: number; name: string; group: string; status: string; groupId?: number; folderPath?: string[] };
 export type Evidence = { id: number; name: string; text: string };
 export const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
 export function plainStatus(html: string) {

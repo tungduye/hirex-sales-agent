@@ -1,4 +1,4 @@
-export type TreeEntry = { id: number; name: string; group: string };
+export type TreeEntry = { id: number; name: string; group: string; groupId?: number; folderPath?: string[] };
 export type DocumentFolder = { key: string; name: string; children: DocumentFolder[]; documents: TreeEntry[] };
 const vh1 = "Vận Hành 1 (VH1)_Báo cáo (BC)";
 const vh2 = "Vận Hành 2 (VH2)_Mẫu_Tài liệu_Quy Trình";
@@ -37,7 +37,7 @@ export function documentsForFolderQuery<T extends TreeEntry>(documents: T[], que
   if (!wanted) return null;
   const nodes = new Map<string, { path: string[]; name: string }>();
   for (const doc of documents) {
-    const path = documentFolderPath(doc.group);
+    const path = doc.folderPath ?? documentFolderPath(doc.group);
     path.forEach((name, index) => {
       const normalized = normalizeQuery(name);
       if ([...queryAliases].some(alias => normalized.includes(alias) || normalized.replace(/^(?:(?:de tai|bo phan|mon)\s+)+/, "").includes(alias))) nodes.set(JSON.stringify(path.slice(0, index + 1)), { path: path.slice(0, index + 1), name });
@@ -57,11 +57,11 @@ export function documentsForFolderQuery<T extends TreeEntry>(documents: T[], que
   if (shallowest.length !== 1) return null;
   const path = shallowest[0].path;
   return { name: shallowest[0].name, documents: documents.filter(doc => {
-    const candidatePath = documentFolderPath(doc.group);
+    const candidatePath = doc.folderPath ?? documentFolderPath(doc.group);
     return path.every((part, index) => candidatePath[index] === part);
   }) };
 }
-export function buildDocumentTree(documents: TreeEntry[]): DocumentFolder[] {
+export function buildDocumentTree(documents: TreeEntry[], folderPaths?: string[][]): DocumentFolder[] {
   const roots: DocumentFolder[] = [];
   const nodes = new Map<string, DocumentFolder>();
   // Preserve source ordering from the reference, including intermediate folders.
@@ -76,10 +76,15 @@ export function buildDocumentTree(documents: TreeEntry[]): DocumentFolder[] {
     });
     return node!;
   }
-  for (const path of paths.values()) ensure(path);
-  for (const doc of documents) ensure(documentFolderPath(doc.group)).documents.push(doc);
+  for (const path of folderPaths ?? paths.values()) ensure(path);
+  for (const doc of documents) ensure(doc.folderPath ?? documentFolderPath(doc.group)).documents.push(doc);
   function prune(items: DocumentFolder[]): DocumentFolder[] {
     return items.map(node => ({ ...node, children: prune(node.children) })).filter(node => node.documents.length || node.children.length);
   }
-  return prune(roots);
+  // Human's root display order is independent of the first child returned by API.
+  const rootRank = (name: string) => {
+    const match = name.match(/^Vận\s+Hành\s+([123])\s*\(VH[123]\)/iu);
+    return match ? Number(match[1]) : 4;
+  };
+  return prune(roots).sort((a, b) => rootRank(a.name) - rootRank(b.name));
 }

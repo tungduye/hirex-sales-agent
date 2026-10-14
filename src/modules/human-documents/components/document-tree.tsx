@@ -4,10 +4,10 @@ import { useMemo, useState } from "react";
 import { ChevronRight, FileText, Folder } from "lucide-react";
 import { buildDocumentTree, documentFolderPath, type DocumentFolder, type TreeEntry } from "../core/hierarchy";
 
-export function DocumentTree({ documents, selectedId, query }: { documents: TreeEntry[]; selectedId?: number; query: string }) {
-  const tree = useMemo(() => buildDocumentTree(documents), [documents]);
+export function DocumentTree({ documents, selectedId, query, folderPaths }: { documents: TreeEntry[]; selectedId?: number; query: string; folderPaths?: string[][] }) {
+  const tree = useMemo(() => buildDocumentTree(documents, folderPaths), [documents, folderPaths]);
   const selected = documents.find(doc => doc.id === selectedId);
-  const selectedPath = selected ? documentFolderPath(selected.group) : [];
+  const selectedPath = selected ? selected.folderPath ?? documentFolderPath(selected.group) : [];
   const [opened, setOpened] = useState<Set<string>>(() => new Set(selectedPath.map((_, index) => JSON.stringify(selectedPath.slice(0, index + 1)))));
   const [limits, setLimits] = useState<Record<string, number>>({});
   function toggle(key: string) { setOpened(previous => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
@@ -26,6 +26,6 @@ export function DocumentTree({ documents, selectedId, query }: { documents: Tree
   return <nav aria-label="Cây thư mục tài liệu" className="min-w-0 border-b bg-slate-50/70 lg:border-b-0 lg:border-r">
     <div className="flex items-center justify-between border-b p-3 text-xs text-slate-500"><span>{documents.length.toLocaleString("vi-VN")} tài liệu</span><button type="button" onClick={() => setOpened(new Set())} className="text-indigo-600">Thu gọn</button></div>
     <div className="max-h-[72vh] overflow-auto p-2"><ul>{tree.map(node => folder(node, 0))}</ul>{!documents.length && <p className="p-4 text-sm text-slate-500">Không có tài liệu phù hợp.</p>}</div>
-    <p className="border-t p-3 text-[10px] leading-4 text-slate-400">Cấu trúc theo các nhánh đã xác nhận. Nhóm chưa rõ quan hệ được để riêng, không tự suy đoán.</p>
+    <p className="border-t p-3 text-[10px] leading-4 text-slate-400">{folderPaths ? "Cấu trúc thư mục được đồng bộ từ Human theo ID và thư mục cha." : "Bản dữ liệu cũ: cập nhật từ Human để tải đầy đủ cấu trúc thư mục."}</p>
   </nav>;
 }

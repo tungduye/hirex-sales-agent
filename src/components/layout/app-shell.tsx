@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Bell, Menu, Search, X } from "lucide-react";
+import { Menu, Search, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { AccountProvider } from "@/modules/identity/components/account-context";
 import { AccountSetupRequired } from "@/modules/identity/components/account-setup-required";
 import { AssistantPanel } from "@/modules/assistant/components/assistant-panel";
+import { AlertBell } from "@/modules/assistant/components/alert-bell";
 import type { AccountContext } from "@/types/account";
 
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
@@ -42,7 +43,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
           </div>
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 sm:block">Chế độ thủ công</div>
-            <Button variant="ghost" size="icon" aria-label="Thông báo"><Bell className="size-5" /></Button>
+            {account.configurationComplete ? <AlertBell /> : null}
             <div className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white" aria-label={`Hồ sơ ${account.fullName ?? account.email}`}>{(account.fullName ?? account.email).slice(0, 2).toUpperCase()}</div>
           </div>
         </header>

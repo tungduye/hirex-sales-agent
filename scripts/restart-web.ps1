@@ -10,7 +10,7 @@ $patterns = @(
   'node_modules\\next\\dist\\server\\',
   'scripts[\\/]start-production\.mjs',
   'scripts[\\/]ai-recruiter-worker\.mjs',
-  'scripts[\\/]facebook-page-reconciler\.mjs'
+  'scripts[\\/]facebook-page-reconciler\.mjs', 'scripts[\\/]assistant-alerts-worker\.mjs'
 )
 
 function Get-AppProcesses {
