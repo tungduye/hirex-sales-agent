@@ -274,21 +274,33 @@ const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionCo
 };
 
 export const MAX_PROPOSALS_PER_QUESTION = 3;
+const REPLY_TOOL = "de_xuat_tra_loi_hoi_thoai";
+
+// The model may call several proposal tools in parallel in one round, so the limits below are
+// reserved synchronously (before any await) per question, not only checked against finished cards.
+const reservations = new WeakMap<PendingAction[], { slots: number; reply: boolean }>();
 
 /** Validates a proposal and stores it; returns what the model is told. */
 export async function createProposal(toolName: string, args: Record<string, unknown>, context: ActionContext, collected: PendingAction[]): Promise<unknown> {
   const builder = BUILDERS[toolName];
   if (!builder) return { loi: "Không hỗ trợ thao tác này." };
-  if (collected.length >= MAX_PROPOSALS_PER_QUESTION) return { loi: `Tối đa ${MAX_PROPOSALS_PER_QUESTION} đề xuất mỗi câu hỏi.` };
+  const reserved = reservations.get(collected) ?? { slots: 0, reply: false };
+  reservations.set(collected, reserved);
+  if (reserved.slots >= MAX_PROPOSALS_PER_QUESTION) return { loi: `Tối đa ${MAX_PROPOSALS_PER_QUESTION} đề xuất mỗi câu hỏi.` };
   // One reply card per question: a reply always goes to exactly one person the member chose.
-  if (toolName === "de_xuat_tra_loi_hoi_thoai" && collected.some((item) => item.kind === "SEND_REPLY")) return { loi: "Mỗi câu hỏi chỉ đề xuất gửi 1 tin cho 1 người." };
-  const built = await builder(args, context);
-  if (!built.ok) return { khong_tao_duoc_de_xuat: built.error };
-  if (!allowed(built.kind, context)) return { loi: "Tài khoản không có quyền thao tác này." };
+  const isReply = toolName === REPLY_TOOL;
+  if (isReply && reserved.reply) return { loi: "Mỗi câu hỏi chỉ đề xuất gửi 1 tin cho 1 người. Không tạo thêm thẻ; hãy nói người dùng hỏi lại riêng cho người tiếp theo." };
+  reserved.slots += 1;
+  if (isReply) reserved.reply = true;
+  const release = () => { reserved.slots -= 1; if (isReply) reserved.reply = false; };
+  let built: Built;
+  try { built = await builder(args, context); } catch (error) { release(); throw error; }
+  if (!built.ok) { release(); return { khong_tao_duoc_de_xuat: built.error }; }
+  if (!allowed(built.kind, context)) { release(); return { loi: "Tài khoản không có quyền thao tác này." }; }
   const { data, error } = await createPrivilegedClient().from("assistant_actions")
     .insert({ workspace_id: context.workspaceId, user_id: context.userId, kind: built.kind, params: built.params, preview: built.preview })
     .select("id,expires_at").single();
-  if (error || !data) return { loi: "Không lưu được đề xuất." };
+  if (error || !data) { release(); return { loi: "Không lưu được đề xuất." }; }
   collected.push({ id: data.id, kind: built.kind, preview: built.preview, expiresAt: data.expires_at });
   return {
     da_tao_the_xac_nhan: true, tieu_de: built.preview.title, chi_tiet: built.preview.lines, canh_bao: built.preview.warning ?? null,

@@ -182,7 +182,8 @@ test('reply proposals: one conversation, inbox.reply only, bounded text', () => 
   assert.equal(call({ conversation_id: id, noi_dung: 'Hi', kenh: 'EMAIL' }).ok, false, 'strict');
   const proposals = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals.ts', import.meta.url), 'utf8');
   assert.match(proposals, /SEND_REPLY: "inbox\.reply"/);
-  assert.match(proposals, /item\.kind === "SEND_REPLY"/, 'one reply card per question');
+  assert.match(proposals, /if \(isReply && reserved\.reply\)/, 'one reply card per question');
+  assert.match(proposals, /reserved\.slots \+= 1;[\s\S]*await builder/, 'limits are reserved before any await (parallel tool calls)');
   assert.match(proposals, /sendManualChannelMessage\(/, 'uses the inbox send path');
   const migration = readFileSync(new URL('../supabase/migrations/076_assistant_send_reply.sql', import.meta.url), 'utf8');
   assert.match(migration, /'SEND_REPLY'/);

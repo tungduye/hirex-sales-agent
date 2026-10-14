@@ -7,11 +7,17 @@ $backup="$root\.next-before-$Release"
 if($source -ne "$root\.next-$Release" -or $current -ne "$root\.next" -or (Test-Path -LiteralPath $backup)){throw 'INVALID_DEPLOY_PATHS'}
 if(-not(Test-Path -LiteralPath "$source\BUILD_ID")){throw 'BUILD_MISSING'}
 
-# Every "next start" of this project (normally exactly one, started by the 'HireX Local App' task
-# through scripts/start-production.mjs). A second copy can appear when the web is started by hand or
-# by ensure-hirex-web.ps1; all copies must stop so the new build is the only one serving.
+# Every web/worker process of this project: start-production.mjs, "next start", the server process
+# "next start" forks, and the two workers. Killing only "next start" can leave its forked server
+# running the OLD build in memory (pages then reference stylesheets that no longer exist), so the
+# whole set is stopped, with their child trees.
+$rootPattern = [regex]::Escape($root)
+$appPatterns = @('node_modules\next\dist\bin\next"?\s+start', 'node_modules\next\dist\server\', 'scripts[\/]start-production\.mjs', 'scripts[\/]ai-recruiter-worker\.mjs', 'scripts[\/]facebook-page-reconciler\.mjs')
 function Get-WebProcesses {
-  @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'hirex-sales-agent\\node_modules\\next\\dist\\bin\\next"?\s+start' })
+  @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
+    $line = [string]$_.CommandLine
+    ($line -match $rootPattern -or $line -match 'start-production\.mjs') -and @($appPatterns | Where-Object { $line -match $_ }).Count -gt 0
+  })
 }
 function Get-Port3000Owner {
   $line = netstat -ano | Select-String ':3000\s+\S+\s+LISTENING\s+(\d+)\s*$' | Select-Object -First 1
@@ -50,7 +56,7 @@ try {
 
   Stop-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue
   # Stopping "next start" makes its start-production.mjs parent stop the workers it launched.
-  foreach ($p in $toStop) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  foreach ($p in $toStop) { & taskkill.exe /PID $p.ProcessId /T /F 2>$null | Out-Null; Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
   $waitUntil=[DateTime]::UtcNow.AddSeconds(20)
   while ((@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) -and [DateTime]::UtcNow -lt $waitUntil) { Start-Sleep -Seconds 1 }
   if (@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) {
@@ -78,8 +84,12 @@ try {
     Start-Sleep -Seconds 8
     $result=Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/login -TimeoutSec 30
     Write-Output "DEPLOYED HTTP=$($result.StatusCode)"
-    $after = @(Get-WebProcesses)
-    if ($after.Count -ne 1) { Write-Output "WARNING: $($after.Count) web processes are running after deploy:"; foreach ($p in $after) { Show-Process $p } }
+    # The page must reference this build's stylesheets and they must load; otherwise an old server is still answering.
+    $css = @([regex]::Matches($result.Content, 'href="(/_next/static/[^"]+\.css)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 3)
+    $bad = @($css | Where-Object { try { $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:3000$_" -TimeoutSec 15; $false } catch { $true } })
+    Write-Output "Processes after deploy:"; foreach ($p in Get-WebProcesses) { Show-Process $p }
+    if ($css.Count -eq 0 -or $bad.Count -gt 0) { Write-Output "STYLESHEET_CHECK_FAILED: run scripts\restart-web.ps1"; throw 'STALE_WEB_PROCESS' }
+    Write-Output 'Stylesheet check OK.'
   } catch {
     Write-Output 'DEPLOY_VERIFY_FAILED_BACKUP_PRESERVED'
     throw

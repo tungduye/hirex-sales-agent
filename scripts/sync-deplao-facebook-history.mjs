@@ -8,16 +8,18 @@ env.loadEnvConfig(process.cwd());
 const apply = process.argv.includes('--apply');
 const workspace = 'da7cef02-036a-4ee9-b3d7-5c7df54c73a0';
 const owner = '1da75536-6742-4e3c-bced-c8baf4bf7fff';
-const allowed = ['61586595958719', '61589876247001'];
 const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY,
   { auth: { persistSession: false }, global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(20000) }) } });
 const local = new DatabaseSync('C:/Users/Admin/AppData/Local/HireX/ZaloRuntime/deplao-qa-profile/deplao-tool.db', { readOnly: true });
 async function checked(query) { const r = await query; if (r.error) throw new Error(`SYNC_DB_${r.error.code || 'FAILED'}`); return r.data; }
 try {
   const summary = { mode: apply ? 'apply' : 'preview', accounts: 0, conversations: 0, messages: 0, skipped: 0 };
-  for (const uid of allowed) {
-    const account = local.prepare('SELECT id,facebook_id,name,status FROM fb_accounts WHERE facebook_id=?').get(uid);
-    if (!account || account.status !== 'connected') continue;
+  // Discover connected accounts from this designated Deplao profile on every run.
+  // Never read login credentials or reactivate accounts disabled on HireX.
+  const accounts = local.prepare("SELECT id,facebook_id,name,status FROM fb_accounts WHERE status='connected' ORDER BY facebook_id").all();
+  for (const account of accounts) {
+    const uid = account.facebook_id;
+    if (typeof uid !== 'string' || !/^\d{5,32}$/.test(uid)) { summary.skipped++; continue; }
     let remote = await checked(client.from('channel_accounts').select('id,deleted_at,operator_enabled').eq('workspace_id', workspace)
       .eq('channel_type', 'FACEBOOK_PROFILE').eq('provider', 'FACEBOOK_PROFILE_BRIDGE').eq('external_account_id', uid).maybeSingle());
     if (remote?.deleted_at || remote?.operator_enabled === false) { summary.skipped++; continue; }
