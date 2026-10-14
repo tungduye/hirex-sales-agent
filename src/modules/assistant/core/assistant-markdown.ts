@@ -4,9 +4,10 @@
 import { isInternalLink } from "./assistant-instructions.ts";
 
 export type Inline = { type: "text"; text: string } | { type: "bold"; text: string } | { type: "link"; text: string; href: string };
-export type Block = { type: "paragraph"; inlines: Inline[] } | { type: "list"; ordered: boolean; items: Inline[][] } | { type: "heading"; inlines: Inline[] };
+export type Block = { type: "paragraph"; inlines: Inline[] } | { type: "list"; ordered: boolean; start: number; items: Inline[][] } | { type: "heading"; inlines: Inline[] };
 
-const INLINE = /\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
+// Models sometimes write "[tên]( /link )" with spaces inside the parentheses; accept that too.
+const INLINE = /\*\*([^*]+)\*\*|\[([^\]]+)\]\(\s*([^)\s]+)\s*\)/g;
 
 export function parseInline(text: string): Inline[] {
   const result: Inline[] = [];
@@ -23,7 +24,7 @@ export function parseInline(text: string): Inline[] {
 }
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;
-const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/;
 const HEADING = /^\s*#{1,4}\s+(.*)$/;
 
 export function parseAnswer(markdown: string): Block[] {
@@ -40,10 +41,11 @@ export function parseAnswer(markdown: string): Block[] {
     if (bullet || numbered) {
       flush();
       const ordered = Boolean(numbered && !bullet);
-      const item = parseInline((bullet ?? numbered)![1]);
+      const item = parseInline(bullet ? bullet[1] : numbered![2]);
       const previous = blocks[blocks.length - 1];
       if (previous?.type === "list" && previous.ordered === ordered) previous.items.push(item);
-      else blocks.push({ type: "list", ordered, items: [item] });
+      // Keep the author's numbering when a numbered list is interrupted by sub-bullets (1. … 2. …).
+      else blocks.push({ type: "list", ordered, start: ordered ? Number(numbered![1]) || 1 : 1, items: [item] });
       continue;
     }
     paragraph.push(line.trim());

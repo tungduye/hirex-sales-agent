@@ -131,4 +131,7 @@ test('answer rendering keeps only safe internal links', () => {
   assert.equal(blocks[2].ordered, true);
   assert.equal(blocks[3].inlines[0].text, 'Đoạn nối tiếp');
   assert.equal(JSON.stringify(parseAnswer('<img src=x onerror=alert(1)>')).includes('"type":"text"'), true);
+  assert.deepEqual(parseInline('[Hung]( /inbox/all/x )'), [{ type: 'link', text: 'Hung', href: '/inbox/all/x' }]);
+  const numbered = parseAnswer('1. Một\n- a\n2. Hai\n- b');
+  assert.deepEqual(numbered.filter((block) => block.ordered).map((block) => block.start), [1, 2]);
 });

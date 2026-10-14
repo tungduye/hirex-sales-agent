@@ -152,7 +152,7 @@ function Answer({ text, onNavigate }: { text: string; onNavigate: () => void }) 
       {blocks.map((block, index) => block.type === "paragraph" ? <p key={index}><InlineText inlines={block.inlines} onNavigate={onNavigate} /></p>
         : block.type === "heading" ? <p key={index} className="font-semibold text-slate-900"><InlineText inlines={block.inlines} onNavigate={onNavigate} /></p>
         : block.ordered
-          ? <ol key={index} className="list-decimal space-y-1 pl-5">{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineText inlines={item} onNavigate={onNavigate} /></li>)}</ol>
+          ? <ol key={index} start={block.start} className="list-decimal space-y-1 pl-5">{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineText inlines={item} onNavigate={onNavigate} /></li>)}</ol>
           : <ul key={index} className="list-disc space-y-1 pl-5">{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineText inlines={item} onNavigate={onNavigate} /></li>)}</ul>)}
     </div>
   );

@@ -39,7 +39,8 @@ const runners: Record<string, Runner> = {
 
   async tinh_trang_kenh() {
     const [channels, gmail] = await Promise.all([listChannelAccounts(), listEmailAccounts()]);
-    const problem = channels.accounts.filter((item) => item.status !== "CONNECTED" || !item.operatorEnabled || item.providerHealthStatus !== "HEALTHY");
+    // An account can show CONNECTED while its last call failed (e.g. a Facebook token without permission).
+    const problem = channels.accounts.filter((item) => item.status !== "CONNECTED" || !item.operatorEnabled || item.providerHealthStatus !== "HEALTHY" || Boolean(item.lastErrorCode));
     const gmailProblem = gmail.accounts.filter((item) => item.status !== "CONNECTED" || !item.sendEnabled);
     return {
       tai_khoan_kenh: { tong: channels.accounts.length, dang_tot: channels.accounts.length - problem.length, loi: channels.error },
