@@ -39,7 +39,9 @@ function maskPhone(phone: unknown) {
   return digits.length >= 4 ? `SĐT …${digits.slice(-3)}` : null;
 }
 
-export interface WaitingRow { id: string; channel: string; account: string | null; name: string | null; group: boolean; since: string; hours: number; unread: number; assigned: boolean; lastText: string | null; link: string }
+const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|alerts?)[@+.]/i;
+
+export interface WaitingRow { id: string; channel: string; account: string | null; name: string | null; group: boolean; automated: boolean; since: string; hours: number; unread: number; assigned: boolean; lastText: string | null; link: string }
 
 /**
  * Conversations (last 7 days, scoped to the member's channel accounts) whose latest message is from
@@ -93,6 +95,7 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
         id: row.id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
         name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata) ?? (row.channel_type === "EMAIL" ? clip(last.sender, 80) : null),
         group: isGroupConversation(row.metadata) || (inboundSenders.get(row.id)?.size ?? 0) > 1,
+        automated: row.channel_type === "EMAIL" && AUTOMATED_SENDER.test(last.sender),
         since: last.at, hours: (Date.now() - Date.parse(last.at)) / HOUR, unread: row.unread_count, assigned: Boolean(row.assigned_to),
         lastText: last.text, link: `/inbox/all/${row.id}`,
       };

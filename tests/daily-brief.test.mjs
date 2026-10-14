@@ -27,6 +27,8 @@ test('waiting conversations: groups are left out, long waits are urgent', () => 
   const urgent = composeBrief({ now, inbox: { waiting: [conv('An', 3), conv('Bình', 50)] } });
   assert.equal(urgent.items[0].severity, 'high');
   assert.match(urgent.items[0].details[0], /^Bình .* chờ 2 ngày$/, 'longest wait first');
+  const robots = composeBrief({ now, inbox: { waiting: [conv('no-reply@accounts.google.com', 9, { channel: 'EMAIL', automated: true })] } });
+  assert.equal(robots.items.length, 0, 'no-reply e-mails are not waiting for an answer');
   const onlyGroups = composeBrief({ now, inbox: { waiting: [conv('Nhóm', 9, { group: true })] } });
   assert.equal(onlyGroups.items.length, 0);
   assert.match(onlyGroups.ok[0].text, /chỉ có 1 nhóm chat/);

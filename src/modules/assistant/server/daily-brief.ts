@@ -33,14 +33,14 @@ async function gather(scope: ToolScope, allowed: Set<string>, now: Date): Promis
     section(allowed.has("hoi_thoai_cho_tra_loi"), async () => {
       const result = await listWaitingConversations(scope.workspaceId, WAIT_HOURS);
       if ("loi" in result) return null;
-      return { waiting: result.rows.map((row) => ({ name: row.name, channel: row.channel, account: row.account, hours: row.hours, group: row.group, link: row.link })) };
+      return { waiting: result.rows.map((row) => ({ name: row.name, channel: row.channel, account: row.account, hours: row.hours, group: row.group, automated: row.automated, link: row.link })) };
     }),
     section(allowed.has("tinh_trang_kenh"), async () => {
       const data = await runReadTool("tinh_trang_kenh", {}, scope) as Row;
       if (hasError(data) || (data.tai_khoan_kenh as Row | undefined)?.loi) return null;
       return {
         problems: rows(data.kenh_can_xu_ly).map((row) => ({ channel: String(row.kenh), name: str(row.ten), reason: str(row.ly_do) ?? (row.trang_thai !== "CONNECTED" ? String(row.trang_thai) : row.bat_boi_nguoi_van_hanh === false ? "đang tắt" : null) })),
-        gmailProblems: rows(data.gmail_can_xu_ly).map((row) => ({ email: String(row.email), status: row.duoc_phep_gui === false ? "chưa bật gửi" : String(row.trang_thai) })),
+        gmailProblems: rows(data.gmail_can_xu_ly).map((row) => ({ email: String(row.email), status: String(row.trang_thai) })),
       };
     }),
     section(allowed.has("tinh_trang_bo_gui_email"), async () => {

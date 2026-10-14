@@ -7,7 +7,8 @@ export interface BriefItem { area: BriefArea; severity: BriefSeverity; title: st
 export interface BriefOk { area: BriefArea; text: string }
 export interface DailyBrief { date: string; generatedAt: string; items: BriefItem[]; ok: BriefOk[]; failed: BriefArea[] }
 
-export interface WaitingConversation { name: string | null; channel: string; account: string | null; hours: number; group: boolean; link: string }
+/** automated: e-mail from no-reply/notification senders, which nobody answers. */
+export interface WaitingConversation { name: string | null; channel: string; account: string | null; hours: number; group: boolean; automated?: boolean; link: string }
 export interface BriefInput {
   now: Date;
   inbox?: { waiting: WaitingConversation[] } | null;
@@ -52,7 +53,7 @@ export function composeBrief(input: BriefInput): DailyBrief {
 
   if (input.inbox === null) failed.push("inbox");
   else if (input.inbox) {
-    const people = input.inbox.waiting.filter((row) => !row.group && row.hours >= WAIT_HOURS).sort((a, b) => b.hours - a.hours);
+    const people = input.inbox.waiting.filter((row) => !row.group && !row.automated && row.hours >= WAIT_HOURS).sort((a, b) => b.hours - a.hours);
     const groups = input.inbox.waiting.filter((row) => row.group && row.hours >= WAIT_HOURS).length;
     if (people.length) {
       const long = people.filter((row) => row.hours >= LONG_WAIT_HOURS).length;
