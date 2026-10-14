@@ -3,7 +3,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
-import type { AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
+import { CONVERSATION_NAME_KEYS, isGroupConversation, metadataName, type AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
 import { createProposal, type ActionContext, type PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
 import { listCampaigns } from "@/modules/campaigns/server/campaign-data";
@@ -152,6 +152,48 @@ const runners: Record<string, Runner> = {
           cho_tu: last.at, so_gio_cho: Math.round((Date.now() - Date.parse(last.at)) / HOUR * 10) / 10,
           chua_doc: row.unread_count, da_giao_cho_ai: Boolean(row.assigned_to),
           tin_cuoi_khach_viet: clip(last.text, 200),
+          link: `/inbox/all/${row.id}`,
+        };
+      }),
+    };
+  },
+
+  async tim_hoi_thoai(args, scope) {
+    const pattern = contactSearchPattern(String(args.tu_khoa));
+    if (!pattern) return { hoi_thoai: [] };
+    const supabase = await createClient();
+    const accessible = await getAccessibleChannelAccountIds();
+    if (accessible?.length === 0) return { hoi_thoai: [], ghi_chu: "Tài khoản chưa được cấp kênh nào." };
+    const { data: contacts } = await supabase.from("contacts").select("id,full_name").eq("workspace_id", scope.workspaceId).ilike("full_name", pattern.replace(/\*/g, "%")).limit(40);
+    const contactName = new Map((contacts ?? []).map((row) => [row.id, row.full_name]));
+    const filters = CONVERSATION_NAME_KEYS.map((key) => `metadata->>${key}.ilike.${pattern}`);
+    if (contactName.size) filters.push(`contact_id.in.(${[...contactName.keys()].join(",")})`);
+    let query = supabase.from("omnichannel_conversations").select("id,channel_account_id,channel_type,contact_id,last_message_at,metadata")
+      .eq("workspace_id", scope.workspaceId).or(filters.join(",")).order("last_message_at", { ascending: false, nullsFirst: false }).limit(8);
+    if (accessible) query = query.in("channel_account_id", accessible);
+    const { data: rows, error } = await query;
+    if (error) return { loi: "Không tìm được hội thoại." };
+    const conversations = rows ?? [];
+    if (!conversations.length) return { hoi_thoai: [], ghi_chu: "Không có hội thoại nào khớp tên này trong các tài khoản được phép xem." };
+    const ids = conversations.map((row) => row.id);
+    const missingContacts = [...new Set(conversations.flatMap((row) => row.contact_id && !contactName.has(row.contact_id) ? [row.contact_id] : []))];
+    const [messages, accounts, extraContacts] = await Promise.all([
+      supabase.from("omnichannel_messages").select("conversation_id,direction,text_content,received_at,sent_at,created_at").eq("workspace_id", scope.workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(200),
+      createPrivilegedClient().from("channel_accounts").select("id,display_name").eq("workspace_id", scope.workspaceId).in("id", [...new Set(conversations.map((row) => row.channel_account_id))]),
+      missingContacts.length ? supabase.from("contacts").select("id,full_name").in("id", missingContacts) : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
+    ]);
+    for (const row of extraContacts.data ?? []) contactName.set(row.id, row.full_name);
+    const latest = new Map<string, { direction: string; text: string | null; at: string }>();
+    for (const message of messages.data ?? []) if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
+    const accountName = new Map((accounts.data ?? []).map((row) => [row.id, row.display_name]));
+    return {
+      hoi_thoai: conversations.map((row) => {
+        const last = latest.get(row.id);
+        return {
+          id: row.id, kenh: row.channel_type, tai_khoan: accountName.get(row.channel_account_id) ?? null,
+          ten_khach: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata),
+          nhom_chat: isGroupConversation(row.metadata),
+          tin_cuoi: last ? { cua: last.direction === "INBOUND" ? "KHACH" : "BEN_MINH", luc: last.at, noi_dung_khach_viet: clip(last.text, 160) } : null,
           link: `/inbox/all/${row.id}`,
         };
       }),

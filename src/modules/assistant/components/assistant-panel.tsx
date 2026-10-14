@@ -10,7 +10,7 @@ import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
 import { parseAnswer, type Inline } from "@/modules/assistant/core/assistant-markdown";
 import type { AccountContext } from "@/types/account";
 
-interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null }
+interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string }
 interface CardAction { id: string; preview: ActionPreview; expiresAt: string; state: "pending" | "running" | "done" | "failed" | "cancelled"; result?: string; link?: string | null }
 interface Message { role: "user" | "assistant"; content: string; toolsUsed?: string[]; error?: boolean; actions?: CardAction[] }
 
@@ -20,6 +20,7 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 function suggestions(permissions: string[], pathname: string) {
   const list: string[] = [];
   if (pathname.startsWith("/inbox/all/") && UUID.test(pathname) && permissions.includes("inbox.view")) list.push("Tóm tắt hội thoại này và ứng viên đang ở bước nào?");
+  if (pathname.startsWith("/inbox/all/") && UUID.test(pathname) && permissions.includes("inbox.reply")) list.push("Soạn tin trả lời cho ứng viên này");
   list.push("Hôm nay có gì cần xử lý?");
   if (permissions.includes("inbox.view")) list.push("Tin nhắn nào chờ trả lời quá 2 giờ?");
   if (permissions.includes("channels.view")) list.push("Tài khoản kết nối nào đang lỗi?");
@@ -85,13 +86,13 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
   }
 
   // Confirm or cancel a proposal card. The server runs it at most once and re-checks permission.
-  const decide = useCallback(async (actionId: string, decision: "confirm" | "cancel") => {
+  const decide = useCallback(async (actionId: string, decision: "confirm" | "cancel", text?: string) => {
     const update = (patch: Partial<CardAction>) => setMessages((current) => current.map((message) => message.actions?.some((action) => action.id === actionId)
       ? { ...message, actions: message.actions.map((action) => action.id === actionId ? { ...action, ...patch } : action) }
       : message));
     update({ state: "running" });
     try {
-      const response = await fetch(`/api/assistant/actions/${actionId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }) });
+      const response = await fetch(`/api/assistant/actions/${actionId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(text === undefined ? { decision } : { decision, text }) });
       const data = await response.json().catch(() => null) as { ok?: boolean; message?: string; link?: string | null } | null;
       if (decision === "cancel") update({ state: "cancelled", result: data?.message ?? "Đã huỷ." });
       else update({ state: data?.ok ? "done" : "failed", result: data?.message ?? "Không thực hiện được.", link: data?.link ?? null });
@@ -125,7 +126,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
           <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chiến dịch, công việc, liên hệ, Kho content… và đề xuất thao tác (tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
+                <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chiến dịch, công việc, liên hệ, Kho content… và đề xuất thao tác (soạn tin trả lời ứng viên, tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
                 <div className="flex flex-col gap-2">
                   {prompts.map((prompt) => (
                     <button key={prompt} type="button" onClick={() => void ask(prompt)} className="rounded-lg border px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50">{prompt}</button>
@@ -159,8 +160,10 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
   );
 }
 
-function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDecide: (id: string, decision: "confirm" | "cancel") => void; onNavigate: () => void }) {
+function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDecide: (id: string, decision: "confirm" | "cancel", text?: string) => void; onNavigate: () => void }) {
   const [now, setNow] = useState(() => Date.now());
+  const editable = action.preview.editableText !== undefined;
+  const [text, setText] = useState(action.preview.editableText ?? "");
   useEffect(() => { if (action.state !== "pending") return; const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, [action.state]);
   const expired = action.state === "pending" && Date.parse(action.expiresAt) < now;
   const tone = action.state === "done" ? "border-emerald-200 bg-emerald-50" : action.state === "failed" ? "border-rose-200 bg-rose-50" : action.state === "cancelled" || expired ? "border-slate-200 bg-slate-50" : "border-blue-200 bg-blue-50/60";
@@ -169,11 +172,15 @@ function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDe
       <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-500"><ShieldCheck className="size-3.5" />Cần xác nhận</p>
       <p className="mt-1 font-semibold text-slate-900">{action.preview.title}</p>
       <ul className="mt-1 space-y-0.5 text-[13px] text-slate-700">{action.preview.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>
+      {editable && (action.state === "pending" && !expired
+        ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows={Math.min(10, Math.max(3, text.split("\n").length + 1))} maxLength={5000}
+            aria-label="Nội dung tin sẽ gửi" className="mt-1.5 w-full resize-y rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] leading-5 text-slate-900 focus:border-blue-500 focus:outline-none" />
+        : <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-[13px] leading-5 text-slate-700">{text}</p>)}
       {action.preview.warning && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[13px] text-amber-800">{action.preview.warning}</p>}
       {action.preview.link && action.state === "pending" && <Link href={action.preview.link} onClick={onNavigate} className="mt-2 inline-block text-[13px] font-medium text-blue-700 hover:underline">Mở trang liên quan</Link>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {action.state === "pending" && !expired && <>
-          <Button size="sm" onClick={() => onDecide(action.id, "confirm")}>Xác nhận</Button>
+          <Button size="sm" disabled={editable && !text.trim()} onClick={() => onDecide(action.id, "confirm", editable ? text : undefined)}>{editable ? "Xác nhận gửi" : "Xác nhận"}</Button>
           <Button size="sm" variant="outline" onClick={() => onDecide(action.id, "cancel")}>Huỷ</Button>
           <span className="flex items-center gap-1 text-[11px] text-slate-500"><Clock className="size-3" />Hết hạn lúc {new Date(action.expiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
         </>}

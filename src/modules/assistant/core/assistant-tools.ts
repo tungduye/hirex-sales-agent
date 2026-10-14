@@ -104,6 +104,21 @@ function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
       }).strict(),
     },
     {
+      name: "de_xuat_tra_loi_hoi_thoai",
+      permission: "inbox.reply",
+      label: "Đề xuất gửi trả lời",
+      proposal: true,
+      description: "ĐỀ XUẤT gửi MỘT tin trả lời trong một hội thoại Zalo / Facebook Page / Facebook cá nhân (chỉ tạo thẻ xác nhận; người dùng có thể sửa nội dung trên thẻ trước khi bấm Xác nhận). Lấy conversation_id từ trang đang mở, tim_hoi_thoai, hoi_thoai_cho_tra_loi hoặc chi_tiet_hoi_thoai. Chỉ dùng khi người dùng yêu cầu rõ việc trả lời/gửi tin.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["conversation_id", "noi_dung"],
+        properties: {
+          conversation_id: uuidArg("UUID hội thoại."),
+          noi_dung: { type: "string", description: "Nội dung tin sẽ gửi, đúng như sẽ hiện với khách. Không có ký hiệu Markdown, tối đa 2000 ký tự." },
+        },
+      },
+      args: z.object({ conversation_id: z.string().uuid(), noi_dung: text(2000).min(1) }).strict(),
+    },
+    {
       name: "de_xuat_dung_ai_recruiter",
       permission: "workspace.admin",
       label: "Đề xuất dừng AI Recruiter",
@@ -135,6 +150,25 @@ export function parseVietnamDue(textValue: string | null): string | null {
   const calendar = new Date(Date.UTC(year, month - 1, day));
   if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day || hour > 23 || minute > 59) return null;
   return new Date(Date.UTC(year, month - 1, day, hour - 7, minute)).toISOString();
+}
+
+export const CONVERSATION_NAME_KEYS = ["conversationDisplayName", "participantDisplayName", "participantName", "displayName", "groupName"];
+/** Display name of a conversation without a linked contact (same metadata keys the inbox uses). */
+export function metadataName(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const record = metadata as Record<string, unknown>;
+  for (const key of CONVERSATION_NAME_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.length > 80 ? `${value.slice(0, 80)}…` : value;
+  }
+  return null;
+}
+
+/** Group chats (Zalo/Facebook groups): a reply there reaches every member. */
+export function isGroupConversation(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const record = metadata as Record<string, unknown>;
+  return record.isGroup === true || typeof record.groupName === "string" || String(record.threadType ?? "").toUpperCase() === "GROUP";
 }
 
 export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
@@ -183,6 +217,14 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
       },
     },
     args: z.object({ gio_toi_thieu: z.number().min(0).max(168).nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+  },
+  {
+    name: "tim_hoi_thoai",
+    permission: "inbox.view",
+    label: "Tìm hội thoại",
+    description: "Tìm hội thoại trong Hồ Chứa theo tên khách/ứng viên (tên liên hệ hoặc tên hiển thị trên Zalo/Facebook). Trả về tối đa 8 hội thoại, mới nhất trước, kèm id, kênh, tài khoản và tin cuối.",
+    parameters: { type: "object", additionalProperties: false, required: ["tu_khoa"], properties: { tu_khoa: { type: "string", description: "Tên hoặc một phần tên." } } },
+    args: z.object({ tu_khoa: text(100).min(1) }).strict(),
   },
   {
     name: "chi_tiet_hoi_thoai",
@@ -274,7 +316,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     parameters: { type: "object", additionalProperties: false, required: ["tu_khoa"], properties: { tu_khoa: nullableString("Mã (CT-000001), tiêu đề hoặc tên job; null để xem tổng quan.") } },
     args: z.object({ tu_khoa: text(100).nullable() }).strict(),
   },
- ...PROPOSAL_TOOLS(),
+  ...PROPOSAL_TOOLS(),
 ];
 
 export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);

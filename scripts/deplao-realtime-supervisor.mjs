@@ -143,6 +143,8 @@ async function main() {
       accounts = nextAccounts; policies();
       if (changed) { stopChild(deplao); stopChild(adapter); await new Promise(resolve => setTimeout(resolve, 1500)); startRuntime(); }
       schedule("account-sync", "sync-deplao-zalo-accounts.mjs", [], 60000);
+      if (env.HIREX_FACEBOOK_PROFILE_BRIDGE_ENABLED === "true")
+        schedule("facebook-history-sync", "sync-deplao-facebook-history.mjs", ["--apply"], 120000);
       if (existsSync(path.join(root, "scripts/sync-zalo-recent-messages.mjs")))
         schedule("recent-message-sync", "sync-zalo-recent-messages.mjs", ["--once", `--since=${since}`]);
       if (existsSync(path.join(stateRoot, "zalo-media-sync-authorized")))

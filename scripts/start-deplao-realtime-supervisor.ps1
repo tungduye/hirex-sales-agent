@@ -15,6 +15,10 @@ foreach ($line in [IO.File]::ReadAllLines((Join-Path $runtimeRoot "runtime-confi
 if ($env:HIREX_DEPLAO_QA_USER_DATA_DIR -ne (Join-Path $runtimeRoot "deplao-qa-profile")) { throw "QA_PROFILE_CHANGED" }
 if ($env:HIREX_REAL_INBOUND_CUTOVER_AT -ne "2026-09-17T17:07:11.795Z") { throw "CUTOVER_CHANGED" }
 $env:HIREX_ZALO_CONTACT_ACTIONS_ENABLED = "true"
+foreach ($name in @("HIREX_FACEBOOK_PROFILE_BRIDGE_ENABLED", "HIREX_FACEBOOK_PROFILE_BRIDGE_SECRET", "HIREX_FACEBOOK_PROFILE_ACCOUNT_IDS")) {
+  $value = [Environment]::GetEnvironmentVariable($name, "User")
+  if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, "Process") }
+}
 $env:NODE_ENV = "production"
 $arguments = @("C:\Users\Admin\hirex-sales-agent\scripts\deplao-realtime-supervisor.mjs")
 if ($Once) { $arguments += "--once" }
