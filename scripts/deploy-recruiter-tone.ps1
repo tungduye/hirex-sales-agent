@@ -56,7 +56,8 @@ try {
 
   Stop-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue
   # Stopping "next start" makes its start-production.mjs parent stop the workers it launched.
-  foreach ($p in $toStop) { & taskkill.exe /PID $p.ProcessId /T /F 2>$null | Out-Null; Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  # Every process of the set (parent, next start, its server, workers) is in $toStop, so each is stopped directly.
+  foreach ($p in $toStop) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
   $waitUntil=[DateTime]::UtcNow.AddSeconds(20)
   while ((@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) -and [DateTime]::UtcNow -lt $waitUntil) { Start-Sleep -Seconds 1 }
   if (@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) {
@@ -94,4 +95,8 @@ try {
     Write-Output 'DEPLOY_VERIFY_FAILED_BACKUP_PRESERVED'
     throw
   }
+}catch{
+  # Whatever failed, never leave the site down: if no web process is running, start the task again.
+  if (@(Get-WebProcesses).Count -eq 0) { Start-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue; Write-Output 'WEB_RESTARTED_AFTER_FAILURE' }
+  throw
 }finally{if($lock){$lock.Dispose()}}
