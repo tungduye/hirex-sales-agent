@@ -99,7 +99,9 @@
     ".next-content-copy/types/**/*.ts",
     ".next-content-copy/dev/types/**/*.ts",
     ".next-assistant-phase1/types/**/*.ts",
-    ".next-assistant-phase1/dev/types/**/*.ts"
+    ".next-assistant-phase1/dev/types/**/*.ts",
+    ".next-assistant-fix1/types/**/*.ts",
+    ".next-assistant-fix1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

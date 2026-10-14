@@ -11,7 +11,7 @@ for migration in $(ls supabase/migrations/*.sql | sort); do
   psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$migration" > /dev/null
 done
 echo "Applied $(ls supabase/migrations/*.sql | wc -l) migrations"
-for test in supabase/tests/021_omnichannel_foundation.sql supabase/tests/022_multichannel_campaigns.sql supabase/tests/069_ai_recruiter_auto_gates.sql supabase/tests/071_content_library.sql supabase/tests/072_content_templates.sql supabase/tests/073_content_item_template.sql supabase/tests/074_assistant_requests.sql; do
+for test in supabase/tests/021_omnichannel_foundation.sql supabase/tests/022_multichannel_campaigns.sql supabase/tests/069_ai_recruiter_auto_gates.sql supabase/tests/071_content_library.sql supabase/tests/072_content_templates.sql supabase/tests/073_content_item_template.sql supabase/tests/074_assistant_requests.sql supabase/tests/075_assistant_actions.sql; do
   output=$(psql -v ON_ERROR_STOP=1 -q -o /dev/null -d "$DB" -f "$test" 2>&1) || { echo "$output" | tail -5; echo "FAILED: $test"; exit 1; }
   echo "PASS $test ($(echo "$output" | grep -c 'PASS:') checks)"
 done

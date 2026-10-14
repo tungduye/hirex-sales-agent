@@ -1,0 +1,360 @@
+import "server-only";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { getAccessibleChannelAccountIds, getAccessibleEmailAccountIds } from "@/modules/access/server/access-control";
+import { parseVietnamDue } from "@/modules/assistant/core/assistant-tools";
+import { validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
+import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, contentBriefSchema } from "@/modules/content/core/content-options";
+import { startContentBatch } from "@/modules/content/server/start-content-batch";
+
+// Phase 2 of Trợ lý HireX. A proposal is validated against current data, stored as an
+// assistant_actions row with a human-readable preview, and shown as a card. Only when the same
+// member presses "Xác nhận" does executeAssistantAction run — re-checking permission and state,
+// with the same rules as the buttons in the web app. Nothing here sends messages, launches new
+// campaigns, deletes data or turns AI Recruiter AUTO on.
+
+export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP";
+export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null }
+export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean }
+export interface PendingAction { id: string; kind: ActionKind; preview: ActionPreview; expiresAt: string }
+
+type Built = { ok: true; kind: ActionKind; params: Record<string, unknown>; preview: ActionPreview } | { ok: false; error: string };
+type Executed = { ok: boolean; message: string; link?: string | null };
+
+const PERMISSION: Record<ActionKind, string> = {
+  CREATE_TASK: "tasks.create",
+  SET_LEAD_STATUS: "contacts.update",
+  CAMPAIGN_CONTROL: "campaigns.launch",
+  CREATE_CONTENT: "content.create",
+  AI_RECRUITER_SAFE_STOP: "workspace.admin",
+};
+const allowed = (kind: ActionKind, context: ActionContext) => PERMISSION[kind] === "workspace.admin" ? context.isAdmin : context.permissions.includes(PERMISSION[kind]);
+
+const LEAD_LABELS: Record<string, string> = { NEW: "Mới", CONTACTED: "Đã liên hệ", ENGAGED: "Đang trao đổi", QUALIFIED: "Đủ điều kiện", OPPORTUNITY: "Cơ hội", WON: "Thành công", LOST: "Thất bại", DO_NOT_CONTACT: "Không liên hệ" };
+const vnTime = (iso: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(iso));
+const label = (options: readonly { value: string; label: string }[], value: string) => options.find((item) => item.value === value)?.label ?? value;
+const CHANNEL_PATH: Record<string, string> = { EMAIL: "/campaigns", ZALO: "/campaigns/omnichannel", FACEBOOK_PROFILE: "/campaigns/facebook-profile" };
+
+// ---------------------------------------------------------------------------------------------
+// Proposals
+// ---------------------------------------------------------------------------------------------
+
+async function proposeTask(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const title = String(args.tieu_de).trim();
+  const dueText = typeof args.han === "string" ? args.han : null;
+  const dueAt = parseVietnamDue(dueText);
+  if (dueText && !dueAt) return { ok: false, error: "Hạn không hợp lệ, cần dạng YYYY-MM-DD hoặc YYYY-MM-DD HH:mm." };
+  const db = createPrivilegedClient();
+  let assignee = { id: context.userId, name: "chính anh/chị" };
+  if (typeof args.giao_cho === "string" && args.giao_cho.trim()) {
+    const name = args.giao_cho.trim().replace(/[%_,()]/g, " ");
+    const { data } = await db.from("profiles").select("id,full_name").eq("workspace_id", context.workspaceId).ilike("full_name", `%${name}%`).limit(6);
+    const matches = data ?? [];
+    const exact = matches.filter((row) => row.full_name.toLocaleLowerCase("vi") === name.toLocaleLowerCase("vi"));
+    const pick = exact.length === 1 ? exact : matches;
+    if (pick.length === 0) return { ok: false, error: `Không tìm thấy thành viên tên "${args.giao_cho}".` };
+    if (pick.length > 1) return { ok: false, error: `Có nhiều thành viên khớp: ${pick.map((row) => row.full_name).join(", ")}. Hỏi lại người dùng muốn giao cho ai.` };
+    assignee = { id: pick[0].id, name: pick[0].full_name };
+  }
+  let conversationId: string | null = null;
+  if (typeof args.conversation_id === "string") {
+    const { data } = await (await createClient()).from("omnichannel_conversations").select("id,channel_account_id").eq("workspace_id", context.workspaceId).eq("id", args.conversation_id).maybeSingle();
+    const accessible = await getAccessibleChannelAccountIds();
+    if (!data || (accessible && !accessible.includes(data.channel_account_id))) return { ok: false, error: "Không tìm thấy hội thoại hoặc không có quyền." };
+    conversationId = data.id;
+  }
+  return {
+    ok: true, kind: "CREATE_TASK",
+    params: { title, dueAt, assigneeId: assignee.id, conversationId },
+    preview: {
+      title: "Tạo công việc",
+      lines: [`Công việc: ${title}`, `Giao cho: ${assignee.name}`, `Hạn: ${dueAt ? vnTime(dueAt) : "không có"}`, ...(conversationId ? ["Gắn với hội thoại đang xem"] : [])],
+      link: conversationId ? `/inbox/all/${conversationId}` : "/tasks",
+    },
+  };
+}
+
+async function proposeLead(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const { data: contact } = await (await createClient()).from("contacts").select("id,full_name,lead_status").eq("workspace_id", context.workspaceId).eq("id", String(args.contact_id)).maybeSingle();
+  if (!contact) return { ok: false, error: "Không tìm thấy liên hệ." };
+  const to = String(args.trang_thai_moi);
+  if (contact.lead_status === to) return { ok: false, error: `Liên hệ đã ở trạng thái ${LEAD_LABELS[to] ?? to}.` };
+  return {
+    ok: true, kind: "SET_LEAD_STATUS",
+    params: { contactId: contact.id, from: contact.lead_status, to },
+    preview: { title: "Đổi trạng thái lead", lines: [`Liên hệ: ${contact.full_name}`, `Trạng thái: ${LEAD_LABELS[contact.lead_status] ?? contact.lead_status} → ${LEAD_LABELS[to] ?? to}`], link: `/contacts/${contact.id}` },
+  };
+}
+
+async function emailSendersAllowed(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, campaignId: string) {
+  const allowedIds = await getAccessibleEmailAccountIds();
+  if (allowedIds === null) return true;
+  const { data, error } = await db.from("email_campaign_senders").select("email_account_id").eq("workspace_id", workspaceId).eq("campaign_id", campaignId);
+  return !error && (data ?? []).every((row) => allowedIds.includes(row.email_account_id));
+}
+
+async function proposeCampaign(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const channel = String(args.kenh);
+  const pause = args.hanh_dong === "TAM_DUNG";
+  const from = pause ? "RUNNING" : "PAUSED";
+  const db = createPrivilegedClient();
+  const id = String(args.campaign_id);
+  let name: string;
+  let status: string;
+  let pending = 0;
+  if (channel === "EMAIL") {
+    const { data } = await db.from("email_campaigns").select("id,name,status,archived_at").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+    if (!data || data.archived_at) return { ok: false, error: "Không tìm thấy chiến dịch email." };
+    if (!await emailSendersAllowed(db, context.workspaceId, id)) return { ok: false, error: "Tài khoản không có quyền với các hộp thư gửi của chiến dịch này." };
+    ({ name, status } = data);
+    if (!pause) pending = (await db.from("email_campaign_recipients").select("id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId).eq("campaign_id", id).eq("status", "PENDING")).count ?? 0;
+  } else {
+    const { data } = await db.from("channel_campaigns").select("id,name,status,archived_at,channel_campaign_steps(allowed_channels)").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+    const steps = (data?.channel_campaign_steps ?? []) as unknown as { allowed_channels: string[] }[];
+    if (!data || data.archived_at || !steps.some((step) => step.allowed_channels?.includes(channel))) return { ok: false, error: "Không tìm thấy chiến dịch ở kênh này." };
+    ({ name, status } = data);
+    if (!pause) pending = (await db.from("channel_campaign_recipients").select("id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId).eq("campaign_id", id).eq("status", "ACTIVE")).count ?? 0;
+  }
+  if (status !== from) return { ok: false, error: pause ? `Chiến dịch đang ở trạng thái ${status}, chỉ tạm dừng được chiến dịch đang chạy.` : `Chiến dịch đang ở trạng thái ${status}, chỉ tiếp tục được chiến dịch đang tạm dừng.` };
+  const path = channel === "EMAIL" ? `/campaigns/${id}` : `${CHANNEL_PATH[channel]}/${id}`;
+  return {
+    ok: true, kind: "CAMPAIGN_CONTROL",
+    params: { channel, campaignId: id, from, to: pause ? "PAUSED" : "RUNNING" },
+    preview: {
+      title: pause ? "Tạm dừng chiến dịch" : "Tiếp tục chiến dịch",
+      lines: [`Chiến dịch: ${name} (${channel === "EMAIL" ? "Email" : channel === "ZALO" ? "Zalo" : "Facebook cá nhân"})`, `Trạng thái: ${pause ? "Đang chạy → Tạm dừng" : "Tạm dừng → Đang chạy"}`],
+      warning: pause ? null : `Chiến dịch sẽ gửi tiếp tới khoảng ${pending.toLocaleString("vi-VN")} người chưa nhận, theo giới hạn gửi đã cài.`,
+      link: path,
+    },
+  };
+}
+
+function briefInput(args: Record<string, unknown>, templateIds: string[]) {
+  const value = (key: string) => typeof args[key] === "string" ? String(args[key]) : "";
+  return {
+    jobTitle: value("ten_job"), position: value("vi_tri"), location: value("dia_diem"), languagesRequired: value("ngoai_ngu"),
+    techSkills: value("ky_nang"), salary: value("luong"), highlights: value("diem_noi_bat"), jdText: value("mo_ta_jd"), blockedTerms: value("tu_khoa_cam"),
+    style: { choice: "PROFESSIONAL", other: "" }, styleNote: "", sampleContent: "",
+    contentLanguage: value("ngon_ngu"), contentFormat: value("dinh_dang"), department: value("bo_phan"),
+    templateIds, quantity: args.so_luong,
+  };
+}
+
+async function proposeContent(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const codes = (args.ma_mau as string[]).map((code) => code.trim()).filter(Boolean);
+  let templateIds: string[] = [];
+  if (codes.length) {
+    const { data } = await (await createClient()).from("content_templates").select("id,code").eq("workspace_id", context.workspaceId).in("code", codes);
+    const byCode = new Map(((data ?? []) as { id: string; code: string }[]).map((row) => [row.code, row.id]));
+    const missing = codes.filter((code) => !byCode.has(code));
+    if (missing.length) return { ok: false, error: `Không có mẫu: ${missing.join(", ")}. Dùng công cụ kho_mau_content để xem mã mẫu.` };
+    templateIds = codes.map((code) => byCode.get(code)!);
+  }
+  const input = briefInput(args, templateIds);
+  const parsed = contentBriefSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Thông tin tạo content chưa hợp lệ (tên job 1–200 ký tự, số lượng 1–10…)." };
+  const brief = parsed.data;
+  const facts = [brief.position, brief.location, brief.languagesRequired, brief.salary, brief.techSkills, brief.highlights].filter(Boolean).join(" · ");
+  return {
+    ok: true, kind: "CREATE_CONTENT", params: { input },
+    preview: {
+      title: "Tạo content",
+      lines: [
+        `${label(CONTENT_DEPARTMENTS, brief.department)} · ${brief.jobTitle}`,
+        ...(facts ? [`Dữ kiện: ${facts.slice(0, 300)}`] : []),
+        `${brief.quantity} content · ${label(CONTENT_FORMATS, brief.contentFormat)} · ${label(CONTENT_LANGUAGES, brief.contentLanguage)}`,
+        `Mẫu: ${codes.length ? codes.join(", ") : "hệ thống tự chọn"}`,
+        ...(brief.blockedTerms ? [`Từ khóa cấm: ${brief.blockedTerms}`] : []),
+      ],
+      link: "/content",
+    },
+  };
+}
+
+async function proposeAiStop(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const db = createPrivilegedClient();
+  const id = String(args.id);
+  if (args.doi_tuong === "BOT") {
+    const { data: bot } = await db.from("ai_recruiter_bots").select("id,name,enabled,mode").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+    if (!bot) return { ok: false, error: "Không tìm thấy bot." };
+    const emergency = args.hanh_dong === "DUNG_KHAN_CAP";
+    if (!emergency && bot.mode === "DRAFT") return { ok: false, error: "Bot đã ở chế độ DRAFT." };
+    return {
+      ok: true, kind: "AI_RECRUITER_SAFE_STOP", params: { target: "BOT", id, emergency },
+      preview: {
+        title: emergency ? "Dừng khẩn cấp bot AI Recruiter" : "Chuyển bot AI Recruiter sang DRAFT",
+        lines: [`Bot: ${bot.name}`, `Hiện tại: ${bot.enabled ? "đang bật" : "đang tắt"}, ${bot.mode}`, emergency ? "Sau khi xác nhận: tắt bot, về DRAFT, tạm dừng mọi hội thoại và huỷ các lịch nhắc đang chờ" : "Sau khi xác nhận: AI chỉ soạn nháp, không tự gửi"],
+        link: "/settings/ai-recruiter",
+      },
+    };
+  }
+  const { data: conversation } = await db.from("omnichannel_conversations").select("id,metadata").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+  if (!conversation) return { ok: false, error: "Không tìm thấy hội thoại." };
+  const current = (conversation.metadata as Record<string, unknown> | null)?.aiRecruiterModeOverride;
+  if (current === "DRAFT") return { ok: false, error: "Hội thoại đã ở chế độ DRAFT." };
+  return {
+    ok: true, kind: "AI_RECRUITER_SAFE_STOP", params: { target: "CONVERSATION", id },
+    preview: { title: "Chuyển hội thoại sang DRAFT", lines: ["AI Recruiter chỉ soạn nháp cho hội thoại này, không tự gửi", `Hiện tại: ${typeof current === "string" ? current : "theo cài đặt bot"}`], link: `/inbox/all/${id}` },
+  };
+}
+
+const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionContext) => Promise<Built>> = {
+  de_xuat_tao_cong_viec: proposeTask,
+  de_xuat_doi_trang_thai_lead: proposeLead,
+  de_xuat_dieu_khien_chien_dich: proposeCampaign,
+  de_xuat_tao_content: proposeContent,
+  de_xuat_dung_ai_recruiter: proposeAiStop,
+};
+
+export const MAX_PROPOSALS_PER_QUESTION = 3;
+
+/** Validates a proposal and stores it; returns what the model is told. */
+export async function createProposal(toolName: string, args: Record<string, unknown>, context: ActionContext, collected: PendingAction[]): Promise<unknown> {
+  const builder = BUILDERS[toolName];
+  if (!builder) return { loi: "Không hỗ trợ thao tác này." };
+  if (collected.length >= MAX_PROPOSALS_PER_QUESTION) return { loi: `Tối đa ${MAX_PROPOSALS_PER_QUESTION} đề xuất mỗi câu hỏi.` };
+  const built = await builder(args, context);
+  if (!built.ok) return { khong_tao_duoc_de_xuat: built.error };
+  if (!allowed(built.kind, context)) return { loi: "Tài khoản không có quyền thao tác này." };
+  const { data, error } = await createPrivilegedClient().from("assistant_actions")
+    .insert({ workspace_id: context.workspaceId, user_id: context.userId, kind: built.kind, params: built.params, preview: built.preview })
+    .select("id,expires_at").single();
+  if (error || !data) return { loi: "Không lưu được đề xuất." };
+  collected.push({ id: data.id, kind: built.kind, preview: built.preview, expiresAt: data.expires_at });
+  return { da_tao_the_xac_nhan: true, tieu_de: built.preview.title, chi_tiet: built.preview.lines, ghi_chu: "Chưa thực hiện. Người dùng phải bấm Xác nhận trên thẻ trong vòng 15 phút." };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Execution (after the member presses "Xác nhận")
+// ---------------------------------------------------------------------------------------------
+
+async function executeTask(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const { error } = await createPrivilegedClient().from("channel_tasks").insert({
+    workspace_id: context.workspaceId, title: String(params.title), status: "OPEN", assigned_to: params.assigneeId, due_at: params.dueAt ?? null,
+    conversation_id: params.conversationId ?? null, created_by: context.userId,
+  });
+  if (error) return { ok: false, message: "Không tạo được công việc." };
+  revalidatePath("/tasks");
+  return { ok: true, message: `Đã tạo công việc “${String(params.title).slice(0, 80)}”.`, link: "/tasks" };
+}
+
+async function executeLead(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const { data, error } = await (await createClient()).from("contacts").update({ lead_status: params.to })
+    .eq("workspace_id", context.workspaceId).eq("id", String(params.contactId)).eq("lead_status", String(params.from)).select("id,full_name");
+  if (error) return { ok: false, message: "Không đổi được trạng thái (có thể thiếu quyền Sửa liên hệ)." };
+  if (!data?.length) return { ok: false, message: "Trạng thái liên hệ đã bị thay đổi trước đó. Hãy hỏi lại để xem trạng thái mới." };
+  revalidatePath("/contacts");
+  return { ok: true, message: `Đã đổi ${data[0].full_name} sang ${LEAD_LABELS[String(params.to)] ?? params.to}.`, link: `/contacts/${params.contactId}` };
+}
+
+async function executeCampaign(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const db = createPrivilegedClient();
+  const id = String(params.campaignId);
+  const pause = params.to === "PAUSED";
+  const changed = "Chiến dịch đã đổi trạng thái trước đó. Hãy hỏi lại để xem trạng thái mới.";
+  if (params.channel === "EMAIL") {
+    if (!await emailSendersAllowed(db, context.workspaceId, id)) return { ok: false, message: "Không có quyền với hộp thư gửi của chiến dịch." };
+    if (!pause) {
+      // Same checks as the "Tiếp tục" button: valid message, recipients, a connected Gmail sender.
+      const { data: campaign } = await db.from("email_campaigns").select("subject_template,body_text_template").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+      if (!campaign || validateRenderedCampaignMessage(campaign.subject_template, campaign.body_text_template)) return { ok: false, message: "Nội dung chiến dịch chưa hợp lệ, hãy mở chiến dịch để kiểm tra." };
+      const [{ count }, { data: senders }] = await Promise.all([
+        db.from("email_campaign_recipients").select("id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId).eq("campaign_id", id),
+        db.from("email_campaign_senders").select("id,email_accounts!inner(status,provider,scopes)").eq("workspace_id", context.workspaceId).eq("campaign_id", id).eq("enabled", true),
+      ]);
+      const hasSender = (senders ?? []).some((sender) => { const account = sender.email_accounts as unknown as { status: string; provider: string; scopes: string[] }; return account.status === "CONNECTED" && account.provider === "GMAIL" && account.scopes.includes("https://www.googleapis.com/auth/gmail.send"); });
+      if (!count || !hasSender) return { ok: false, message: "Chiến dịch chưa có người nhận hoặc không còn hộp thư gửi nào đang kết nối." };
+    }
+    const now = new Date().toISOString();
+    const patch = pause ? { status: "PAUSED", paused_at: now } : { status: "RUNNING", started_at: now, paused_at: null };
+    const { data } = await db.from("email_campaigns").update(patch).eq("workspace_id", context.workspaceId).eq("id", id).eq("status", String(params.from)).select("id").maybeSingle();
+    if (!data) return { ok: false, message: changed };
+    if (!pause) await db.rpc("initialize_email_campaign_sequence", { p_workspace_id: context.workspaceId, p_campaign_id: id });
+    await db.from("email_campaign_events").insert({ workspace_id: context.workspaceId, campaign_id: id, event_type: pause ? "CAMPAIGN_PAUSED" : "CAMPAIGN_RESUMED" });
+    revalidatePath(`/campaigns/${id}`); revalidatePath("/campaigns");
+    return { ok: true, message: pause ? "Đã tạm dừng chiến dịch email." : "Đã tiếp tục chiến dịch email.", link: `/campaigns/${id}` };
+  }
+  const { data } = await db.from("channel_campaigns").update({ status: params.to }).eq("workspace_id", context.workspaceId).eq("id", id).eq("status", String(params.from)).is("archived_at", null).select("id").maybeSingle();
+  if (!data) return { ok: false, message: changed };
+  await db.from("channel_campaign_events").insert({ workspace_id: context.workspaceId, campaign_id: id, event_type: pause ? "PAUSED" : "RESUMED" });
+  const path = `${CHANNEL_PATH[String(params.channel)]}/${id}`;
+  revalidatePath(path); revalidatePath(CHANNEL_PATH[String(params.channel)]);
+  return { ok: true, message: pause ? "Đã tạm dừng chiến dịch." : "Đã tiếp tục chiến dịch.", link: path };
+}
+
+async function executeContent(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const parsed = contentBriefSchema.safeParse(params.input);
+  if (!parsed.success) return { ok: false, message: "Thông tin tạo content không còn hợp lệ." };
+  const started = await startContentBatch(context, parsed.data);
+  if (!started.ok) return { ok: false, message: started.message };
+  return { ok: true, message: `Đang tạo ${parsed.data.quantity} content cho “${parsed.data.jobTitle}”. Kết quả hiện trong Kho content sau 1–2 phút.`, link: "/content" };
+}
+
+async function executeAiStop(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const db = createPrivilegedClient();
+  const id = String(params.id);
+  if (params.target === "BOT") {
+    if (params.emergency) {
+      const now = new Date().toISOString();
+      const { data: bot } = await db.from("ai_recruiter_bots").update({ enabled: false, mode: "DRAFT", mode_change_actor: context.userId }).eq("workspace_id", context.workspaceId).eq("id", id).select("id").maybeSingle();
+      if (!bot) return { ok: false, message: "Không tìm thấy bot." };
+      await Promise.all([
+        db.from("ai_recruiter_conversation_states").update({ bot_paused: true, pause_reason: "EMERGENCY_STOP", next_followup_at: null }).eq("workspace_id", context.workspaceId).eq("bot_id", id),
+        db.from("ai_recruiter_scheduled_actions").update({ status: "CANCELLED", completed_at: now }).eq("workspace_id", context.workspaceId).eq("bot_id", id).in("status", ["PENDING", "CLAIMED"]),
+      ]);
+      revalidatePath("/settings/ai-recruiter");
+      return { ok: true, message: "Đã dừng khẩn cấp bot.", link: "/settings/ai-recruiter" };
+    }
+    const { data } = await db.from("ai_recruiter_bots").update({ mode: "DRAFT", mode_change_actor: context.userId }).eq("workspace_id", context.workspaceId).eq("id", id).select("id").maybeSingle();
+    if (!data) return { ok: false, message: "Không tìm thấy bot." };
+    revalidatePath("/settings/ai-recruiter");
+    return { ok: true, message: "Đã chuyển bot sang DRAFT.", link: "/settings/ai-recruiter" };
+  }
+  const { data: conversation } = await db.from("omnichannel_conversations").select("id,metadata").eq("workspace_id", context.workspaceId).eq("id", id).maybeSingle();
+  if (!conversation) return { ok: false, message: "Không tìm thấy hội thoại." };
+  const metadata = conversation.metadata && typeof conversation.metadata === "object" && !Array.isArray(conversation.metadata) ? conversation.metadata as Record<string, unknown> : {};
+  await db.from("omnichannel_conversations").update({ metadata: { ...metadata, aiRecruiterModeOverride: "DRAFT", aiRecruiterModeChangedBy: context.userId } }).eq("workspace_id", context.workspaceId).eq("id", id);
+  await db.from("ai_recruiter_conversation_states").update({ next_followup_at: null }).eq("workspace_id", context.workspaceId).eq("conversation_id", id);
+  revalidatePath(`/inbox/all/${id}`);
+  return { ok: true, message: "Đã chuyển hội thoại sang DRAFT.", link: `/inbox/all/${id}` };
+}
+
+const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: ActionContext) => Promise<Executed>> = {
+  CREATE_TASK: executeTask,
+  SET_LEAD_STATUS: executeLead,
+  CAMPAIGN_CONTROL: executeCampaign,
+  CREATE_CONTENT: executeContent,
+  AI_RECRUITER_SAFE_STOP: executeAiStop,
+};
+
+/** Confirms or cancels one of the member's own proposals. Runs it at most once. */
+export async function decideAssistantAction(actionId: string, decision: "confirm" | "cancel", context: ActionContext): Promise<Executed> {
+  const db = createPrivilegedClient();
+  const now = new Date().toISOString();
+  const { data: row } = await db.from("assistant_actions").select("id,kind,params,status,expires_at")
+    .eq("workspace_id", context.workspaceId).eq("user_id", context.userId).eq("id", actionId).maybeSingle();
+  if (!row) return { ok: false, message: "Không tìm thấy đề xuất." };
+  if (row.status !== "PROPOSED") return { ok: false, message: "Đề xuất này đã được xử lý." };
+  if (decision === "cancel") {
+    await db.from("assistant_actions").update({ status: "CANCELLED", decided_at: now, finished_at: now }).eq("id", row.id).eq("status", "PROPOSED");
+    return { ok: true, message: "Đã huỷ đề xuất." };
+  }
+  if (Date.parse(row.expires_at) < Date.now()) {
+    await db.from("assistant_actions").update({ status: "EXPIRED", decided_at: now, finished_at: now }).eq("id", row.id).eq("status", "PROPOSED");
+    return { ok: false, message: "Đề xuất đã hết hạn (15 phút). Hãy hỏi trợ lý tạo lại." };
+  }
+  const kind = row.kind as ActionKind;
+  if (!allowed(kind, context)) return { ok: false, message: "Tài khoản không còn quyền thực hiện thao tác này." };
+  const { data: claimed } = await db.from("assistant_actions").update({ status: "EXECUTING", decided_at: now }).eq("id", row.id).eq("status", "PROPOSED").select("id").maybeSingle();
+  if (!claimed) return { ok: false, message: "Đề xuất này đã được xử lý." };
+  let result: Executed;
+  try {
+    result = await EXECUTORS[kind](row.params as Record<string, unknown>, context);
+  } catch {
+    result = { ok: false, message: "Có lỗi khi thực hiện. Vui lòng kiểm tra lại trên trang." };
+  }
+  await db.from("assistant_actions").update({ status: result.ok ? "EXECUTED" : "FAILED", result_message: result.message.slice(0, 1000), finished_at: new Date().toISOString() }).eq("id", row.id);
+  return result;
+}

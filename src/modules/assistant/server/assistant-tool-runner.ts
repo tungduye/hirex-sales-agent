@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import type { AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
+import { createProposal, type ActionContext, type PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
 import { listCampaigns } from "@/modules/campaigns/server/campaign-data";
 import { listChannelAccounts } from "@/modules/channels/server/list-channel-accounts";
@@ -19,7 +20,7 @@ import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-emai
 // Free text written by outsiders (messages, names) is returned under keys marked "khach_viet" so
 // the model treats it as data.
 
-export interface ToolScope { workspaceId: string; userId: string }
+export interface ToolScope { workspaceId: string; userId: string; context: ActionContext; proposals: PendingAction[] }
 
 const HOUR = 3_600_000;
 const clip = (value: unknown, max = 300) => typeof value === "string" ? (value.length > max ? `${value.slice(0, max)}…` : value) : null;
@@ -84,7 +85,7 @@ const runners: Record<string, Runner> = {
       if (run.safe_error_code) errors.set(run.safe_error_code, (errors.get(run.safe_error_code) ?? 0) + 1);
     }
     return {
-      bots: (bots.data ?? []).map((bot) => ({ ten: bot.name, loai: bot.bot_type, dang_bat: bot.enabled, che_do: bot.mode, luot_24h_theo_trang_thai: byBot.get(bot.id) ?? {} })),
+      bots: (bots.data ?? []).map((bot) => ({ id: bot.id, ten: bot.name, loai: bot.bot_type, dang_bat: bot.enabled, che_do: bot.mode, luot_24h_theo_trang_thai: byBot.get(bot.id) ?? {} })),
       ma_loi_24h: Object.fromEntries([...errors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)),
       link: "/settings/ai-recruiter",
     };
@@ -160,9 +161,9 @@ const runners: Record<string, Runner> = {
     ]);
     const metadata = (conversation.metadata ?? {}) as Record<string, unknown>;
     return {
-      kenh: conversation.channel_type, trang_thai: conversation.status, che_do_tiep_quan: conversation.takeover_mode,
+      id: conversation.id, kenh: conversation.channel_type, trang_thai: conversation.status, che_do_tiep_quan: conversation.takeover_mode,
       ai_recruiter_che_do_rieng: typeof metadata.aiRecruiterModeOverride === "string" ? metadata.aiRecruiterModeOverride : null,
-      lien_he: contact.data ? { ten: contact.data.full_name, chuc_danh: contact.data.job_title, trang_thai_lead: contact.data.lead_status, link: `/contacts/${contact.data.id}` } : null,
+      lien_he: contact.data ? { id: contact.data.id, ten: contact.data.full_name, chuc_danh: contact.data.job_title, trang_thai_lead: contact.data.lead_status, link: `/contacts/${contact.data.id}` } : null,
       tin_nhan_moi_nhat_truoc: (messages ?? []).map((message) => ({
         chieu: message.direction === "INBOUND" ? "KHACH_GUI" : "BEN_MINH_GUI",
         luc: message.received_at ?? message.sent_at ?? message.created_at,
@@ -185,16 +186,16 @@ const runners: Record<string, Runner> = {
       const rows = campaigns.filter((row) => !row.archivedAt && keep(row.name, row.status));
       result.email = error ? { loi: error } : {
         tong: rows.length,
-        chien_dich: rows.slice(0, 15).map((row) => ({ ten: row.name, trang_thai: row.status, nguoi_nhan: row.recipients, da_gui: row.sent, follow_up: row.followUps, phan_hoi: row.replies, bounce: row.hardBounces, dang_cho: row.pending, loi: row.failed, chua_xac_dinh: row.deliveryUnknown, phu_trach: row.ownerName, cap_nhat: row.updatedAt, link: `/campaigns/${row.id}` })),
+        chien_dich: rows.slice(0, 15).map((row) => ({ id: row.id, ten: row.name, trang_thai: row.status, nguoi_nhan: row.recipients, da_gui: row.sent, follow_up: row.followUps, phan_hoi: row.replies, bounce: row.hardBounces, dang_cho: row.pending, loi: row.failed, chua_xac_dinh: row.deliveryUnknown, phu_trach: row.ownerName, cap_nhat: row.updatedAt, link: `/campaigns/${row.id}` })),
       };
     }
     if (kenh === "TAT_CA" || kenh === "ZALO") {
       const rows = (await listChannelCampaigns()).filter((row) => keep(row.name, row.status));
-      result.zalo = { tong: rows.length, chien_dich: rows.slice(0, 15).map((row) => ({ ten: row.name, trang_thai: row.status, nguoi_nhan: row.quantity, da_gui: row.sent, phan_hoi: row.replies, tai_khoan_gui: row.senderNames, phu_trach: row.ownerName, link: `/campaigns/omnichannel/${row.id}` })) };
+      result.zalo = { tong: rows.length, chien_dich: rows.slice(0, 15).map((row) => ({ id: row.id, ten: row.name, trang_thai: row.status, nguoi_nhan: row.quantity, da_gui: row.sent, phan_hoi: row.replies, tai_khoan_gui: row.senderNames, phu_trach: row.ownerName, link: `/campaigns/omnichannel/${row.id}` })) };
     }
     if (kenh === "TAT_CA" || kenh === "FACEBOOK_PROFILE") {
       const rows = (await listFacebookProfileCampaigns()).filter((row) => keep(row.name, row.status));
-      result.facebook_ca_nhan = { tong: rows.length, chien_dich: rows.slice(0, 15).map((row) => ({ ten: row.name, trang_thai: row.status, nguoi_nhan: row.quantity, da_gui: row.sent, phan_hoi: row.replies, tai_khoan_gui: row.senderNames, phu_trach: row.ownerName, link: `/campaigns/facebook-profile/${row.id}` })) };
+      result.facebook_ca_nhan = { tong: rows.length, chien_dich: rows.slice(0, 15).map((row) => ({ id: row.id, ten: row.name, trang_thai: row.status, nguoi_nhan: row.quantity, da_gui: row.sent, phan_hoi: row.replies, tai_khoan_gui: row.senderNames, phu_trach: row.ownerName, link: `/campaigns/facebook-profile/${row.id}` })) };
     }
     return result;
   },
@@ -217,7 +218,7 @@ const runners: Record<string, Runner> = {
       tong_khop: count ?? (data ?? []).length,
       lien_he: (data ?? []).map((row) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies as { name: string } | null;
-        return { ten: row.full_name, chuc_danh: row.job_title, cong_ty: company?.name ?? null, email: row.email, dien_thoai: row.phone, quoc_gia: row.country, nguon: row.source, trang_thai_lead: row.lead_status, diem: row.lead_score, link: `/contacts/${row.id}` };
+        return { id: row.id, ten: row.full_name, chuc_danh: row.job_title, cong_ty: company?.name ?? null, email: row.email, dien_thoai: row.phone, quoc_gia: row.country, nguon: row.source, trang_thai_lead: row.lead_status, diem: row.lead_score, link: `/contacts/${row.id}` };
       }),
       link_danh_sach: "/contacts",
     };
@@ -253,6 +254,18 @@ const runners: Record<string, Runner> = {
     };
   },
 
+  async kho_mau_content(args, scope) {
+    const supabase = await createClient();
+    let query = supabase.from("content_templates").select("code,department,group_name,language,weight,body").eq("workspace_id", scope.workspaceId).eq("active", true);
+    if (typeof args.bo_phan === "string") query = query.eq("department", args.bo_phan);
+    const { data, error } = await query.order("weight", { ascending: false }).order("code").limit(60);
+    if (error) return { loi: "Không tải được Kho mẫu." };
+    return {
+      mau: (data ?? []).map((row) => ({ ma: row.code, bo_phan: row.department, nhom: row.group_name, ngon_ngu: row.language, trong_so: row.weight, doan_dau: clip(row.body.replace(/\s+/g, " "), 140) })),
+      link: "/content/templates",
+    };
+  },
+
   async kho_content(args, scope) {
     const supabase = await createClient();
     const since = new Date(Date.now() - 7 * 24 * HOUR).toISOString();
@@ -274,9 +287,11 @@ const runners: Record<string, Runner> = {
 };
 
 export async function runAssistantTool(tool: AssistantToolDefinition, args: Record<string, unknown>, scope: ToolScope): Promise<unknown> {
+  if (tool.proposal) return createProposal(tool.name, args, scope.context, scope.proposals);
   const runner = runners[tool.name];
   if (!runner) throw new Error("UNKNOWN_TOOL");
   return runner(args, scope);
 }
 
 export const IMPLEMENTED_TOOLS = Object.keys(runners);
+// Proposal tools (de_xuat_*) are implemented in assistant-proposals.ts.

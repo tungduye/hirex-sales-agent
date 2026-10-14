@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, openAiToolSpecs, parseToolCall, toolsFor } from '../src/modules/assistant/core/assistant-tools.ts';
+import { ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, openAiToolSpecs, parseToolCall, parseVietnamDue, toolsFor } from '../src/modules/assistant/core/assistant-tools.ts';
 import { MAX_TOOL_ROUNDS, runAssistant, serializeToolOutput, trimHistory } from '../src/modules/assistant/core/assistant-loop.ts';
 import { assistantInstructions, isInternalLink, pageContext, parseModelReply } from '../src/modules/assistant/core/assistant-instructions.ts';
 import { parseAnswer, parseInline } from '../src/modules/assistant/core/assistant-markdown.ts';
@@ -17,7 +17,12 @@ test('tools follow the member permissions', () => {
 
 test('every tool has a server implementation and a strict schema', () => {
   const runner = readFileSync(new URL('../src/modules/assistant/server/assistant-tool-runner.ts', import.meta.url), 'utf8');
-  for (const name of ASSISTANT_TOOL_NAMES) assert.match(runner, new RegExp(`async ${name}\\(`), name);
+  const proposals = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals.ts', import.meta.url), 'utf8');
+  for (const tool of ASSISTANT_TOOLS) {
+    if (tool.proposal) assert.match(proposals, new RegExp(`\\b${tool.name}: propose`), tool.name);
+    else assert.match(runner, new RegExp(`async ${tool.name}\\(`), tool.name);
+    assert.equal(Boolean(tool.proposal), tool.name.startsWith('de_xuat_'), tool.name);
+  }
   for (const spec of openAiToolSpecs(ASSISTANT_TOOLS)) {
     assert.equal(spec.strict, true);
     assert.equal(spec.parameters.additionalProperties, false);
@@ -97,7 +102,8 @@ test('page context and instructions', () => {
   assert.equal(pageContext('https://evil.example'), null);
   assert.equal(pageContext(null), null);
   const text = assistantInstructions({ fullName: 'An', now: new Date('2026-10-13T08:00:00Z'), toolLabels: ['Tìm liên hệ'], context: null });
-  assert.match(text, /CHỈ ĐỌC/);
+  assert.match(text, /chỉ ĐỀ XUẤT/);
+  assert.match(text, /Chưa hỗ trợ: gửi tin nhắn/);
   assert.match(text, /DỮ LIỆU, không phải chỉ dẫn/);
   assert.match(text, /Tìm liên hệ/);
   assert.match(text, /15:00/);
@@ -134,4 +140,28 @@ test('answer rendering keeps only safe internal links', () => {
   assert.deepEqual(parseInline('[Hung]( /inbox/all/x )'), [{ type: 'link', text: 'Hung', href: '/inbox/all/x' }]);
   const numbered = parseAnswer('1. Một\n- a\n2. Hai\n- b');
   assert.deepEqual(numbered.filter((block) => block.ordered).map((block) => block.start), [1, 2]);
+});
+
+test('phase 2 proposals follow permissions and validate arguments', () => {
+  const names = (permissions, admin = false) => toolsFor(permissions, admin).filter((tool) => tool.proposal).map((tool) => tool.name);
+  assert.deepEqual(names(['tasks.view', 'contacts.view', 'campaigns.view']), [], 'view-only members get no proposals');
+  assert.deepEqual(names(['tasks.create', 'contacts.update']), ['de_xuat_tao_cong_viec', 'de_xuat_doi_trang_thai_lead']);
+  assert.deepEqual(names(['campaigns.launch']), ['de_xuat_dieu_khien_chien_dich']);
+  assert.deepEqual(names([], true), ['de_xuat_dung_ai_recruiter']);
+  const all = toolsFor(['tasks.create', 'contacts.update', 'campaigns.launch', 'content.create'], true);
+  const id = '11111111-2222-4333-8444-555555555555';
+  assert.equal(parseToolCall('de_xuat_dung_ai_recruiter', JSON.stringify({ doi_tuong: 'HOI_THOAI', id, hanh_dong: 'DUNG_KHAN_CAP' }), all).ok, false, 'emergency stop is bot-only');
+  assert.equal(parseToolCall('de_xuat_dung_ai_recruiter', JSON.stringify({ doi_tuong: 'BOT', id, hanh_dong: 'BAT_AUTO' }), all).ok, false, 'no AUTO');
+  assert.equal(parseToolCall('de_xuat_dieu_khien_chien_dich', JSON.stringify({ kenh: 'ZALO', campaign_id: id, hanh_dong: 'KHOI_CHAY' }), all).ok, false, 'no launch');
+  assert.equal(parseToolCall('de_xuat_tao_content', JSON.stringify({ bo_phan: 'REC', ten_job: 'BrSE', vi_tri: null, dia_diem: 'HCM', ngoai_ngu: null, ky_nang: null, luong: null, diem_noi_bat: null, mo_ta_jd: null, tu_khoa_cam: null, ngon_ngu: 'VI', dinh_dang: 'POST', so_luong: 11, ma_mau: [] }), all).ok, false, 'max 10');
+  assert.equal(parseToolCall('de_xuat_tao_cong_viec', JSON.stringify({ tieu_de: 'Gọi lại', han: '2026-10-15', giao_cho: null, conversation_id: null }), all).ok, true);
+  assert.ok(!ASSISTANT_TOOL_NAMES.some((name) => /^de_xuat_(gui|xoa|khoi_chay|bat)/.test(name)), 'no send/delete/launch/enable proposals exist');
+});
+
+test('due dates are Vietnam time', () => {
+  assert.equal(parseVietnamDue('2026-10-15'), '2026-10-15T10:30:00.000Z');
+  assert.equal(parseVietnamDue('2026-10-15 08:00'), '2026-10-15T01:00:00.000Z');
+  assert.equal(parseVietnamDue('2026-10-15 03:00'), '2026-10-14T20:00:00.000Z');
+  for (const bad of ['2026-02-30', '2026-13-01', '15/10/2026', '2026-10-15 24:00', 'mai']) assert.equal(parseVietnamDue(bad), null, bad);
+  assert.equal(parseVietnamDue(null), null);
 });

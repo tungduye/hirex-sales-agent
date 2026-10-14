@@ -3,14 +3,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUp, LoaderCircle, RotateCcw, Sparkles, X } from "lucide-react";
+import { ArrowUp, CheckCircle2, Clock, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
 import { parseAnswer, type Inline } from "@/modules/assistant/core/assistant-markdown";
 import type { AccountContext } from "@/types/account";
 
-interface Message { role: "user" | "assistant"; content: string; toolsUsed?: string[]; error?: boolean }
+interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null }
+interface CardAction { id: string; preview: ActionPreview; expiresAt: string; state: "pending" | "running" | "done" | "failed" | "cancelled"; result?: string; link?: string | null }
+interface Message { role: "user" | "assistant"; content: string; toolsUsed?: string[]; error?: boolean; actions?: CardAction[] }
 
 const TOOL_LABELS = new Map(ASSISTANT_TOOLS.map((tool) => [tool.name, tool.label]));
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -62,9 +64,10 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, history, pagePath: pathname }),
       });
-      const data = await response.json().catch(() => null) as { ok?: boolean; answer?: string; toolsUsed?: string[]; remainingToday?: number; message?: string } | null;
+      const data = await response.json().catch(() => null) as { ok?: boolean; answer?: string; toolsUsed?: string[]; remainingToday?: number; message?: string; pendingActions?: { id: string; preview: ActionPreview; expiresAt: string }[] } | null;
       if (data?.ok && data.answer) {
-        setMessages((current) => [...current, { role: "assistant", content: data.answer!, toolsUsed: data.toolsUsed ?? [] }]);
+        const actions = (data.pendingActions ?? []).map((action) => ({ ...action, state: "pending" as const }));
+        setMessages((current) => [...current, { role: "assistant", content: data.answer!, toolsUsed: data.toolsUsed ?? [], actions }]);
         if (typeof data.remainingToday === "number") setRemaining(data.remainingToday);
       } else {
         setMessages((current) => [...current, { role: "assistant", content: data?.message ?? "Trợ lý đang không phản hồi. Vui lòng thử lại.", error: true }]);
@@ -80,6 +83,22 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
   function onInputKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(draft); }
   }
+
+  // Confirm or cancel a proposal card. The server runs it at most once and re-checks permission.
+  const decide = useCallback(async (actionId: string, decision: "confirm" | "cancel") => {
+    const update = (patch: Partial<CardAction>) => setMessages((current) => current.map((message) => message.actions?.some((action) => action.id === actionId)
+      ? { ...message, actions: message.actions.map((action) => action.id === actionId ? { ...action, ...patch } : action) }
+      : message));
+    update({ state: "running" });
+    try {
+      const response = await fetch(`/api/assistant/actions/${actionId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }) });
+      const data = await response.json().catch(() => null) as { ok?: boolean; message?: string; link?: string | null } | null;
+      if (decision === "cancel") update({ state: "cancelled", result: data?.message ?? "Đã huỷ." });
+      else update({ state: data?.ok ? "done" : "failed", result: data?.message ?? "Không thực hiện được.", link: data?.link ?? null });
+    } catch {
+      update({ state: "failed", result: "Mất kết nối tới máy chủ. Hãy kiểm tra lại trên trang trước khi thử lại." });
+    }
+  }, []);
 
   const prompts = useMemo(() => suggestions(account.permissions, pathname), [account.permissions, pathname]);
   const closeOnMobile = () => { if (window.innerWidth < 640) setOpen(false); };
@@ -97,7 +116,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Sparkles className="size-5" /></div>
             <div className="min-w-0 flex-1">
               <h2 id="assistant-title" className="text-sm font-bold">Trợ lý HireX</h2>
-              <p className="text-xs text-slate-500">Chỉ tra cứu, không thay đổi dữ liệu · theo quyền của tài khoản</p>
+              <p className="text-xs text-slate-500">Tra cứu theo quyền tài khoản · mọi thao tác cần anh/chị bấm Xác nhận</p>
             </div>
             {messages.length > 0 && <Button variant="ghost" size="icon" onClick={() => setMessages([])} disabled={busy} aria-label="Cuộc trò chuyện mới"><RotateCcw className="size-4" /></Button>}
             <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Đóng trợ lý"><X className="size-5" /></Button>
@@ -106,7 +125,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
           <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chiến dịch, công việc, liên hệ, Kho content… Anh/chị cần xem gì?</p>
+                <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chiến dịch, công việc, liên hệ, Kho content… và đề xuất thao tác (tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
                 <div className="flex flex-col gap-2">
                   {prompts.map((prompt) => (
                     <button key={prompt} type="button" onClick={() => void ask(prompt)} className="rounded-lg border px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50">{prompt}</button>
@@ -119,6 +138,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
             ) : (
               <div key={index} className={cn("mr-4 text-sm leading-6", message.error ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700" : "text-slate-800")}>
                 {message.error ? message.content : <Answer text={message.content} onNavigate={closeOnMobile} />}
+                {message.actions?.map((action) => <ActionCard key={action.id} action={action} onDecide={decide} onNavigate={closeOnMobile} />)}
                 {message.toolsUsed && message.toolsUsed.length > 0 && <p className="mt-2 text-[11px] text-slate-400">Đã tra: {message.toolsUsed.map((name) => TOOL_LABELS.get(name) ?? name).join(" · ")}</p>}
               </div>
             ))}
@@ -136,6 +156,37 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
         </aside>
       )}
     </>
+  );
+}
+
+function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDecide: (id: string, decision: "confirm" | "cancel") => void; onNavigate: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { if (action.state !== "pending") return; const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, [action.state]);
+  const expired = action.state === "pending" && Date.parse(action.expiresAt) < now;
+  const tone = action.state === "done" ? "border-emerald-200 bg-emerald-50" : action.state === "failed" ? "border-rose-200 bg-rose-50" : action.state === "cancelled" || expired ? "border-slate-200 bg-slate-50" : "border-blue-200 bg-blue-50/60";
+  return (
+    <div className={cn("mt-3 rounded-xl border p-3", tone)} role="group" aria-label={`Đề xuất: ${action.preview.title}`}>
+      <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-500"><ShieldCheck className="size-3.5" />Cần xác nhận</p>
+      <p className="mt-1 font-semibold text-slate-900">{action.preview.title}</p>
+      <ul className="mt-1 space-y-0.5 text-[13px] text-slate-700">{action.preview.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>
+      {action.preview.warning && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[13px] text-amber-800">{action.preview.warning}</p>}
+      {action.preview.link && action.state === "pending" && <Link href={action.preview.link} onClick={onNavigate} className="mt-2 inline-block text-[13px] font-medium text-blue-700 hover:underline">Mở trang liên quan</Link>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {action.state === "pending" && !expired && <>
+          <Button size="sm" onClick={() => onDecide(action.id, "confirm")}>Xác nhận</Button>
+          <Button size="sm" variant="outline" onClick={() => onDecide(action.id, "cancel")}>Huỷ</Button>
+          <span className="flex items-center gap-1 text-[11px] text-slate-500"><Clock className="size-3" />Hết hạn lúc {new Date(action.expiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
+        </>}
+        {expired && <span className="text-[13px] text-slate-500">Đề xuất đã hết hạn. Hãy hỏi lại nếu vẫn muốn làm.</span>}
+        {action.state === "running" && <span className="flex items-center gap-1.5 text-[13px] text-slate-600"><LoaderCircle className="size-4 animate-spin" />Đang thực hiện…</span>}
+        {(action.state === "done" || action.state === "failed" || action.state === "cancelled") && (
+          <span className={cn("flex items-start gap-1.5 text-[13px]", action.state === "done" ? "text-emerald-700" : action.state === "failed" ? "text-rose-700" : "text-slate-600")}>
+            {action.state === "done" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+            <span>{action.result}{action.link && action.state === "done" && <> · <Link href={action.link} onClick={onNavigate} className="font-medium underline-offset-2 hover:underline">Mở</Link></>}</span>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
