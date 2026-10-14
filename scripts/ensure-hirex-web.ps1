@@ -2,6 +2,11 @@ $ErrorActionPreference = "Stop"
 $workspace = "C:\Users\Admin\hirex-sales-agent"
 $healthy = $false
 
+# Deploys and restarts stop the web on purpose and write this flag first. Starting a second copy in
+# that window (often from the old build) is what left a stale web serving pages without styles.
+$maintenanceFlag = Join-Path $workspace "runtime\web-maintenance.flag"
+if ((Test-Path -LiteralPath $maintenanceFlag) -and (Get-Item -LiteralPath $maintenanceFlag).LastWriteTimeUtc -gt [DateTime]::UtcNow.AddMinutes(-30)) { exit 0 }
+
 try {
   $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:3000/login" -TimeoutSec 8 -MaximumRedirection 0 -ErrorAction Stop
   $healthy = $response.StatusCode -ge 200 -and $response.StatusCode -lt 500

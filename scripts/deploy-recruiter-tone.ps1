@@ -4,6 +4,7 @@ $root='C:\Users\Admin\hirex-sales-agent'
 $source=(Resolve-Path -LiteralPath "$root\.next-$Release").Path
 $current=(Resolve-Path -LiteralPath "$root\.next").Path
 $backup="$root\.next-before-$Release"
+$maintenanceFlag="$root\runtime\web-maintenance.flag"
 if($source -ne "$root\.next-$Release" -or $current -ne "$root\.next" -or (Test-Path -LiteralPath $backup)){throw 'INVALID_DEPLOY_PATHS'}
 if(-not(Test-Path -LiteralPath "$source\BUILD_ID")){throw 'BUILD_MISSING'}
 
@@ -36,6 +37,8 @@ try {
     try{$lock=[IO.File]::Open("$root\runtime\email-campaign-scheduler.lock",[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}catch{Start-Sleep -Seconds 3}
   }
   if(-not $lock){throw 'ACTIVE_SEND_DEPLOY_NOT_STARTED'}
+  # Keep ensure-hirex-web.ps1 from starting its own copy while the web is down on purpose.
+  Set-Content -LiteralPath $maintenanceFlag -Value (Get-Date).ToString('o')
 
   $web = @(Get-WebProcesses)
   $owner = Get-Port3000Owner
@@ -83,13 +86,34 @@ try {
     Move-Item -LiteralPath $source -Destination $current
     Start-ScheduledTask -TaskName 'HireX Local App'
     Start-Sleep -Seconds 8
-    $result=Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/login -TimeoutSec 30
-    Write-Output "DEPLOYED HTTP=$($result.StatusCode)"
-    # The page must reference this build's stylesheets and they must load; otherwise an old server is still answering.
-    $css = @([regex]::Matches($result.Content, 'href="(/_next/static/[^"]+\.css)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 3)
-    $bad = @($css | Where-Object { try { $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:3000$_" -TimeoutSec 15; $false } catch { $true } })
+    # The page must reference this build's stylesheets and they must load. The first start right after
+    # the folder swap has been seen to serve pages whose stylesheet 404s; a second clean start fixes it,
+    # so one automatic restart is tried before reporting failure.
+    function Test-Stylesheets {
+      $page = $null
+      $until = (Get-Date).AddSeconds(60)
+      while (-not $page -and (Get-Date) -lt $until) { try { $page = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/login -TimeoutSec 15 } catch { Start-Sleep -Seconds 3 } }
+      if (-not $page) { Write-Output 'Login page did not answer.'; return $false }
+      Write-Output "DEPLOYED HTTP=$($page.StatusCode)"
+      $css = @([regex]::Matches($page.Content, 'href="(/_next/static/[^"]+\.css)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 3)
+      $bad = @($css | Where-Object { try { $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:3000$_" -TimeoutSec 15; $false } catch { $true } })
+      if ($css.Count -eq 0 -or $bad.Count -gt 0) { Write-Output "Stylesheet not served: $($bad -join ', ')"; return $false }
+      return $true
+    }
+    $okStyles = Test-Stylesheets
+    if (-not ($okStyles | Select-Object -Last 1)) {
+      Write-Output 'Restarting the web once more...'
+      Stop-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue
+      foreach ($p in Get-WebProcesses) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+      $waitUntil=[DateTime]::UtcNow.AddSeconds(20)
+      while ((@(Get-WebProcesses).Count -gt 0 -or (Get-Port3000Owner)) -and [DateTime]::UtcNow -lt $waitUntil) { Start-Sleep -Seconds 1 }
+      Start-ScheduledTask -TaskName 'HireX Local App'
+      Start-Sleep -Seconds 8
+      $okStyles = Test-Stylesheets
+    }
+    $okStyles | Select-Object -SkipLast 1 | ForEach-Object { Write-Output $_ }
     Write-Output "Processes after deploy:"; foreach ($p in Get-WebProcesses) { Show-Process $p }
-    if ($css.Count -eq 0 -or $bad.Count -gt 0) { Write-Output "STYLESHEET_CHECK_FAILED: run scripts\restart-web.ps1"; throw 'STALE_WEB_PROCESS' }
+    if (-not ($okStyles | Select-Object -Last 1)) { Write-Output "STYLESHEET_CHECK_FAILED: run scripts\restart-web.ps1"; throw 'STALE_WEB_PROCESS' }
     Write-Output 'Stylesheet check OK.'
   } catch {
     Write-Output 'DEPLOY_VERIFY_FAILED_BACKUP_PRESERVED'
@@ -99,4 +123,4 @@ try {
   # Whatever failed, never leave the site down: if no web process is running, start the task again.
   if (@(Get-WebProcesses).Count -eq 0) { Start-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue; Write-Output 'WEB_RESTARTED_AFTER_FAILURE' }
   throw
-}finally{if($lock){$lock.Dispose()}}
+}finally{Remove-Item -LiteralPath $maintenanceFlag -Force -ErrorAction SilentlyContinue; if($lock){$lock.Dispose()}}

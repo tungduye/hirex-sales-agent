@@ -59,14 +59,21 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
   const { data: conversations, error } = await query;
   if (error) return { loi: "Không tải được Hồ Chứa." };
   const rows = conversations ?? [];
-  const latest = new Map<string, { direction: string; text: string | null; at: string }>();
+  const latest = new Map<string, { direction: string; text: string | null; at: string; sender: string }>();
+  // Several different people writing in one conversation = a group chat (no explicit flag exists).
+  const inboundSenders = new Map<string, Set<string>>();
   for (let offset = 0; offset < rows.length; offset += 25) {
     const ids = rows.slice(offset, offset + 25).map((row) => row.id);
-    const { data: messages } = await supabase.from("omnichannel_messages").select("conversation_id,direction,text_content,received_at,sent_at,created_at")
+    const { data: messages } = await supabase.from("omnichannel_messages").select("conversation_id,direction,sender_external_id,text_content,received_at,sent_at,created_at")
       .eq("workspace_id", workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(1000);
     for (const message of messages ?? []) {
+      if (message.direction === "INBOUND") {
+        const senders = inboundSenders.get(message.conversation_id) ?? new Set<string>();
+        senders.add(message.sender_external_id);
+        inboundSenders.set(message.conversation_id, senders);
+      }
       if (latest.has(message.conversation_id)) continue;
-      latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
+      latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at, sender: message.sender_external_id });
     }
   }
   const cutoff = Date.now() - minHours * HOUR;
@@ -84,7 +91,8 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
       const last = latest.get(row.id)!;
       return {
         id: row.id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
-        name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata), group: isGroupConversation(row.metadata),
+        name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata) ?? (row.channel_type === "EMAIL" ? clip(last.sender, 80) : null),
+        group: isGroupConversation(row.metadata) || (inboundSenders.get(row.id)?.size ?? 0) > 1,
         since: last.at, hours: (Date.now() - Date.parse(last.at)) / HOUR, unread: row.unread_count, assigned: Boolean(row.assigned_to),
         lastText: last.text, link: `/inbox/all/${row.id}`,
       };
@@ -107,13 +115,15 @@ const runners: Record<string, Runner> = {
   async tinh_trang_kenh() {
     const [channels, gmail] = await Promise.all([listChannelAccounts(), listEmailAccounts()]);
     // An account can show CONNECTED while its last call failed (e.g. a Facebook token without permission).
-    const problem = channels.accounts.filter((item) => item.status !== "CONNECTED" || !item.operatorEnabled || item.providerHealthStatus !== "HEALTHY" || Boolean(item.lastErrorCode));
-    const gmailProblem = gmail.accounts.filter((item) => item.status !== "CONNECTED" || !item.sendEnabled);
+    // A problem = not connected, a failing health check, or a recorded error. Accounts switched off on
+    // purpose and accounts whose health is simply not checked (UNKNOWN) are not problems.
+    const problem = channels.accounts.filter((item) => item.operatorEnabled && (item.status !== "CONNECTED" || ["DEGRADED", "DISCONNECTED", "AUTH_REQUIRED"].includes(String(item.providerHealthStatus)) || Boolean(item.lastErrorCode)));
+    const gmailProblem = gmail.accounts.filter((item) => item.status !== "CONNECTED");
     return {
       tai_khoan_kenh: { tong: channels.accounts.length, dang_tot: channels.accounts.length - problem.length, loi: channels.error },
       kenh_can_xu_ly: problem.slice(0, 40).map((item) => ({
         kenh: item.channelType, ten: item.displayName, trang_thai: item.status, bat_boi_nguoi_van_hanh: item.operatorEnabled,
-        suc_khoe: item.providerHealthStatus, ly_do: item.providerHealthReasonCode ?? item.lastErrorCode, kiem_tra_luc: item.providerHealthCheckedAt ?? item.lastHealthCheckAt,
+        suc_khoe: item.providerHealthStatus, ly_do: item.providerHealthReasonCode ?? item.lastErrorCode ?? (item.status !== "CONNECTED" ? item.status : item.providerHealthStatus), kiem_tra_luc: item.providerHealthCheckedAt ?? item.lastHealthCheckAt,
       })),
       gmail: { tong: gmail.accounts.length, dang_tot: gmail.accounts.length - gmailProblem.length, loi: gmail.error },
       gmail_can_xu_ly: gmailProblem.slice(0, 40).map((item) => ({ email: item.emailAddress, trang_thai: item.status, duoc_phep_gui: item.sendEnabled, dong_bo_cuoi: item.lastSyncAt })),
@@ -200,13 +210,17 @@ const runners: Record<string, Runner> = {
     const ids = conversations.map((row) => row.id);
     const missingContacts = [...new Set(conversations.flatMap((row) => row.contact_id && !contactName.has(row.contact_id) ? [row.contact_id] : []))];
     const [messages, accounts, extraContacts] = await Promise.all([
-      supabase.from("omnichannel_messages").select("conversation_id,direction,text_content,received_at,sent_at,created_at").eq("workspace_id", scope.workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(200),
+      supabase.from("omnichannel_messages").select("conversation_id,direction,sender_external_id,text_content,received_at,sent_at,created_at").eq("workspace_id", scope.workspaceId).in("conversation_id", ids).order("created_at", { ascending: false }).limit(200),
       createPrivilegedClient().from("channel_accounts").select("id,display_name").eq("workspace_id", scope.workspaceId).in("id", [...new Set(conversations.map((row) => row.channel_account_id))]),
       missingContacts.length ? supabase.from("contacts").select("id,full_name").in("id", missingContacts) : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
     ]);
     for (const row of extraContacts.data ?? []) contactName.set(row.id, row.full_name);
     const latest = new Map<string, { direction: string; text: string | null; at: string }>();
-    for (const message of messages.data ?? []) if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
+    const senders = new Map<string, Set<string>>();
+    for (const message of messages.data ?? []) {
+      if (message.direction === "INBOUND") senders.set(message.conversation_id, (senders.get(message.conversation_id) ?? new Set<string>()).add(message.sender_external_id));
+      if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, { direction: message.direction, text: message.text_content, at: message.received_at ?? message.sent_at ?? message.created_at });
+    }
     const accountName = new Map((accounts.data ?? []).map((row) => [row.id, row.display_name]));
     return {
       hoi_thoai: conversations.map((row) => {
@@ -214,7 +228,7 @@ const runners: Record<string, Runner> = {
         return {
           id: row.id, kenh: row.channel_type, tai_khoan: accountName.get(row.channel_account_id) ?? null,
           ten_khach: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata),
-          nhom_chat: isGroupConversation(row.metadata),
+          nhom_chat: isGroupConversation(row.metadata) || (senders.get(row.id)?.size ?? 0) > 1,
           tin_cuoi: last ? { cua: last.direction === "INBOUND" ? "KHACH" : "BEN_MINH", luc: last.at, noi_dung_khach_viet: clip(last.text, 160) } : null,
           link: `/inbox/all/${row.id}`,
         };

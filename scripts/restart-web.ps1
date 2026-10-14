@@ -35,6 +35,10 @@ function Show($label) {
   }
 }
 
+$failed = $false
+$maintenanceFlag = "$root\runtime\web-maintenance.flag"
+Set-Content -LiteralPath $maintenanceFlag -Value (Get-Date).ToString('o')
+try {
 Show 'Before restart'
 Stop-ScheduledTask -TaskName 'HireX Local App' -ErrorAction SilentlyContinue
 $toStop = @(Get-AppProcesses | ForEach-Object { $_.ProcessId })
@@ -45,8 +49,8 @@ foreach ($l in Get-Listeners3000) {
 }
 foreach ($id in ($toStop | Select-Object -Unique)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
 $until = (Get-Date).AddSeconds(30)
-while (((Get-AppProcesses).Count -gt 0 -or (Get-Listeners3000).Count -gt 0) -and (Get-Date) -lt $until) { Start-Sleep -Seconds 1 }
-if ((Get-AppProcesses).Count -gt 0 -or (Get-Listeners3000).Count -gt 0) { Show 'Still running'; throw 'WEB_DID_NOT_STOP' }
+while ((@(Get-AppProcesses).Count -gt 0 -or @(Get-Listeners3000).Count -gt 0) -and (Get-Date) -lt $until) { Start-Sleep -Seconds 1 }
+if (@(Get-AppProcesses).Count -gt 0 -or @(Get-Listeners3000).Count -gt 0) { Show 'Still running'; throw 'WEB_DID_NOT_STOP' }
 Write-Host "Stopped $(@($toStop | Select-Object -Unique).Count) process(es)." -ForegroundColor Yellow
 
 Start-ScheduledTask -TaskName 'HireX Local App'
@@ -64,8 +68,11 @@ foreach ($path in $css) {
   try { $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:3000$path" -TimeoutSec 15 } catch { $bad += $path }
 }
 Show 'After restart'
-if ($css.Count -eq 0 -or $bad.Count -gt 0) {
+if (@($css).Count -eq 0 -or $bad.Count -gt 0) {
   Write-Host "FAILED: stylesheet missing ($($bad -join ', ')). Send this output to Claude." -ForegroundColor Red
-  exit 1
-}
+  $failed = $true
+} else {
 Write-Host "OK: web is running build $build and its stylesheet loads." -ForegroundColor Green
+}
+} finally { Remove-Item -LiteralPath $maintenanceFlag -Force -ErrorAction SilentlyContinue }
+if ($failed) { exit 1 }
