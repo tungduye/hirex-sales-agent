@@ -26,6 +26,18 @@ const HOUR = 3_600_000;
 const clip = (value: unknown, max = 300) => typeof value === "string" ? (value.length > max ? `${value.slice(0, max)}…` : value) : null;
 const time = (value: unknown) => typeof value === "string" ? value : null;
 
+/** "nguyenvana@gmail.com" → "ng***@gmail.com": enough to tell same-name contacts apart. */
+function maskEmail(email: unknown) {
+  if (typeof email !== "string" || !email.includes("@")) return null;
+  const [user, domain] = email.split("@");
+  return `${user.slice(0, 2)}***@${domain}`;
+}
+function maskPhone(phone: unknown) {
+  if (typeof phone !== "string") return null;
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 4 ? `SĐT …${digits.slice(-3)}` : null;
+}
+
 type Runner = (args: Record<string, unknown>, scope: ToolScope) => Promise<unknown>;
 
 const runners: Record<string, Runner> = {
@@ -218,7 +230,8 @@ const runners: Record<string, Runner> = {
       tong_khop: count ?? (data ?? []).length,
       lien_he: (data ?? []).map((row) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies as { name: string } | null;
-        return { id: row.id, ten: row.full_name, chuc_danh: row.job_title, cong_ty: company?.name ?? null, email: row.email, dien_thoai: row.phone, quoc_gia: row.country, nguon: row.source, trang_thai_lead: row.lead_status, diem: row.lead_score, link: `/contacts/${row.id}` };
+        const hint = [row.source && `nguồn ${row.source}`, company?.name, row.created_at && `tạo ${new Date(row.created_at).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`, maskEmail(row.email), maskPhone(row.phone)].filter(Boolean).join(" · ");
+        return { id: row.id, ten: row.full_name, phan_biet: hint, chuc_danh: row.job_title, cong_ty: company?.name ?? null, email: row.email, dien_thoai: row.phone, quoc_gia: row.country, nguon: row.source, trang_thai_lead: row.lead_status, diem: row.lead_score, link: `/contacts/${row.id}` };
       }),
       link_danh_sach: "/contacts",
     };
