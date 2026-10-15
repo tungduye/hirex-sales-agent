@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT } from "./inbox-live-events";
 
-export function InboxAutoRefresh({ workspaceId }: { workspaceId: string | null }) {
+export function InboxAutoRefresh({ workspaceId, compact = false }: { workspaceId: string | null; compact?: boolean }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [live, setLive] = useState(false);
@@ -44,5 +44,6 @@ export function InboxAutoRefresh({ workspaceId }: { workspaceId: string | null }
       void client.removeChannel(channel);
     };
   }, [router, workspaceId]);
+  if (compact) return <button type="button" onClick={refresh} disabled={refreshing} title="Bấm để làm mới danh sách" className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60 ${live ? "text-emerald-700" : "text-slate-500"}`}>{refreshing ? <RefreshCw className="size-3 animate-spin"/> : <span className={`size-[7px] rounded-full ${live ? "bg-emerald-500" : "bg-slate-300"}`}/>}{live ? "Trực tiếp" : "Làm mới"}</button>;
   return <button type="button" onClick={refresh} disabled={refreshing} className="inline-flex h-9 items-center gap-2 rounded-lg border bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-60"><RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />{live ? "Trực tiếp · Làm mới" : "Làm mới"}</button>;
 }
