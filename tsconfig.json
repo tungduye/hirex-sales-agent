@@ -153,7 +153,9 @@
     ".next-perf-3/types/**/*.ts",
     ".next-perf-3/dev/types/**/*.ts",
     ".next-content-taxonomy-1/types/**/*.ts",
-    ".next-content-taxonomy-1/dev/types/**/*.ts"
+    ".next-content-taxonomy-1/dev/types/**/*.ts",
+    ".next-campaign-content-1/types/**/*.ts",
+    ".next-campaign-content-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
