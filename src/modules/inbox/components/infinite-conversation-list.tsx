@@ -95,25 +95,27 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     return () => observer.disconnect();
   }, [hasNextPage, loadMore]);
 
-  const people = conversations.filter((item) => !item.isGroup && item.folder !== "OTHER");
+  // "Khác": the OTHER folder plus e-mails from robots (no-reply, notifications…) that nobody needs to answer.
+  const isOther = (item: OmnichannelInboxConversation) => item.folder === "OTHER" || item.automated;
+  const people = conversations.filter((item) => !item.isGroup && !isOther(item));
   const counts: Record<ViewMode, number> = {
     all: people.length,
     waiting: people.filter((item) => item.latestDirection === "INBOUND").length,
     mine: people.filter((item) => props.currentUserId !== null && item.assignedTo === props.currentUserId).length,
     unread: people.filter((item) => item.unreadCount > 0).length,
     groups: conversations.filter((item) => item.isGroup).length,
-    other: conversations.filter((item) => !item.isGroup && item.folder === "OTHER").length,
+    other: conversations.filter((item) => !item.isGroup && isOther(item)).length,
   };
   const matches = (item: OmnichannelInboxConversation) => viewMode === "groups" ? item.isGroup
-    : viewMode === "other" ? !item.isGroup && item.folder === "OTHER"
-    : !item.isGroup && item.folder !== "OTHER" && (viewMode === "all" || (viewMode === "waiting" ? item.latestDirection === "INBOUND" : viewMode === "mine" ? props.currentUserId !== null && item.assignedTo === props.currentUserId : item.unreadCount > 0));
+    : viewMode === "other" ? !item.isGroup && isOther(item)
+    : !item.isGroup && !isOther(item) && (viewMode === "all" || (viewMode === "waiting" ? item.latestDirection === "INBOUND" : viewMode === "mine" ? props.currentUserId !== null && item.assignedTo === props.currentUserId : item.unreadCount > 0));
   // "Chưa trả lời": longest wait first. Elsewhere: pinned first, then newest.
   const visible = conversations.filter(matches).sort((a, b) => viewMode === "waiting"
     ? (Date.parse(a.lastInboundAt ?? a.lastMessageAt ?? "") || 0) - (Date.parse(b.lastInboundAt ?? b.lastMessageAt ?? "") || 0)
     : Number(b.isPinned) - Number(a.isPinned));
   const tabs: Array<[ViewMode, string]> = [["all", "Tất cả"], ["waiting", "Chưa trả lời"], ["mine", "Của tôi"], ["unread", "Chưa đọc"], ["groups", "Nhóm"], ["other", "Khác"]];
   return <div className="min-h-0 flex flex-1 flex-col">
-    <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 px-3 py-2 [scrollbar-width:none]">{tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts[key] ? <span className={`rounded-full px-1.5 text-[10px] ${viewMode === key ? "bg-white/20" : key === "waiting" ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"}`}>{counts[key]}{hasNextPage ? "+" : ""}</span> : null}</button>)}</div>
+    <div role="tablist" aria-label="Lọc nhanh hội thoại" className="grid shrink-0 grid-cols-3 gap-1 border-b border-slate-100 px-3 py-2">{tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-xs font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts[key] ? <span className={`rounded-full px-1.5 text-[10px] ${viewMode === key ? "bg-white/20" : key === "waiting" ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"}`}>{counts[key]}{hasNextPage ? "+" : ""}</span> : null}</button>)}</div>
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="space-y-0.5 p-2">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId} tags={props.tags} filters={props.filters} now={now}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : "Không có hội thoại nào ở mục này."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
@@ -122,7 +124,8 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
 /** Name to show: contact, then the name from the channel, then the e-mail address; never a raw numeric id. */
 export function conversationDisplayName(item: { contactName: string | null; participantName: string | null; senderExternalId: string | null; channelType: ChannelType }) {
   const participant = item.participantName && !/^\d+$/u.test(item.participantName) ? item.participantName : null;
-  return item.contactName ?? participant ?? (item.channelType === "EMAIL" ? item.senderExternalId : null) ?? "Khách chưa rõ tên";
+  const contact = item.contactName && !/^\d+$/u.test(item.contactName) ? item.contactName : null;
+  return contact ?? participant ?? (item.channelType === "EMAIL" ? item.senderExternalId : null) ?? "Khách chưa rõ tên";
 }
 
 /** "chờ 3 giờ" with a colour: grey under 2 hours, amber from 2 hours, red from 1 day. */

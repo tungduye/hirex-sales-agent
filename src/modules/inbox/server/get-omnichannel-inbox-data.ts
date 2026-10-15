@@ -13,7 +13,7 @@ import { isFacebookProfileSystemPlaceholder } from "../core/facebook-profile-sys
 import type { OmnichannelInboxAccount, OmnichannelInboxConversation, OmnichannelInboxData } from "../types/omnichannel-inbox";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
-import { isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
+import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
@@ -328,6 +328,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
       participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Unknown account",
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
+      automated: row.channel_type === "EMAIL" && isAutomatedSender(typeof message?.sender_external_id === "string" ? message.sender_external_id : null),
       isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : inboundSenderByConversation.get(row.id) ?? null),
     });
   }

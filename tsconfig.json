@@ -131,7 +131,9 @@
     ".next-assistant-rules/types/**/*.ts",
     ".next-assistant-rules/dev/types/**/*.ts",
     ".next-inbox-layout-1/types/**/*.ts",
-    ".next-inbox-layout-1/dev/types/**/*.ts"
+    ".next-inbox-layout-1/dev/types/**/*.ts",
+    ".next-inbox-layout-2/types/**/*.ts",
+    ".next-inbox-layout-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

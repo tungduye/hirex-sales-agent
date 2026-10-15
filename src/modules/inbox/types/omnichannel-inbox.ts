@@ -34,6 +34,8 @@ export interface OmnichannelInboxConversation {
   proposedActions: Array<{ id: string; text: string | null; proposedBy: string }>;
   /** Group chat (several people write in it); shown under the "Nhóm" tab only. */
   isGroup: boolean;
+  /** E-mail from a robot sender (no-reply, notifications…). */
+  automated: boolean;
 }
 
 export interface OmnichannelInboxProfile {
