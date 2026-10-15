@@ -8,6 +8,7 @@ import { createContentBatch } from "@/modules/content/server/content-actions";
 import { initialCreateContentState } from "@/modules/content/core/content-state";
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, CONTENT_STYLES, MAX_CONTENT_QUANTITY, MAX_TEMPLATES_PER_BATCH, OTHER_OPTION, languageLabel, type ContentDepartment } from "@/modules/content/core/content-options";
 import type { ContentTemplate } from "@/modules/content/server/template-row";
+import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
 
 const inputClass = "block w-full rounded-lg border bg-slate-50 px-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-60";
 
@@ -16,14 +17,18 @@ const TOPIC_LABEL: Record<ContentDepartment, { title: string; placeholder: strin
   HR: { title: "Vị trí tuyển nội bộ", placeholder: "VD: Thực tập sinh Recruiter" },
   SALE: { title: "Chủ đề / ứng viên / dịch vụ", placeholder: "VD: Share UV PM người Nhật 15 năm" },
   CTV: { title: "Chương trình CTV", placeholder: "VD: Tuyển CTV giới thiệu ứng viên IT" },
+  MEDIA: { title: "Chủ đề truyền thông", placeholder: "VD: Team building quý 3 / Kinh nghiệm phỏng vấn BrSE" },
+  NOTICE: { title: "Nội dung thông báo", placeholder: "VD: Lịch nghỉ lễ 2/9 / Đổi địa điểm phỏng vấn" },
 };
 
-export function CreateContentDialog({ templates, onClose, onCreated }: { templates: ContentTemplate[]; onClose: () => void; onCreated: (message: string) => void }) {
+export function CreateContentDialog({ templates, categories, onClose, onCreated }: { templates: ContentTemplate[]; categories: ContentCategory[]; onClose: () => void; onCreated: (message: string) => void }) {
   const [state, formAction] = useActionState(createContentBatch, initialCreateContentState);
   const [pending, startTransition] = useTransition();
   const [department, setDepartment] = useState<ContentDepartment>("REC");
   const [style, setStyle] = useState<string>(CONTENT_STYLES[0].value);
   const [selected, setSelected] = useState<string[]>([]);
+  const [categoryId, setCategoryId] = useState("");
+  const departmentCategories = categoriesOf(categories, department);
   const [showSample, setShowSample] = useState(false);
 
   useEffect(() => {
@@ -35,6 +40,7 @@ export function CreateContentDialog({ templates, onClose, onCreated }: { templat
   function changeDepartment(next: ContentDepartment) {
     setDepartment(next);
     setSelected([]);
+    setCategoryId("");
   }
 
   // Submitting through onSubmit (not <form action>) keeps what was typed if the server rejects it.
@@ -58,7 +64,7 @@ export function CreateContentDialog({ templates, onClose, onCreated }: { templat
         <form onSubmit={submit} className="space-y-6 p-6">
           <div className="space-y-2" role="radiogroup" aria-label="Bộ phận">
             <p className="text-sm font-semibold text-slate-700">Bộ phận<span className="ml-1 text-rose-500">*</span></p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {CONTENT_DEPARTMENTS.map((item) => (
                 <label key={item.value} className="cursor-pointer">
                   <input type="radio" name="department" value={item.value} checked={department === item.value} onChange={() => changeDepartment(item.value)} disabled={pending} className="peer sr-only" />
@@ -68,6 +74,19 @@ export function CreateContentDialog({ templates, onClose, onCreated }: { templat
             </div>
             {error("department") && <p className="text-xs text-rose-600">{error("department")}</p>}
           </div>
+
+          {departmentCategories.length > 0 && <div className="space-y-2" role="radiogroup" aria-label="Phân loại">
+            <p className="text-sm font-semibold text-slate-700">Phân loại</p>
+            <div className="flex flex-wrap gap-2">
+              {[{ id: "", name: "Không phân loại" }, ...departmentCategories].map((item) => (
+                <label key={item.id || "none"} className="cursor-pointer">
+                  <input type="radio" name="categoryId" value={item.id} checked={categoryId === item.id} onChange={() => setCategoryId(item.id)} disabled={pending} className="peer sr-only" />
+                  <span className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:font-semibold peer-checked:text-violet-700 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500">{item.name}</span>
+                </label>
+              ))}
+            </div>
+            {error("categoryId") && <p className="text-xs text-rose-600">{error("categoryId")}</p>}
+          </div>}
 
           <Section title="Thông tin">
             <Field label={topic.title} required error={error("jobTitle")}><input name="jobTitle" required maxLength={200} disabled={pending} placeholder={topic.placeholder} className={cn(inputClass, "h-11")} /></Field>
@@ -105,7 +124,7 @@ export function CreateContentDialog({ templates, onClose, onCreated }: { templat
 
           <Section title="Đầu ra">
             <ChoiceGroup label="Ngôn ngữ content" name="contentLanguage" options={CONTENT_LANGUAGES} disabled={pending} error={error("contentLanguage")} />
-            <ChoiceGroup label="Định dạng content" name="contentFormat" options={CONTENT_FORMATS} disabled={pending} error={error("contentFormat")} />
+            <ChoiceGroup label="Định dạng content" name="contentFormat" options={CONTENT_FORMATS} defaultValue="POST_LONG" disabled={pending} error={error("contentFormat")} />
             <Field label={`Số lượng (1–${MAX_CONTENT_QUANTITY})`} required error={error("quantity")}><input name="quantity" type="number" min={1} max={MAX_CONTENT_QUANTITY} defaultValue={3} required disabled={pending} className={cn(inputClass, "h-11 sm:w-40")} /></Field>
           </Section>
 
@@ -177,15 +196,15 @@ function Field({ label, required, hint, error, children }: { label: string; requ
   );
 }
 
-function ChoiceGroup({ label, name, options, disabled, error }: { label: string; name: string; options: readonly { value: string; label: string }[]; disabled: boolean; error?: string }) {
+function ChoiceGroup({ label, name, options, defaultValue, disabled, error }: { label: string; name: string; options: readonly { value: string; label: string; hint?: string }[]; defaultValue?: string; disabled: boolean; error?: string }) {
   return (
     <div className="space-y-2" role="radiogroup" aria-label={label}>
       <p className="text-sm font-semibold text-slate-700">{label}<span className="ml-1 text-rose-500">*</span></p>
       <div className="flex flex-wrap gap-2">
         {options.map((option, index) => (
           <label key={option.value} className="cursor-pointer">
-            <input type="radio" name={name} value={option.value} defaultChecked={index === 0} disabled={disabled} className="peer sr-only" />
-            <span className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 peer-checked:border-blue-600 peer-checked:bg-blue-50 peer-checked:font-semibold peer-checked:text-blue-700 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500">{option.label}</span>
+            <input type="radio" name={name} value={option.value} defaultChecked={defaultValue ? option.value === defaultValue : index === 0} disabled={disabled} className="peer sr-only" />
+            <span title={option.hint} className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 peer-checked:border-blue-600 peer-checked:bg-blue-50 peer-checked:font-semibold peer-checked:text-blue-700 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500">{option.label}</span>
           </label>
         ))}
       </div>

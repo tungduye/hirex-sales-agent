@@ -40,14 +40,26 @@ export const DEPARTMENT_RULES: Record<ContentDepartment, DepartmentRule> = {
     voice: "gần gũi, nói rõ cách tham gia và quyền lợi có trong brief",
     cta: "đăng ký / inbox để nhận thông tin",
   },
+  MEDIA: {
+    reader: "cộng đồng IT, ứng viên và đối tác theo dõi trang của công ty",
+    goal: "truyền thông thương hiệu: chia sẻ hoạt động, câu chuyện, kiến thức nghề, tạo tương tác",
+    voice: "đại diện thương hiệu nói chuyện tự nhiên với cộng đồng: chân thật, có góc nhìn, không quảng cáo lộ liễu",
+    cta: "bình luận / chia sẻ / theo dõi trang / nhắn tin để biết thêm",
+  },
+  NOTICE: {
+    reader: "ứng viên, cộng tác viên, khách hàng hoặc nhân viên cần nắm thông tin",
+    goal: "thông báo rõ ràng một thông tin (lịch, thay đổi, sự kiện, kết quả…)",
+    voice: "rõ ràng, lịch sự, đi thẳng vào thông tin chính: cái gì, khi nào, ở đâu, ai cần làm gì",
+    cta: "hành động cụ thể người đọc cần làm (xác nhận, đăng ký, liên hệ…) nếu có trong brief",
+  },
 };
 
 const FORMAT_RULES: Record<ContentFormat, string> = {
-  POST: "Bài đăng Facebook/Zalo. title là dòng tiêu đề đầu bài; body là phần thân (không lặp lại title), chia đoạn ngắn hoặc gạch đầu dòng nếu hợp, kết bằng CTA. Độ dài theo mẫu tham khảo của item (bài teaser 1 dòng thì body có thể chỉ 1–2 câu).",
-  EMAIL: "Email hoàn chỉnh. title là dòng tiêu đề email (subject). body gồm lời chào, nội dung chính, lời kêu gọi hành động rõ ràng và phần ký tên dạng [Tên người gửi].",
-  ESSAY_100: "Bài viết một đoạn, khoảng 100 chữ cho mỗi ngôn ngữ (tiếng Nhật khoảng 200 ký tự). title là tiêu đề ngắn.",
-  SUMMARY_50: "Bài tóm tắt khoảng 50 chữ cho mỗi ngôn ngữ (tiếng Nhật khoảng 100 ký tự). title là tiêu đề ngắn.",
-  STORY: "Một câu chuyện ngắn 150–250 chữ cho mỗi ngôn ngữ, có tình huống cụ thể dẫn tới nội dung chính; không bịa sự kiện như thể đã xảy ra với công ty/ứng viên thật. title là tên câu chuyện.",
+  EMAIL: "MAIL. title là tiêu đề thư (subject) ≤ 70 ký tự, cụ thể, không giật tít. body là thư 120–200 chữ mỗi ngôn ngữ (tiếng Nhật 250–400 ký tự): lời chào, 2–4 đoạn ngắn nội dung chính, lời kêu gọi hành động rõ ràng, ký tên dạng [Tên người gửi].",
+  POST_LONG: "ĐĂNG CHI TIẾT (Facebook/Zalo). title là dòng tiêu đề đầu bài; body 180–300 chữ mỗi ngôn ngữ (tiếng Nhật 400–600 ký tự), không lặp lại title, chia đoạn ngắn hoặc gạch đầu dòng cho các ý chính, kết bằng CTA.",
+  POST_MEDIUM: "ĐĂNG TRUNG BÌNH (Facebook/Zalo). title là dòng tiêu đề ngắn; body 80–120 chữ mỗi ngôn ngữ (tiếng Nhật 180–260 ký tự): 2–3 ý mạnh nhất, 1–2 đoạn hoặc vài gạch đầu dòng, kết bằng CTA.",
+  POST_SHORT: "ĐĂNG VẮN (Facebook/Zalo). title là tiêu đề rất ngắn; body 25–50 chữ mỗi ngôn ngữ (tiếng Nhật 60–110 ký tự), 1–3 câu: một điểm mạnh nhất và CTA.",
+  COMMENT: "COMMENT (bình luận dưới bài đăng hoặc trong nhóm). body 10–30 chữ mỗi ngôn ngữ (tiếng Nhật 20–60 ký tự), 1–2 câu tự nhiên như người thật bình luận, không gạch đầu dòng, không hashtag, không mở bài kiểu quảng cáo. title chỉ là nhãn nội bộ ngắn (3–6 chữ) mô tả ý của comment.",
 };
 
 /** Angles the model rotates through so items in one batch start and develop differently. */
@@ -90,7 +102,7 @@ export const generatedBatchJsonSchema = {
   },
 } as const;
 
-const TOKENS_PER_ITEM: Record<ContentFormat, number> = { POST: 900, EMAIL: 900, ESSAY_100: 500, SUMMARY_50: 300, STORY: 1000 };
+const TOKENS_PER_ITEM: Record<ContentFormat, number> = { EMAIL: 900, POST_LONG: 1000, POST_MEDIUM: 500, POST_SHORT: 300, COMMENT: 200 };
 
 export function maxOutputTokens(format: ContentFormat, language: ContentLanguage, count: number) {
   return Math.min(24_000, 400 + TOKENS_PER_ITEM[format] * languageParts(language).length * count);
@@ -100,8 +112,20 @@ function presetLabel(options: readonly { value: string; label: string }[], value
   return options.find((item) => item.value === value)?.label ?? value;
 }
 
+/** "[Địa điểm]" title prefix; comments never get one. */
+export function briefTitlePrefix(brief: ContentBrief) {
+  return brief.contentFormat === "COMMENT" ? null : titlePrefixFor(brief.department, brief.location);
+}
+
+/** The brief plus the name of its "Phân loại" (resolved on the server). */
+export type ContentBriefWithCategory = ContentBrief & { categoryName?: string | null };
+
+function categoryRule(brief: ContentBriefWithCategory) {
+  return brief.categoryName ? `PHÂN LOẠI BÀI: "${brief.categoryName}" — viết đúng dạng bài này (ví dụ "Dạng share": bài để người khác chia sẻ lại, tự nhiên, không quá bán hàng; "Giới thiệu": giới thiệu dịch vụ / ứng viên / công ty).` : "";
+}
+
 export interface ContentRoundInput {
-  brief: ContentBrief;
+  brief: ContentBriefWithCategory;
   count: number;
   /** 0 for the first round, 1–2 for rewrites of items rejected as duplicates. */
   round: number;
@@ -118,7 +142,7 @@ export function buildContentRequest({ brief, count, round, avoid, templates = []
     : `Song ngữ: body ghi ${LANGUAGE_TAGS[parts[0]]} rồi bản ${LANGUAGE_NAMES[parts[0]]}, sau đó một dòng "---", rồi ${LANGUAGE_TAGS[parts[1]]} và bản ${LANGUAGE_NAMES[parts[1]]} cùng fact. Mỗi bản viết tự nhiên theo ngôn ngữ đó, không dịch máy từng câu; CTA bản Anh/Nhật dùng cách nói tự nhiên, không dịch "IB em". title viết bằng ${LANGUAGE_NAMES[parts[0]]}.`;
   const department = DEPARTMENT_RULES[brief.department];
   const style = presetLabel(CONTENT_STYLES, brief.style);
-  const prefix = titlePrefixFor(brief.department, brief.location);
+  const prefix = briefTitlePrefix(brief);
   const angleOffset = round * count;
 
   const plan = Array.from({ length: count }, (_, index) => {
@@ -132,6 +156,7 @@ export function buildContentRequest({ brief, count, round, avoid, templates = []
     `Người đọc: ${department.reader}. Giọng: ${department.voice}. Phong cách chọn: ${style}.${brief.styleNote ? " Ghi chú phong cách trong input.styleNote." : ""}`,
     `Tạo đúng ${count} content khác nhau, trả JSON {"items":[{"title","body"}]} đúng schema, theo thứ tự kế hoạch: ${plan.join(" | ")}.`,
     FORMAT_RULES[brief.contentFormat],
+    categoryRule(brief),
     languageRule,
     prefix
       ? `TIÊU ĐỀ: mọi title bắt đầu CHÍNH XÁC bằng "${prefix}" rồi viết linh hoạt 1–3 điểm bán mạnh nhất (vị trí/rank, lương, ngoại ngữ, keypoint…), không nhồi đủ mọi fact, không đặt thêm [địa điểm] khác. Ví dụ dạng: "${prefix} BrSE SENIOR - Lương 70M - 90M gross", "${prefix} TÌM KIẾM ĐỒNG ĐỘI BRSE/PM".`
@@ -143,7 +168,7 @@ export function buildContentRequest({ brief, count, round, avoid, templates = []
     "Không nhắc tên công ty khách hàng, website hay đường link; tuyệt đối không dùng các từ trong input.blockedTerms.",
     "Các content khác nhau rõ rệt về hook, câu mở đầu, cấu trúc, góc nhìn và CTA; không lặp câu hay cụm dài giữa các content. Không viết giống hoặc diễn đạt lại sát các đoạn trong input.avoid.",
     "Không dùng markdown tiêu đề (#) và không thêm chú thích ngoài nội dung.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const input = JSON.stringify({
     job: jobFacts(brief),
@@ -197,15 +222,15 @@ function describeProfile(template: TemplateSample, language: ContentLanguage) {
  * One content written closely after one sample: same headline style, opening, order of ideas,
  * paragraphing, bullets, voice, CTA and length, but with every fact taken from the brief.
  */
-export function buildTemplateItemRequest({ brief, template, round, avoid }: { brief: ContentBrief; template: TemplateSample; round: number; avoid: string[] }) {
+export function buildTemplateItemRequest({ brief, template, round, avoid }: { brief: ContentBriefWithCategory; template: TemplateSample; round: number; avoid: string[] }) {
   const parts = languageParts(brief.contentLanguage);
   const department = DEPARTMENT_RULES[brief.department];
-  const prefix = titlePrefixFor(brief.department, brief.location);
+  const prefix = briefTitlePrefix(brief);
   const sameLanguage = template.language === brief.contentLanguage;
   const languageRule = parts.length === 1
     ? `Viết bằng ${LANGUAGE_NAMES[parts[0]]}${sameLanguage ? "" : " (mẫu viết bằng ngôn ngữ khác: giữ bố cục và giọng, diễn đạt tự nhiên bằng ngôn ngữ đích)"}.`
     : `Song ngữ: body ghi ${LANGUAGE_TAGS[parts[0]]} rồi bản ${LANGUAGE_NAMES[parts[0]]} theo sát bố cục mẫu, sau đó một dòng "---", rồi ${LANGUAGE_TAGS[parts[1]]} và bản ${LANGUAGE_NAMES[parts[1]]} cùng fact, cùng bố cục, viết tự nhiên (không dịch máy, không dịch "IB em"). title bằng ${LANGUAGE_NAMES[parts[0]]}.`;
-  const formatRule = brief.contentFormat === "POST"
+  const formatRule = brief.contentFormat === "POST_LONG" && (!template.format || template.format === "POST_LONG")
     ? `HÌNH THỨC THEO MẪU: ${describeProfile(template, brief.contentLanguage)}.`
     : `${FORMAT_RULES[brief.contentFormat]} Giữ giọng văn, cách mở bài, kiểu CTA và nhịp câu của mẫu; độ dài theo định dạng này.`;
 
@@ -214,6 +239,7 @@ export function buildTemplateItemRequest({ brief, template, round, avoid }: { br
     `Người đọc: ${department.reader}. Mục tiêu: ${department.goal}.`,
     "GIỮ THEO MẪU: kiểu tiêu đề, câu mở bài (cùng dạng: hỏi, kể, nêu lương, nêu tình huống…), thứ tự ý, cách chia đoạn và gạch đầu dòng, nhịp câu, cách xưng hô (em / mình / anh em / sếp…), từ lóng nghề (gross, offer, process, IB, rank…), mức viết hoa, emoji và kiểu CTA.",
     formatRule,
+    categoryRule(brief),
     languageRule,
     prefix ? `title bắt đầu CHÍNH XÁC bằng "${prefix}", phần sau theo kiểu tiêu đề của mẫu. Không đặt thêm [địa điểm] khác.` : "title theo kiểu tiêu đề của mẫu.",
     "THAY TOÀN BỘ DỮ KIỆN: lương, số năm, N-level, tech, công ty, quy trình, phúc lợi, số lượng, địa điểm, thông tin ứng viên… đều lấy từ input.job. Ý nào trong mẫu không có dữ kiện tương ứng trong input.job thì bỏ ý đó hoặc thay bằng một điểm mạnh khác có trong input.job — tuyệt đối không giữ con số hay dữ kiện của mẫu, không bịa.",

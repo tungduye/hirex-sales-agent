@@ -33,8 +33,8 @@ test('request carries the brief as data and the rules as instructions', () => {
   // rewrite rounds rotate to different angles
   const round1 = buildContentRequest({ brief, count: 3, round: 1, avoid: [] });
   assert.notEqual(round1.instructions.match(/#1: ([^|,]+)/)[1], request.instructions.match(/#1: ([^|,]+)/)[1]);
-  assert.equal(maxOutputTokens('STORY', 'VI_EN', 10), 20_400);
-  assert.equal(maxOutputTokens('STORY', 'VI_EN', 20), 24_000);
+  assert.equal(maxOutputTokens('POST_LONG', 'VI_EN', 10), 20_400);
+  assert.equal(maxOutputTokens('POST_LONG', 'VI_EN', 20), 24_000);
 });
 
 test('department rules: Sale talks to companies, CTV titles are free', () => {
@@ -165,4 +165,26 @@ test('title prefix and blocked terms', () => {
   assert.deepEqual(parseBlockedTerms('ABC; abc.co.jp,\nX ;  ; ABC'), ['ABC', 'abc.co.jp']);
   assert.equal(findBlockedTerm('Ứng tuyển tại ABC JAPAN nhé', ['abc japan']), 'abc japan');
   assert.equal(findBlockedTerm('Không có gì', ['abc']), null);
+});
+
+test('format rules, Thông báo / Truyền thông titles, comments without a place prefix, category hint', () => {
+  const comment = buildContentRequest({ brief: { ...brief, contentFormat: 'COMMENT', location: 'Hà Nội', categoryName: 'Dạng share' }, count: 1, round: 0, avoid: [] });
+  assert.match(comment.instructions, /COMMENT/);
+  assert.match(comment.instructions, /Dạng share/);
+  assert.equal(comment.titlePrefix, null);
+  const notice = buildContentRequest({ brief: { ...brief, department: 'NOTICE', contentFormat: 'POST_SHORT', location: 'Hà Nội' }, count: 1, round: 0, avoid: [] });
+  assert.equal(notice.titlePrefix, null);
+  assert.match(notice.instructions, /ĐĂNG VẮN/);
+  const media = buildContentRequest({ brief: { ...brief, department: 'MEDIA', contentFormat: 'POST_MEDIUM' }, count: 1, round: 0, avoid: [] });
+  assert.match(media.instructions, /truyền thông thương hiệu/);
+  assert.ok(!/PHÂN LOẠI BÀI/.test(media.instructions));
+});
+
+test('template ranking prefers the same category and format', () => {
+  const candidates = [
+    { ...template('A'), weight: 9, format: 'POST_LONG', categoryId: null },
+    { ...template('B'), weight: 1, format: 'COMMENT', categoryId: null },
+    { ...template('C'), weight: 1, format: 'POST_LONG', categoryId: 'share' },
+  ];
+  assert.deepEqual(pickTemplates({ chosen: [], candidates, department: 'REC', language: 'VI', quantity: 3, seed: 'x', format: 'COMMENT', categoryId: 'share' }).map((item) => item.code), ['C', 'B', 'A']);
 });

@@ -11,6 +11,8 @@ const UUID = /^[0-9a-f-]{36}$/i;
 function columns(input: ContentTemplateInput) {
   return {
     department: input.department,
+    content_format: input.contentFormat,
+    category_id: input.categoryId,
     language: input.language,
     group_name: input.groupName,
     tone: input.tone,
@@ -41,13 +43,13 @@ export async function saveTemplate(_previous: TemplateFormState, formData: FormD
   if (typeof templateId === "string" && templateId) {
     if (!UUID.test(templateId)) return { success: false, message: "Mẫu không hợp lệ." };
     const { data, error } = await supabase.from("content_templates").update(columns(parsed.data)).eq("id", templateId).eq("workspace_id", account.workspaceId).select("code");
-    if (error || !data?.length) return { success: false, message: "Không lưu được mẫu. Vui lòng thử lại." };
+    if (error || !data?.length) return { success: false, message: error?.code === "23503" ? "Phân loại không thuộc bộ phận đã chọn." : "Không lưu được mẫu. Vui lòng thử lại." };
     refresh();
     return { success: true, message: `Đã lưu mẫu ${(data[0] as { code: string }).code}.` };
   }
   const { data, error } = await supabase.from("content_templates")
     .insert({ ...columns(parsed.data), workspace_id: account.workspaceId, created_by: account.userId }).select("code").single();
-  if (error || !data) return { success: false, message: "Không thêm được mẫu. Vui lòng thử lại." };
+  if (error || !data) return { success: false, message: error?.code === "23503" ? "Phân loại không thuộc bộ phận đã chọn." : "Không thêm được mẫu. Vui lòng thử lại." };
   refresh();
   return { success: true, message: `Đã thêm mẫu ${(data as { code: string }).code}.` };
 }

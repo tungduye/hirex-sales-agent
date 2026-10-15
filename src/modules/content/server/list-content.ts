@@ -14,6 +14,7 @@ export interface ContentListItem {
   language: string;
   format: string;
   department: string;
+  categoryId: string | null;
   style: string;
   maxSimilarity: number;
   createdAt: string;
@@ -38,7 +39,7 @@ interface BatchRow {
 
 interface ContentRow {
   id: string; code: string; title: string; body: string; job_title: string; content_language: string; content_format: string;
-  department: string; style: string; max_similarity: number | string; created_at: string; created_by: string; template_id: string | null;
+  department: string; category_id: string | null; style: string; max_similarity: number | string; created_at: string; created_by: string; template_id: string | null;
 }
 
 export async function listContent(raw: Record<string, string | string[] | undefined> = {}): Promise<ListContentResult> {
@@ -49,13 +50,14 @@ export async function listContent(raw: Record<string, string | string[] | undefi
   const supabase = await createClient();
   let itemsQuery = supabase
     .from("content_items")
-    .select("id, code, title, body, job_title, content_language, content_format, department, style, max_similarity, created_at, created_by, template_id", { count: "exact" })
+    .select("id, code, title, body, job_title, content_language, content_format, department, category_id, style, max_similarity, created_at, created_by, template_id", { count: "exact" })
     .eq("workspace_id", account.workspaceId);
   const pattern = contentSearchPattern(query.q);
   if (pattern) itemsQuery = itemsQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
   if (query.language !== "ALL") itemsQuery = itemsQuery.eq("content_language", query.language);
   if (query.format !== "ALL") itemsQuery = itemsQuery.eq("content_format", query.format);
   if (query.department !== "ALL") itemsQuery = itemsQuery.eq("department", query.department);
+  if (query.category !== "ALL") itemsQuery = itemsQuery.eq("category_id", query.category);
   const from = (query.page - 1) * query.pageSize;
 
   const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
@@ -103,6 +105,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
       language: row.content_language,
       format: row.content_format,
       department: row.department,
+      categoryId: row.category_id,
       style: row.style,
       maxSimilarity: Number(row.max_similarity),
       createdAt: row.created_at,

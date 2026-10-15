@@ -19,7 +19,7 @@ const TEASER = 'HN - LƯƠNG DIVISION MANAGER N1/N2 80-100M- ANH EM QUAN TÂM IB
 const brief = {
   jobTitle: 'BrSE HCM', position: 'BrSE', location: 'TP HCM', languagesRequired: 'N2', techSkills: null, salary: '50 - 65M gross',
   highlights: 'Công ty 100% vốn Nhật', jdText: 'Có kinh nghiệm BrSE/SE dự án Nhật', blockedTerms: null, style: 'FRIENDLY', styleNote: null,
-  sampleContent: null, contentLanguage: 'VI', contentFormat: 'POST', department: 'REC', templateIds: [], quantity: 3,
+  sampleContent: null, contentLanguage: 'VI', contentFormat: 'POST_LONG', department: 'REC', templateIds: [], quantity: 3,
 };
 const template = { id: 't1', code: 'LEARN_BRSE_001', department: 'REC', language: 'VI', groupName: 'URGENT_RECRUITMENT', tone: 'Recruiter gần gũi', cta: 'IB / gửi CV', body: LEARN_001, weight: 5, active: true };
 
@@ -55,7 +55,7 @@ test('per-item request asks to mirror the sample and to replace every fact', () 
   assert.equal(input.job.salary, '50 - 65M gross');
   assert.ok(request.maxOutputTokens > 1000);
   const email = buildTemplateItemRequest({ brief: { ...brief, contentFormat: 'EMAIL' }, template, round: 1, avoid: ['cũ'] });
-  assert.match(email.instructions, /Email hoàn chỉnh/);
+  assert.match(email.instructions, /MAIL. title là tiêu đề thư/);
   assert.match(email.instructions, /input\.avoid/);
 });
 

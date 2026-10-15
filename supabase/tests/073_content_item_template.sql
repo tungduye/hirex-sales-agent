@@ -10,11 +10,11 @@ insert into public.content_templates(id,workspace_id,code,department,body) value
   ('00000000-0000-4000-8000-0000000007e3','00000000-0000-4000-8000-0000000007a3','T1','REC','Mẫu'),
   ('00000000-0000-4000-8000-0000000007e4','00000000-0000-4000-8000-0000000007a4','T2','REC','Mẫu khác');
 insert into public.content_batches(id,workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007c3','00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-000000000731','Job','PROFESSIONAL','VI','POST','REC',2);
+  values('00000000-0000-4000-8000-0000000007c3','00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-000000000731','Job','PROFESSIONAL','VI','POST_LONG','REC',2);
 insert into public.content_items(id,workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,created_by,template_id)
-  values('00000000-0000-4000-8000-0000000007d3','00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-0000000007c3','t','b','Job','VI','POST','REC','PROFESSIONAL','00000000-0000-4000-8000-000000000731','00000000-0000-4000-8000-0000000007e3');
+  values('00000000-0000-4000-8000-0000000007d3','00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-0000000007c3','t','b','Job','VI','POST_LONG','REC','PROFESSIONAL','00000000-0000-4000-8000-000000000731','00000000-0000-4000-8000-0000000007e3');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_items(workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,created_by,template_id)
-  values('00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-0000000007c3','t','b2','Job','VI','POST','REC','PROFESSIONAL','00000000-0000-4000-8000-000000000731','00000000-0000-4000-8000-0000000007e4')$$),'template of another workspace refused');
+  values('00000000-0000-4000-8000-0000000007a3','00000000-0000-4000-8000-0000000007c3','t','b2','Job','VI','POST_LONG','REC','PROFESSIONAL','00000000-0000-4000-8000-000000000731','00000000-0000-4000-8000-0000000007e4')$$),'template of another workspace refused');
 select pg_temp.assert_true(has_column_privilege('authenticated','public.content_items','template_id','insert'),'template id can be recorded');
 delete from public.content_templates where id='00000000-0000-4000-8000-0000000007e3';
 select pg_temp.assert_true((select template_id is null and workspace_id is not null from public.content_items where id='00000000-0000-4000-8000-0000000007d3'),'deleting a template keeps the content');

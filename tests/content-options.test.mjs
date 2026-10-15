@@ -20,12 +20,12 @@ test('valid brief with presets', () => {
   assert.equal(result.data.quantity, 3);
 });
 
-test('"Khác" style uses the typed text; departments are the four fixed ones', () => {
+test('"Khác" style uses the typed text; departments are the six fixed ones', () => {
   const result = form({ style: OTHER_OPTION, styleOther: 'Hài hước', department: 'CTV' });
   assert.equal(result.success, true);
   assert.equal(result.data.style, 'Hài hước');
   assert.equal(result.data.department, 'CTV');
-  for (const department of ['REC', 'HR', 'SALE', 'CTV']) assert.equal(form({ department }).success, true, department);
+  for (const department of ['REC', 'HR', 'SALE', 'CTV', 'MEDIA', 'NOTICE']) assert.equal(form({ department }).success, true, department);
   for (const department of ['RECRUITING', 'OTHER', '']) assert.equal(form({ department }).success, false, department);
 });
 
@@ -53,4 +53,21 @@ test('rejects bad input', () => {
   for (const values of [{ jobTitle: ' ' }, { contentLanguage: 'FR' }, { contentFormat: 'TWEET' }, { jdText: 'x'.repeat(8001) }, { quantity: '0' }, { quantity: '11' }, { quantity: '2.5' }, { style: 'HACK' }, { sampleContent: 'x'.repeat(6001) }]) {
     assert.equal(form(values).success, false, JSON.stringify(values).slice(0, 60));
   }
+});
+
+test('taxonomy: new formats, legacy format codes, Japanese, optional category', () => {
+  for (const contentFormat of ['EMAIL', 'POST_LONG', 'POST_MEDIUM', 'POST_SHORT', 'COMMENT']) assert.equal(form({ contentFormat }).success, true, contentFormat);
+  assert.equal(form({ contentFormat: 'ESSAY_100' }).data.contentFormat, 'POST_MEDIUM');
+  assert.equal(form({ contentFormat: 'SUMMARY_50' }).data.contentFormat, 'POST_SHORT');
+  assert.equal(form({ contentFormat: 'STORY' }).data.contentFormat, 'POST_LONG');
+  assert.equal(form({ contentLanguage: 'JA' }).success, true);
+  assert.equal(form({}).data.categoryId, null);
+  assert.equal(form({ categoryId: '00000000-0000-4000-8000-000000000001' }).data.categoryId, '00000000-0000-4000-8000-000000000001');
+  assert.equal(form({ categoryId: 'abc' }).success, false);
+  const data = new FormData();
+  for (const [key, value] of Object.entries({ department: 'MEDIA', language: 'EN_JA', contentFormat: 'COMMENT', body: 'x' })) data.set(key, value);
+  const template = contentTemplateSchema.safeParse(templateInputFromFormData(data));
+  assert.equal(template.success, true);
+  assert.equal(template.data.contentFormat, 'COMMENT');
+  assert.equal(template.data.categoryId, null);
 });

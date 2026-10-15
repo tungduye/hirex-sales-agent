@@ -13,6 +13,7 @@ import { deleteContentItem } from "@/modules/content/server/content-actions";
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, departmentLabel, formatLabel, languageLabel, styleLabel, type ContentDepartment, type ContentFormat, type ContentLanguage } from "@/modules/content/core/content-options";
 import { contentListHref, type ContentListQuery } from "@/modules/content/core/content-list-query";
 import type { ContentListItem } from "@/modules/content/server/list-content";
+import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
 import { batchStatus, isBatchRunning, type BatchTone, type ContentBatchSummary } from "@/modules/content/core/batch-status";
 
 const dateFormatter = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" });
@@ -22,6 +23,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 interface ContentLibraryViewProps {
   items: ContentListItem[];
   templates: ContentTemplate[];
+  categories: ContentCategory[];
   batches: ContentBatchSummary[];
   total: number;
   libraryTotal: number;
@@ -31,7 +33,7 @@ interface ContentLibraryViewProps {
   canDelete: boolean;
 }
 
-export function ContentLibraryView({ items, templates, batches, total, libraryTotal, query, loadError, canCreate, canDelete }: ContentLibraryViewProps) {
+export function ContentLibraryView({ items, templates, categories, batches, total, libraryTotal, query, loadError, canCreate, canDelete }: ContentLibraryViewProps) {
   const router = useRouter();
   const [search, setSearch] = useState(query.q);
   const [isNavigating, startNavigation] = useTransition();
@@ -40,9 +42,11 @@ export function ContentLibraryView({ items, templates, batches, total, libraryTo
   const [selected, setSelected] = useState<ContentListItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const go = useCallback((next: Partial<Pick<ContentListQuery, "q" | "language" | "format" | "department" | "page">>) => {
-    startNavigation(() => router.replace(contentListHref({ q: query.q, language: query.language, format: query.format, department: query.department, page: 1, ...next }), { scroll: false }));
-  }, [router, query.q, query.language, query.format, query.department]);
+  const go = useCallback((next: Partial<Pick<ContentListQuery, "q" | "language" | "format" | "department" | "category" | "page">>) => {
+    startNavigation(() => router.replace(contentListHref({ q: query.q, language: query.language, format: query.format, department: query.department, category: query.category, page: 1, ...next }), { scroll: false }));
+  }, [router, query.q, query.language, query.format, query.department, query.category]);
+  const categoryName = new Map(categories.map((item) => [item.id, item.name]));
+  const categoryChoices = query.department === "ALL" ? categories : categoriesOf(categories, query.department, { includeInactive: true });
 
   useEffect(() => {
     if (query.q !== lastSubmitted.current) { lastSubmitted.current = query.q; setSearch(query.q); }
@@ -101,15 +105,16 @@ export function ContentLibraryView({ items, templates, batches, total, libraryTo
           <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center">
             <div className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Tìm theo mã, tiêu đề, job, nội dung…" /></div>
             <div className="grid grid-cols-2 gap-3 sm:flex">
-              <select aria-label="Bộ phận" value={query.department} onChange={(event) => go({ department: event.target.value as ContentDepartment | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi bộ phận</option>{CONTENT_DEPARTMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select aria-label="Bộ phận" value={query.department} onChange={(event) => go({ department: event.target.value as ContentDepartment | "ALL", category: "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi bộ phận</option>{CONTENT_DEPARTMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <select aria-label="Ngôn ngữ" value={query.language} onChange={(event) => go({ language: event.target.value as ContentLanguage | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi ngôn ngữ</option>{CONTENT_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <select aria-label="Định dạng" value={query.format} onChange={(event) => go({ format: event.target.value as ContentFormat | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi định dạng</option>{CONTENT_FORMATS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select aria-label="Phân loại" value={query.category} onChange={(event) => go({ category: event.target.value })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi phân loại</option>{categoryChoices.map((item) => <option key={item.id} value={item.id}>{query.department === "ALL" ? `${departmentLabel(item.department)} · ` : ""}{item.name}</option>)}</select>
             </div>
             <span className="text-xs font-medium text-slate-500 lg:ml-auto">{isNavigating ? "Đang tải…" : `${total.toLocaleString("vi-VN")} / ${libraryTotal.toLocaleString("vi-VN")} content`}</span>
           </div>
           <div className={`overflow-x-auto transition-opacity ${isNavigating ? "opacity-60" : ""}`}>
             <table className="w-full min-w-[960px] text-left">
-              <thead className="whitespace-nowrap bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Mã</th><th className="px-4 py-3 font-semibold">Tiêu đề · Job</th><th className="px-4 py-3 font-semibold">Ngôn ngữ</th><th className="px-4 py-3 font-semibold">Định dạng</th><th className="px-4 py-3 font-semibold">Bộ phận</th><th className="px-4 py-3 text-right font-semibold">Trùng cao nhất</th><th className="px-5 py-3 font-semibold">Người tạo · Ngày</th></tr></thead>
+              <thead className="whitespace-nowrap bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Mã</th><th className="px-4 py-3 font-semibold">Tiêu đề · Job</th><th className="px-4 py-3 font-semibold">Ngôn ngữ</th><th className="px-4 py-3 font-semibold">Định dạng</th><th className="px-4 py-3 font-semibold">Bộ phận · Phân loại</th><th className="px-4 py-3 text-right font-semibold">Trùng cao nhất</th><th className="px-5 py-3 font-semibold">Người tạo · Ngày</th></tr></thead>
               <tbody className="divide-y">
                 {items.map((item) => (
                   <tr key={item.id} className="cursor-pointer transition-colors hover:bg-slate-50/70" onClick={() => setSelected(item)}>
@@ -117,7 +122,7 @@ export function ContentLibraryView({ items, templates, batches, total, libraryTo
                     <td className="max-w-[360px] px-4 py-4"><p className="truncate text-sm font-semibold text-slate-900">{item.title}</p><p className="mt-0.5 truncate text-xs text-slate-500">{item.jobTitle}</p></td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{languageLabel(item.language)}</td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{formatLabel(item.format)}</td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{departmentLabel(item.department)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{departmentLabel(item.department)}{item.categoryId && categoryName.get(item.categoryId) ? <span className="mt-0.5 block text-xs text-violet-700">{categoryName.get(item.categoryId)}</span> : null}</td>
                     <td className="px-4 py-4 text-right text-sm tabular-nums text-slate-600">{percent(item.maxSimilarity)}</td>
                     <td className="whitespace-nowrap px-5 py-4"><p className="text-sm text-slate-700">{item.createdByName ?? "—"}</p><p className="mt-0.5 text-xs tabular-nums text-slate-500">{formatDate(item.createdAt)}</p></td>
                   </tr>
@@ -135,8 +140,8 @@ export function ContentLibraryView({ items, templates, batches, total, libraryTo
           </div>}
         </div>
       )}
-      {dialogOpen && <CreateContentDialog templates={templates} onClose={() => setDialogOpen(false)} onCreated={handleCreated} />}
-      {selected && <ContentDetailDialog item={selected} canDelete={canDelete} onClose={() => setSelected(null)} onDeleted={handleDeleted} />}
+      {dialogOpen && <CreateContentDialog templates={templates} categories={categories} onClose={() => setDialogOpen(false)} onCreated={handleCreated} />}
+      {selected && <ContentDetailDialog item={selected} categoryName={selected.categoryId ? categoryName.get(selected.categoryId) ?? null : null} canDelete={canDelete} onClose={() => setSelected(null)} onDeleted={handleDeleted} />}
     </>
   );
 }
@@ -169,7 +174,7 @@ function RecentBatches({ batches, now }: { batches: ContentBatchSummary[]; now: 
   );
 }
 
-function ContentDetailDialog({ item, canDelete, onClose, onDeleted }: { item: ContentListItem; canDelete: boolean; onClose: () => void; onDeleted: (message: string) => void }) {
+function ContentDetailDialog({ item, categoryName, canDelete, onClose, onDeleted }: { item: ContentListItem; categoryName: string | null; canDelete: boolean; onClose: () => void; onDeleted: (message: string) => void }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +207,7 @@ function ContentDetailDialog({ item, canDelete, onClose, onDeleted }: { item: Co
             <p className="font-mono text-xs font-semibold text-blue-700">{item.code}</p>
             <h2 id="content-detail-title" className="mt-1 text-lg font-bold tracking-tight">{item.title}</h2>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-              {[item.jobTitle, languageLabel(item.language), formatLabel(item.format), departmentLabel(item.department), styleLabel(item.style), item.templateCode ? `Theo mẫu ${item.templateCode}` : null, `Trùng cao nhất ${percent(item.maxSimilarity)}`].filter((tag): tag is string => Boolean(tag)).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}
+              {[item.jobTitle, languageLabel(item.language), formatLabel(item.format), departmentLabel(item.department), categoryName, styleLabel(item.style), item.templateCode ? `Theo mẫu ${item.templateCode}` : null, `Trùng cao nhất ${percent(item.maxSimilarity)}`].filter((tag): tag is string => Boolean(tag)).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}
             </div>
           </div>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} disabled={deleting} aria-label="Đóng"><X className="size-5" /></Button>

@@ -5,35 +5,36 @@ import { z } from "zod";
 export const CONTENT_LANGUAGES = [
   { value: "VI", label: "Tiếng Việt" },
   { value: "EN", label: "Tiếng Anh" },
-  { value: "VI_EN", label: "Song ngữ Việt – Anh" },
-  { value: "VI_JA", label: "Song ngữ Việt – Nhật" },
-  { value: "EN_JA", label: "Song ngữ Anh – Nhật" },
-] as const;
-
-/** Templates may also be written only in Japanese. */
-export const TEMPLATE_LANGUAGES = [
-  { value: "VI", label: "Tiếng Việt" },
-  { value: "EN", label: "Tiếng Anh" },
   { value: "JA", label: "Tiếng Nhật" },
   { value: "VI_EN", label: "Song ngữ Việt – Anh" },
   { value: "VI_JA", label: "Song ngữ Việt – Nhật" },
-  { value: "EN_JA", label: "Song ngữ Anh – Nhật" },
+  { value: "EN_JA", label: "Song ngữ Nhật – Anh" },
 ] as const;
 
+/** Templates use the same languages as content. */
+export const TEMPLATE_LANGUAGES = CONTENT_LANGUAGES;
+
+/** "Định dạng". Lengths are per language (a bilingual content has both versions). */
 export const CONTENT_FORMATS = [
-  { value: "POST", label: "Bài đăng Facebook/Zalo", hint: "Bài đăng có tiêu đề, thân bài và lời kêu gọi" },
-  { value: "EMAIL", label: "Email", hint: "Email có tiêu đề, lời chào, nội dung và lời kêu gọi" },
-  { value: "ESSAY_100", label: "Bài luận ~100 chữ", hint: "Một đoạn khoảng 100 chữ" },
-  { value: "SUMMARY_50", label: "Bài tóm tắt ~50 chữ", hint: "Tóm tắt khoảng 50 chữ" },
-  { value: "STORY", label: "Câu chuyện", hint: "Kể một câu chuyện ngắn dẫn tới vị trí" },
+  { value: "EMAIL", label: "Mail", hint: "Tiêu đề ≤ 70 ký tự; thư 120–200 chữ: chào, nội dung, lời kêu gọi, ký tên" },
+  { value: "POST_LONG", label: "Đăng chi tiết", hint: "Bài đăng đầy đủ 180–300 chữ: tiêu đề, các ý chính, CTA" },
+  { value: "POST_MEDIUM", label: "Đăng trung bình", hint: "Bài đăng 80–120 chữ: tiêu đề và 2–3 ý mạnh nhất" },
+  { value: "POST_SHORT", label: "Đăng vắn", hint: "Bài đăng ngắn 25–50 chữ, 1–3 câu" },
+  { value: "COMMENT", label: "Comment", hint: "Bình luận 10–30 chữ, 1–2 câu tự nhiên" },
 ] as const;
 
+/** "Bộ phận". Codes are stored in the database; labels are what people see. */
 export const CONTENT_DEPARTMENTS = [
-  { value: "REC", label: "Content Rec" },
-  { value: "HR", label: "Content HR nội bộ" },
-  { value: "SALE", label: "Content Sale" },
-  { value: "CTV", label: "Content CTV" },
+  { value: "SALE", label: "Sale" },
+  { value: "HR", label: "Tuyển nội bộ" },
+  { value: "REC", label: "Tuyển dự án" },
+  { value: "MEDIA", label: "Truyền thông" },
+  { value: "NOTICE", label: "Thông báo" },
+  { value: "CTV", label: "CTV" },
 ] as const;
+
+/** Format codes used before migration 081 and their replacement (old links, pending requests). */
+export const LEGACY_FORMAT_CODES: Record<string, string> = { POST: "POST_LONG", STORY: "POST_LONG", ESSAY_100: "POST_MEDIUM", SUMMARY_50: "POST_SHORT" };
 
 export const CONTENT_STYLES = [
   { value: "PROFESSIONAL", label: "Chuyên nghiệp" },
@@ -55,7 +56,7 @@ export type ContentFormat = (typeof CONTENT_FORMATS)[number]["value"];
 export type ContentDepartment = (typeof CONTENT_DEPARTMENTS)[number]["value"];
 
 const languageValues = CONTENT_LANGUAGES.map((item) => item.value) as [ContentLanguage, ...ContentLanguage[]];
-const templateLanguageValues = TEMPLATE_LANGUAGES.map((item) => item.value) as [TemplateLanguage, ...TemplateLanguage[]];
+const templateLanguageValues = languageValues as [TemplateLanguage, ...TemplateLanguage[]];
 const formatValues = CONTENT_FORMATS.map((item) => item.value) as [ContentFormat, ...ContentFormat[]];
 const departmentValues = CONTENT_DEPARTMENTS.map((item) => item.value) as [ContentDepartment, ...ContentDepartment[]];
 
@@ -63,10 +64,14 @@ function labelOf(options: readonly { value: string; label: string }[], value: st
   return options.find((item) => item.value === value)?.label ?? value;
 }
 export const languageLabel = (value: string) => labelOf(TEMPLATE_LANGUAGES, value);
-export const formatLabel = (value: string) => labelOf(CONTENT_FORMATS, value);
+export const formatLabel = (value: string) => labelOf(CONTENT_FORMATS, LEGACY_FORMAT_CODES[value] ?? value);
 export const departmentLabel = (value: string) => labelOf(CONTENT_DEPARTMENTS, value);
 /** Styles are stored as preset codes or as the free text typed under "Khác". */
 export const styleLabel = (value: string) => labelOf(CONTENT_STYLES, value);
+
+/** "Phân loại": optional; empty means none. */
+const categoryIdSchema = z.string().optional().transform((value) => value?.trim() || null).pipe(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Phân loại không hợp lệ").nullable());
+const formatSchema = z.preprocess((value) => typeof value === "string" ? LEGACY_FORMAT_CODES[value] ?? value : value, z.enum(formatValues, { message: "Chọn định dạng" }));
 
 const optionalText = (max: number) => z.string().trim().max(max, `Tối đa ${max} ký tự`).transform((value) => value || null);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,8 +97,9 @@ export const contentBriefSchema = z.object({
   styleNote: optionalText(500),
   sampleContent: optionalText(6000),
   contentLanguage: z.enum(languageValues, { message: "Chọn ngôn ngữ" }),
-  contentFormat: z.enum(formatValues, { message: "Chọn định dạng" }),
+  contentFormat: formatSchema,
   department: z.enum(departmentValues, { message: "Chọn bộ phận" }),
+  categoryId: categoryIdSchema,
   templateIds: z.array(z.string().regex(UUID, "Mẫu không hợp lệ")).transform((ids) => [...new Set(ids)])
     .pipe(z.array(z.string()).max(MAX_TEMPLATES_PER_BATCH, `Chọn tối đa ${MAX_TEMPLATES_PER_BATCH} mẫu`)),
   quantity: z.coerce.number({ message: "Nhập số lượng" }).int("Số nguyên").min(1, "Ít nhất 1").max(MAX_CONTENT_QUANTITY, `Tối đa ${MAX_CONTENT_QUANTITY}`),
@@ -119,6 +125,7 @@ export function briefInputFromFormData(formData: FormData) {
     contentLanguage: text("contentLanguage"),
     contentFormat: text("contentFormat"),
     department: text("department"),
+    categoryId: text("categoryId"),
     templateIds: formData.getAll("templateId").filter((value): value is string => typeof value === "string"),
     quantity: text("quantity"),
   };
@@ -126,6 +133,8 @@ export function briefInputFromFormData(formData: FormData) {
 
 export const contentTemplateSchema = z.object({
   department: z.enum(departmentValues, { message: "Chọn bộ phận" }),
+  contentFormat: formatSchema,
+  categoryId: categoryIdSchema,
   language: z.enum(templateLanguageValues, { message: "Chọn ngôn ngữ" }),
   groupName: optionalText(100),
   tone: optionalText(200),
@@ -143,6 +152,8 @@ export function templateInputFromFormData(formData: FormData) {
   const text = (name: string) => { const value = formData.get(name); return typeof value === "string" ? value : ""; };
   return {
     department: text("department"),
+    contentFormat: text("contentFormat") || "POST_LONG",
+    categoryId: text("categoryId"),
     language: text("language"),
     groupName: text("groupName"),
     tone: text("tone"),

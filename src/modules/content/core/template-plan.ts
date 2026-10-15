@@ -13,6 +13,10 @@ export interface TemplateSample {
   body: string;
   weight: number;
   active: boolean;
+  /** "Định dạng" of the sample (templates written before migration 081 default to POST_LONG). */
+  format?: string;
+  /** "Phân loại" of the sample. */
+  categoryId?: string | null;
 }
 
 function hash(text: string) {
@@ -32,20 +36,24 @@ function languageScore(template: string, content: ContentLanguage) {
  * the active templates of the department are ranked by language fit and weight, with a per-job
  * rotation among equals so two jobs do not always get the same samples.
  */
-export function pickTemplates({ chosen, candidates, department, language, quantity, seed }: {
+export function pickTemplates({ chosen, candidates, department, language, quantity, seed, format, categoryId }: {
   chosen: TemplateSample[];
   candidates: TemplateSample[];
   department: ContentDepartment;
   language: ContentLanguage;
   quantity: number;
   seed: string;
+  /** Prefer samples of this format and category ("Phân loại") when given. */
+  format?: string;
+  categoryId?: string | null;
 }): TemplateSample[] {
   if (chosen.length > 0) return chosen;
   const salt = hash(seed);
+  const fit = (template: TemplateSample) => (categoryId && template.categoryId === categoryId ? 2 : 0) + (format && (template.format ?? "POST_LONG") === format ? 1 : 0);
   return candidates
     .filter((template) => template.active && template.department === department)
-    .map((template) => ({ template, order: [languageScore(template.language, language), template.weight, hash(`${salt}:${template.code}`)] }))
-    .sort((a, b) => b.order[0] - a.order[0] || b.order[1] - a.order[1] || a.order[2] - b.order[2])
+    .map((template) => ({ template, order: [fit(template), languageScore(template.language, language), template.weight, hash(`${salt}:${template.code}`)] }))
+    .sort((a, b) => b.order[0] - a.order[0] || b.order[1] - a.order[1] || b.order[2] - a.order[2] || a.order[3] - b.order[3])
     .slice(0, Math.min(quantity, 10))
     .map((entry) => entry.template);
 }
@@ -79,9 +87,9 @@ export function titleLocation(location: string | null): string | null {
   return tail && tail.length <= 28 ? tail : null;
 }
 
-/** Rec, HR and Sale posts start with "[Địa điểm]" when a location is known; CTV titles are free. */
+/** Rec, HR and Sale posts start with "[Địa điểm]" when a location is known; CTV, Truyền thông and Thông báo titles are free. */
 export function titlePrefixFor(department: ContentDepartment, location: string | null): string | null {
-  if (department === "CTV") return null;
+  if (department === "CTV" || department === "MEDIA" || department === "NOTICE") return null;
   const place = titleLocation(location);
   return place ? `[${place}]` : null;
 }

@@ -34,10 +34,10 @@ select pg_temp.assert_true((select not active and weight=7 from public.content_t
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_templates(workspace_id,department,body,created_by) values('00000000-0000-4000-8000-0000000007a7','MARKETING','x','00000000-0000-4000-8000-000000000721')$$),'unknown department refused');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_templates(workspace_id,department,body,created_by,weight) values('00000000-0000-4000-8000-0000000007a7','REC','x','00000000-0000-4000-8000-000000000721',11)$$),'weight above 10 refused');
 insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity,jd_text,blocked_terms,template_ids)
-  values('00000000-0000-4000-8000-0000000007a7','00000000-0000-4000-8000-000000000721','BrSE','PROFESSIONAL','VI','POST','HR',2,'JD','ABC Corp',array['00000000-0000-4000-8000-0000000007e1'::uuid]);
-select pg_temp.assert_true(exists(select 1 from public.content_batches where content_format='POST' and department='HR'),'POST format, HR department and new brief fields accepted');
+  values('00000000-0000-4000-8000-0000000007a7','00000000-0000-4000-8000-000000000721','BrSE','PROFESSIONAL','VI','POST_LONG','HR',2,'JD','ABC Corp',array['00000000-0000-4000-8000-0000000007e1'::uuid]);
+select pg_temp.assert_true(exists(select 1 from public.content_batches where content_format='POST_LONG' and department='HR'),'POST_LONG format, HR department and new brief fields accepted');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_batches(workspace_id,created_by,job_title,style,content_language,content_format,department,quantity)
-  values('00000000-0000-4000-8000-0000000007a7','00000000-0000-4000-8000-000000000721','BrSE','PROFESSIONAL','VI','POST','RECRUITING',1)$$),'old department codes refused');
+  values('00000000-0000-4000-8000-0000000007a7','00000000-0000-4000-8000-000000000721','BrSE','PROFESSIONAL','VI','POST_LONG','RECRUITING',1)$$),'old department codes refused');
 
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000722',true);
 select pg_temp.assert_true((select count(*) from public.content_templates)=2,'viewer sees templates');

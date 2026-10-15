@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { ContentBrief } from "@/modules/content/core/content-options";
+import type { ContentBriefWithCategory } from "@/modules/content/core/content-prompt";
 import { contentModel } from "@/modules/content/server/generate-content";
 import { runContentBatch } from "@/modules/content/server/run-content-batch";
 
@@ -32,15 +33,22 @@ export async function startContentBatch(account: { workspaceId: string; userId: 
     content_language: brief.contentLanguage,
     content_format: brief.contentFormat,
     department: brief.department,
+    category_id: brief.categoryId,
     jd_text: brief.jdText,
     blocked_terms: brief.blockedTerms,
     template_ids: brief.templateIds,
     quantity: brief.quantity,
     model,
   }).select("id").single();
-  if (error || !batch) return { ok: false, message: "Không tạo được yêu cầu. Vui lòng thử lại." };
+  if (error || !batch) return { ok: false, message: error?.code === "23503" ? "Phân loại không thuộc bộ phận đã chọn." : "Không tạo được yêu cầu. Vui lòng thử lại." };
   const batchId = (batch as { id: string }).id;
-  after(() => runContentBatch({ batchId, workspaceId: account.workspaceId, userId: account.userId, brief, model }));
+  // The category name tells the AI which kind of post to write ("Dạng share", "Giới thiệu"…).
+  let withCategory: ContentBriefWithCategory = brief;
+  if (brief.categoryId) {
+    const { data: category } = await supabase.from("content_categories").select("name").eq("workspace_id", account.workspaceId).eq("id", brief.categoryId).maybeSingle();
+    withCategory = { ...brief, categoryName: (category as { name: string } | null)?.name ?? null };
+  }
+  after(() => runContentBatch({ batchId, workspaceId: account.workspaceId, userId: account.userId, brief: withCategory, model }));
   revalidatePath("/content");
   return { ok: true, batchId };
 }

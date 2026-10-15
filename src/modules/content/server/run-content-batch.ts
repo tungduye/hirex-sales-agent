@@ -3,9 +3,9 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ContentBrief } from "@/modules/content/core/content-options";
 import { contentShingles, storedSimilarity, type IndexedContent } from "@/modules/content/core/content-similarity";
-import { briefFactText, languageParts } from "@/modules/content/core/content-prompt";
+import { briefFactText, briefTitlePrefix, languageParts, type ContentBriefWithCategory } from "@/modules/content/core/content-prompt";
 import { produceUniqueContent, recheckAgainst, type Draft } from "@/modules/content/core/produce-unique-content";
-import { applyTitlePrefix, assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, titlePrefixFor, type TemplateSample } from "@/modules/content/core/template-plan";
+import { applyTitlePrefix, assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, type TemplateSample } from "@/modules/content/core/template-plan";
 import { generateContentRound, generateFromTemplate } from "@/modules/content/server/generate-content";
 import { mapTemplateRow, TEMPLATE_COLUMNS, type TemplateRow } from "@/modules/content/server/template-row";
 
@@ -50,7 +50,7 @@ async function loadTemplates(db: Db, workspaceId: string, brief: ContentBrief): 
 const PASTED_ID = "pasted";
 function pastedTemplate(brief: ContentBrief): TemplateSample | null {
   if (!brief.sampleContent) return null;
-  return { id: PASTED_ID, code: "MẪU DÁN", department: brief.department, language: brief.contentLanguage, groupName: null, tone: null, cta: null, body: brief.sampleContent, weight: 10, active: true };
+  return { id: PASTED_ID, code: "MẪU DÁN", department: brief.department, language: brief.contentLanguage, groupName: null, tone: null, cta: null, body: brief.sampleContent, weight: 10, active: true, format: brief.contentFormat, categoryId: brief.categoryId };
 }
 
 /** Runs `task` for every item with at most `limit` running at once; failed items become null. */
@@ -86,7 +86,7 @@ export interface ContentBatchJob {
   batchId: string;
   workspaceId: string;
   userId: string;
-  brief: ContentBrief;
+  brief: ContentBriefWithCategory;
   model: string;
 }
 
@@ -110,9 +110,9 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
 
     const pasted = pastedTemplate(brief);
     const chosen = pasted ? [pasted, ...templateSource.chosen] : templateSource.chosen;
-    const templates = pickTemplates({ chosen, candidates: templateSource.candidates, department: brief.department, language: brief.contentLanguage, quantity: brief.quantity, seed: brief.jobTitle });
+    const templates = pickTemplates({ chosen, candidates: templateSource.candidates, department: brief.department, language: brief.contentLanguage, quantity: brief.quantity, seed: brief.jobTitle, format: brief.contentFormat, categoryId: brief.categoryId });
     const templateById = new Map(templates.map((template) => [template.id, template]));
-    const prefix = titlePrefixFor(brief.department, brief.location);
+    const prefix = briefTitlePrefix(brief);
     const blocked = parseBlockedTerms(brief.blockedTerms);
     const facts = briefFactText(brief);
     const languageCount = languageParts(brief.contentLanguage).length;
@@ -136,7 +136,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       if (template) {
         // Facts copied from the sample (its salary, years, headcount…) are never saved.
         if (leakedNumbers(`${item.title}\n${item.body}`, template.body, facts).length > 0) return null;
-        if (brief.contentFormat === "POST") {
+        if (brief.contentFormat === "POST_LONG" && (template.format ?? "POST_LONG") === "POST_LONG") {
           const [min, max] = lengthRange(templateProfile(template.body), languageCount);
           if (item.body.length < min || item.body.length > max) return null;
         }
@@ -169,6 +169,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
         content_language: brief.contentLanguage,
         content_format: brief.contentFormat,
         department: brief.department,
+        category_id: brief.categoryId,
         style: brief.style,
         max_similarity: storedSimilarity(item.similarity),
         most_similar_item_id: item.similarItemId,
