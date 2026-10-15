@@ -47,10 +47,14 @@ export const getAccessibleChannelAccountIds = cache(async function loadAccessibl
   const account=await getAccountContext();
   if(!account?.workspaceId)return [];
   const db=createPrivilegedSupabaseClient();
-  const {data:profile,error}=await db.from("profiles").select("all_channel_accounts").eq("id",account.userId).eq("workspace_id",account.workspaceId).maybeSingle();
+  // Both lookups at once; the access list is ignored when the member has every account.
+  const [{data:profile,error},{data,error:accessError}]=await Promise.all([
+    db.from("profiles").select("all_channel_accounts").eq("id",account.userId).eq("workspace_id",account.workspaceId).maybeSingle(),
+    db.from("profile_channel_account_access").select("channel_account_id").eq("workspace_id",account.workspaceId).eq("profile_id",account.userId),
+  ]);
   if(error)return [];
   if(profile?.all_channel_accounts)return null;
-  const {data}=await db.from("profile_channel_account_access").select("channel_account_id").eq("workspace_id",account.workspaceId).eq("profile_id",account.userId);
+  if(accessError)return [];
   return (data??[]).map(item=>item.channel_account_id as string);
 });
 

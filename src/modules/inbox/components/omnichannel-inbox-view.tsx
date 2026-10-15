@@ -2,7 +2,6 @@ import { MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
-import type { QuickReplyTemplate } from "@/modules/channels/types/quick-reply";
 import { InboxAutoRefresh } from "./inbox-auto-refresh";
 import { InfiniteConversationList } from "./infinite-conversation-list";
 import { InboxFilterPanel } from "./inbox-filter-panel";
@@ -13,7 +12,7 @@ const tabs: Array<{ label: string; short: string; value: ChannelType | null }> =
   { label: "Facebook Page", short: "FB Page", value: "FACEBOOK" }, { label: "Facebook cá nhân", short: "FB cá nhân", value: "FACEBOOK_PROFILE" }, { label: "Email", short: "Email", value: "EMAIL" },
 ];
 
-export function OmnichannelInboxView(props: OmnichannelInboxData & { quickReplies: QuickReplyTemplate[]; selectedConversationId: string | null; detail: ReactNode }) {
+export function OmnichannelInboxView(props: OmnichannelInboxData & { selectedConversationId: string | null; detail: ReactNode; listLoading?: boolean }) {
   const { accounts, conversations, selectedAccountId, error } = props;
   const channelParam = props.channelParam;
   const pickedChannels = props.selectedChannelTypes;
@@ -30,7 +29,7 @@ export function OmnichannelInboxView(props: OmnichannelInboxData & { quickReplie
   return <div className="flex h-[calc(100dvh-4rem)] min-h-[520px] overflow-hidden bg-white">
     <aside className={`${props.selectedConversationId ? "hidden lg:flex" : "flex"} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-[340px]`}>
       <div className="flex shrink-0 items-center justify-between px-3.5 pt-3.5"><h1 className="text-lg font-bold tracking-tight text-slate-950">Hồ Chứa</h1><InboxAutoRefresh workspaceId={props.workspaceId} compact/></div>
-      {error ? <div className="m-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div> : <InfiniteConversationList initialConversations={conversations} initialHasNextPage={props.hasNextPage} selectedConversationId={props.selectedConversationId} tags={props.tags} currentUserId={props.currentUserId} filterControl={filterControl} channelChips={channelChips} filters={{ channel: channelParam, account: selectedAccountId, ownerIds: props.selectedOwnerIds, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode, firstMessageFrom: props.firstMessageFrom, firstMessageTo: props.firstMessageTo }}/>}
+      <div className={`flex min-h-0 flex-1 flex-col transition-opacity ${props.listLoading ? "pointer-events-none opacity-60" : ""}`} aria-busy={props.listLoading || undefined}>{error ? <div className="m-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div> : <InfiniteConversationList initialConversations={conversations} initialHasNextPage={props.hasNextPage} selectedConversationId={props.selectedConversationId} tags={props.tags} currentUserId={props.currentUserId} filterControl={filterControl} channelChips={channelChips} filters={{ channel: channelParam, account: selectedAccountId, ownerIds: props.selectedOwnerIds, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode, firstMessageFrom: props.firstMessageFrom, firstMessageTo: props.firstMessageTo }}/>}</div>
     </aside>
     <main className={`${props.selectedConversationId ? "flex" : "hidden lg:flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50`}>{props.detail}</main>
   </div>;

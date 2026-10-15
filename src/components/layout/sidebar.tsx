@@ -44,7 +44,7 @@ export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false
         {visible.map((item) => {
           const active = item.href === activeHref;
           return (
-            <Link key={item.href} href={item.href} onClick={onNavigate} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} className={cn("flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors", collapsed ? "justify-center px-0" : "px-3", active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-900 hover:text-white")}>
+            <Link prefetch={false} key={item.href} href={item.href} onClick={onNavigate} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} className={cn("flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors", collapsed ? "justify-center px-0" : "px-3", active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-900 hover:text-white")}>
               <item.icon className="size-[18px] shrink-0" />{collapsed ? null : item.label}
             </Link>
           );

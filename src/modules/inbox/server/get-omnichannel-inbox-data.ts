@@ -52,6 +52,43 @@ const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
   return { profiles: profiles ?? [], tags: tags ?? [], access: access ?? [] };
 }, ["stable-inbox-metadata"], { revalidate: 60, tags: ["inbox-metadata"] });
 
+type StableMetadata = Awaited<ReturnType<typeof loadStableInboxMetadata>>;
+type InboxAccountContext = NonNullable<Awaited<ReturnType<typeof getAccountContext>>>;
+
+/** Members (owner filter / assignee list) and tags the current member may see. */
+function peopleAndTags(stableMetadata: StableMetadata, accountContext: InboxAccountContext, accessibleAccountIds: string[] | null) {
+  const profileData = stableMetadata.profiles;
+  const tagData = stableMetadata.tags;
+  const profileAccessData = stableMetadata.access;
+  const accessIdsByProfile = new Map<string, string[]>();
+  for (const row of (profileAccessData ?? []) as ProfileChannelAccessRow[]) {
+    if (typeof row.profile_id !== "string" || typeof row.channel_account_id !== "string") continue;
+    accessIdsByProfile.set(row.profile_id, [...(accessIdsByProfile.get(row.profile_id) ?? []), row.channel_account_id]);
+  }
+  const canBrowseOwners = accountContext.permissions.includes("roles.view");
+  const profiles = ((profileData ?? []) as ProfileRow[]).flatMap((row) => {
+    if (typeof row.id !== "string" || typeof row.full_name !== "string") return [];
+    const channelAccountIds = accessIdsByProfile.get(row.id) ?? [];
+    const isCurrentUser = row.id === accountContext.userId;
+    const overlapsCurrentScope = accessibleAccountIds === null
+      || (row.all_channel_accounts !== true && channelAccountIds.some((id) => accessibleAccountIds.includes(id)));
+    // Ordinary members only need their own owner option. Members allowed to
+    // inspect roles may compare owners, but never outside their account scope.
+    if (!isCurrentUser && (!canBrowseOwners || !overlapsCurrentScope)) return [];
+    return [{ id: row.id, fullName: row.full_name, allChannelAccounts: row.all_channel_accounts === true, channelAccountIds }];
+  });
+  const tags = ((tagData ?? []) as TagRow[]).flatMap((row) => typeof row.id === "string" && typeof row.name === "string" ? [{ id: row.id, name: row.name, color: typeof row.color === "string" ? row.color : null }] : []);
+  return { profiles, tags };
+}
+
+/** Members and tags for the conversation detail, without loading the whole conversation list. */
+export async function getInboxPeopleAndTags() {
+  const accountContext = await getAccountContext();
+  if (!accountContext?.workspaceId) return { profiles: [], tags: [] };
+  const [accessibleAccountIds, stableMetadata] = await Promise.all([getAccessibleChannelAccountIds(), loadStableInboxMetadata(accountContext.workspaceId)]);
+  return peopleAndTags(stableMetadata, accountContext, accessibleAccountIds);
+}
+
 async function loadTagLinks(client: Awaited<ReturnType<typeof createClient>>, conversationIds: string[]) {
   const rows: TagLinkRow[] = [];
   const batchSize = 75;
@@ -189,35 +226,12 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   if (!accountContext?.workspaceId) return emptyData({ selectedChannelType, selectedPage, error: "Inbox could not be loaded." });
   const supabase = await createClient();
   const accountClient = createPrivilegedClient();
-  const accessibleAccountIds=await getAccessibleChannelAccountIds();
+  const [accessibleAccountIds, stableMetadata] = await Promise.all([getAccessibleChannelAccountIds(), loadStableInboxMetadata(accountContext.workspaceId)]);
   if(accessibleAccountIds?.length===0)return emptyData({selectedChannelType,selectedPage,error:"Bạn chưa được cấp tài khoản Email, Facebook hoặc Zalo nào."});
   let accountQuery=accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at").eq("workspace_id", accountContext.workspaceId).is("deleted_at", null).order("channel_type").order("display_name");
   if(accessibleAccountIds)accountQuery=accountQuery.in("id",accessibleAccountIds);
-  const [{ data: accountData, error: accountError }, stableMetadata] = await Promise.all([
-    accountQuery,
-    loadStableInboxMetadata(accountContext.workspaceId),
-  ]);
-  const profileData = stableMetadata.profiles;
-  const tagData = stableMetadata.tags;
-  const profileAccessData = stableMetadata.access;
-  const accessIdsByProfile = new Map<string, string[]>();
-  for (const row of (profileAccessData ?? []) as ProfileChannelAccessRow[]) {
-    if (typeof row.profile_id !== "string" || typeof row.channel_account_id !== "string") continue;
-    accessIdsByProfile.set(row.profile_id, [...(accessIdsByProfile.get(row.profile_id) ?? []), row.channel_account_id]);
-  }
-  const canBrowseOwners = accountContext.permissions.includes("roles.view");
-  const profiles = ((profileData ?? []) as ProfileRow[]).flatMap((row) => {
-    if (typeof row.id !== "string" || typeof row.full_name !== "string") return [];
-    const channelAccountIds = accessIdsByProfile.get(row.id) ?? [];
-    const isCurrentUser = row.id === accountContext.userId;
-    const overlapsCurrentScope = accessibleAccountIds === null
-      || (row.all_channel_accounts !== true && channelAccountIds.some((id) => accessibleAccountIds.includes(id)));
-    // Ordinary members only need their own owner option. Members allowed to
-    // inspect roles may compare owners, but never outside their account scope.
-    if (!isCurrentUser && (!canBrowseOwners || !overlapsCurrentScope)) return [];
-    return [{ id: row.id, fullName: row.full_name, allChannelAccounts: row.all_channel_accounts === true, channelAccountIds }];
-  });
-  const tags = ((tagData ?? []) as TagRow[]).flatMap((row) => typeof row.id === "string" && typeof row.name === "string" ? [{ id: row.id, name: row.name, color: typeof row.color === "string" ? row.color : null }] : []);
+  const { data: accountData, error: accountError } = await accountQuery;
+  const { profiles, tags } = peopleAndTags(stableMetadata, accountContext, accessibleAccountIds);
   const availableTagIds = new Set(tags.map((tag) => tag.id));
   const selectedTagIds = requestedTagIds.filter((id) => availableTagIds.has(id));
   if (accountError) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Omnichannel Inbox is not available yet." });
@@ -267,7 +281,8 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   const proposedByConversation = new Map<string, Array<{ id: string; text: string | null; proposedBy: string }>>();
   if (ids.length > 0) {
     const previewStartedAt = performance.now();
-    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: firstMessageData }] = await Promise.all([
+    const zaloIds = rows.flatMap((row) => row.channel_type === "ZALO" && typeof row.id === "string" ? [row.id] : []);
+    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: firstMessageData }, { data: zaloInboundData }] = await Promise.all([
       supabase.rpc("get_inbox_conversation_previews", { p_conversation_ids: ids }),
       loadTagLinks(supabase, ids),
       supabase.from("channel_outbound_actions").select("id,conversation_id,text_content,proposed_by").in("conversation_id", ids).eq("status", "PROPOSED").order("created_at", { ascending: false }),
@@ -275,6 +290,9 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       firstMessageFrom || firstMessageTo
         ? supabase.rpc("get_conversation_first_message_times", { p_conversation_ids: ids })
         : Promise.resolve({ data: [] as FirstMessageRow[] }),
+      zaloIds.length
+        ? supabase.from("omnichannel_messages").select("conversation_id,sender_external_id").eq("workspace_id", accountContext.workspaceId).in("conversation_id", zaloIds).eq("direction", "INBOUND").order("created_at", { ascending: false }).limit(Math.min(1000, zaloIds.length * 20))
+        : Promise.resolve({ data: [] as Array<{ conversation_id: unknown; sender_external_id: unknown }> }),
     ]);
     if (previewError) console.warn("[slow-query] inbox preview RPC unavailable", { durationMs: Math.round(performance.now() - previewStartedAt), code: previewError.code });
     else if (performance.now() - previewStartedAt > 250) console.warn("[slow-query] inbox previews", { durationMs: Math.round(performance.now() - previewStartedAt), conversations: ids.length });
@@ -284,14 +302,11 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, message);
       if (typeof message.last_inbound_at === "string") latestInbound.set(message.conversation_id, message.last_inbound_at);
     }
-    // Zalo groups are recognised by an inbound sender that differs from the thread id. When the newest
-    // message is ours, look up one earlier inbound message so the conversation still lands in "Nhóm".
-    const zaloWithoutInbound = rows.flatMap((row) => row.channel_type === "ZALO" && typeof row.id === "string" && latest.get(row.id)?.direction !== "INBOUND" ? [row.id] : []);
-    if (zaloWithoutInbound.length > 0) {
-      const { data: inboundData } = await supabase.from("omnichannel_messages").select("conversation_id,sender_external_id").eq("workspace_id", accountContext.workspaceId).in("conversation_id", zaloWithoutInbound).eq("direction", "INBOUND").order("created_at", { ascending: false }).limit(Math.min(1000, zaloWithoutInbound.length * 20));
-      for (const message of (inboundData ?? []) as Array<{ conversation_id: unknown; sender_external_id: unknown }>) {
-        if (typeof message.conversation_id === "string" && typeof message.sender_external_id === "string" && !inboundSenderByConversation.has(message.conversation_id)) inboundSenderByConversation.set(message.conversation_id, message.sender_external_id);
-      }
+    // Zalo groups are recognised by an inbound sender that differs from the thread id. Recent inbound
+    // senders are loaded with the previews (not after them) so it costs no extra wait; they are used
+    // when the newest message is ours.
+    for (const message of (zaloInboundData ?? []) as Array<{ conversation_id: unknown; sender_external_id: unknown }>) {
+      if (typeof message.conversation_id === "string" && typeof message.sender_external_id === "string" && !inboundSenderByConversation.has(message.conversation_id)) inboundSenderByConversation.set(message.conversation_id, message.sender_external_id);
     }
     for (const contact of (contactResult.data ?? []) as ContactRow[]) if (typeof contact.id === "string" && typeof contact.full_name === "string") contactNames.set(contact.id, contact.full_name);
     for (const link of (tagLinkData ?? []) as TagLinkRow[]) if (typeof link.conversation_id === "string" && typeof link.tag_id === "string") tagIdsByConversation.set(link.conversation_id, [...(tagIdsByConversation.get(link.conversation_id) ?? []), link.tag_id]);
