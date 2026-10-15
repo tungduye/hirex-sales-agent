@@ -8,7 +8,7 @@ const viewer = { id: 'viewer', isAdmin: false, permissions: ['inbox.view'], allC
 const manager = { id: 'manager', isAdmin: false, permissions: ['channels.manage', 'campaigns.launch'], allChannels: false, channelIds: ['zalo-1'] };
 const members = [admin, zaloStaff, viewer, manager];
 const channel = (extra) => ({ id: 'zalo-1', type: 'ZALO', name: 'Linh', status: 'CONNECTED', operatorEnabled: true, health: 'HEALTHY', healthReason: null, lastError: null, ...extra });
-const wait = (extra) => ({ id: 'c1', channelAccountId: 'zalo-1', channel: 'ZALO', name: 'An', account: 'Linh', hours: 5, group: false, automated: false, assignedTo: null, lastInboundId: 'm1', ...extra });
+const wait = (extra) => ({ id: 'c1', channelAccountId: 'zalo-1', channel: 'ZALO', name: 'An', account: 'Linh', since: '2026-10-14T14:48:00Z', hours: 5, group: false, automated: false, assignedTo: null, lastInboundId: 'm1', ...extra });
 const base = { waitHours: 4, members, channels: [], emailWorker: null, waiting: [] };
 const who = (alerts, kind) => alerts.filter((alert) => alert.kind === kind).map((alert) => alert.userId).sort();
 
@@ -45,7 +45,7 @@ test('waiting customers: assignee first, otherwise members who can reply on that
   assert.equal(alert.severity, 'high');
   assert.equal(alert.dedupeKey, 'wait:c1:m1', 'a new customer message starts a new episode');
   assert.equal(alert.link, '/inbox/all/c1');
-  assert.match(alert.title, /An đang chờ trả lời 1 ngày 6 giờ/);
+  assert.equal(alert.title, 'An chờ trả lời từ 21:48 14/10', 'names the moment in Vietnam time, which never goes stale');
 });
 
 test('waiting alerts are capped per member, longest first', () => {

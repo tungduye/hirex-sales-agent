@@ -3,11 +3,13 @@
 // that SHOULD be open. Comparing it with the open alerts gives what to create and what to resolve,
 // so a problem alerts once while it lasts and again only if it comes back after being fixed.
 
-export type AlertKind = "CHANNEL_DOWN" | "EMAIL_WORKER_STALE" | "CUSTOMER_WAITING";
-export interface Alert { userId: string; kind: AlertKind; dedupeKey: string; severity: "high" | "medium"; title: string; body: string | null; link: string }
+export type AlertKind = "CHANNEL_DOWN" | "EMAIL_WORKER_STALE" | "CUSTOMER_WAITING" | "RULE";
+/** A proposal attached to an alert (from a rule): it runs only when the recipient presses "Xác nhận". */
+export interface AlertProposal { kind: "CREATE_TASK"; params: Record<string, unknown>; preview: { title: string; lines: string[]; link?: string | null } }
+export interface Alert { userId: string; kind: AlertKind; dedupeKey: string; severity: "high" | "medium"; title: string; body: string | null; link: string; ruleId?: string; proposal?: AlertProposal }
 export interface AlertMember { id: string; isAdmin: boolean; permissions: string[]; allChannels: boolean; channelIds: string[] }
 export interface AlertChannel { id: string; type: string; name: string | null; status: string; operatorEnabled: boolean; health: string | null; healthReason: string | null; lastError: string | null }
-export interface AlertWaiting { id: string; channelAccountId: string; channel: string; name: string | null; account: string | null; hours: number; group: boolean; automated: boolean; assignedTo: string | null; lastInboundId: string }
+export interface AlertWaiting { id: string; channelAccountId: string; channel: string; name: string | null; account: string | null; since: string; hours: number; group: boolean; automated: boolean; assignedTo: string | null; lastInboundId: string }
 export interface AlertScanInput {
   waitHours: number;
   members: AlertMember[];
@@ -21,10 +23,10 @@ export const MAX_WAIT_ALERT_HOURS = 48;
 /** At most this many "customer waiting" alerts per member are open at once (longest waits first). */
 export const MAX_WAIT_ALERTS_PER_MEMBER = 15;
 
-const CHANNEL_LABELS: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Facebook Page", FACEBOOK_PROFILE: "Facebook cá nhân", EMAIL: "Email" };
-const channelLabel = (value: string) => CHANNEL_LABELS[value] ?? value;
-const has = (member: AlertMember, permission: string) => member.isAdmin || member.permissions.includes(permission);
-const canUseChannel = (member: AlertMember, channelAccountId: string) => member.allChannels || member.channelIds.includes(channelAccountId);
+export const CHANNEL_LABELS: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Facebook Page", FACEBOOK_PROFILE: "Facebook cá nhân", EMAIL: "Email" };
+export const channelLabel = (value: string) => CHANNEL_LABELS[value] ?? value;
+export const has = (member: AlertMember, permission: string) => member.isAdmin || member.permissions.includes(permission);
+export const canUseChannel = (member: AlertMember, channelAccountId: string) => member.allChannels || member.channelIds.includes(channelAccountId);
 
 /** Same rule as the brief: switched-off accounts and unchecked health are not problems. */
 export function channelProblem(channel: AlertChannel): string | null {
@@ -34,8 +36,11 @@ export function channelProblem(channel: AlertChannel): string | null {
   return channel.lastError;
 }
 
-function hoursText(hours: number) {
-  return hours >= 24 ? `${Math.floor(hours / 24)} ngày ${Math.round(hours % 24)} giờ` : `${Math.floor(hours)} giờ`;
+/** "21:48 14/10" in Vietnam time. The alert keeps its text, so it names the moment, not a duration that goes stale. */
+export function sinceText(iso: string) {
+  const shifted = new Date(Date.parse(iso) + 7 * 3_600_000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())} ${pad(shifted.getUTCDate())}/${pad(shifted.getUTCMonth() + 1)}`;
 }
 
 export function buildAlerts(input: AlertScanInput): Alert[] {
@@ -78,7 +83,7 @@ export function buildAlerts(input: AlertScanInput): Alert[] {
       perMember.set(member.id, count + 1);
       alerts.push({
         userId: member.id, kind: "CUSTOMER_WAITING", dedupeKey: `wait:${row.id}:${row.lastInboundId}`, severity: row.hours >= 24 ? "high" : "medium",
-        title: `${row.name ?? "Khách"} đang chờ trả lời ${hoursText(row.hours)}`,
+        title: `${row.name ?? "Khách"} chờ trả lời từ ${sinceText(row.since)}`,
         body: `${channelLabel(row.channel)}${row.account ? ` · ${row.account}` : ""}${assignee ? " · hội thoại được giao cho anh/chị" : ""}`,
         link: `/inbox/all/${row.id}`,
       });

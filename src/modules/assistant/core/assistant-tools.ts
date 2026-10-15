@@ -119,6 +119,32 @@ function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
       args: z.object({ conversation_id: z.string().uuid(), noi_dung: text(2000).min(1) }).strict(),
     },
     {
+      name: "de_xuat_tao_quy_tac",
+      permission: "dashboard.view",
+      label: "Đề xuất tạo quy tắc tự động",
+      proposal: true,
+      description: "ĐỀ XUẤT tạo một quy tắc tự động (chỉ tạo thẻ xác nhận). Hệ thống kiểm tra 5 phút một lần; quy tắc chỉ gửi thông báo vào chuông hoặc kèm đề xuất tạo công việc mà người nhận phải bấm Xác nhận. Điều kiện hỗ trợ: CUSTOMER_WAITING (khách nhắn riêng chờ trả lời quá so_gio giờ, lọc theo kenh), TASK_OVERDUE (công việc quá hạn hơn so_gio giờ, chỉ NOTIFY), LEAD_STALE (lead trạng thái Mới tạo quá so_ngay ngày). gui_cho: OWNER = người đang hỏi; RESPONSIBLE = người phụ trách; ADMINS = quản trị viên (RESPONSIBLE/ADMINS chỉ quản trị viên được chọn).",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["ten", "dieu_kien", "so_gio", "so_ngay", "kenh", "hanh_dong", "gui_cho", "han_cong_viec_gio"],
+        properties: {
+          ten: { type: "string", description: "Tên ngắn của quy tắc, tối đa 120 ký tự." },
+          dieu_kien: { type: "string", enum: ["CUSTOMER_WAITING", "TASK_OVERDUE", "LEAD_STALE"] },
+          so_gio: { type: ["number", "null"], description: "Số giờ (CUSTOMER_WAITING 1–72, TASK_OVERDUE 0–168), null nếu không dùng." },
+          so_ngay: { type: ["integer", "null"], description: "Số ngày cho LEAD_STALE (1–60), null nếu không dùng." },
+          kenh: { type: "array", items: { type: "string", enum: ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] }, description: "Chỉ áp dụng các kênh này (CUSTOMER_WAITING); [] = mọi kênh." },
+          hanh_dong: { type: "string", enum: ["NOTIFY", "PROPOSE_TASK"] },
+          gui_cho: { type: "string", enum: ["OWNER", "RESPONSIBLE", "ADMINS"] },
+          han_cong_viec_gio: { type: ["integer", "null"], description: "Hạn của công việc được đề xuất, tính bằng giờ (0–72); null = mặc định." },
+        },
+      },
+      args: z.object({
+        ten: text(120).min(1), dieu_kien: z.enum(["CUSTOMER_WAITING", "TASK_OVERDUE", "LEAD_STALE"]),
+        so_gio: z.number().min(0).max(168).nullable(), so_ngay: z.number().int().min(1).max(60).nullable(),
+        kenh: z.array(z.enum(["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"])).max(4),
+        hanh_dong: z.enum(["NOTIFY", "PROPOSE_TASK"]), gui_cho: z.enum(["OWNER", "RESPONSIBLE", "ADMINS"]), han_cong_viec_gio: z.number().int().min(0).max(72).nullable(),
+      }).strict(),
+    },
+    {
       name: "de_xuat_dung_ai_recruiter",
       permission: "workspace.admin",
       label: "Đề xuất dừng AI Recruiter",
@@ -323,6 +349,14 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
       properties: { chi_cua_toi: { type: "boolean" }, bao_gom_da_xong: { type: "boolean" } },
     },
     args: z.object({ chi_cua_toi: z.boolean(), bao_gom_da_xong: z.boolean() }).strict(),
+  },
+  {
+    name: "quy_tac_tu_dong",
+    permission: "dashboard.view",
+    label: "Xem quy tắc tự động",
+    description: "Các quy tắc tự động người dùng đã tạo (quản trị viên thấy của mọi người): tên, mô tả, đang bật/tắt, lần khớp gần nhất. Bật/tắt/xóa quy tắc thực hiện ở trang có link trả về.",
+    parameters: noArgs,
+    args: z.object({}).strict(),
   },
   {
     name: "kho_mau_content",

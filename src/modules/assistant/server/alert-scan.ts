@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
-import { buildAlerts, diffAlerts, type AlertMember, type OpenAlert } from "@/modules/assistant/core/alert-rules";
+import { buildAlerts, diffAlerts, type Alert, type AlertMember, type OpenAlert } from "@/modules/assistant/core/alert-rules";
+import { evaluateRules, ruleSchema, type StoredRule } from "@/modules/assistant/core/assistant-rules";
 import { queryWaitingConversations } from "@/modules/assistant/server/assistant-tool-runner";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
 
@@ -49,13 +50,46 @@ export async function scanWorkspaceAlerts(workspaceId: string) {
   if (channels.error) throw new Error("CHANNELS_UNAVAILABLE");
   if ("loi" in waiting) throw new Error("INBOX_UNAVAILABLE");
 
-  const desired = buildAlerts({
+  // Rules (phase 3): conversations waiting at least 1 hour, overdue tasks, stale "NEW" leads.
+  const { data: ruleRows } = await db.from("assistant_rules").select("id,created_by,name,enabled,definition").eq("workspace_id", workspaceId).eq("enabled", true).limit(500);
+  const rules: StoredRule[] = (ruleRows ?? []).flatMap((row) => {
+    const parsed = ruleSchema.safeParse(row.definition);
+    return parsed.success ? [{ id: row.id, ownerId: row.created_by, name: row.name, enabled: row.enabled, definition: parsed.data }] : [];
+  });
+  let ruleAlerts: Alert[] = [];
+  if (rules.length) {
+    const now = new Date();
+    const needsWaiting = rules.some((rule) => rule.definition.trigger === "CUSTOMER_WAITING");
+    const minRuleHours = Math.min(...rules.flatMap((rule) => rule.definition.trigger === "CUSTOMER_WAITING" ? [rule.definition.hours] : [48]));
+    const [ruleWaiting, tasks, staleLeads] = await Promise.all([
+      needsWaiting && minRuleHours < hours ? queryWaitingConversations(db, workspaceId, minRuleHours, null) : Promise.resolve(waiting),
+      rules.some((rule) => rule.definition.trigger === "TASK_OVERDUE")
+        ? db.from("channel_tasks").select("id,title,assigned_to,due_at,conversation_id").eq("workspace_id", workspaceId).in("status", ["OPEN", "IN_PROGRESS"]).lt("due_at", now.toISOString()).order("due_at").limit(500)
+        : Promise.resolve({ data: [] as { id: string; title: string; assigned_to: string | null; due_at: string; conversation_id: string | null }[] }),
+      Promise.all(rules.filter((rule) => rule.definition.trigger === "LEAD_STALE").map(async (rule) => {
+        const days = rule.definition.trigger === "LEAD_STALE" ? rule.definition.days : 0;
+        const { count } = await db.from("contacts").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("lead_status", "NEW").lt("created_at", new Date(now.getTime() - days * 86_400_000).toISOString());
+        return [rule.id, count ?? 0] as const;
+      })),
+    ]);
+    const waitingRows = "loi" in ruleWaiting ? [] : ruleWaiting.rows;
+    ruleAlerts = evaluateRules({
+      now, members, rules,
+      waiting: waitingRows.map((row) => ({ id: row.id, channelAccountId: row.channelAccountId, channel: row.channel, name: row.name, account: row.account, since: row.since, hours: row.hours, group: row.group, automated: row.automated, assignedTo: row.assignedTo, lastInboundId: row.lastMessageId })),
+      overdueTasks: (tasks.data ?? []).flatMap((task) => task.due_at ? [{ id: task.id, title: task.title, assignedTo: task.assigned_to, dueAt: task.due_at, conversationId: task.conversation_id }] : []),
+      staleLeads: Object.fromEntries(staleLeads),
+    });
+    const matched = [...new Set(ruleAlerts.map((alert) => alert.ruleId!))];
+    if (matched.length) await db.from("assistant_rules").update({ last_matched_at: now.toISOString() }).eq("workspace_id", workspaceId).in("id", matched);
+  }
+
+  const desired = [...buildAlerts({
     waitHours: hours,
     members,
     channels: (channels.data ?? []).map((row) => ({ id: row.id, type: row.channel_type, name: row.display_name, status: row.status, operatorEnabled: row.operator_enabled, health: row.provider_health_status, healthReason: row.provider_health_reason_code, lastError: row.last_error_code })),
     emailWorker: running.error ? null : { state: worker.state, runningCampaigns: running.count ?? 0 },
-    waiting: waiting.rows.map((row) => ({ id: row.id, channelAccountId: row.channelAccountId, channel: row.channel, name: row.name, account: row.account, hours: row.hours, group: row.group, automated: row.automated, assignedTo: row.assignedTo, lastInboundId: row.lastMessageId })),
-  });
+    waiting: waiting.rows.map((row) => ({ id: row.id, channelAccountId: row.channelAccountId, channel: row.channel, name: row.name, account: row.account, since: row.since, hours: row.hours, group: row.group, automated: row.automated, assignedTo: row.assignedTo, lastInboundId: row.lastMessageId })),
+   }), ...ruleAlerts];
 
   const { data: openRows, error: openError } = await db.from("assistant_alerts").select("id,user_id,dedupe_key").eq("workspace_id", workspaceId).is("resolved_at", null).limit(5000);
   if (openError) throw new Error("ALERTS_UNAVAILABLE");
@@ -63,7 +97,20 @@ export async function scanWorkspaceAlerts(workspaceId: string) {
   const { toCreate, toResolve } = diffAlerts(desired, open);
 
   let created = 0;
-  const rows = toCreate.map((alert) => ({ workspace_id: workspaceId, user_id: alert.userId, kind: alert.kind, dedupe_key: alert.dedupeKey, severity: alert.severity, title: alert.title.slice(0, 300), body: alert.body?.slice(0, 1000) ?? null, link: alert.link }));
+  // A rule alert that carries a proposal gets its confirmation card first (valid for 24 hours).
+  const actionIds = new Map<Alert, string>();
+  for (const alert of toCreate) {
+    if (!alert.proposal) continue;
+    const { data } = await db.from("assistant_actions").insert({
+      workspace_id: workspaceId, user_id: alert.userId, kind: alert.proposal.kind, params: alert.proposal.params, preview: alert.proposal.preview,
+      expires_at: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+    }).select("id").single();
+    if (data) actionIds.set(alert, data.id);
+  }
+  const rows = toCreate.map((alert) => ({
+    workspace_id: workspaceId, user_id: alert.userId, kind: alert.kind, dedupe_key: alert.dedupeKey, severity: alert.severity, title: alert.title.slice(0, 300), body: alert.body?.slice(0, 1000) ?? null, link: alert.link,
+    rule_id: alert.ruleId ?? null, action_id: actionIds.get(alert) ?? null,
+  }));
   for (let offset = 0; offset < rows.length; offset += 200) {
     const batch = rows.slice(offset, offset + 200);
     const { error } = await db.from("assistant_alerts").insert(batch);

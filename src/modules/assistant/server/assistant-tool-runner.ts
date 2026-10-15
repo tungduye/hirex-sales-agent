@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { briefForModel } from "@/modules/assistant/core/daily-brief";
+import { describeRule, ruleSchema } from "@/modules/assistant/core/assistant-rules";
 import { CONVERSATION_NAME_KEYS, isAutomatedSender, isGroupConversation, isZaloGroupThread, metadataName, type AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
 import { createProposal, type ActionContext, type PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
@@ -349,6 +350,22 @@ const runners: Record<string, Runner> = {
       qua_han: rows.filter((row) => row.due_at && Date.parse(row.due_at) < now && (row.status === "OPEN" || row.status === "IN_PROGRESS")).length,
       cong_viec: rows.slice(0, 25).map((row) => ({ tieu_de: clip(row.title, 200), trang_thai: row.status, han: row.due_at, giao_cho_toi: row.assigned_to === scope.userId, link: row.conversation_id ? `/inbox/all/${row.conversation_id}` : "/tasks" })),
       link: "/tasks",
+    };
+  },
+
+  async quy_tac_tu_dong(_args, scope) {
+    const db = createPrivilegedClient();
+    let query = db.from("assistant_rules").select("id,name,definition,enabled,last_matched_at,created_by,created_at").eq("workspace_id", scope.workspaceId).order("created_at", { ascending: false }).limit(100);
+    if (!scope.context.isAdmin) query = query.eq("created_by", scope.userId);
+    const { data, error } = await query;
+    if (error) return { loi: "Không tải được quy tắc." };
+    const owners = new Map(((await db.from("profiles").select("id,full_name").eq("workspace_id", scope.workspaceId).in("id", [...new Set((data ?? []).map((row) => row.created_by))])).data ?? []).map((row) => [row.id, row.full_name]));
+    return {
+      quy_tac: (data ?? []).map((row) => {
+        const parsed = ruleSchema.safeParse(row.definition);
+        return { ten: row.name, dang_bat: row.enabled, mo_ta: parsed.success ? describeRule(parsed.data).slice(0, 3) : ["(định nghĩa không hợp lệ)"], nguoi_tao: owners.get(row.created_by) ?? null, khop_gan_nhat: row.last_matched_at };
+      }),
+      link: "/assistant/rules",
     };
   },
 

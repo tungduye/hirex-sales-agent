@@ -90,8 +90,17 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
       setOpen(true);
       void askRef.current(question.slice(0, 1000));
     }
+    // The rules page opens the panel with a sentence typed in, for the member to adjust and send.
+    function onDraft(event: Event) {
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text;
+      if (typeof text !== "string") return;
+      setOpen(true);
+      setDraft(text.slice(0, 1000));
+      setTimeout(() => inputRef.current?.focus(), 80);
+    }
     window.addEventListener("hirex:assistant-ask", onAsk);
-    return () => window.removeEventListener("hirex:assistant-ask", onAsk);
+    window.addEventListener("hirex:assistant-draft", onDraft);
+    return () => { window.removeEventListener("hirex:assistant-ask", onAsk); window.removeEventListener("hirex:assistant-draft", onDraft); };
   }, []);
 
   function submit(event: FormEvent) { event.preventDefault(); void ask(draft); }

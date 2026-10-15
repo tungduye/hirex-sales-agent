@@ -6,7 +6,8 @@ import { Bell, CheckCheck, CircleAlert, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-interface AlertItem { id: string; kind: string; severity: "high" | "medium"; title: string; body: string | null; link: string | null; created_at: string; read_at: string | null }
+interface AlertAction { id: string; preview: { title?: string; lines?: string[] } | null }
+interface AlertItem { id: string; kind: string; severity: "high" | "medium"; title: string; body: string | null; link: string | null; created_at: string; read_at: string | null; action: AlertAction | null }
 
 const POLL_MS = 60_000;
 const ago = (iso: string) => {
@@ -18,6 +19,7 @@ const ago = (iso: string) => {
 export function AlertBell() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<Record<string, string>>({});
   const boxRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -51,6 +53,21 @@ export function AlertBell() {
     await fetch("/api/assistant/alerts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ids ? { action: "read", ids } : { action: "read" }) }).catch(() => null);
   }
 
+  // A rule's proposal: confirm or dismiss it right here; the server re-checks permission and runs it once.
+  async function decide(alert: AlertItem, decision: "confirm" | "cancel") {
+    if (!alert.action) return;
+    setResults((current) => ({ ...current, [alert.id]: "Đang xử lý…" }));
+    try {
+      const response = await fetch(`/api/assistant/actions/${alert.action.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }) });
+      const data = await response.json().catch(() => null) as { ok?: boolean; message?: string } | null;
+      setResults((current) => ({ ...current, [alert.id]: data?.message ?? (data?.ok ? "Xong." : "Không thực hiện được.") }));
+      setAlerts((current) => current.map((item) => item.id === alert.id ? { ...item, action: null } : item));
+      void markRead([alert.id]);
+    } catch {
+      setResults((current) => ({ ...current, [alert.id]: "Mất kết nối, hãy thử lại." }));
+    }
+  }
+
   const unread = alerts.filter((alert) => !alert.read_at);
   const urgent = unread.some((alert) => alert.severity === "high");
   return (
@@ -66,7 +83,7 @@ export function AlertBell() {
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
               <p className="text-sm font-semibold">Thông báo</p>
-              <p className="text-[11px] text-slate-500">Trợ lý kiểm tra 5 phút một lần · tự ẩn khi sự cố đã hết</p>
+              <p className="text-[11px] text-slate-500">Kiểm tra 5 phút một lần · tự ẩn khi hết sự cố · <Link href="/assistant/rules" onClick={() => setOpen(false)} className="text-blue-700 hover:underline">Quy tắc tự động</Link></p>
             </div>
             {unread.length > 0 && <Button variant="ghost" size="sm" onClick={() => void markRead()}><CheckCheck className="size-4" />Đã xem hết</Button>}
           </div>
@@ -80,6 +97,17 @@ export function AlertBell() {
                   <div className="min-w-0 flex-1">
                     <p className={cn("text-sm text-slate-900", !alert.read_at && "font-semibold")}>{alert.title}</p>
                     {alert.body && <p className="mt-0.5 text-[13px] text-slate-600">{alert.body}</p>}
+                    {alert.action && (
+                      <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-2">
+                        <p className="text-[12px] font-semibold text-slate-800">Đề xuất: {alert.action.preview?.title ?? "Thao tác"}</p>
+                        {alert.action.preview?.lines?.slice(0, 3).map((line, index) => <p key={index} className="text-[12px] text-slate-600">{line}</p>)}
+                        <div className="mt-1.5 flex gap-2">
+                          <Button size="sm" className="h-7 px-2.5 text-[12px]" onClick={() => void decide(alert, "confirm")}>Xác nhận</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[12px]" onClick={() => void decide(alert, "cancel")}>Bỏ qua</Button>
+                        </div>
+                      </div>
+                    )}
+                    {results[alert.id] && <p className="mt-1 text-[12px] font-medium text-slate-700">{results[alert.id]}</p>}
                     <div className="mt-1 flex items-center gap-3 text-[12px]">
                       <span className="text-slate-400">{ago(alert.created_at)}</span>
                       {alert.link && <Link href={alert.link} onClick={() => { void markRead([alert.id]); setOpen(false); }} className="font-medium text-blue-700 hover:underline">Mở</Link>}

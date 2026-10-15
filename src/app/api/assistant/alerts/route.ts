@@ -14,12 +14,25 @@ async function member() {
 export async function GET() {
   const me = await member();
   if (!me) return NextResponse.json({ ok: false }, { status: 401, headers: noStore });
-  const { data, error } = await createPrivilegedClient().from("assistant_alerts")
-    .select("id,kind,severity,title,body,link,created_at,read_at")
+  const db = createPrivilegedClient();
+  const { data, error } = await db.from("assistant_alerts")
+    .select("id,kind,severity,title,body,link,created_at,read_at,action_id")
     .eq("workspace_id", me.workspaceId).eq("user_id", me.userId).is("resolved_at", null)
     .order("created_at", { ascending: false }).limit(50);
   if (error) return NextResponse.json({ ok: false }, { status: 503, headers: noStore });
-  return NextResponse.json({ ok: true, alerts: data ?? [] }, { headers: noStore });
+  // Proposals attached by rules: only still-open ones show "Xác nhận" in the bell.
+  const actionIds = (data ?? []).flatMap((row) => row.action_id ? [row.action_id] : []);
+  const { data: actions } = actionIds.length
+    ? await db.from("assistant_actions").select("id,status,expires_at,preview").eq("workspace_id", me.workspaceId).eq("user_id", me.userId).in("id", actionIds)
+    : { data: [] as { id: string; status: string; expires_at: string; preview: unknown }[] };
+  type ActionRow = { id: string; status: string; expires_at: string; preview: unknown };
+  const byId = new Map(((actions ?? []) as ActionRow[]).map((row) => [row.id, row]));
+  const alerts = (data ?? []).map(({ action_id, ...row }) => {
+    const action = action_id ? byId.get(action_id) : undefined;
+    const open = action && action.status === "PROPOSED" && Date.parse(action.expires_at) > Date.now();
+    return { ...row, action: open ? { id: action.id, preview: action.preview } : null };
+  });
+  return NextResponse.json({ ok: true, alerts }, { headers: noStore });
 }
 
 const bodySchema = z.object({ action: z.literal("read"), ids: z.array(z.string().uuid()).max(50).optional() });

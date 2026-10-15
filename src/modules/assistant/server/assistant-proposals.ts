@@ -10,6 +10,7 @@ import { sendManualChannelMessage } from "@/modules/channels/server/channel-acti
 import { validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, contentBriefSchema } from "@/modules/content/core/content-options";
 import { startContentBatch } from "@/modules/content/server/start-content-batch";
+import { describeRule, MAX_RULES_PER_OWNER, ruleFromToolArgs, ruleSchema } from "@/modules/assistant/core/assistant-rules";
 
 // Phase 2 of Trợ lý HireX. A proposal is validated against current data, stored as an
 // assistant_actions row with a human-readable preview, and shown as a card. Only when the same
@@ -18,7 +19,7 @@ import { startContentBatch } from "@/modules/content/server/start-content-batch"
 // send path as the inbox composer, to one conversation, with text the member saw and could edit.
 // Nothing here launches new campaigns, deletes data or turns AI Recruiter AUTO on.
 
-export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY";
+export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY" | "CREATE_RULE";
 /** editableText: the card shows this in a text box; the member's edited version is what runs. */
 export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string }
 export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean }
@@ -34,6 +35,7 @@ const PERMISSION: Record<ActionKind, string> = {
   CREATE_CONTENT: "content.create",
   AI_RECRUITER_SAFE_STOP: "workspace.admin",
   SEND_REPLY: "inbox.reply",
+  CREATE_RULE: "dashboard.view",
 };
 const allowed = (kind: ActionKind, context: ActionContext) => PERMISSION[kind] === "workspace.admin" ? context.isAdmin : context.permissions.includes(PERMISSION[kind]);
 
@@ -267,6 +269,17 @@ async function proposeReply(args: Record<string, unknown>, context: ActionContex
   };
 }
 
+async function proposeRule(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
+  const checked = ruleFromToolArgs(args, context.isAdmin);
+  if (!checked.ok) return { ok: false, error: checked.error };
+  const { count } = await createPrivilegedClient().from("assistant_rules").select("id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId).eq("created_by", context.userId);
+  if ((count ?? 0) >= MAX_RULES_PER_OWNER) return { ok: false, error: `Mỗi người tối đa ${MAX_RULES_PER_OWNER} quy tắc. Hãy xóa bớt ở trang Quy tắc tự động.` };
+  return {
+    ok: true, kind: "CREATE_RULE", params: { name: checked.name, rule: checked.rule },
+    preview: { title: "Tạo quy tắc tự động", lines: [`Tên: ${checked.name}`, ...describeRule(checked.rule)], link: "/assistant/rules" },
+  };
+}
+
 const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionContext) => Promise<Built>> = {
   de_xuat_tao_cong_viec: proposeTask,
   de_xuat_doi_trang_thai_lead: proposeLead,
@@ -274,6 +287,7 @@ const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionCo
   de_xuat_tao_content: proposeContent,
   de_xuat_dung_ai_recruiter: proposeAiStop,
   de_xuat_tra_loi_hoi_thoai: proposeReply,
+  de_xuat_tao_quy_tac: proposeRule,
 };
 
 export const MAX_PROPOSALS_PER_QUESTION = 3;
@@ -428,6 +442,17 @@ async function executeReply(params: Record<string, unknown>): Promise<Executed> 
   return { ok: result.status === "success", message, link: `/inbox/all/${params.conversationId}` };
 }
 
+async function executeRule(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const rule = ruleSchema.safeParse(params.rule);
+  const name = typeof params.name === "string" ? params.name.trim().slice(0, 120) : "";
+  if (!rule.success || !name) return { ok: false, message: "Quy tắc không còn hợp lệ." };
+  if (!context.isAdmin && rule.data.target !== "OWNER") return { ok: false, message: "Chỉ quản trị viên được đặt quy tắc báo cho người khác." };
+  const { error } = await createPrivilegedClient().from("assistant_rules").insert({ workspace_id: context.workspaceId, created_by: context.userId, name, definition: rule.data });
+  if (error) return { ok: false, message: "Không lưu được quy tắc." };
+  revalidatePath("/assistant/rules");
+  return { ok: true, message: `Đã bật quy tắc “${name}”. Hệ thống kiểm tra 5 phút một lần.`, link: "/assistant/rules" };
+}
+
 const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: ActionContext) => Promise<Executed>> = {
   CREATE_TASK: executeTask,
   SET_LEAD_STATUS: executeLead,
@@ -435,6 +460,7 @@ const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: A
   CREATE_CONTENT: executeContent,
   AI_RECRUITER_SAFE_STOP: executeAiStop,
   SEND_REPLY: executeReply,
+  CREATE_RULE: executeRule,
 };
 
 /** Confirms or cancels one of the member's own proposals. Runs it at most once. */
