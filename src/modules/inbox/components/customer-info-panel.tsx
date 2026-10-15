@@ -68,7 +68,7 @@ export function CustomerInfoPanel(props: { conversationId: string; displayName: 
 
         {data.otherConversations.length ? <section className="space-y-1.5">
           <p className={sectionTitle}>Cùng người ở kênh khác</p>
-          {data.otherConversations.map((item) => <Link key={item.id} href={`/inbox/all/${item.id}`} className="block rounded-[10px] border border-slate-200 px-2.5 py-2 text-[13px] text-slate-900 hover:border-blue-300 hover:bg-blue-50/40">
+          {data.otherConversations.map((item) => <Link prefetch={false} key={item.id} href={`/inbox/all/${item.id}`} className="block rounded-[10px] border border-slate-200 px-2.5 py-2 text-[13px] text-slate-900 hover:border-blue-300 hover:bg-blue-50/40">
             {channelName(item.channelType)}{item.accountName ? ` · ${item.accountName}` : ""}{item.subject ? ` · ${item.subject}` : ""}
             {item.lastMessageAt ? <span className="block text-xs text-slate-500">{relative(item.lastMessageAt)}</span> : null}
           </Link>)}
@@ -92,7 +92,7 @@ function Identity({ data, displayName, avatarUrl, senderExternalId, busy, onCrea
     <p className="mt-1 text-base font-bold text-slate-950">{title}</p>
     {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
     {contact?.phone || contact?.email ? <p className="text-xs text-slate-600">{[contact.phone, contact.email].filter(Boolean).join(" · ")}</p> : null}
-    {contact ? <Link href={`/contacts/${contact.id}`} className="text-[13px] font-semibold text-blue-700 hover:underline">Mở trang liên hệ</Link>
+    {contact ? <Link prefetch={false} href={`/contacts/${contact.id}`} className="text-[13px] font-semibold text-blue-700 hover:underline">Mở trang liên hệ</Link>
     : !creating ? <div className="mt-1 space-y-1.5"><p className="text-xs text-slate-500">Chưa gắn với liên hệ nào{senderExternalId && /^[\w.+-]+@/u.test(senderExternalId) ? ` (${senderExternalId})` : ""}.</p>{data.can.createContact ? <button type="button" onClick={() => setCreating(true)} className={chip}><Plus className="size-3.5"/>Tạo liên hệ</button> : null}</div>
     : <form onSubmit={(event) => { event.preventDefault(); onCreate(name, phone); }} className="mt-2 w-full space-y-1.5 rounded-lg border border-slate-200 p-2.5 text-left">
       <label className="block text-[11px] font-semibold text-slate-600">Họ tên<input required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} className="mt-0.5 h-8 w-full rounded-md border border-slate-200 px-2 text-[13px] font-normal outline-none focus:border-blue-400"/></label>

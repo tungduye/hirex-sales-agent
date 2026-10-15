@@ -18,23 +18,26 @@ interface WorkspaceRow {
 
 async function loadAccountContext(): Promise<AccountContext | null> {
   const supabase = await createClient();
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-  if (userError || !user) {
+  // Signed claims are checked locally when possible, avoiding an Auth round trip per request.
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
+  if (claimsError || !claims?.sub) {
     return null;
   }
+  const userId = claims.sub;
+  const email = typeof claims.email === "string" && claims.email ? claims.email : "Email unavailable";
 
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, workspace_id, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-  const profile = profileData as ProfileRow | null;
+  // Profile (with its workspace) and permissions are independent: load them together.
+  const [{ data: profileData, error: profileError }, { data: permissionData, error: permissionError }] = await Promise.all([
+    supabase.from("profiles").select("id, workspace_id, full_name, workspaces(id, name)").eq("id", userId).maybeSingle(),
+    supabase.rpc("current_workspace_permissions"),
+  ]);
+  const profile = profileData as (ProfileRow & { workspaces: WorkspaceRow | WorkspaceRow[] | null }) | null;
 
   if (profileError || !profile) {
     return {
-      userId: user.id,
-      email: user.email ?? "Email unavailable",
+      userId,
+      email,
       fullName: null,
       workspaceId: null,
       workspaceName: null,
@@ -43,22 +46,15 @@ async function loadAccountContext(): Promise<AccountContext | null> {
     };
   }
 
-  const { data: workspaceData, error: workspaceError } = await supabase
-    .from("workspaces")
-    .select("id, name")
-    .eq("id", profile.workspace_id)
-    .maybeSingle();
-  const workspace = workspaceData as WorkspaceRow | null;
-
-  const {data:permissionData,error:permissionError}=await supabase.rpc("current_workspace_permissions");
+  const workspace = Array.isArray(profile.workspaces) ? profile.workspaces[0] ?? null : profile.workspaces;
   const permissions=permissionError?[]:(permissionData??[]).filter((value:unknown):value is string=>typeof value==="string"&&allPermissionKeys.includes(value as (typeof allPermissionKeys)[number]));
   return {
-    userId: user.id,
-    email: user.email ?? "Email unavailable",
+    userId,
+    email,
     fullName: profile.full_name,
     workspaceId: profile.workspace_id,
     workspaceName: workspace?.name ?? null,
-    configurationComplete: !workspaceError && Boolean(workspace),
+    configurationComplete: Boolean(workspace),
     permissions,
   };
 }

@@ -20,6 +20,14 @@ export const isWorkspaceAdmin = cache(async () => {
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.permissions.includes("roles.manage") || !account.permissions.includes("settings.view")) return false;
   const db = createPrivilegedSupabaseClient();
+  // One round trip: the profile with its role.
+  const { data: joined, error: joinError } = await db.from("profiles")
+    .select("role_id, workspace_roles!profiles_role_workspace_fk(name,is_system)").eq("id", account.userId).eq("workspace_id", account.workspaceId).maybeSingle();
+  if (!joinError) {
+    const role = joined?.workspace_roles as unknown as { name: string; is_system: boolean } | Array<{ name: string; is_system: boolean }> | null | undefined;
+    const value = Array.isArray(role) ? role[0] : role;
+    return Boolean(joined?.role_id) && value?.is_system === true && value.name === "Quản trị viên";
+  }
   const { data: profile, error: profileError } = await db.from("profiles")
     .select("role_id").eq("id", account.userId).eq("workspace_id", account.workspaceId).maybeSingle();
   if (profileError || !profile?.role_id) return false;
@@ -34,7 +42,8 @@ export async function requireWorkspaceAdmin() {
   return { ...account, workspaceId: account.workspaceId };
 }
 
-export async function getAccessibleChannelAccountIds(){
+/** Channel accounts the member may use (null = all). Cached for the current request. */
+export const getAccessibleChannelAccountIds = cache(async function loadAccessibleChannelAccountIds(){
   const account=await getAccountContext();
   if(!account?.workspaceId)return [];
   const db=createPrivilegedSupabaseClient();
@@ -43,7 +52,7 @@ export async function getAccessibleChannelAccountIds(){
   if(profile?.all_channel_accounts)return null;
   const {data}=await db.from("profile_channel_account_access").select("channel_account_id").eq("workspace_id",account.workspaceId).eq("profile_id",account.userId);
   return (data??[]).map(item=>item.channel_account_id as string);
-}
+});
 
 export async function canAccessChannelAccount(channelAccountId:string){
   const ids=await getAccessibleChannelAccountIds();

@@ -66,7 +66,7 @@ function ReadyConversationDetail(props: DetailProps & { result: Extract<Omnichan
   const setPanelOpen = (open: boolean) => { setPanelOpenState(open); try { window.localStorage.setItem(PANEL_KEY, open ? "1" : "0"); } catch { /* storage unavailable */ } };
   return <div className="relative flex h-full min-h-0"><div className="flex min-w-0 flex-1 flex-col">
     <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4">
-      <Link href={`/inbox/all?channel=${conversation.channelType}`} className="flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-slate-100 lg:hidden" aria-label="Quay lại danh sách"><ArrowLeft className="size-5"/></Link>
+      <Link prefetch={false} href={`/inbox/all?channel=${conversation.channelType}`} className="flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-slate-100 lg:hidden" aria-label="Quay lại danh sách"><ArrowLeft className="size-5"/></Link>
       {conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">{conversation.channelType === "EMAIL" ? <Mail className="size-4"/> : conversation.channelType === "FACEBOOK" ? <span className="text-xs font-black">f</span> : <MessageCircle className="size-4"/>}</span>}
       <div className="min-w-0 flex-1">
         <h2 className="truncate font-bold text-slate-950" title={conversation.senderExternalId ?? undefined}>{displayName}</h2>

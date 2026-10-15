@@ -143,7 +143,9 @@
     ".next-inbox-layout-6/types/**/*.ts",
     ".next-inbox-layout-6/dev/types/**/*.ts",
     ".next-inbox-composer-1/types/**/*.ts",
-    ".next-inbox-composer-1/dev/types/**/*.ts"
+    ".next-inbox-composer-1/dev/types/**/*.ts",
+    ".next-brand-intalent-1/types/**/*.ts",
+    ".next-brand-intalent-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

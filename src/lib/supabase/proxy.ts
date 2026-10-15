@@ -44,7 +44,10 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // getClaims verifies the session token locally when the project signs JWTs with asymmetric keys
+  // (no round trip to Supabase on every request); otherwise it falls back to the same server check.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null;
   const pathname = request.nextUrl.pathname;
 
   if (!user && isProtectedPath(pathname)) {
