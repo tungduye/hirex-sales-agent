@@ -32,6 +32,8 @@ export interface OmnichannelInboxConversation {
   lastInboundAt: string | null;
   tagIds: string[];
   proposedActions: Array<{ id: string; text: string | null; proposedBy: string }>;
+  /** Group chat (several people write in it); shown under the "Nhóm" tab only. */
+  isGroup: boolean;
 }
 
 export interface OmnichannelInboxProfile {
@@ -44,6 +46,8 @@ export interface OmnichannelInboxTag { id: string; name: string; color: string |
 
 export interface OmnichannelInboxData {
   workspaceId: string | null;
+  /** Signed-in member, for the "Của tôi" tab. */
+  currentUserId: string | null;
   accounts: OmnichannelInboxAccount[];
   conversations: OmnichannelInboxConversation[];
   selectedChannelType: ChannelType | null;

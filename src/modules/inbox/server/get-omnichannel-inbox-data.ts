@@ -13,6 +13,7 @@ import { isFacebookProfileSystemPlaceholder } from "../core/facebook-profile-sys
 import type { OmnichannelInboxAccount, OmnichannelInboxConversation, OmnichannelInboxData } from "../types/omnichannel-inbox";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
+import { isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
@@ -169,7 +170,7 @@ function emptyData(input: {
   selectedPage: number; profiles?: OmnichannelInboxData["profiles"]; tags?: OmnichannelInboxData["tags"];
   selectedTagIds?: string[]; tagMatchMode?: "all" | "any"; firstMessageFrom?: string | null; firstMessageTo?: string | null; error: string;
 }): OmnichannelInboxData {
-  return { workspaceId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
+  return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
 export async function getOmnichannelInboxData(filters: { channelType?: string; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
@@ -224,7 +225,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
   if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Inbox account data is unavailable." });
   const accounts = mappedAccounts as OmnichannelInboxAccount[];
   const activeAccountIds = accounts.map((account) => account.id);
-  if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, error: null };
+  if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, error: null };
   const requestedAccount = filters.accountId ? accounts.find((account) => account.id === filters.accountId) : undefined;
   const selectedAccountId = requestedAccount && (!selectedChannelType || requestedAccount.channelType === selectedChannelType) ? requestedAccount.id : null;
   const availableOwnerIds = new Set(profiles.map((profile) => profile.id));
@@ -316,9 +317,11 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
       contactName: typeof row.contact_id === "string" ? contactNames.get(row.contact_id) ?? null : null,
       participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Unknown account",
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
+      // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
+      isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : null),
     });
   }
-  return { workspaceId: accountContext.workspaceId, accounts, conversations, profiles, tags, selectedChannelType, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

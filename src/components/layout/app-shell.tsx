@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Menu, Search, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { Menu, Search, Sparkles, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { AccountProvider } from "@/modules/identity/components/account-context";
@@ -10,14 +11,23 @@ import { AssistantPanel } from "@/modules/assistant/components/assistant-panel";
 import { AlertBell } from "@/modules/assistant/components/alert-bell";
 import type { AccountContext } from "@/types/account";
 
+const SIDEBAR_KEY = "hirex.sidebarCollapsed";
+
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+  // Hồ Chứa uses the whole screen (no page padding or max width) so the composer stays in view.
+  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/");
+  // The main menu can shrink to an icon column; the choice is remembered in this browser.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => { try { setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* storage unavailable */ } }, []);
+  const toggleSidebar = () => setCollapsed((value) => { try { window.localStorage.setItem(SIDEBAR_KEY, value ? "0" : "1"); } catch { /* storage unavailable */ } return !value; });
 
   return (
     <AccountProvider account={account}>
-    <div className="min-h-screen bg-slate-50 lg:grid lg:grid-cols-[264px_1fr]">
+    <div className={`min-h-screen bg-slate-50 lg:grid ${collapsed ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[264px_1fr]"}`}>
       <div className="hidden lg:block">
-        <Sidebar account={account} workspaceAdmin={workspaceAdmin} />
+        <Sidebar account={account} workspaceAdmin={workspaceAdmin} collapsed={collapsed} onToggleCollapsed={toggleSidebar} />
       </div>
 
       {mobileOpen && (
@@ -43,11 +53,12 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
           </div>
           <div className="ml-auto flex items-center gap-2">
             <div className="hidden rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 sm:block">Chế độ thủ công</div>
+            {account.configurationComplete ? <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("hirex:assistant-open"))} className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:inline-flex" title="Mở Trợ lý HireX (Ctrl + K)"><Sparkles className="size-4 text-blue-600"/>Trợ lý</button> : null}
             {account.configurationComplete ? <AlertBell /> : null}
             <div className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white" aria-label={`Hồ sơ ${account.fullName ?? account.email}`}>{(account.fullName ?? account.email).slice(0, 2).toUpperCase()}</div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">{account.configurationComplete ? children : <AccountSetupRequired />}</main>
+        <main className={fullBleed ? "w-full" : "mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8"}>{account.configurationComplete ? children : <AccountSetupRequired />}</main>
       </div>
     </div>
     {account.configurationComplete && <AssistantPanel account={account} />}

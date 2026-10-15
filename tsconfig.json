@@ -127,7 +127,9 @@
     ".next-assistant-alerts/types/**/*.ts",
     ".next-assistant-alerts/dev/types/**/*.ts",
     ".next-assistant-alerts-fix1/types/**/*.ts",
-    ".next-assistant-alerts-fix1/dev/types/**/*.ts"
+    ".next-assistant-alerts-fix1/dev/types/**/*.ts",
+    ".next-assistant-rules/types/**/*.ts",
+    ".next-assistant-rules/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
