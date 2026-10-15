@@ -118,7 +118,7 @@ export function ContentLibraryView({ items, templates, categories, batches, tota
               <tbody className="divide-y">
                 {items.map((item) => (
                   <tr key={item.id} className="cursor-pointer transition-colors hover:bg-slate-50/70" onClick={() => setSelected(item)}>
-                    <td className="whitespace-nowrap px-5 py-4"><button type="button" className="font-mono text-sm font-semibold text-blue-700 hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.code}</button></td>
+                    <td className="whitespace-nowrap px-5 py-4"><button type="button" className="font-mono text-sm font-semibold text-blue-700 hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.code}</button>{item.used && <span className="mt-1 block w-fit rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700" title="Đã gắn với một chiến dịch, không dùng lại">Đã dùng</span>}</td>
                     <td className="max-w-[360px] px-4 py-4"><p className="truncate text-sm font-semibold text-slate-900">{item.title}</p><p className="mt-0.5 truncate text-xs text-slate-500">{item.jobTitle}</p></td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{languageLabel(item.language)}</td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{formatLabel(item.format)}</td>

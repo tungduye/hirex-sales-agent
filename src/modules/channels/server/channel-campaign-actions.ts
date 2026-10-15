@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { contentItemIdsFrom, reserveContent, unavailableContent } from "@/modules/content/server/content-usage";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -91,6 +92,10 @@ export async function createChannelCampaign(_state: ChannelActionState, formData
     return { status: "error", message: "Bạn chưa được cấp quyền sử dụng tài khoản gửi đã chọn." };
   const client = await createClient();
   const privileged = createPrivilegedClient();
+  // Library content picked for this campaign must still be unused (one campaign per content).
+  const contentIds = contentItemIdsFrom(formData);
+  if ((await unavailableContent(privileged, account.workspaceId, contentIds)).length > 0)
+    return { status: "error", message: "Một số content từ Kho đã được chiến dịch khác dùng. Hãy bấm “Chọn lại” để lấy content khác." };
   const { data: campaignId, error } = await client.rpc("create_channel_campaign_draft", { p_name: parsed.data.name });
   if (error || typeof campaignId !== "string") return { status: "error", message: "Campaign could not be created." };
   const rollbackDraft = async (message: string): Promise<ChannelActionState> => {
@@ -104,6 +109,8 @@ export async function createChannelCampaign(_state: ChannelActionState, formData
   if (step.error || typeof step.data !== "string") return rollbackDraft("Không thể lưu nội dung chiến dịch. Bản nháp chưa hoàn tất; vui lòng thử lại.");
   const savedVariants=await privileged.from("channel_campaign_steps").update({content_variants:parsed.data.messageVariants}).eq("id",step.data).eq("workspace_id",account.workspaceId).eq("campaign_id",campaignId);
   if(savedVariants.error) return rollbackDraft("Không thể lưu các mẫu nội dung. Bản nháp chưa hoàn tất; vui lòng thử lại.");
+  if (!await reserveContent(privileged, { workspaceId: account.workspaceId, kind: "CHANNEL", campaignId, userId: account.userId, ids: contentIds }))
+    return rollbackDraft("Một số content từ Kho vừa được chiến dịch khác dùng. Hãy bấm “Chọn lại” để lấy content khác.");
   const recipientContactIds = new Set(parsed.data.contactIds);
   if (parsed.data.phoneRecipients.length > 0) {
     const phones = [...new Set(parsed.data.phoneRecipients)];
@@ -231,6 +238,8 @@ export async function createFacebookProfileCampaign(_state:ChannelActionState,fo
   const verifiedTargets=new Set((conversations??[]).filter(row=>inboundConversationIds.has(row.id)).map(row=>row.provider_conversation_id));
   if(targets.some(target=>!verifiedTargets.has(target.externalId)))
     return{status:"error",message:"Mỗi người nhận cần có ít nhất một hội thoại Facebook đã đồng bộ tin nhắn đến trước khi được đưa vào chiến dịch."};
+  const contentIds=contentItemIdsFrom(formData);
+  if((await unavailableContent(privileged,account.workspaceId,contentIds)).length>0)return{status:"error",message:"Một số content từ Kho đã được chiến dịch khác dùng. Hãy bấm “Chọn lại” để lấy content khác."};
   const client=await createClient();
   const{data:campaignId,error}=await client.rpc("create_channel_campaign_draft",{p_name:parsed.data.name});
   if(error||typeof campaignId!=="string")return{status:"error",message:"Không thể tạo bản nháp chiến dịch."};
@@ -244,6 +253,7 @@ export async function createFacebookProfileCampaign(_state:ChannelActionState,fo
   if(step.error||typeof step.data!=="string")return rollback("Không thể lưu nội dung chiến dịch Facebook cá nhân.");
   const variants=await privileged.from("channel_campaign_steps").update({content_variants:parsed.data.messageVariants}).eq("id",step.data).eq("workspace_id",account.workspaceId).eq("campaign_id",campaignId);
   if(variants.error)return rollback("Không thể lưu các mẫu nội dung Facebook cá nhân.");
+  if(!await reserveContent(privileged,{workspaceId:account.workspaceId,kind:"CHANNEL",campaignId,userId:account.userId,ids:contentIds}))return rollback("Một số content từ Kho vừa được chiến dịch khác dùng. Hãy bấm “Chọn lại” để lấy content khác.");
   for(const target of targets){
     const contactId=channelByTarget.get(target.externalId)?.contact_id;
     if(typeof contactId!=="string")return rollback(`Không thể xác định liên hệ đã đồng ý nhận tin cho ${target.sourceValue}.`);

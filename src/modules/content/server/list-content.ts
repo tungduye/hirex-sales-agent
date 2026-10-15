@@ -21,6 +21,8 @@ export interface ContentListItem {
   createdByName: string | null;
   /** Code of the sample template this content was written from. */
   templateCode: string | null;
+  /** Already used by a campaign (each content serves one campaign). */
+  used: boolean;
 }
 
 export interface ListContentResult {
@@ -88,6 +90,12 @@ export async function listContent(raw: Record<string, string | string[] | undefi
     for (const profile of (data ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
   }
 
+  const usedIds = new Set<string>();
+  if (rows.length > 0) {
+    const { data } = await supabase.from("content_item_usages").select("content_item_id").in("content_item_id", rows.map((row) => row.id));
+    for (const usage of (data ?? []) as { content_item_id: string }[]) usedIds.add(usage.content_item_id);
+  }
+
   const templateIds = [...new Set(rows.flatMap((row) => row.template_id ? [row.template_id] : []))];
   const templateCodes = new Map<string, string>();
   if (templateIds.length > 0) {
@@ -111,6 +119,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
       createdAt: row.created_at,
       createdByName: names.get(row.created_by) ?? null,
       templateCode: row.template_id ? templateCodes.get(row.template_id) ?? null : null,
+      used: usedIds.has(row.id),
     })),
     batches,
     total: itemsResult.count ?? rows.length,

@@ -24,6 +24,7 @@ import { getCampaign } from "@/modules/campaigns/server/campaign-data";
 import { listContacts } from "@/modules/crm/contacts/server/list-contacts";
 import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-email-accounts";
 import { RichEmailEditor } from "@/modules/campaigns/components/rich-email-editor";
+import { CampaignContentPicker } from "@/modules/content/components/campaign-content-picker";
 import { ConfirmSubmitButton } from "@/modules/campaigns/components/confirm-submit-button";
 const stages = [
   {
@@ -110,7 +111,7 @@ type Draft = {
 export default async function NewCampaignPage({
   searchParams,
 }: {
-  searchParams: Promise<{ campaignId?: string; stage?: string }>;
+  searchParams: Promise<{ campaignId?: string; stage?: string; error?: string }>;
 }) {
   const q = await searchParams;
   const stage = (
@@ -139,6 +140,11 @@ export default async function NewCampaignPage({
         title={row ? "Chỉnh sửa chiến dịch" : "Tạo chiến dịch Email Marketing"}
         description="5 bước rõ ràng, lưu liên tục và chỉ khởi chạy sau khi bạn xác nhận."
       />
+      {q.error && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          {q.error === "content-used" ? "Content đã chọn từ Kho đã được chiến dịch khác dùng. Hãy bấm “Chọn lại” trong mục Lấy từ Kho content để lấy content khác." : q.error === "invalid" ? "Thông tin chiến dịch chưa hợp lệ, vui lòng kiểm tra lại." : "Chưa lưu được chiến dịch, vui lòng thử lại."}
+        </div>
+      )}
       <div className="mb-6 grid gap-2 md:grid-cols-5">
         {stages.map((s, i) => (
           <Link
@@ -207,6 +213,7 @@ export default async function NewCampaignPage({
               value={row?.owner_name}
             />
           </div>
+          <CampaignContentPicker mode="email" defaultFormat="EMAIL" max={1} />
           <Field
             name="subject"
             label="Tiêu đề email đầu tiên"

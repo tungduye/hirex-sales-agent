@@ -71,3 +71,10 @@ test('taxonomy: new formats, legacy format codes, Japanese, optional category', 
   assert.equal(template.data.contentFormat, 'COMMENT');
   assert.equal(template.data.categoryId, null);
 });
+
+test('campaign text from library content', async () => {
+  const { messageTextOf, emailHtmlOf } = await import('../src/modules/content/core/campaign-content.ts');
+  assert.equal(messageTextOf({ title: ' [HN] BrSE ', body: ' Thân bài ', content_format: 'POST_SHORT' }), '[HN] BrSE\n\nThân bài');
+  assert.equal(messageTextOf({ title: 'nhãn', body: ' Hay quá anh ơi ', content_format: 'COMMENT' }), 'Hay quá anh ơi');
+  assert.equal(emailHtmlOf('Chào <anh>,\nDòng 2\n\nĐoạn 2 & hết'), '<p>Chào &lt;anh&gt;,<br>Dòng 2</p><p>Đoạn 2 &amp; hết</p>');
+});

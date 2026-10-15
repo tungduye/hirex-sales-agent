@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { contentItemIdsFrom, reserveContent, unavailableContent } from "@/modules/content/server/content-usage";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
@@ -24,17 +26,24 @@ export async function createCampaign(formData: FormData): Promise<void> {
   if (!account?.workspaceId || !account.configurationComplete) redirect("/login");
   const parsed = parseCampaignBasics(formData);
   if (!parsed) redirect("/campaigns/new?error=invalid");
+  const contentIds = contentItemIdsFrom(formData);
+  if ((await unavailableContent(createPrivilegedClient(), account.workspaceId, contentIds)).length > 0) redirect("/campaigns/new?error=content-used");
   const db = createPrivilegedSupabaseClient();
   const { data, error } = await db.from("email_campaigns").insert({ workspace_id:account.workspaceId,created_by:account.userId,name:parsed.name,campaign_type:parsed.campaignType,campaign_type_color:parsed.campaignTypeColor,subject_template:parsed.subject,body_text_template:parsed.body,combo_uv:parsed.comboUv,placement:parsed.placement,channel_rank:parsed.channelRank,owner_name:parsed.ownerName,status:"DRAFT",sequence_enabled:true }).select("id").single();
   if (error || !data) redirect("/campaigns/new?error=save");
   const {error:stepError}=await db.from("email_campaign_steps").insert({workspace_id:account.workspaceId,campaign_id:data.id,step_order:0,step_type:"INITIAL",delay_minutes:0,subject_template:parsed.subject,body_text_template:parsed.body,body_html_template:parsed.bodyHtml,enabled:true});
   if(stepError) redirect("/campaigns/new?error=save");
+  if (!await reserveContent(createPrivilegedClient(), { workspaceId: account.workspaceId, kind: "EMAIL", campaignId: data.id, userId: account.userId, ids: contentIds }))
+    redirect(`/campaigns/new?campaignId=${data.id}&stage=basics&error=content-used`);
   await db.from("email_campaign_events").insert({workspace_id:account.workspaceId,campaign_id:data.id,event_type:"CAMPAIGN_CREATED"});
   revalidatePath("/campaigns"); redirect(`/campaigns/new?campaignId=${data.id}&stage=audience`);
 }
 
 export async function updateCampaign(formData:FormData):Promise<void>{
   const context=await requireContext(); const id=z.string().uuid().parse(formData.get("campaignId")); const parsed=parseCampaignBasics(formData);if(!parsed)return;
+  // Library content picked while editing: must be unused (or already this campaign's).
+  const contentIds=contentItemIdsFrom(formData);
+  if(contentIds.length&&await isDraftCampaign(createPrivilegedSupabaseClient(),id,context.workspaceId)){const contentDb=createPrivilegedClient();if((await unavailableContent(contentDb,context.workspaceId,contentIds,id)).length>0||!await reserveContent(contentDb,{workspaceId:context.workspaceId,kind:"EMAIL",campaignId:id,userId:context.userId,ids:contentIds}))redirect(`/campaigns/new?campaignId=${id}&stage=basics&error=content-used`);}
   const db=createPrivilegedSupabaseClient();await db.from("email_campaigns").update({name:parsed.name,campaign_type:parsed.campaignType,campaign_type_color:parsed.campaignTypeColor,subject_template:parsed.subject,body_text_template:parsed.body,combo_uv:parsed.comboUv,placement:parsed.placement,channel_rank:parsed.channelRank,owner_name:parsed.ownerName}).eq("id",id).eq("workspace_id",context.workspaceId).eq("status","DRAFT");await db.from("email_campaign_steps").update({subject_template:parsed.subject,body_text_template:parsed.body,body_html_template:parsed.bodyHtml}).eq("campaign_id",id).eq("workspace_id",context.workspaceId).eq("step_order",0); revalidatePath(`/campaigns/${id}`);redirect(`/campaigns/new?campaignId=${id}&stage=audience`);
 }
 
