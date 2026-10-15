@@ -257,6 +257,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
   const contactIds = [...new Set(rows.flatMap((row) => typeof row.contact_id === "string" ? [row.contact_id] : []))];
   const latest = new Map<string, MessageRow>();
   const latestInbound = new Map<string, string>();
+  const inboundSenderByConversation = new Map<string, string>();
   const contactNames = new Map<string, string>();
   const tagIdsByConversation = new Map<string, string[]>();
   const firstMessageAtByConversation = new Map<string, string>();
@@ -279,6 +280,15 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
       if (facebookProfileConversationIds.has(message.conversation_id) && isFacebookProfileSystemPlaceholder(message.text_content)) continue;
       if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, message);
       if (typeof message.last_inbound_at === "string") latestInbound.set(message.conversation_id, message.last_inbound_at);
+    }
+    // Zalo groups are recognised by an inbound sender that differs from the thread id. When the newest
+    // message is ours, look up one earlier inbound message so the conversation still lands in "Nhóm".
+    const zaloWithoutInbound = rows.flatMap((row) => row.channel_type === "ZALO" && typeof row.id === "string" && latest.get(row.id)?.direction !== "INBOUND" ? [row.id] : []);
+    if (zaloWithoutInbound.length > 0) {
+      const { data: inboundData } = await supabase.from("omnichannel_messages").select("conversation_id,sender_external_id").eq("workspace_id", accountContext.workspaceId).in("conversation_id", zaloWithoutInbound).eq("direction", "INBOUND").order("created_at", { ascending: false }).limit(Math.min(1000, zaloWithoutInbound.length * 20));
+      for (const message of (inboundData ?? []) as Array<{ conversation_id: unknown; sender_external_id: unknown }>) {
+        if (typeof message.conversation_id === "string" && typeof message.sender_external_id === "string" && !inboundSenderByConversation.has(message.conversation_id)) inboundSenderByConversation.set(message.conversation_id, message.sender_external_id);
+      }
     }
     for (const contact of (contactResult.data ?? []) as ContactRow[]) if (typeof contact.id === "string" && typeof contact.full_name === "string") contactNames.set(contact.id, contact.full_name);
     for (const link of (tagLinkData ?? []) as TagLinkRow[]) if (typeof link.conversation_id === "string" && typeof link.tag_id === "string") tagIdsByConversation.set(link.conversation_id, [...(tagIdsByConversation.get(link.conversation_id) ?? []), link.tag_id]);
@@ -318,7 +328,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
       participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Unknown account",
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
-      isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : null),
+      isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : inboundSenderByConversation.get(row.id) ?? null),
     });
   }
   return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
