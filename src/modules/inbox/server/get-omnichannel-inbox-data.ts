@@ -274,15 +274,14 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   const contactIds = [...new Set(rows.flatMap((row) => typeof row.contact_id === "string" ? [row.contact_id] : []))];
   const latest = new Map<string, MessageRow>();
   const latestInbound = new Map<string, string>();
-  const inboundSenderByConversation = new Map<string, string>();
+  const zaloGroupIds = new Set<string>();
   const contactNames = new Map<string, string>();
   const tagIdsByConversation = new Map<string, string[]>();
   const firstMessageAtByConversation = new Map<string, string>();
   const proposedByConversation = new Map<string, Array<{ id: string; text: string | null; proposedBy: string }>>();
   if (ids.length > 0) {
     const previewStartedAt = performance.now();
-    const zaloIds = rows.flatMap((row) => row.channel_type === "ZALO" && typeof row.id === "string" ? [row.id] : []);
-    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: firstMessageData }, { data: zaloInboundData }] = await Promise.all([
+    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: firstMessageData }, { data: zaloGroupData }] = await Promise.all([
       supabase.rpc("get_inbox_conversation_previews", { p_conversation_ids: ids }),
       loadTagLinks(supabase, ids),
       supabase.from("channel_outbound_actions").select("id,conversation_id,text_content,proposed_by").in("conversation_id", ids).eq("status", "PROPOSED").order("created_at", { ascending: false }),
@@ -290,10 +289,10 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       firstMessageFrom || firstMessageTo
         ? supabase.rpc("get_conversation_first_message_times", { p_conversation_ids: ids })
         : Promise.resolve({ data: [] as FirstMessageRow[] }),
-      zaloIds.length
-        ? supabase.from("omnichannel_messages").select("conversation_id,sender_external_id").eq("workspace_id", accountContext.workspaceId).in("conversation_id", zaloIds).eq("direction", "INBOUND").order("created_at", { ascending: false }).limit(Math.min(1000, zaloIds.length * 20))
-        : Promise.resolve({ data: [] as Array<{ conversation_id: unknown; sender_external_id: unknown }> }),
+      // Zalo groups (someone other than the thread wrote to us), in the same round trip as the previews.
+      rows.some((row) => row.channel_type === "ZALO") ? supabase.rpc("get_inbox_zalo_group_ids", { p_conversation_ids: ids }) : Promise.resolve({ data: [] as string[] }),
     ]);
+    for (const id of (zaloGroupData ?? []) as unknown[]) if (typeof id === "string") zaloGroupIds.add(id);
     if (previewError) console.warn("[slow-query] inbox preview RPC unavailable", { durationMs: Math.round(performance.now() - previewStartedAt), code: previewError.code });
     else if (performance.now() - previewStartedAt > 250) console.warn("[slow-query] inbox previews", { durationMs: Math.round(performance.now() - previewStartedAt), conversations: ids.length });
     for (const message of (previewData ?? []) as PreviewRow[]) {
@@ -301,12 +300,6 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       if (facebookProfileConversationIds.has(message.conversation_id) && isFacebookProfileSystemPlaceholder(message.text_content)) continue;
       if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, message);
       if (typeof message.last_inbound_at === "string") latestInbound.set(message.conversation_id, message.last_inbound_at);
-    }
-    // Zalo groups are recognised by an inbound sender that differs from the thread id. Recent inbound
-    // senders are loaded with the previews (not after them) so it costs no extra wait; they are used
-    // when the newest message is ours.
-    for (const message of (zaloInboundData ?? []) as Array<{ conversation_id: unknown; sender_external_id: unknown }>) {
-      if (typeof message.conversation_id === "string" && typeof message.sender_external_id === "string" && !inboundSenderByConversation.has(message.conversation_id)) inboundSenderByConversation.set(message.conversation_id, message.sender_external_id);
     }
     for (const contact of (contactResult.data ?? []) as ContactRow[]) if (typeof contact.id === "string" && typeof contact.full_name === "string") contactNames.set(contact.id, contact.full_name);
     for (const link of (tagLinkData ?? []) as TagLinkRow[]) if (typeof link.conversation_id === "string" && typeof link.tag_id === "string") tagIdsByConversation.set(link.conversation_id, [...(tagIdsByConversation.get(link.conversation_id) ?? []), link.tag_id]);
@@ -347,7 +340,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
       automated: row.channel_type === "EMAIL" && isAutomatedSender(typeof message?.sender_external_id === "string" ? message.sender_external_id : null),
-      isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : inboundSenderByConversation.get(row.id) ?? null),
+      isGroup: isGroupConversation(row.metadata) || zaloGroupIds.has(row.id) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : null),
     });
   }
   return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };

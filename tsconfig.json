@@ -147,7 +147,9 @@
     ".next-brand-intalent-1/types/**/*.ts",
     ".next-brand-intalent-1/dev/types/**/*.ts",
     ".next-perf-1/types/**/*.ts",
-    ".next-perf-1/dev/types/**/*.ts"
+    ".next-perf-1/dev/types/**/*.ts",
+    ".next-perf-2/types/**/*.ts",
+    ".next-perf-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
