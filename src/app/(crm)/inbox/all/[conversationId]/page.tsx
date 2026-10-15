@@ -13,7 +13,7 @@ export default async function OmnichannelConversationPage({ params, searchParams
   searchParams: Promise<{ channel?: string | string[]; account?: string | string[]; owner?: string | string[]; page?: string | string[]; tag?: string | string[]; tagMode?: string | string[]; firstFrom?: string | string[]; firstTo?: string | string[] }>;
 }) {
   const [{ conversationId }, query] = await Promise.all([params, searchParams]);
-  const channel = typeof query.channel === "string" ? query.channel : undefined;
+  const channel = query.channel;
   const account = typeof query.account === "string" ? query.account : undefined;
   const ownerIds = Array.isArray(query.owner) ? query.owner : typeof query.owner === "string" ? [query.owner] : [];
   const page = typeof query.page === "string" ? query.page : undefined;

@@ -3,7 +3,7 @@ import { getOmnichannelInboxData } from "@/modules/inbox/server/get-omnichannel-
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   const data = await getOmnichannelInboxData({
-    channelType: query.get("channel") ?? undefined,
+    channelType: query.getAll("channel"),
     accountId: query.get("account") ?? undefined,
     ownerIds: query.getAll("owner"),
     page: query.get("page") ?? undefined,

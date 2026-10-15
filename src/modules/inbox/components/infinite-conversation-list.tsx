@@ -8,7 +8,7 @@ import type { ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow } from "./inbox-live-events";
 
-interface Filters { channel: ChannelType | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null }
+interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null }
 
 type ViewMode = "all" | "waiting" | "mine" | "groups" | "other";
 const VIEW_KEY = "hirex.inbox.view";

@@ -53,6 +53,10 @@ export interface OmnichannelInboxData {
   accounts: OmnichannelInboxAccount[];
   conversations: OmnichannelInboxConversation[];
   selectedChannelType: ChannelType | null;
+  /** Every channel picked in the chips (several allowed); empty = all channels. */
+  selectedChannelTypes: ChannelType[];
+  /** The same list as it travels in the URL: "ZALO,EMAIL". */
+  channelParam: string | null;
   selectedAccountId: string | null;
   selectedOwnerIds: string[];
   selectedTagIds: string[];

@@ -170,11 +170,14 @@ function emptyData(input: {
   selectedPage: number; profiles?: OmnichannelInboxData["profiles"]; tags?: OmnichannelInboxData["tags"];
   selectedTagIds?: string[]; tagMatchMode?: "all" | "any"; firstMessageFrom?: string | null; firstMessageTo?: string | null; error: string;
 }): OmnichannelInboxData {
-  return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
+  return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedChannelTypes: input.selectedChannelType ? [input.selectedChannelType] : [], channelParam: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
-export async function getOmnichannelInboxData(filters: { channelType?: string; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
-  const selectedChannelType = filters.channelType && CHANNEL_TYPES.includes(filters.channelType as ChannelType) ? filters.channelType as ChannelType : null;
+export async function getOmnichannelInboxData(filters: { channelType?: string | string[]; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
+  // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
+  const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
+  const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
+  const channelParam = selectedChannelTypes.length ? selectedChannelTypes.join(",") : null;
   const requestedPage = Number(filters.page ?? "1");
   const selectedPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 100) : 1;
   const requestedTagIds = [...new Set((filters.tagIds ?? []).filter(isUuid))].slice(0, 50);
@@ -227,7 +230,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
   const activeAccountIds = accounts.map((account) => account.id);
   if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, error: null };
   const requestedAccount = filters.accountId ? accounts.find((account) => account.id === filters.accountId) : undefined;
-  const selectedAccountId = requestedAccount && (!selectedChannelType || requestedAccount.channelType === selectedChannelType) ? requestedAccount.id : null;
+  const selectedAccountId = requestedAccount && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(requestedAccount.channelType)) ? requestedAccount.id : null;
   const availableOwnerIds = new Set(profiles.map((profile) => profile.id));
   const selectedOwnerIds = requestedOwnerIds.filter((id) => availableOwnerIds.has(id));
   const selectedOwnerProfiles = profiles.filter((profile) => selectedOwnerIds.includes(profile.id));
@@ -241,7 +244,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
     .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .range((selectedPage - 1) * PAGE_SIZE, selectedPage * PAGE_SIZE);
-  if (selectedChannelType) query = query.eq("channel_type", selectedChannelType);
+  if (selectedChannelTypes.length) query = query.in("channel_type", selectedChannelTypes);
   if (selectedAccountId && ownerAccountIds.includes(selectedAccountId)) query = query.eq("channel_account_id", selectedAccountId);
   else if (selectedAccountId || ownerAccountIds.length === 0) query = query.eq("channel_account_id", "00000000-0000-0000-0000-000000000000");
   else query=query.in("channel_account_id",ownerAccountIds);
@@ -332,7 +335,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string; a
       isGroup: isGroupConversation(row.metadata) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : inboundSenderByConversation.get(row.id) ?? null),
     });
   }
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

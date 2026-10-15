@@ -4,7 +4,7 @@ import { listQuickReplies } from "@/modules/channels/server/list-quick-replies";
 
 export default async function OmnichannelInboxPage({ searchParams }: { searchParams: Promise<{ channel?: string | string[]; account?: string | string[]; owner?: string | string[]; page?: string | string[]; tag?: string | string[]; tagMode?: string | string[]; firstFrom?: string | string[]; firstTo?: string | string[] }> }) {
   const filters = await searchParams;
-  const channel = typeof filters.channel === "string" ? filters.channel : undefined;
+  const channel = filters.channel;
   const account = typeof filters.account === "string" ? filters.account : undefined;
   const ownerIds = Array.isArray(filters.owner) ? filters.owner : typeof filters.owner === "string" ? [filters.owner] : [];
   const page = typeof filters.page === "string" ? filters.page : undefined;

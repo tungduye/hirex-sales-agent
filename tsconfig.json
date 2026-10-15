@@ -135,7 +135,9 @@
     ".next-inbox-layout-2/types/**/*.ts",
     ".next-inbox-layout-2/dev/types/**/*.ts",
     ".next-inbox-layout-3/types/**/*.ts",
-    ".next-inbox-layout-3/dev/types/**/*.ts"
+    ".next-inbox-layout-3/dev/types/**/*.ts",
+    ".next-inbox-layout-4/types/**/*.ts",
+    ".next-inbox-layout-4/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
