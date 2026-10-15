@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, Building2, CheckSquare, ContactRound, FileScan, FileText, Inbox, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Workflow } from "lucide-react";
+import { BarChart3, Bot, Building2, CheckSquare, ContactRound, FileScan, FileText, Inbox, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -33,9 +34,9 @@ export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false
   return (
     <aside className={cn("fixed inset-y-0 z-40 flex flex-col border-r border-slate-800 bg-slate-950 text-slate-300", collapsed ? "w-[72px]" : "w-[264px]")}>
       <div className={cn("flex h-16 items-center gap-3 border-b border-slate-800", collapsed ? "justify-center px-0" : "px-5")}>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Sparkles className="size-5" /></div>
+        <Image src="/brand/intalent-mark.png" alt="Intalent Viet Nam" width={36} height={36} unoptimized priority className="size-9 shrink-0 object-contain" />
         {collapsed ? null : <div>
-          <div className="text-sm font-bold tracking-tight text-white">HireX Sales Agent</div>
+          <div className="text-sm font-bold tracking-tight text-white">Intalent Viet Nam</div>
           <div className="text-[11px] text-slate-500">Không gian CRM</div>
         </div>}
       </div>

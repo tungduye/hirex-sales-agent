@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import Image from "next/image";
 import { LoginForm } from "@/modules/identity/components/login-form";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,8 +15,8 @@ export default async function LoginPage() {
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1.05fr_0.95fr]">
       <section className="hidden flex-col justify-between bg-slate-950 p-12 text-white lg:flex xl:p-16">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-blue-600"><Sparkles className="size-5" /></div>
-          <div><p className="font-bold">HireX Sales Agent</p><p className="text-xs text-slate-400">Không gian CRM</p></div>
+          <Image src="/brand/intalent-mark.png" alt="" width={40} height={40} unoptimized priority className="size-10 object-contain" />
+          <div><p className="font-bold">Intalent Viet Nam</p><p className="text-xs text-slate-400">Không gian CRM</p></div>
         </div>
         <div className="max-w-xl">
           <p className="mb-5 text-sm font-semibold uppercase tracking-[0.2em] text-blue-400">KHÔNG GIAN BÁN HÀNG</p>
@@ -29,12 +29,12 @@ export default async function LoginPage() {
       <section className="flex items-center justify-center p-5 sm:p-8 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-blue-600 text-white"><Sparkles className="size-5" /></div>
-            <div><p className="font-bold">HireX Sales Agent</p><p className="text-xs text-slate-500">Không gian CRM</p></div>
+            <Image src="/brand/intalent-mark.png" alt="" width={40} height={40} unoptimized priority className="size-10 object-contain" />
+            <div><p className="font-bold">Intalent Viet Nam</p><p className="text-xs text-slate-500">Không gian CRM</p></div>
           </div>
           <div className="rounded-2xl border bg-white p-6 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold tracking-tight">Chào mừng trở lại</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">Đăng nhập tài khoản HireX để tiếp tục.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">Đăng nhập tài khoản Intalent để tiếp tục.</p>
             <LoginForm />
           </div>
           <p className="mt-5 text-center text-xs text-slate-400">Được bảo vệ bởi Supabase Authentication</p>

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HireX Sales Agent",
+  title: "Intalent Viet Nam",
+  icons: { icon: "/brand/intalent-mark.png" },
   description: "A focused workspace for modern sales teams.",
 };
 
