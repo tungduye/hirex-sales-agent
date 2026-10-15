@@ -64,3 +64,14 @@ test('diff: create new problems once, resolve fixed ones, keep the rest', () => 
   assert.deepEqual([again.toCreate.length, again.toResolve.length], [0, 0], 'no repeat while the problem lasts');
   assert.deepEqual(diffAlerts([], open).toResolve.sort(), ['a0', 'a1'], 'fixed problem resolves');
 });
+
+test('robot e-mail and Zalo group threads are recognised', async () => {
+  const { isAutomatedSender, isZaloGroupThread } = await import('../src/modules/assistant/core/assistant-tools.ts');
+  for (const address of ['no-reply@accounts.google.com', 'noreply-accounts@google.com', 'registration@facebookmail.com', 'security@facebookmail.com', 'notifications@github.com', 'mailer-daemon@googlemail.com'])
+    assert.equal(isAutomatedSender(address), true, address);
+  for (const address of ['nam.nguyen@gmail.com', 'hr@intalent.vn', 'nora@x.com', null])
+    assert.equal(isAutomatedSender(address), false, String(address));
+  assert.equal(isZaloGroupThread('ZALO', '123', '123'), false, 'one-to-one: thread id = the person');
+  assert.equal(isZaloGroupThread('ZALO', 'g-999', '123'), true, 'group: someone else writes in the thread');
+  assert.equal(isZaloGroupThread('EMAIL', 'thread-1', 'a@b.com'), false, 'other channels are not judged this way');
+});

@@ -123,7 +123,9 @@
     ".next-human-tree-api/types/**/*.ts",
     ".next-human-tree-api/dev/types/**/*.ts",
     ".next-human-root-order/types/**/*.ts",
-    ".next-human-root-order/dev/types/**/*.ts"
+    ".next-human-root-order/dev/types/**/*.ts",
+    ".next-assistant-alerts/types/**/*.ts",
+    ".next-assistant-alerts/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

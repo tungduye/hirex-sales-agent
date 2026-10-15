@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { briefForModel } from "@/modules/assistant/core/daily-brief";
-import { CONVERSATION_NAME_KEYS, isGroupConversation, metadataName, type AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
+import { CONVERSATION_NAME_KEYS, isAutomatedSender, isGroupConversation, isZaloGroupThread, metadataName, type AssistantToolDefinition } from "@/modules/assistant/core/assistant-tools";
 import { createProposal, type ActionContext, type PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import { getCampaignWorkerHealth } from "@/modules/campaigns/server/campaign-worker-health";
 import { listCampaigns } from "@/modules/campaigns/server/campaign-data";
@@ -39,8 +39,6 @@ function maskPhone(phone: unknown) {
   return digits.length >= 4 ? `SĐT …${digits.slice(-3)}` : null;
 }
 
-const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|alerts?)[@+.]/i;
-
 export interface WaitingRow { id: string; channelAccountId: string; channel: string; account: string | null; name: string | null; group: boolean; automated: boolean; since: string; hours: number; unread: number; assigned: boolean; assignedTo: string | null; lastMessageId: string; lastText: string | null; link: string }
 
 type ReadClient = Pick<ReturnType<typeof createPrivilegedClient>, "from">;
@@ -58,7 +56,7 @@ export async function listWaitingConversations(workspaceId: string, minHours: nu
 /** Same query with any client: the member's session (RLS) or the server (background alert scan). */
 export async function queryWaitingConversations(supabase: ReadClient, workspaceId: string, minHours: number, accessible: string[] | null): Promise<{ rows: WaitingRow[] } | { loi: string }> {
   let query = supabase.from("omnichannel_conversations")
-    .select("id,channel_account_id,channel_type,contact_id,last_message_at,unread_count,assigned_to,metadata")
+    .select("id,channel_account_id,channel_type,provider_conversation_id,contact_id,last_message_at,unread_count,assigned_to,metadata")
     .eq("workspace_id", workspaceId)
     .gte("last_message_at", new Date(Date.now() - 7 * 24 * HOUR).toISOString())
     .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
@@ -100,8 +98,8 @@ export async function queryWaitingConversations(supabase: ReadClient, workspaceI
       return {
         id: row.id, channelAccountId: row.channel_account_id, channel: row.channel_type, account: accountName.get(row.channel_account_id) ?? null,
         name: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata) ?? (row.channel_type === "EMAIL" ? clip(last.sender, 80) : null),
-        group: isGroupConversation(row.metadata) || (inboundSenders.get(row.id)?.size ?? 0) > 1,
-        automated: row.channel_type === "EMAIL" && AUTOMATED_SENDER.test(last.sender),
+        group: isGroupConversation(row.metadata) || (inboundSenders.get(row.id)?.size ?? 0) > 1 || isZaloGroupThread(row.channel_type, row.provider_conversation_id, last.sender),
+        automated: row.channel_type === "EMAIL" && isAutomatedSender(last.sender),
         since: last.at, hours: (Date.now() - Date.parse(last.at)) / HOUR, unread: row.unread_count, assigned: Boolean(row.assigned_to),
         assignedTo: row.assigned_to ?? null, lastMessageId: last.id, lastText: last.text, link: `/inbox/all/${row.id}`,
       };
@@ -209,7 +207,7 @@ const runners: Record<string, Runner> = {
     const contactName = new Map((contacts ?? []).map((row) => [row.id, row.full_name]));
     const filters = CONVERSATION_NAME_KEYS.map((key) => `metadata->>${key}.ilike.${pattern}`);
     if (contactName.size) filters.push(`contact_id.in.(${[...contactName.keys()].join(",")})`);
-    let query = supabase.from("omnichannel_conversations").select("id,channel_account_id,channel_type,contact_id,last_message_at,metadata")
+    let query = supabase.from("omnichannel_conversations").select("id,channel_account_id,channel_type,provider_conversation_id,contact_id,last_message_at,metadata")
       .eq("workspace_id", scope.workspaceId).or(filters.join(",")).order("last_message_at", { ascending: false, nullsFirst: false }).limit(8);
     if (accessible) query = query.in("channel_account_id", accessible);
     const { data: rows, error } = await query;
@@ -237,7 +235,7 @@ const runners: Record<string, Runner> = {
         return {
           id: row.id, kenh: row.channel_type, tai_khoan: accountName.get(row.channel_account_id) ?? null,
           ten_khach: contactName.get(row.contact_id ?? "") ?? metadataName(row.metadata),
-          nhom_chat: isGroupConversation(row.metadata) || (senders.get(row.id)?.size ?? 0) > 1,
+          nhom_chat: isGroupConversation(row.metadata) || (senders.get(row.id)?.size ?? 0) > 1 || [...(senders.get(row.id) ?? [])].some((sender) => isZaloGroupThread(row.channel_type, row.provider_conversation_id, sender)),
           tin_cuoi: last ? { cua: last.direction === "INBOUND" ? "KHACH" : "BEN_MINH", luc: last.at, noi_dung_khach_viet: clip(last.text, 160) } : null,
           link: `/inbox/all/${row.id}`,
         };

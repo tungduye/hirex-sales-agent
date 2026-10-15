@@ -164,6 +164,22 @@ export function metadataName(metadata: unknown): string | null {
   return null;
 }
 
+/**
+ * Zalo: a one-to-one thread's id is the other person's id, so an incoming message from someone else
+ * means the thread is a group. (Not applied to other channels, whose thread ids work differently.)
+ */
+export function isZaloGroupThread(channel: string, providerConversationId: string | null | undefined, inboundSender: string | null | undefined) {
+  return channel === "ZALO" && Boolean(providerConversationId) && Boolean(inboundSender) && providerConversationId !== inboundSender;
+}
+
+/** E-mail from robots (no-reply, notifications, sign-up mails…): nobody needs to answer these. */
+export function isAutomatedSender(address: string | null | undefined) {
+  if (!address || !address.includes("@")) return false;
+  const [local, domain] = address.toLowerCase().split("@");
+  return /(no-?reply|do-?not-?reply|mailer-daemon|postmaster|notifications?|alerts?|registration|bounces?|newsletter)/.test(local)
+    || /(^|\.)(facebookmail\.com|accounts\.google\.com)$/.test(domain);
+}
+
 /** Group chats (Zalo/Facebook groups): a reply there reaches every member. */
 export function isGroupConversation(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;

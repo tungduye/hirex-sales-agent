@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds, getAccessibleEmailAccountIds } from "@/modules/access/server/access-control";
-import { isGroupConversation, metadataName, parseVietnamDue } from "@/modules/assistant/core/assistant-tools";
+import { isGroupConversation, isZaloGroupThread, metadataName, parseVietnamDue } from "@/modules/assistant/core/assistant-tools";
 import { sendManualChannelMessage } from "@/modules/channels/server/channel-actions";
 import { validateRenderedCampaignMessage } from "@/modules/campaigns/domain/campaign-rules";
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, contentBriefSchema } from "@/modules/content/core/content-options";
@@ -221,7 +221,7 @@ async function proposeReply(args: Record<string, unknown>, context: ActionContex
   if (!text) return { ok: false, error: "Nội dung tin trống." };
   const db = createPrivilegedClient();
   const { data: conversation } = await (await createClient()).from("omnichannel_conversations")
-    .select("id,channel_account_id,channel_type,contact_id,metadata").eq("workspace_id", context.workspaceId).eq("id", String(args.conversation_id)).maybeSingle();
+    .select("id,channel_account_id,channel_type,provider_conversation_id,contact_id,metadata").eq("workspace_id", context.workspaceId).eq("id", String(args.conversation_id)).maybeSingle();
   const accessible = await getAccessibleChannelAccountIds();
   if (!conversation || (accessible && !accessible.includes(conversation.channel_account_id))) return { ok: false, error: "Không tìm thấy hội thoại hoặc tài khoản không có quyền dùng kênh của hội thoại này." };
   const channel = REPLY_CHANNELS[conversation.channel_type];
@@ -239,7 +239,8 @@ async function proposeReply(args: Record<string, unknown>, context: ActionContex
   const metadata = (conversation.metadata ?? {}) as Record<string, unknown>;
   const name = contact.data?.full_name ?? metadataName(metadata) ?? "khách (không rõ tên)";
   // Several different people writing in the conversation = a group chat.
-  const group = isGroupConversation(metadata) || new Set((recentSenders.data ?? []).map((row) => row.sender_external_id)).size > 1;
+  const senders = (recentSenders.data ?? []).map((row) => row.sender_external_id);
+  const group = isGroupConversation(metadata) || new Set(senders).size > 1 || senders.some((sender) => isZaloGroupThread(conversation.channel_type, conversation.provider_conversation_id, sender));
   const inboundAt = lastInbound.data ? lastInbound.data.received_at ?? lastInbound.data.created_at : null;
   const bot = binding.data?.enabled ? binding.data.ai_recruiter_bots as unknown as { enabled: boolean; mode: string } | null : null;
   const aiAuto = Boolean(bot?.enabled) && metadata.aiRecruiterModeOverride !== "DRAFT" && (metadata.aiRecruiterModeOverride === "AUTO" || bot?.mode === "AUTO");

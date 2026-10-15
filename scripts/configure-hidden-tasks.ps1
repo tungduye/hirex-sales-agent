@@ -11,10 +11,8 @@ foreach ($task in $tasks) {
   if ($action.Execute -notmatch '(?i)(powershell|node)(\.exe)?$' -or $action.Arguments -notlike '*hirex-sales-agent\scripts\*') { throw "UNEXPECTED_ACTION:$($task.TaskName)" }
   Export-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath | Out-File -LiteralPath (Join-Path $backup ($task.TaskName + '.xml')) -Encoding unicode
   $working = if ($action.WorkingDirectory) { $action.WorkingDirectory } else { $root }
-  $command = '"' + $action.Execute + '" ' + $action.Arguments
-  # Windows argv quoting: quote a complete command as one wrapper argument.
-  $encoded = '"' + $command.Replace('"','\"') + '"'
-  $arguments = '//B //Nologo "' + $wrapper + '" "' + $working + '" ' + $encoded
+  # Pass only the task name; the wrapper owns the exact command and quoting.
+  $arguments = '//B //Nologo "' + $wrapper + '" "' + $task.TaskName + '"'
   $replacement = New-ScheduledTaskAction -Execute "$env:WINDIR\System32\wscript.exe" -Argument $arguments -WorkingDirectory $working
   Set-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -Action $replacement | Out-Null
   Write-Output "HIDDEN: $($task.TaskName)"
