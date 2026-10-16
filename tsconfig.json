@@ -159,7 +159,9 @@
     ".next-menu-settings-1/types/**/*.ts",
     ".next-menu-settings-1/dev/types/**/*.ts",
     ".next-assistant-docs-1/types/**/*.ts",
-    ".next-assistant-docs-1/dev/types/**/*.ts"
+    ".next-assistant-docs-1/dev/types/**/*.ts",
+    ".next-assistant-docs-2/types/**/*.ts",
+    ".next-assistant-docs-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
