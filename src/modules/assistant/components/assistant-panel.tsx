@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUp, BookOpen, CheckCircle2, Clock, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, X, XCircle } from "lucide-react";
+import { ArrowUp, BookOpen, CheckCircle2, Clock, FileSpreadsheet, LoaderCircle, Paperclip, RotateCcw, ShieldCheck, Sparkles, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
@@ -47,6 +47,11 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
+  // A recipient file attached for this conversation (phase 3b): sent as uploadId with each question.
+  const [attachment, setAttachment] = useState<{ id: string; fileName: string; recipients: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const canAttach = account.permissions.includes("campaigns.create");
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -74,7 +79,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
       const response = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text, history, pagePath: pathname, allowDocuments: workspaceAdmin && documentsOn }),
+        body: JSON.stringify({ question: text, history, pagePath: pathname, allowDocuments: workspaceAdmin && documentsOn, uploadId: attachment?.id ?? null }),
       });
       const data = await response.json().catch(() => null) as { ok?: boolean; answer?: string; toolsUsed?: string[]; remainingToday?: number; message?: string; pendingActions?: { id: string; preview: ActionPreview; expiresAt: string }[] } | null;
       if (data?.ok && data.answer) {
@@ -89,7 +94,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
     } finally {
       setBusy(false);
     }
-  }, [busy, messages, pathname, workspaceAdmin, documentsOn]);
+  }, [busy, messages, pathname, workspaceAdmin, documentsOn, attachment]);
 
   // Other parts of the app (e.g. the dashboard brief) open the panel with a question.
   const askRef = useRef(ask);
@@ -117,6 +122,27 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
   }, []);
 
   function submit(event: FormEvent) { event.preventDefault(); void ask(draft); }
+  async function attach(file: File | undefined) {
+    if (!file || uploading) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/assistant/files", { method: "POST", body: form });
+      const data = await response.json().catch(() => null) as { ok?: boolean; id?: string; fileName?: string; message?: string; stats?: { recipients?: number; invalidEmailRows?: number; duplicateRows?: number; suppressedRows?: number } } | null;
+      if (data?.ok && data.id) {
+        setAttachment({ id: data.id, fileName: data.fileName ?? file.name, recipients: data.stats?.recipients ?? 0 });
+        const removed = (data.stats?.invalidEmailRows ?? 0) + (data.stats?.duplicateRows ?? 0) + (data.stats?.suppressedRows ?? 0);
+        setMessages((current) => [...current, { role: "assistant", content: `Đã nhận file **${data.fileName ?? file.name}**: ${(data.stats?.recipients ?? 0).toLocaleString("vi-VN")} người nhận hợp lệ${removed ? ` (đã loại ${removed.toLocaleString("vi-VN")} dòng sai, trùng hoặc bị chặn)` : ""}. Anh/chị muốn làm gì với danh sách này?` }]);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      } else setMessages((current) => [...current, { role: "assistant", content: data?.message ?? "Chưa đính kèm được file.", error: true }]);
+    } catch {
+      setMessages((current) => [...current, { role: "assistant", content: "Mất kết nối khi tải file lên. Vui lòng thử lại.", error: true }]);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
   function onInputKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(draft); }
   }
@@ -161,7 +187,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
               className={cn("mt-0.5 flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors", documentsOn ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>
               <BookOpen className="size-3.5" />Tài liệu<span className={cn("size-1.5 rounded-full", documentsOn ? "bg-indigo-600" : "bg-slate-300")} />
             </button>}
-            {messages.length > 0 && <Button variant="ghost" size="icon" onClick={() => setMessages([])} disabled={busy} aria-label="Cuộc trò chuyện mới"><RotateCcw className="size-4" /></Button>}
+            {messages.length > 0 && <Button variant="ghost" size="icon" onClick={() => { setMessages([]); setAttachment(null); }} disabled={busy} aria-label="Cuộc trò chuyện mới"><RotateCcw className="size-4" /></Button>}
             <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Đóng trợ lý"><X className="size-5" /></Button>
           </header>
 
@@ -190,7 +216,15 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
           </div>
 
           <form onSubmit={submit} className="border-t p-3">
+            {attachment && <div className="mb-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-900">
+              <FileSpreadsheet className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate"><b>{attachment.fileName}</b> · {attachment.recipients.toLocaleString("vi-VN")} người nhận</span>
+              <button type="button" onClick={() => setAttachment(null)} aria-label="Bỏ file đính kèm" className="rounded p-0.5 hover:bg-emerald-100"><X className="size-3.5" /></button>
+            </div>}
             <div className="flex items-end gap-2 rounded-xl border bg-slate-50 p-2 focus-within:border-blue-500 focus-within:bg-white">
+              {canAttach && <>
+                <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(event) => void attach(event.target.files?.[0])} />
+                <Button type="button" variant="ghost" size="icon" disabled={busy || uploading} onClick={() => fileRef.current?.click()} aria-label="Đính kèm file danh sách (.csv, .xlsx)" title="Đính kèm file danh sách người nhận (.csv, .xlsx, tối đa 5 MB)" className="size-9 shrink-0 rounded-lg">{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Paperclip className="size-4" />}</Button>
+              </>}
               <textarea ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onInputKey} rows={2} maxLength={1000} disabled={busy}
                 placeholder="Hỏi về tình trạng HireX… (Enter để gửi)" aria-label="Câu hỏi cho trợ lý" className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-1 text-sm focus:outline-none disabled:opacity-60" />
               <Button type="submit" size="icon" disabled={busy || !draft.trim()} aria-label="Gửi câu hỏi" className="size-9 shrink-0 rounded-lg">{busy ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}</Button>

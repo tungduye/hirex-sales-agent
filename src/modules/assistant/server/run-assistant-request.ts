@@ -11,7 +11,7 @@ import { runAssistantTool } from "@/modules/assistant/server/assistant-tool-runn
 import type { PendingAction } from "@/modules/assistant/server/assistant-proposals";
 
 /** allowDocuments: the admin switched on "Tài liệu" in the panel (consent to send passages to OpenAI). */
-export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean }
+export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean; uploadId?: string | null }
 export type AssistantResponse =
   | { ok: true; answer: string; toolsUsed: string[]; remainingToday: number; pendingActions: PendingAction[] }
   | { ok: false; status: number; message: string };
@@ -29,6 +29,17 @@ function dailyLimit() {
 function startOfVietnamDay(now: Date) {
   const shifted = new Date(now.getTime() + 7 * 3_600_000);
   return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - 7 * 3_600_000).toISOString();
+}
+
+/** What the model is told about an attached recipient file: counts and column names, never addresses. */
+async function attachmentContext(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, userId: string, uploadId: string) {
+  const { data } = await db.from("assistant_uploads").select("id,file_name,stats,columns,expires_at").eq("workspace_id", workspaceId).eq("user_id", userId).eq("id", uploadId).maybeSingle();
+  if (!data || Date.parse(String(data.expires_at)) < Date.now()) return "Người dùng có đính kèm một file nhưng file đã hết hạn (24 giờ): nhờ họ đính kèm lại.";
+  const stats = (data.stats ?? {}) as Record<string, number>;
+  const removed = (stats.invalidEmailRows ?? 0) + (stats.duplicateRows ?? 0) + (stats.suppressedRows ?? 0);
+  const name = String(data.file_name).replace(/["\n\r]/g, " ").slice(0, 120);
+  const columns = ((data.columns ?? []) as string[]).map((column) => column.replace(/[\n\r]/g, " ").slice(0, 40)).slice(0, 20).join(", ");
+  return `Người dùng đã đính kèm file danh sách "${name}" (upload_id: ${data.id}): ${stats.recipients ?? 0} người nhận hợp lệ${removed ? `, đã loại ${removed} dòng sai/trùng/bị chặn` : ""}; các cột: ${columns || "(không rõ)"}.`;
 }
 
 export async function runAssistantRequest(request: AssistantRequest): Promise<AssistantResponse> {
@@ -57,7 +68,9 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
   const tools = toolsFor(account.permissions, isAdmin, { documents: documents === "on" });
   const proposals: PendingAction[] = [];
   const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };
-  const instructions = assistantInstructions({ fullName: account.fullName, now: new Date(), toolLabels: tools.map((tool) => tool.label), context: pageContext(request.pagePath), documents });
+  const attachment = request.uploadId ? await attachmentContext(db, workspaceId, account.userId, request.uploadId) : null;
+  const context = [pageContext(request.pagePath), attachment].filter(Boolean).join(" ") || null;
+  const instructions = assistantInstructions({ fullName: account.fullName, now: new Date(), toolLabels: tools.map((tool) => tool.label), context, documents });
   const specs = openAiToolSpecs(tools);
   const started = Date.now();
 

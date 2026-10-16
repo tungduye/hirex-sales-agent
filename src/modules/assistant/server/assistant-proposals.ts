@@ -15,16 +15,17 @@ import {
   executeCreateCompany, executeCreateContact, executeNote, executeUpdateCompany, executeUpdateContact, executeUpdateTask,
   proposeCreateCompany, proposeCreateContact, proposeNote, proposeUpdateCompany, proposeUpdateContact, proposeUpdateTask,
 } from "@/modules/assistant/server/assistant-proposals-crm";
+import { executeEmailCampaigns, proposeEmailCampaigns } from "@/modules/assistant/server/assistant-proposals-campaigns";
 
 // Phase 2 of Trợ lý HireX. A proposal is validated against current data, stored as an
 // assistant_actions row with a human-readable preview, and shown as a card. Only when the same
 // member presses "Xác nhận" does executeAssistantAction run — re-checking permission and state,
 // with the same rules as the buttons in the web app. A reply (SEND_REPLY) goes through the same
 // send path as the inbox composer, to one conversation, with text the member saw and could edit.
-// Nothing here launches new campaigns, deletes data or turns AI Recruiter AUTO on.
+// Nothing here launches new campaigns, deletes data or turns AI Recruiter AUTO on (CREATE_EMAIL_CAMPAIGNS only makes drafts).
 
 export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY" | "CREATE_RULE"
-  | "CREATE_CONTACT" | "UPDATE_CONTACT" | "ADD_NOTE" | "CREATE_COMPANY" | "UPDATE_COMPANY" | "UPDATE_TASK";
+  | "CREATE_CONTACT" | "UPDATE_CONTACT" | "ADD_NOTE" | "CREATE_COMPANY" | "UPDATE_COMPANY" | "UPDATE_TASK" | "CREATE_EMAIL_CAMPAIGNS";
 /** editableText: the card shows this in a text box; the member's edited version is what runs. */
 export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string; editableKind?: "message" | "note" }
 export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean }
@@ -47,6 +48,7 @@ const PERMISSION: Record<ActionKind, string> = {
   CREATE_COMPANY: "companies.create",
   UPDATE_COMPANY: "companies.update",
   UPDATE_TASK: "tasks.update",
+  CREATE_EMAIL_CAMPAIGNS: "campaigns.create",
 };
 const allowed = (kind: ActionKind, context: ActionContext) => PERMISSION[kind] === "workspace.admin" ? context.isAdmin : context.permissions.includes(PERMISSION[kind]);
 
@@ -305,6 +307,7 @@ const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionCo
   de_xuat_tao_cong_ty: proposeCreateCompany,
   de_xuat_sua_cong_ty: proposeUpdateCompany,
   de_xuat_cap_nhat_cong_viec: proposeUpdateTask,
+  de_xuat_tao_chien_dich_email: proposeEmailCampaigns,
 };
 
 export const MAX_PROPOSALS_PER_QUESTION = 3;
@@ -484,6 +487,7 @@ const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: A
   CREATE_COMPANY: executeCreateCompany,
   UPDATE_COMPANY: executeUpdateCompany,
   UPDATE_TASK: executeUpdateTask,
+  CREATE_EMAIL_CAMPAIGNS: executeEmailCampaigns,
 };
 
 /** Confirms or cancels one of the member's own proposals. Runs it at most once. */

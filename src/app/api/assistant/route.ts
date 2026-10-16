@@ -7,6 +7,7 @@ const bodySchema = z.object({
   history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) })).max(40).default([]),
   pagePath: z.string().max(300).nullable().default(null),
   allowDocuments: z.boolean().default(false),
+  uploadId: z.string().uuid().nullable().default(null),
 });
 
 export async function POST(request: Request) {

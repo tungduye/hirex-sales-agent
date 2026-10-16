@@ -136,6 +136,35 @@ function CRM_PROPOSAL_TOOLS(): AssistantToolDefinition[] {
   ];
 }
 
+// Phase 3b — one attached recipient file → N draft email campaigns (assistant-proposals-campaigns.ts).
+function CAMPAIGN_PROPOSAL_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "de_xuat_tao_chien_dich_email",
+    permission: "campaigns.create",
+    label: "Đề xuất tạo chiến dịch Email (bản nháp)",
+    proposal: true,
+    description: "ĐỀ XUẤT tạo 1–10 chiến dịch Email dạng BẢN NHÁP từ file danh sách người dùng đã đính kèm (upload_id trong ngữ cảnh). File được chia đều theo thứ tự; hộp Gmail của thành viên hop_mail_cua được chia riêng cho từng chiến dịch (không hộp nào dùng cho 2 chiến dịch); mỗi chiến dịch lấy 1 content dạng Mail chưa dùng trong Kho (hoặc theo ma_content). Chỉ tạo 1 thẻ xác nhận cho tất cả; không gửi email nào.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["upload_id", "so_chien_dich", "ten_chien_dich", "hop_mail_cua", "nguoi_phu_trach", "ma_content", "bo_phan", "ngon_ngu"],
+      properties: {
+        upload_id: uuidArg("Id file đính kèm (từ ngữ cảnh)."),
+        so_chien_dich: { type: "integer", description: "Số chiến dịch cần chia (1–10)." },
+        ten_chien_dich: nullableString("Tên chung; hệ thống thêm \"— Phần i/N\". null = theo tên file."),
+        hop_mail_cua: { type: "string", description: "Tên thành viên có các hộp Gmail dùng để gửi." },
+        nguoi_phu_trach: nullableString("Tên người phụ trách; null = chính thành viên hop_mail_cua."),
+        ma_content: { type: "array", items: { type: "string" }, description: "Mã content Mail (CT-…) theo thứ tự chiến dịch, đúng bằng số chiến dịch; [] = tự lấy content Mail chưa dùng mới nhất." },
+        bo_phan: { type: ["string", "null"], enum: ["SALE", "HR", "REC", "MEDIA", "NOTICE", "CTV", null], description: "Lọc content tự lấy theo bộ phận, hoặc null." },
+        ngon_ngu: { type: ["string", "null"], enum: ["VI", "EN", "JA", "VI_EN", "VI_JA", "EN_JA", null], description: "Lọc content tự lấy theo ngôn ngữ, hoặc null." },
+      },
+    },
+    args: z.object({
+      upload_id: z.string().uuid(), so_chien_dich: z.number().int().min(1).max(10), ten_chien_dich: text(180).nullable(), hop_mail_cua: text(100).min(1),
+      nguoi_phu_trach: text(100).nullable(), ma_content: z.array(text(20)).max(10), bo_phan: z.enum(["SALE", "HR", "REC", "MEDIA", "NOTICE", "CTV"]).nullable(),
+      ngon_ngu: z.enum(["VI", "EN", "JA", "VI_EN", "VI_JA", "EN_JA"]).nullable(),
+    }).strict(),
+  }];
+}
+
 // Phase 2 — proposals. Each creates a confirmation card only; the member presses "Xác nhận".
 function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
   return [
@@ -633,6 +662,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...DOCUMENT_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
+  ...CAMPAIGN_PROPOSAL_TOOLS(),
 ];
 
 export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);
