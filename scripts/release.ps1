@@ -127,6 +127,12 @@ if ($reuse) {
         $buildExit = $build.Code
       } finally { Remove-Item Env:HIREX_BUILD_DIR -ErrorAction SilentlyContinue }
       Write-Host ($build.Text -split "`n" | Select-Object -Last 25 | Out-String)
+      # Full output for diagnosis (build-last.log is git-ignored), and the error lines when it failed.
+      Set-Content -LiteralPath "$root\build-last.log" -Value $build.Text -Encoding UTF8
+      if ($build.Code -ne 0) {
+        $errorLines = $build.Text -split "`n" | Select-String -Pattern 'error|Error:|Type error|Failed to|Module not found' | Select-Object -First 30
+        if ($errorLines) { Write-Host "Error lines (full log: $root\build-last.log):" -ForegroundColor Yellow; Write-Host ($errorLines | Out-String) }
+      }
       if ($buildExit -ne 0 -and $build.Text -notmatch 'being used by another process') { break }
     }
   } finally {
