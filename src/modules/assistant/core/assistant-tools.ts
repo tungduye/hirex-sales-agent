@@ -2,12 +2,13 @@
 // member only gets the tools for data they can already open in the web app. Pure module:
 // definitions, argument validation and permission filtering are unit-tested.
 import { z } from "zod";
+import { PAGE_KEYS } from "./page-links.ts";
 
 type JsonSchema = Record<string, unknown>;
 
 export interface AssistantToolDefinition {
   name: string;
-  /** Permission the signed-in member must hold. "workspace.admin" = system administrator role. */
+  /** Permission the signed-in member must hold. "workspace.admin" = system administrator role; "*" = every member. */
   permission: string;
   description: string;
   parameters: JsonSchema;
@@ -164,6 +165,96 @@ function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
       },
       args: z.object({ doi_tuong: z.enum(["BOT", "HOI_THOAI"]), id: z.string().uuid(), hanh_dong: z.enum(["CHUYEN_DRAFT", "DUNG_KHAN_CAP"]) }).strict()
         .refine((value) => !(value.doi_tuong === "HOI_THOAI" && value.hanh_dong === "DUNG_KHAN_CAP")),
+    },
+  ];
+}
+
+// Phase 2 — read tools for the rest of the app (details behind the list tools, and links to pages).
+const FORMATS = ["EMAIL", "POST_LONG", "POST_MEDIUM", "POST_SHORT", "COMMENT"] as const;
+const DEPARTMENTS = ["SALE", "HR", "REC", "MEDIA", "NOTICE", "CTV"] as const;
+const LANGUAGES = ["VI", "EN", "JA", "VI_EN", "VI_JA", "EN_JA"] as const;
+function READ_TOOLS_2(): AssistantToolDefinition[] {
+  return [
+    {
+      name: "mo_trang",
+      permission: "*",
+      label: "Mở trang",
+      description: "Lấy link tới một trang của hệ thống (có thể lọc sẵn) để người dùng bấm mở. Chỉ trả link khi người dùng có quyền mở trang đó. Lọc được: LIEN_HE (tu_khoa, trang_thai = trạng thái lead), CHIEN_DICH_EMAIL (tu_khoa, trang_thai), HO_CHUA (kenh), KHO_CONTENT (tu_khoa, dinh_dang, bo_phan, ngon_ngu), TAI_LIEU (tu_khoa). Trang khác chỉ mở trang.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["trang", "tu_khoa", "trang_thai", "kenh", "dinh_dang", "bo_phan", "ngon_ngu"],
+        properties: {
+          trang: { type: "string", enum: [...PAGE_KEYS] },
+          tu_khoa: nullableString("Từ khóa lọc, hoặc null."),
+          trang_thai: nullableString("Trạng thái lead (NEW, QUALIFIED…) hoặc trạng thái chiến dịch (RUNNING, PAUSED…), hoặc null."),
+          kenh: { type: ["string", "null"], enum: ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL", null] },
+          dinh_dang: { type: ["string", "null"], enum: [...FORMATS, null] },
+          bo_phan: { type: ["string", "null"], enum: [...DEPARTMENTS, null] },
+          ngon_ngu: { type: ["string", "null"], enum: [...LANGUAGES, null] },
+        },
+      },
+      args: z.object({
+        trang: z.enum(PAGE_KEYS as [string, ...string[]]), tu_khoa: text(100).nullable(), trang_thai: text(30).nullable(),
+        kenh: z.enum(["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"]).nullable(), dinh_dang: z.enum(FORMATS).nullable(), bo_phan: z.enum(DEPARTMENTS).nullable(), ngon_ngu: z.enum(LANGUAGES).nullable(),
+      }).strict(),
+    },
+    {
+      name: "chi_tiet_lien_he",
+      permission: "contacts.view",
+      label: "Xem chi tiết liên hệ",
+      description: "Chi tiết một liên hệ (id từ tim_lien_he hoặc trang đang mở): thông tin, công ty, các kênh liên lạc và đồng ý nhận marketing, ghi chú gần đây, hội thoại trong Hồ Chứa, công việc liên quan, chiến dịch đã nhận (phần nào người dùng không có quyền xem thì bỏ qua).",
+      parameters: { type: "object", additionalProperties: false, required: ["contact_id"], properties: { contact_id: uuidArg("UUID liên hệ.") } },
+      args: z.object({ contact_id: z.string().uuid() }).strict(),
+    },
+    {
+      name: "chi_tiet_cong_ty",
+      permission: "companies.view",
+      label: "Xem chi tiết công ty",
+      description: "Chi tiết một công ty (id từ tim_cong_ty): thông tin, ghi chú, số liên hệ theo trạng thái lead và tối đa 15 liên hệ mới nhất (nếu được xem liên hệ).",
+      parameters: { type: "object", additionalProperties: false, required: ["company_id"], properties: { company_id: uuidArg("UUID công ty.") } },
+      args: z.object({ company_id: z.string().uuid() }).strict(),
+    },
+    {
+      name: "chi_tiet_chien_dich",
+      permission: "campaigns.view",
+      label: "Xem chi tiết chiến dịch",
+      description: "Chi tiết một chiến dịch (id từ chien_dich hoặc trang đang mở): trạng thái, mốc thời gian, các bước gửi và nội dung (rút gọn), số người nhận theo trạng thái, lỗi thường gặp, tài khoản gửi, content đã lấy từ Kho. kenh null = tự dò.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["campaign_id", "kenh"],
+        properties: { campaign_id: uuidArg("UUID chiến dịch."), kenh: { type: ["string", "null"], enum: ["EMAIL", "ZALO", "FACEBOOK_PROFILE", null] } },
+      },
+      args: z.object({ campaign_id: z.string().uuid(), kenh: z.enum(["EMAIL", "ZALO", "FACEBOOK_PROFILE"]).nullable() }).strict(),
+    },
+    {
+      name: "doc_content",
+      permission: "content.view",
+      label: "Đọc content",
+      description: "Đọc đầy đủ một content trong Kho content theo mã (CT-000123): tiêu đề, nội dung, định dạng, bộ phận, phân loại, ngôn ngữ, job, đã dùng cho chiến dịch nào chưa.",
+      parameters: { type: "object", additionalProperties: false, required: ["ma"], properties: { ma: { type: "string", description: "Mã content, ví dụ CT-000123." } } },
+      args: z.object({ ma: text(40).min(1) }).strict(),
+    },
+    {
+      name: "content_chua_dung",
+      permission: "content.view",
+      label: "Tìm content chưa dùng",
+      description: "Content trong Kho chưa dùng cho chiến dịch nào (mỗi content chỉ dùng cho 1 chiến dịch), lọc theo định dạng, bộ phận, ngôn ngữ; mới nhất trước.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["dinh_dang", "bo_phan", "ngon_ngu", "so_luong"],
+        properties: {
+          dinh_dang: { type: ["string", "null"], enum: [...FORMATS, null] },
+          bo_phan: { type: ["string", "null"], enum: [...DEPARTMENTS, null] },
+          ngon_ngu: { type: ["string", "null"], enum: [...LANGUAGES, null] },
+          so_luong: nullableInteger("Số content tối đa (mặc định 10, tối đa 30)."),
+        },
+      },
+      args: z.object({ dinh_dang: z.enum(FORMATS).nullable(), bo_phan: z.enum(DEPARTMENTS).nullable(), ngon_ngu: z.enum(LANGUAGES).nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+    },
+    {
+      name: "thanh_vien_vai_tro",
+      permission: "roles.view",
+      label: "Xem thành viên và vai trò",
+      description: "Thành viên trong không gian làm việc, vai trò của từng người, phạm vi tài khoản kết nối được cấp, và danh sách vai trò với các quyền.",
+      parameters: noArgs,
+      args: z.object({}).strict(),
     },
   ];
 }
@@ -433,6 +524,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     parameters: { type: "object", additionalProperties: false, required: ["tu_khoa"], properties: { tu_khoa: nullableString("Mã (CT-000001), tiêu đề hoặc tên job; null để xem tổng quan.") } },
     args: z.object({ tu_khoa: text(100).nullable() }).strict(),
   },
+  ...READ_TOOLS_2(),
   ...DOCUMENT_TOOLS(),
   ...PROPOSAL_TOOLS(),
 ];
@@ -442,7 +534,7 @@ export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);
 /** Tools this member may use. Document tools also need the panel's "Tài liệu" switch. */
 export function toolsFor(permissions: readonly string[], isAdmin: boolean, options: { documents?: boolean } = {}): AssistantToolDefinition[] {
   return ASSISTANT_TOOLS.filter((tool) => (!tool.documents || options.documents === true)
-    && (tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission)));
+    && (tool.permission === "*" || (tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission))));
 }
 
 /** Tool list in OpenAI Responses API format. */

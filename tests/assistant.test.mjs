@@ -7,8 +7,8 @@ import { assistantInstructions, isInternalLink, pageContext, parseModelReply } f
 import { parseAnswer, parseInline } from '../src/modules/assistant/core/assistant-markdown.ts';
 
 test('tools follow the member permissions', () => {
-  assert.deepEqual(toolsFor([], false).map((tool) => tool.name), []);
-  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai']);
+  assert.deepEqual(toolsFor([], false).map((tool) => tool.name), ['mo_trang']);
+  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai', 'mo_trang']);
   assert.ok(!toolsFor(['roles.manage', 'settings.view'], false).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   assert.ok(toolsFor([], true).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   const everything = [...new Set(ASSISTANT_TOOLS.map((tool) => tool.permission))];
@@ -16,7 +16,8 @@ test('tools follow the member permissions', () => {
 });
 
 test('every tool has a server implementation and a strict schema', () => {
-  const runner = readFileSync(new URL('../src/modules/assistant/server/assistant-tool-runner.ts', import.meta.url), 'utf8');
+  const runner = readFileSync(new URL('../src/modules/assistant/server/assistant-tool-runner.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/modules/assistant/server/assistant-read-tools.ts', import.meta.url), 'utf8');
   const proposals = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals.ts', import.meta.url), 'utf8');
   for (const tool of ASSISTANT_TOOLS) {
     if (tool.proposal) assert.match(proposals, new RegExp(`\\b${tool.name}: propose`), tool.name);

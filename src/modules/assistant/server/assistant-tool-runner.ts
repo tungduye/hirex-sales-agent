@@ -19,6 +19,7 @@ import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-emai
 import { documentLink, readDocument, searchDocuments } from "@/modules/human-documents/core/assistant-documents";
 import { askDocuments } from "@/modules/human-documents/server/ask-documents";
 import { loadHumanSnapshot } from "@/modules/human-documents/server/snapshot";
+import { readTools2 } from "@/modules/assistant/server/assistant-read-tools";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
 // through the same server helpers the pages use, which apply the member's channel-account scope.
@@ -114,6 +115,8 @@ export async function queryWaitingConversations(supabase: ReadClient, workspaceI
 type Runner = (args: Record<string, unknown>, scope: ToolScope) => Promise<unknown>;
 
 const runners: Record<string, Runner> = {
+  // Phase 2: details and page links (assistant-read-tools.ts).
+  ...readTools2,
   async tong_quan_crm() {
     const data = await getDashboardData();
     if (data.metricsHaveError) return { loi: "Không tải được số liệu tổng quan." };
