@@ -275,6 +275,8 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
     .eq("workspace_id", accountContext.workspaceId)
     .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
     .order("last_message_at", { ascending: false, nullsFirst: false })
+    // Tie-breaker: rows with the same time (copies of one group) must not shift between pages.
+    .order("id", { ascending: false })
     .range((selectedPage - 1) * PAGE_SIZE, selectedPage * PAGE_SIZE);
   if (selectedChannelTypes.length) query = query.in("channel_type", selectedChannelTypes);
   if (selectedAccountId && ownerAccountIds.includes(selectedAccountId)) query = query.eq("channel_account_id", selectedAccountId);

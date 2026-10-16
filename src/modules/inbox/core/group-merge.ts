@@ -110,13 +110,18 @@ export function appendPage<T extends { id: string; groupKey: string | null; copy
   const ids = new Set(current.flatMap((item) => item.copyIds.length ? item.copyIds : [item.id]));
   const next = [...current];
   for (const item of incoming) {
-    if (ids.has(item.id)) continue;
+    // Pages can overlap (rows with the same time), so copies already listed are dropped first.
+    const fresh = item.copyIds.map((id, index) => ({ id, accountId: item.copyAccountIds[index] ?? "" })).filter((copy) => !ids.has(copy.id));
+    if (fresh.length === 0) continue;
     const index = item.groupKey ? next.findIndex((row) => row.groupKey === item.groupKey) : -1;
     const row = index >= 0 ? next[index]! : null;
-    if (row && oneCopyPerNick([...row.copyAccountIds, ...item.copyAccountIds])) {
-      next[index] = { ...row, copyIds: [...row.copyIds, ...item.copyIds], copyAccountIds: [...row.copyAccountIds, ...item.copyAccountIds] };
-    } else next.push(row ? { ...item, groupKey: null } : item);
-    for (const id of item.copyIds) ids.add(id);
+    if (row && oneCopyPerNick([...row.copyAccountIds, ...fresh.map((copy) => copy.accountId)])) {
+      next[index] = { ...row, copyIds: [...row.copyIds, ...fresh.map((copy) => copy.id)], copyAccountIds: [...row.copyAccountIds, ...fresh.map((copy) => copy.accountId)] };
+    } else if (ids.has(item.id)) {
+      // The row this page would open is already listed elsewhere; list its new copies on their own.
+      for (const copy of fresh) next.push({ ...item, id: copy.id, groupKey: null, copyIds: [copy.id], copyAccountIds: [copy.accountId] });
+    } else next.push(row ? { ...item, groupKey: null, copyIds: fresh.map((copy) => copy.id), copyAccountIds: fresh.map((copy) => copy.accountId) } : item);
+    for (const copy of fresh) ids.add(copy.id);
   }
   return next;
 }

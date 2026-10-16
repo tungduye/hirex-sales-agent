@@ -63,3 +63,13 @@ test('names a nick has twice anywhere (not only on this page) are left unmerged'
   assert.equal(merged.length, 3);
   assert.ok(merged.every((item) => item.groupKey === null));
 });
+
+test('overlapping pages: copies already listed are skipped and the rest join the group row', () => {
+  const first = mergeGroupCopies([row('a'), row('b'), row('c')], new Map());
+  const key = first[0].groupKey;
+  const overlap = { ...row('d'), groupKey: key, copyIds: ['d', 'e', 'c', 'b'], copyAccountIds: ['acc-d', 'acc-e', 'acc-c', 'acc-b'] };
+  const next = appendPage(first, [overlap]);
+  assert.equal(next.length, 1);
+  assert.deepEqual(next[0].copyIds, ['a', 'b', 'c', 'd', 'e']);
+  assert.equal(appendPage(next, [{ ...row('b'), groupKey: key }]).length, 1, 'a fully listed row adds nothing');
+});
