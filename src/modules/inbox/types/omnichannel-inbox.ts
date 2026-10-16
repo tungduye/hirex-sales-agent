@@ -36,6 +36,11 @@ export interface OmnichannelInboxConversation {
   isGroup: boolean;
   /** E-mail from a robot sender (no-reply, notifications…). */
   automated: boolean;
+  providerConversationId: string | null;
+  /** Zalo group listed once for all of our nicks in it ("ZALO:<group id>"); null for other rows. */
+  groupKey: string | null;
+  /** Every listed copy behind this row, the one it opens first (one id for ordinary rows). */
+  copyIds: string[];
 }
 
 export interface OmnichannelInboxProfile {
@@ -116,6 +121,8 @@ export interface OmnichannelConversationDetail {
   pendingActions: Array<{ id: string; text: string | null }>;
   legacyEmailAccountId: string | null;
   legacyEmailThreadId: string | null;
+  /** Zalo group with several of our nicks in it: the copies this member may send from ("Gửi bằng"). */
+  sendAs: Array<{ conversationId: string; accountDisplayName: string }>;
 }
 
 export type OmnichannelConversationDetailResult =

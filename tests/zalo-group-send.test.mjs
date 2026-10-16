@@ -44,3 +44,14 @@ test('history-synced groups (conversationKind GROUP) count as groups', async () 
   assert.equal(isGroupConversation({ conversationKind: 'GROUP' }), true);
   assert.equal(isGroupConversation({ conversationKind: 'USER' }), false);
 });
+
+test('the inbox lists a shared group once and lets the member pick the sending nick', () => {
+  const loader = readFileSync(new URL('../src/modules/inbox/server/get-omnichannel-inbox-data.ts', import.meta.url), 'utf8');
+  const detail = readFileSync(new URL('../src/modules/inbox/server/get-omnichannel-conversation-detail.ts', import.meta.url), 'utf8');
+  const list = readFileSync(new URL('../src/modules/inbox/components/infinite-conversation-list.tsx', import.meta.url), 'utf8');
+  assert.match(loader, /rpc\("get_inbox_last_outbound_at"/);
+  assert.match(loader, /mergeGroupCopies\(conversations, lastOutboundAt\)/);
+  assert.match(detail, /rpc\("is_zalo_group_conversation"/);
+  assert.match(detail, /await canAccessChannelAccount\(accountId\)/, 'only nicks the member may use');
+  assert.match(list, /conversation\.copyIds\.map\(\(id\)=>fetch\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'menu actions reach every copy');
+});

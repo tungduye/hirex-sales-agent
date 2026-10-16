@@ -181,7 +181,9 @@
     ".next-zalo-group-guard-1/types/**/*.ts",
     ".next-zalo-group-guard-1/dev/types/**/*.ts",
     ".next-zalo-group-guard-2/types/**/*.ts",
-    ".next-zalo-group-guard-2/dev/types/**/*.ts"
+    ".next-zalo-group-guard-2/dev/types/**/*.ts",
+    ".next-zalo-group-send-1/types/**/*.ts",
+    ".next-zalo-group-send-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

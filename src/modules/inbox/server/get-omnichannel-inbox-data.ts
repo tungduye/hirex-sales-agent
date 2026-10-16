@@ -14,6 +14,7 @@ import type { OmnichannelInboxAccount, OmnichannelInboxConversation, Omnichannel
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
 import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
+import { groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
@@ -341,9 +342,22 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
       automated: row.channel_type === "EMAIL" && isAutomatedSender(typeof message?.sender_external_id === "string" ? message.sender_external_id : null),
       isGroup: isGroupConversation(row.metadata) || zaloGroupIds.has(row.id) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : null),
+      providerConversationId: typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null,
+      groupKey: null, copyIds: [row.id],
     });
   }
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  // A Zalo group several of our nicks are in is listed once; it opens the copy of the nick that last wrote there.
+  const keyCounts = new Map<string, number>();
+  for (const item of conversations) { const key = groupKeyOf(item); if (key) keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1); }
+  const sharedCopyIds = conversations.flatMap((item) => { const key = groupKeyOf(item); return key && (keyCounts.get(key) ?? 0) > 1 ? [item.id] : []; });
+  const lastOutboundAt = new Map<string, string>();
+  if (sharedCopyIds.length) {
+    const { data: outboundData } = await supabase.rpc("get_inbox_last_outbound_at", { p_conversation_ids: sharedCopyIds });
+    for (const item of (outboundData ?? []) as Array<{ conversation_id?: unknown; last_outbound_at?: unknown }>)
+      if (typeof item.conversation_id === "string" && typeof item.last_outbound_at === "string") lastOutboundAt.set(item.conversation_id, item.last_outbound_at);
+  }
+  const listed = mergeGroupCopies(conversations, lastOutboundAt);
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

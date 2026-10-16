@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow } from "./inbox-live-events";
+import { appendPage, rowIndexFor } from "../core/group-merge";
 
 interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null }
 
@@ -37,7 +38,11 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       setConversations(props.initialConversations); setPage(1); setHasNextPage(props.initialHasNextPage); setLoading(false); setFailed(false);
       return;
     }
-    setConversations((current) => { const refreshedIds = new Set(props.initialConversations.map((item) => item.id)); return [...props.initialConversations, ...current.filter((item) => !refreshedIds.has(item.id))]; });
+    setConversations((current) => {
+      const refreshedIds = new Set(props.initialConversations.flatMap((item) => item.copyIds));
+      const refreshedGroups = new Set(props.initialConversations.flatMap((item) => item.groupKey ? [item.groupKey] : []));
+      return [...props.initialConversations, ...current.filter((item) => !item.copyIds.some((id) => refreshedIds.has(id)) && !(item.groupKey && refreshedGroups.has(item.groupKey)))];
+    });
   }, [props.initialConversations, props.initialHasNextPage, filterKey]);
 
   useEffect(() => {
@@ -45,13 +50,14 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       const row = (event as CustomEvent<RealtimeMessageRow>).detail;
       if (!row?.conversation_id) return;
       setConversations((current) => {
-        const index = current.findIndex((item) => item.id === row.conversation_id);
+        // A merged Zalo group gets the same message in every nick's copy: count it once (the copy the row opens).
+        const index = rowIndexFor(current, row.conversation_id);
         if (index < 0) return current;
         const previous = current[index];
         const timestamp = row.received_at ?? row.sent_at ?? row.created_at;
         const updated = { ...previous, latestText: row.text_content, latestDirection: row.direction, lastMessageAt: timestamp,
           lastInboundAt: row.direction === "INBOUND" ? timestamp : previous.lastInboundAt,
-          unreadCount: row.direction === "INBOUND" && row.conversation_id !== props.selectedConversationId ? previous.unreadCount + 1 : previous.unreadCount };
+          unreadCount: row.direction === "INBOUND" && row.conversation_id === previous.id && row.conversation_id !== props.selectedConversationId ? previous.unreadCount + 1 : previous.unreadCount };
         return [updated, ...current.slice(0, index), ...current.slice(index + 1)];
       });
     };
@@ -83,7 +89,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       const response = await fetch(`/api/inbox/conversations?${query.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("LOAD_FAILED");
       const payload = await response.json() as { conversations: OmnichannelInboxConversation[]; hasNextPage: boolean; page: number };
-      setConversations((current) => { const ids = new Set(current.map((item) => item.id)); return [...current, ...payload.conversations.filter((item) => !ids.has(item.id))]; });
+      setConversations((current) => appendPage(current, payload.conversations));
       setPage(payload.page); setHasNextPage(payload.hasNextPage);
     } catch { setFailed(true); } finally { setLoading(false); }
   }, [hasNextPage, loading, page, props.filters]);
@@ -123,7 +129,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex flex-wrap gap-0.5">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}<span className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{hasNextPage ? "+" : ""}</span></button>)}</div>
       {props.channelChips}
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId} tags={props.tags} filters={props.filters} now={now}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : needle || conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : needle || conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
 }
@@ -159,14 +165,15 @@ function ConversationRow({ conversation, selected, tags, filters, now }: { conve
     <span className="relative shrink-0">{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-white px-1 text-[9px] font-bold leading-[13px] text-white ${badge.className}`} aria-hidden="true">{badge.short}</span></span>
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold transition group-hover:opacity-0 ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500 transition group-hover:opacity-0">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
-      <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
+      <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
       <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
       {conversationTags.length ? <div className="mt-1 flex gap-1 overflow-hidden">{conversationTags.slice(0, 3).map((tag) => <span key={tag.id} className="max-w-24 truncate rounded-full border px-1.5 py-0.5 text-[9px]" style={{ borderColor: tag.color ?? "#94a3b8" }}>{tag.name}</span>)}</div> : null}
     </div></div></Link><ConversationMenu conversation={conversation}/></div>;
 }
 
 function ConversationMenu({conversation}:{conversation:OmnichannelInboxConversation}){
-  const mutate=async(action:string)=>{const response=await fetch(`/api/inbox/conversations/${conversation.id}/preferences`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action})});if(response.ok)window.location.reload()};
+  // A merged Zalo group row stands for every nick's copy, so read/unread, mute, pin, folder and delete apply to all of them.
+  const mutate=async(action:string)=>{const responses=await Promise.all(conversation.copyIds.map((id)=>fetch(`/api/inbox/conversations/${id}/preferences`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action})}).catch(()=>null)));if(responses.some((response)=>response?.ok))window.location.reload()};
   const item="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium hover:bg-slate-50";
   return <details className="absolute right-1.5 top-1.5 z-20 opacity-0 focus-within:opacity-100 group-hover:opacity-100 [&[open]]:opacity-100" onClick={event=>event.stopPropagation()}><summary aria-label="Tùy chọn hội thoại" className="flex size-7 cursor-pointer list-none items-center justify-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"><MoreVertical className="size-4"/></summary><div className="absolute right-0 top-9 w-48 overflow-hidden rounded-xl border bg-white py-1 shadow-xl"><button className={item} onClick={()=>void mutate(conversation.unreadCount?"MARK_READ":"MARK_UNREAD")}><CheckCheck className="size-4"/>{conversation.unreadCount?"Đánh dấu đã đọc":"Đánh dấu chưa đọc"}</button><button className={item} onClick={()=>void mutate("TOGGLE_MUTE")}><BellOff className="size-4"/>{conversation.isMuted?"Bật thông báo":"Tắt thông báo"}</button><button className={item} onClick={()=>void mutate("TOGGLE_PIN")}><Pin className="size-4"/>{conversation.isPinned?"Bỏ ghim":"Ghim trong HireX"}</button><button className={item} onClick={()=>void mutate("TOGGLE_OTHER")}><Undo2 className="size-4"/>{conversation.folder==="OTHER"?"Chuyển về Chính":"Chuyển vào Khác"}</button><button className={`${item} text-rose-600`} onClick={()=>void mutate("SOFT_DELETE")}><Trash2 className="size-4"/>Xóa hội thoại</button></div></details>;
 }

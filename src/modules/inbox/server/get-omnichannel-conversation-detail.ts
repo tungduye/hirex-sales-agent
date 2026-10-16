@@ -66,6 +66,32 @@ function accountHealth(row: Record<string, unknown>, channelType: ChannelType): 
   return row.provider_health_status.charAt(0) + row.provider_health_status.slice(1).toLowerCase();
 }
 
+/**
+ * "Gửi bằng" for a Zalo group several of our nicks are in: every copy of the group (same group id)
+ * whose account this member may use, the current one first. Empty for one-to-one chats (two nicks
+ * talking to the same person are separate chats) and when only one copy is usable.
+ */
+async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string, groupId: string) {
+  const { data: isGroup } = await client.rpc("is_zalo_group_conversation", { p_conversation_id: conversationId });
+  if (isGroup !== true) return [];
+  const { data: copies } = await client.from("omnichannel_conversations").select("id,channel_account_id,metadata")
+    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").eq("provider_conversation_id", groupId).limit(30);
+  const visible = (copies ?? []).filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
+    && !(copy.metadata && typeof copy.metadata === "object" && (copy.metadata as Record<string, unknown>).hidden === true));
+  if (visible.length < 2) return [];
+  const { data: accounts } = await client.from("channel_accounts").select("id,display_name")
+    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").is("deleted_at", null).in("id", visible.map((copy) => copy.channel_account_id as string));
+  const names = new Map<string, string>((accounts ?? []).map((account) => [account.id as string, text(account.display_name) ?? "Nick Zalo"]));
+  const options: Array<{ conversationId: string; accountDisplayName: string }> = [];
+  for (const copy of visible) {
+    const accountId = copy.channel_account_id as string;
+    if (!names.has(accountId) || !await canAccessChannelAccount(accountId)) continue;
+    options.push({ conversationId: copy.id as string, accountDisplayName: names.get(accountId)! });
+  }
+  options.sort((a, b) => (a.conversationId === conversationId ? -1 : b.conversationId === conversationId ? 1 : a.accountDisplayName.localeCompare(b.accountDisplayName, "vi")));
+  return options.length > 1 ? options : [];
+}
+
 export async function getOmnichannelConversationDetail(conversationId: string): Promise<OmnichannelConversationDetailResult> {
   if (!z.uuid().safeParse(conversationId).success) return { status: "not_found", conversation: null };
   const accountContext = await getAccountContext();
@@ -176,6 +202,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     legacyEmailThreadId = text(legacyThread?.id);
   }
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
+  const sendAs = channelType === "ZALO" ? await zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, row.provider_conversation_id) : [];
   return {
     status: "ready",
     conversation: {
@@ -201,6 +228,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       pendingActions,
       legacyEmailAccountId,
       legacyEmailThreadId,
+      sendAs,
     },
   };
 }
