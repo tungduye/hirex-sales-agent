@@ -46,27 +46,36 @@ async function findMember(context: ActionContext, name: string) {
   return { id: String(pick[0].id), name: String(pick[0].full_name), all: pick[0].all_channel_accounts === true };
 }
 
-/** Connected Gmail mailboxes that can send, granted to the member AND usable by the requester. */
-async function senderMailboxes(context: ActionContext, member: { id: string; all: boolean }): Promise<Sender[]> {
+/**
+ * The member's Gmail mailboxes: those granted to them (or all, for members with every account) and
+ * those they connected themselves. Usable = connected, allowed to send, and usable by the requester.
+ * `problems` explains the others so the assistant can say why a mailbox is left out.
+ */
+async function senderMailboxes(context: ActionContext, member: { id: string; all: boolean }): Promise<{ usable: Sender[]; problems: string[]; total: number }> {
   const db = createPrivilegedClient();
-  let emailIds: string[] | null = null;
+  let granted: string[] = [];
   if (!member.all) {
     const { data: access } = await db.from("profile_channel_account_access").select("channel_account_id").eq("workspace_id", context.workspaceId).eq("profile_id", member.id);
     const channelIds = (access ?? []).map((row) => String(row.channel_account_id));
-    if (!channelIds.length) return [];
-    const { data: channels } = await db.from("channel_accounts").select("legacy_email_account_id").eq("workspace_id", context.workspaceId).in("id", channelIds).is("deleted_at", null).not("legacy_email_account_id", "is", null);
-    const granted = (channels ?? []).map((row) => String(row.legacy_email_account_id));
-    if (!granted.length) return [];
-    emailIds = granted;
+    if (channelIds.length) {
+      const { data: channels } = await db.from("channel_accounts").select("legacy_email_account_id").eq("workspace_id", context.workspaceId).in("id", channelIds).is("deleted_at", null).not("legacy_email_account_id", "is", null);
+      granted = (channels ?? []).map((row) => String(row.legacy_email_account_id));
+    }
   }
-  let query = db.from("email_accounts").select("id,email_address,scopes").eq("workspace_id", context.workspaceId).eq("provider", "GMAIL").eq("status", "CONNECTED");
-  if (emailIds) query = query.in("id", emailIds);
+  let query = db.from("email_accounts").select("id,email_address,scopes,status,connected_by").eq("workspace_id", context.workspaceId).eq("provider", "GMAIL");
+  if (!member.all) query = granted.length ? query.or(`connected_by.eq.${member.id},id.in.(${granted.join(",")})`) : query.eq("connected_by", member.id);
   const { data } = await query.order("email_address");
   const requester = await getAccessibleEmailAccountIds();
-  return ((data ?? []) as Row[])
-    .filter((row) => Array.isArray(row.scopes) && row.scopes.includes(GMAIL_SEND))
-    .filter((row) => requester === null || requester.includes(String(row.id)))
-    .map((row) => ({ id: String(row.id), email: String(row.email_address) }));
+  const usable: Sender[] = [];
+  const problems: string[] = [];
+  for (const row of (data ?? []) as Row[]) {
+    const email = String(row.email_address);
+    if (row.status !== "CONNECTED") problems.push(`${email}: cần kết nối lại (${String(row.status)})`);
+    else if (!(Array.isArray(row.scopes) && row.scopes.includes(GMAIL_SEND))) problems.push(`${email}: chưa cấp quyền gửi mail`);
+    else if (requester !== null && !requester.includes(String(row.id))) problems.push(`${email}: người ra lệnh không có quyền dùng hộp này`);
+    else usable.push({ id: String(row.id), email });
+  }
+  return { usable, problems, total: (data ?? []).length };
 }
 
 /** Unused Mail content: the codes given, or the newest unused ones matching the filters. */
@@ -111,8 +120,13 @@ export async function proposeEmailCampaigns(args: Record<string, unknown>, conte
   const mailboxOwner = typeof args.hop_mail_cua === "string" && args.hop_mail_cua.trim() ? await findMember(context, args.hop_mail_cua.trim()) : null;
   if (!mailboxOwner) return { ok: false, error: "Cần biết dùng hộp mail của thành viên nào (hop_mail_cua)." };
   if ("error" in mailboxOwner) return { ok: false, error: String(mailboxOwner.error) };
-  const senders = await senderMailboxes(context, mailboxOwner);
-  if (!senders.length) return { ok: false, error: `${mailboxOwner.name} chưa có hộp Gmail nào đang kết nối, gửi được và anh/chị có quyền dùng.` };
+  const mailboxes = await senderMailboxes(context, mailboxOwner);
+  const senders = mailboxes.usable;
+  if (!senders.length) {
+    return { ok: false, error: mailboxes.total
+      ? `${mailboxOwner.name} có ${mailboxes.total} hộp Gmail (được cấp hoặc tự kết nối) nhưng chưa hộp nào dùng để gửi được: ${mailboxes.problems.slice(0, 8).join("; ")}.`
+      : `${mailboxOwner.name} chưa được cấp và chưa tự kết nối hộp Gmail nào.` };
+  }
   let groups: Sender[][];
   try { groups = divideSenders(senders, parts); } catch {
     return { ok: false, error: `${mailboxOwner.name} chỉ có ${senders.length} hộp Gmail dùng được (${senders.map((item) => item.email).join(", ")}), không chia riêng cho ${parts} chiến dịch. Hỏi người dùng muốn giảm số chiến dịch hay cho các chiến dịch dùng chung hộp mail.` };
@@ -143,7 +157,7 @@ export async function proposeEmailCampaigns(args: Record<string, unknown>, conte
         `Phụ trách: ${ownerName} · Hộp gửi của ${mailboxOwner.name}, mỗi hộp ${DEFAULT_DAILY_CAP} mail/ngày, ${DEFAULT_PER_MINUTE_CAP} mail/phút`,
         ...campaigns.map((item, index) => `${index + 1}. ${item.name} — ${(item.to - item.from).toLocaleString("vi-VN")} người (dòng ${item.from + 1}–${item.to}) · gửi từ ${item.senders.map((sender) => sender.email).join(", ")} · nội dung ${item.contentCode}: “${item.subject.slice(0, 80)}”`),
       ],
-      warning: "Chỉ tạo BẢN NHÁP, chưa gửi email nào. Kiểm tra từng chiến dịch rồi bấm khởi chạy trên trang chiến dịch.",
+      warning: `Chỉ tạo BẢN NHÁP, chưa gửi email nào. Kiểm tra từng chiến dịch rồi bấm khởi chạy trên trang chiến dịch.${mailboxes.problems.length ? ` Bỏ qua ${mailboxes.problems.length} hộp mail không dùng được: ${mailboxes.problems.slice(0, 5).join("; ")}.` : ""}`,
       link: "/campaigns",
     },
   };
