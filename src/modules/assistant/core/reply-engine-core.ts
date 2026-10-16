@@ -32,7 +32,7 @@ export function cleanDraft(raw: string): string | null {
   let text = raw.replace(/\r\n?/g, "\n").trim();
   // A leading "Bản nháp:" style label or wrapping quotes.
   text = text.replace(/^(?:bản nháp|nháp|draft|tin nhắn|nội dung)\s*[:：]\s*/i, "").trim();
-  if (/^["“].*["”]$/su.test(text)) text = text.slice(1, -1).trim();
+  if (/^["“][\s\S]*["”]$/.test(text)) text = text.slice(1, -1).trim();
   text = text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#{1,4}\s+/gm, "").replace(/\n{3,}/g, "\n\n").trim();
   if (!text || text.includes("\u0000")) return null;
   return text.length > MAX_DRAFT_CHARS ? text.slice(0, MAX_DRAFT_CHARS).trimEnd() : text;
