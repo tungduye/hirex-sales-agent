@@ -10,7 +10,7 @@ import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
 import { parseAnswer, type Inline } from "@/modules/assistant/core/assistant-markdown";
 import type { AccountContext } from "@/types/account";
 
-interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string }
+interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string; editableKind?: "message" | "note" }
 interface CardAction { id: string; preview: ActionPreview; expiresAt: string; state: "pending" | "running" | "done" | "failed" | "cancelled"; result?: string; link?: string | null }
 interface Message { role: "user" | "assistant"; content: string; toolsUsed?: string[]; error?: boolean; actions?: CardAction[] }
 
@@ -206,6 +206,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
 function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDecide: (id: string, decision: "confirm" | "cancel", text?: string) => void; onNavigate: () => void }) {
   const [now, setNow] = useState(() => Date.now());
   const editable = action.preview.editableText !== undefined;
+  const isNote = action.preview.editableKind === "note";
   const [text, setText] = useState(action.preview.editableText ?? "");
   useEffect(() => { if (action.state !== "pending") return; const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, [action.state]);
   const expired = action.state === "pending" && Date.parse(action.expiresAt) < now;
@@ -217,13 +218,13 @@ function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDe
       <ul className="mt-1 space-y-0.5 text-[13px] text-slate-700">{action.preview.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>
       {editable && (action.state === "pending" && !expired
         ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows={Math.min(10, Math.max(3, text.split("\n").length + 1))} maxLength={5000}
-            aria-label="Nội dung tin sẽ gửi" className="mt-1.5 w-full resize-y rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] leading-5 text-slate-900 focus:border-blue-500 focus:outline-none" />
+            aria-label={isNote ? "Nội dung ghi chú" : "Nội dung tin sẽ gửi"} className="mt-1.5 w-full resize-y rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] leading-5 text-slate-900 focus:border-blue-500 focus:outline-none" />
         : <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-[13px] leading-5 text-slate-700">{text}</p>)}
       {action.preview.warning && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[13px] text-amber-800">{action.preview.warning}</p>}
       {action.preview.link && action.state === "pending" && <Link href={action.preview.link} onClick={onNavigate} className="mt-2 inline-block text-[13px] font-medium text-blue-700 hover:underline">Mở trang liên quan</Link>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {action.state === "pending" && !expired && <>
-          <Button size="sm" disabled={editable && !text.trim()} onClick={() => onDecide(action.id, "confirm", editable ? text : undefined)}>{editable ? "Xác nhận gửi" : "Xác nhận"}</Button>
+          <Button size="sm" disabled={editable && !text.trim()} onClick={() => onDecide(action.id, "confirm", editable ? text : undefined)}>{editable ? (isNote ? "Xác nhận lưu" : "Xác nhận gửi") : "Xác nhận"}</Button>
           <Button size="sm" variant="outline" onClick={() => onDecide(action.id, "cancel")}>Huỷ</Button>
           <span className="flex items-center gap-1 text-[11px] text-slate-500"><Clock className="size-3" />Hết hạn lúc {new Date(action.expiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
         </>}

@@ -31,6 +31,111 @@ const text = (max: number) => z.string().trim().max(max);
 const uuidArg = (description: string) => ({ type: "string", description });
 const LEAD_STATUSES = ["NEW", "CONTACTED", "ENGAGED", "QUALIFIED", "OPPORTUNITY", "WON", "LOST", "DO_NOT_CONTACT"] as const;
 
+// Phase 3 — proposals for Liên hệ, Công ty, Công việc (assistant-proposals-crm.ts). For "sửa" tools a
+// field of null keeps the current value and "" clears it.
+const keepOrSet = (description: string) => ({ type: ["string", "null"], description: `${description} null = giữ nguyên, "" = xoá.` });
+function CRM_PROPOSAL_TOOLS(): AssistantToolDefinition[] {
+  const leadStatus = { type: ["string", "null"], enum: [...LEAD_STATUSES, null] };
+  return [
+    {
+      name: "de_xuat_tao_lien_he",
+      permission: "contacts.create",
+      label: "Đề xuất tạo liên hệ",
+      proposal: true,
+      description: "ĐỀ XUẤT tạo một liên hệ mới (chỉ tạo thẻ xác nhận). Hệ thống từ chối nếu email đã có ở liên hệ khác và cảnh báo khi trùng SĐT. cong_ty là tên một công ty đã có.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["ho_ten", "chuc_danh", "email", "sdt", "cong_ty", "quoc_gia", "nguon", "trang_thai_lead"],
+        properties: {
+          ho_ten: { type: "string" }, chuc_danh: nullableString("Chức danh, hoặc null."), email: nullableString("Email, hoặc null."), sdt: nullableString("Số điện thoại, hoặc null."),
+          cong_ty: nullableString("Tên công ty đã có trong hệ thống, hoặc null."), quoc_gia: nullableString("Quốc gia, hoặc null."),
+          nguon: nullableString("Nguồn (ví dụ LinkedIn, giới thiệu), hoặc null."), trang_thai_lead: { ...leadStatus, description: "Mặc định NEW." },
+        },
+      },
+      args: z.object({
+        ho_ten: text(200).min(1), chuc_danh: text(200).nullable(), email: text(320).nullable(), sdt: text(50).nullable(), cong_ty: text(200).nullable(),
+        quoc_gia: text(120).nullable(), nguon: text(120).nullable(), trang_thai_lead: z.enum(LEAD_STATUSES).nullable(),
+      }).strict(),
+    },
+    {
+      name: "de_xuat_sua_lien_he",
+      permission: "contacts.update",
+      label: "Đề xuất sửa liên hệ",
+      proposal: true,
+      description: "ĐỀ XUẤT sửa thông tin một liên hệ (chỉ tạo thẻ xác nhận, hiện giá trị cũ → mới). Đổi trạng thái lead dùng de_xuat_doi_trang_thai_lead.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["contact_id", "ho_ten", "chuc_danh", "email", "sdt", "quoc_gia", "ngon_ngu", "nguon", "cong_ty", "diem_lead"],
+        properties: {
+          contact_id: uuidArg("UUID liên hệ."),
+          ho_ten: { type: ["string", "null"], description: "Họ tên mới, null = giữ nguyên." }, chuc_danh: keepOrSet("Chức danh."), email: keepOrSet("Email."), sdt: keepOrSet("SĐT."),
+          quoc_gia: keepOrSet("Quốc gia."), ngon_ngu: keepOrSet("Ngôn ngữ."), nguon: keepOrSet("Nguồn."),
+          cong_ty: nullableString("Tên công ty mới (đã có trong hệ thống), null = giữ nguyên."), diem_lead: nullableInteger("Điểm lead 0–100, null = giữ nguyên."),
+        },
+      },
+      args: z.object({
+        contact_id: z.string().uuid(), ho_ten: text(200).nullable(), chuc_danh: text(200).nullable(), email: text(320).nullable(), sdt: text(50).nullable(),
+        quoc_gia: text(120).nullable(), ngon_ngu: text(80).nullable(), nguon: text(120).nullable(), cong_ty: text(200).nullable(), diem_lead: z.number().int().min(0).max(100).nullable(),
+      }).strict(),
+    },
+    {
+      name: "de_xuat_ghi_chu_lien_he",
+      permission: "contacts.update",
+      label: "Đề xuất thêm ghi chú",
+      proposal: true,
+      description: "ĐỀ XUẤT thêm một ghi chú nội bộ vào liên hệ (chỉ tạo thẻ; người dùng sửa được nội dung trên thẻ trước khi lưu).",
+      parameters: { type: "object", additionalProperties: false, required: ["contact_id", "noi_dung"], properties: { contact_id: uuidArg("UUID liên hệ."), noi_dung: { type: "string", description: "Nội dung ghi chú, tối đa 5000 ký tự." } } },
+      args: z.object({ contact_id: z.string().uuid(), noi_dung: text(5000).min(1) }).strict(),
+    },
+    {
+      name: "de_xuat_tao_cong_ty",
+      permission: "companies.create",
+      label: "Đề xuất tạo công ty",
+      proposal: true,
+      description: "ĐỀ XUẤT tạo công ty mới (chỉ tạo thẻ xác nhận). Hệ thống từ chối khi đã có công ty cùng tên hoặc cùng website.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["ten", "website", "nganh", "quoc_gia", "trang_thai"],
+        properties: {
+          ten: { type: "string" }, website: nullableString("Website, hoặc null."), nganh: nullableString("Ngành, hoặc null."), quoc_gia: nullableString("Quốc gia, hoặc null."),
+          trang_thai: { type: ["string", "null"], enum: ["ACTIVE", "PROSPECT", "INACTIVE", null], description: "ACTIVE = đang hợp tác, PROSPECT = tiềm năng (mặc định), INACTIVE = ngừng." },
+        },
+      },
+      args: z.object({ ten: text(200).min(1), website: text(500).nullable(), nganh: text(120).nullable(), quoc_gia: text(120).nullable(), trang_thai: z.enum(["ACTIVE", "PROSPECT", "INACTIVE"]).nullable() }).strict(),
+    },
+    {
+      name: "de_xuat_sua_cong_ty",
+      permission: "companies.update",
+      label: "Đề xuất sửa công ty",
+      proposal: true,
+      description: "ĐỀ XUẤT sửa thông tin một công ty (id từ tim_cong_ty; chỉ tạo thẻ, hiện cũ → mới).",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["company_id", "ten", "website", "nganh", "quoc_gia", "trang_thai"],
+        properties: {
+          company_id: uuidArg("UUID công ty."), ten: { type: ["string", "null"], description: "Tên mới, null = giữ nguyên." }, website: keepOrSet("Website."), nganh: keepOrSet("Ngành."), quoc_gia: keepOrSet("Quốc gia."),
+          trang_thai: { type: ["string", "null"], enum: ["ACTIVE", "PROSPECT", "INACTIVE", null] },
+        },
+      },
+      args: z.object({ company_id: z.string().uuid(), ten: text(200).nullable(), website: text(500).nullable(), nganh: text(120).nullable(), quoc_gia: text(120).nullable(), trang_thai: z.enum(["ACTIVE", "PROSPECT", "INACTIVE"]).nullable() }).strict(),
+    },
+    {
+      name: "de_xuat_cap_nhat_cong_viec",
+      permission: "tasks.update",
+      label: "Đề xuất cập nhật công việc",
+      proposal: true,
+      description: "ĐỀ XUẤT cập nhật một công việc (id từ cong_viec): đổi trạng thái (hoàn thành, đang làm, mở lại, huỷ), hạn, người được giao hoặc tiêu đề. Chỉ tạo thẻ xác nhận.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["task_id", "trang_thai", "han", "giao_cho", "tieu_de"],
+        properties: {
+          task_id: uuidArg("UUID công việc."),
+          trang_thai: { type: ["string", "null"], enum: ["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED", null] },
+          han: { type: ["string", "null"], description: "Hạn mới (giờ Việt Nam) YYYY-MM-DD hoặc YYYY-MM-DD HH:mm; \"\" = bỏ hạn; null = giữ nguyên." },
+          giao_cho: nullableString("Tên thành viên được giao mới, hoặc null."),
+          tieu_de: nullableString("Tiêu đề mới, hoặc null."),
+        },
+      },
+      args: z.object({ task_id: z.string().uuid(), trang_thai: z.enum(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).nullable(), han: text(20).nullable(), giao_cho: text(100).nullable(), tieu_de: text(240).nullable() }).strict(),
+    },
+  ];
+}
+
 // Phase 2 — proposals. Each creates a confirmation card only; the member presses "Xác nhận".
 function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
   return [
@@ -527,6 +632,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...READ_TOOLS_2(),
   ...DOCUMENT_TOOLS(),
   ...PROPOSAL_TOOLS(),
+  ...CRM_PROPOSAL_TOOLS(),
 ];
 
 export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);

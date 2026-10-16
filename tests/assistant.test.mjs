@@ -147,7 +147,7 @@ test('answer rendering keeps only safe internal links', () => {
 test('phase 2 proposals follow permissions and validate arguments', () => {
   const names = (permissions, admin = false) => toolsFor(permissions, admin).filter((tool) => tool.proposal).map((tool) => tool.name);
   assert.deepEqual(names(['tasks.view', 'contacts.view', 'campaigns.view']), [], 'view-only members get no proposals');
-  assert.deepEqual(names(['tasks.create', 'contacts.update']), ['de_xuat_tao_cong_viec', 'de_xuat_doi_trang_thai_lead']);
+  assert.deepEqual(names(['tasks.create', 'contacts.update']), ['de_xuat_tao_cong_viec', 'de_xuat_doi_trang_thai_lead', 'de_xuat_sua_lien_he', 'de_xuat_ghi_chu_lien_he']);
   assert.deepEqual(names(['campaigns.launch']), ['de_xuat_dieu_khien_chien_dich']);
   assert.deepEqual(names([], true), ['de_xuat_dung_ai_recruiter']);
   const all = toolsFor(['tasks.create', 'contacts.update', 'campaigns.launch', 'content.create'], true);

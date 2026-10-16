@@ -354,7 +354,7 @@ const runners: Record<string, Runner> = {
     return {
       tong: rows.length,
       qua_han: rows.filter((row) => row.due_at && Date.parse(row.due_at) < now && (row.status === "OPEN" || row.status === "IN_PROGRESS")).length,
-      cong_viec: rows.slice(0, 25).map((row) => ({ tieu_de: clip(row.title, 200), trang_thai: row.status, han: row.due_at, giao_cho_toi: row.assigned_to === scope.userId, link: row.conversation_id ? `/inbox/all/${row.conversation_id}` : "/tasks" })),
+      cong_viec: rows.slice(0, 25).map((row) => ({ id: row.id, tieu_de: clip(row.title, 200), trang_thai: row.status, han: row.due_at, giao_cho_toi: row.assigned_to === scope.userId, link: row.conversation_id ? `/inbox/all/${row.conversation_id}` : "/tasks" })),
       link: "/tasks",
     };
   },

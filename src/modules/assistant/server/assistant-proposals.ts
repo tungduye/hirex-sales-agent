@@ -11,6 +11,10 @@ import { validateRenderedCampaignMessage } from "@/modules/campaigns/domain/camp
 import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, contentBriefSchema } from "@/modules/content/core/content-options";
 import { startContentBatch } from "@/modules/content/server/start-content-batch";
 import { describeRule, MAX_RULES_PER_OWNER, ruleFromToolArgs, ruleSchema } from "@/modules/assistant/core/assistant-rules";
+import {
+  executeCreateCompany, executeCreateContact, executeNote, executeUpdateCompany, executeUpdateContact, executeUpdateTask,
+  proposeCreateCompany, proposeCreateContact, proposeNote, proposeUpdateCompany, proposeUpdateContact, proposeUpdateTask,
+} from "@/modules/assistant/server/assistant-proposals-crm";
 
 // Phase 2 of Trợ lý HireX. A proposal is validated against current data, stored as an
 // assistant_actions row with a human-readable preview, and shown as a card. Only when the same
@@ -19,14 +23,15 @@ import { describeRule, MAX_RULES_PER_OWNER, ruleFromToolArgs, ruleSchema } from 
 // send path as the inbox composer, to one conversation, with text the member saw and could edit.
 // Nothing here launches new campaigns, deletes data or turns AI Recruiter AUTO on.
 
-export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY" | "CREATE_RULE";
+export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY" | "CREATE_RULE"
+  | "CREATE_CONTACT" | "UPDATE_CONTACT" | "ADD_NOTE" | "CREATE_COMPANY" | "UPDATE_COMPANY" | "UPDATE_TASK";
 /** editableText: the card shows this in a text box; the member's edited version is what runs. */
-export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string }
+export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string; editableKind?: "message" | "note" }
 export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean }
 export interface PendingAction { id: string; kind: ActionKind; preview: ActionPreview; expiresAt: string }
 
-type Built = { ok: true; kind: ActionKind; params: Record<string, unknown>; preview: ActionPreview } | { ok: false; error: string };
-type Executed = { ok: boolean; message: string; link?: string | null };
+export type Built = { ok: true; kind: ActionKind; params: Record<string, unknown>; preview: ActionPreview } | { ok: false; error: string };
+export type Executed = { ok: boolean; message: string; link?: string | null };
 
 const PERMISSION: Record<ActionKind, string> = {
   CREATE_TASK: "tasks.create",
@@ -36,6 +41,12 @@ const PERMISSION: Record<ActionKind, string> = {
   AI_RECRUITER_SAFE_STOP: "workspace.admin",
   SEND_REPLY: "inbox.reply",
   CREATE_RULE: "dashboard.view",
+  CREATE_CONTACT: "contacts.create",
+  UPDATE_CONTACT: "contacts.update",
+  ADD_NOTE: "contacts.update",
+  CREATE_COMPANY: "companies.create",
+  UPDATE_COMPANY: "companies.update",
+  UPDATE_TASK: "tasks.update",
 };
 const allowed = (kind: ActionKind, context: ActionContext) => PERMISSION[kind] === "workspace.admin" ? context.isAdmin : context.permissions.includes(PERMISSION[kind]);
 
@@ -288,6 +299,12 @@ const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionCo
   de_xuat_dung_ai_recruiter: proposeAiStop,
   de_xuat_tra_loi_hoi_thoai: proposeReply,
   de_xuat_tao_quy_tac: proposeRule,
+  de_xuat_tao_lien_he: proposeCreateContact,
+  de_xuat_sua_lien_he: proposeUpdateContact,
+  de_xuat_ghi_chu_lien_he: proposeNote,
+  de_xuat_tao_cong_ty: proposeCreateCompany,
+  de_xuat_sua_cong_ty: proposeUpdateCompany,
+  de_xuat_cap_nhat_cong_viec: proposeUpdateTask,
 };
 
 export const MAX_PROPOSALS_PER_QUESTION = 3;
@@ -461,6 +478,12 @@ const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: A
   AI_RECRUITER_SAFE_STOP: executeAiStop,
   SEND_REPLY: executeReply,
   CREATE_RULE: executeRule,
+  CREATE_CONTACT: executeCreateContact,
+  UPDATE_CONTACT: executeUpdateContact,
+  ADD_NOTE: executeNote,
+  CREATE_COMPANY: executeCreateCompany,
+  UPDATE_COMPANY: executeUpdateCompany,
+  UPDATE_TASK: executeUpdateTask,
 };
 
 /** Confirms or cancels one of the member's own proposals. Runs it at most once. */
@@ -487,6 +510,12 @@ export async function decideAssistantAction(actionId: string, decision: "confirm
     const text = cleanReplyText(edits.text);
     if (!text) return { ok: false, message: "Nội dung tin trống hoặc quá dài." };
     params = { ...params, text, editedByMember: text !== params.text };
+  }
+  // A note's text can be edited on the card too.
+  if (kind === "ADD_NOTE" && edits.text !== undefined) {
+    const content = edits.text.trim().slice(0, 5000);
+    if (!content) return { ok: false, message: "Ghi chú trống." };
+    params = { ...params, content };
   }
   const { data: claimed } = await db.from("assistant_actions").update({ status: "EXECUTING", decided_at: now, params }).eq("id", row.id).eq("status", "PROPOSED").select("id").maybeSingle();
   if (!claimed) return { ok: false, message: "Đề xuất này đã được xử lý." };
