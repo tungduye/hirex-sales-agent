@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
+import { Bot, ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
 import type { ChannelType } from "../core/channel-contracts";
 import { approveChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage } from "../server/channel-actions";
 import { generateOmnichannelDraft } from "../server/omnichannel-ai-actions";
+import { generateHoleDraft } from "@/modules/assistant/server/hole-draft-action";
 import type { ChannelActionState } from "../types/channel-action-state";
 import type { QuickReplyTemplate } from "../types/quick-reply";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
@@ -42,7 +43,9 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const[quickOpen,setQuickOpen]=useState(false);
   const[activeIndex,setActiveIndex]=useState(0);
   // Assistant draft: replaces the text, which can be put back with "Hoàn tác".
+  // Two drafters: Hola (fast, reads the last messages) and Hole (reads the customer's record and looks things up).
   const[drafting,startDrafting]=useTransition();
+  const[drafter,setDrafter]=useState<"hola"|"hole"|null>(null);
   const[beforeDraft,setBeforeDraft]=useState<string|null>(null);
   useEffect(()=>{
     if(!submittedTextRef.current||state.status==="idle")return;
@@ -61,15 +64,18 @@ export function ConversationComposer({conversationId,channelType,conversationSta
 
   function closeQuick(){setQuickOpen(false);setActiveIndex(0);if(slashQuery!==null)updateText("");}
   function pickTemplate(template:QuickReplyTemplate){setQuickOpen(false);setActiveIndex(0);updateText(template.textContent);setHint(null);setBeforeDraft(null);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
-  function askAssistant(){
+  function askAssistant(which:"hola"|"hole"){
     // Whatever is already typed is passed as a hint ("hẹn PV thứ 3 lúc 10h") for the assistant to expand.
     const typed=slashQuery!==null?"":text.trim();
-    const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));
-    setQuickOpen(false);setHint("Trợ lý đang soạn…");
+    const name=which==="hola"?"Hola":"Hole";
+    setQuickOpen(false);setDrafter(which);setHint(which==="hola"?"Hola đang soạn…":"Hole đang đọc hồ sơ khách và soạn… (khoảng 10–20 giây)");
     startDrafting(async()=>{
-      const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);
-      if(result.draftText){setBeforeDraft(text);updateText(result.draftText);setHint("Trợ lý đã soạn nháp, sửa lại rồi bấm Gửi.");window.requestAnimationFrame(()=>textareaRef.current?.focus());}
-      else setHint(result.message??"Trợ lý chưa soạn được, anh/chị thử lại sau.");
+      let draft:string|null=null,message:string|null=null;
+      if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;}
+      else{const result=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;}
+      setDrafter(null);
+      if(draft){setBeforeDraft(text);updateText(draft);setHint(`${name} đã soạn nháp, sửa lại rồi bấm Gửi.`);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
+      else setHint(message??`${name} chưa soạn được, anh/chị thử lại sau.`);
     });
   }
   function undoDraft(){if(beforeDraft===null)return;updateText(beforeDraft);setBeforeDraft(null);setHint(null);}
@@ -92,7 +98,8 @@ export function ConversationComposer({conversationId,channelType,conversationSta
         placeholder="Nhập tin nhắn… (Enter gửi · Shift+Enter xuống dòng · / mẫu trả lời)" rows={3} disabled={drafting} className="block max-h-48 min-h-[72px] w-full resize-none rounded-t-[14px] bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:text-slate-400"/>
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2 pt-1">
         <button type="button" onClick={()=>setQuickOpen(open=>!open)} aria-expanded={showQuick} className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold ${showQuick?"bg-slate-100 text-slate-900":"text-slate-700 hover:bg-slate-100"}`} title="Câu trả lời mẫu (gõ / để mở)"><Zap className="size-[15px]"/>Mẫu</button>
-        <button type="button" onClick={askAssistant} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Trợ lý viết lại thành câu trả lời hoàn chỉnh dựa trên ý anh/chị đã gõ":"Trợ lý đọc cuộc trò chuyện và soạn nháp câu trả lời"}>{drafting?<span className="size-3.5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent"/>:<Sparkles className="size-[15px]"/>}Trợ lý soạn</button>
+        <button type="button" onClick={()=>askAssistant("hola")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hola (nhanh): viết lại ý anh/chị đã gõ thành câu trả lời hoàn chỉnh":"Hola (nhanh): đọc các tin gần nhất và soạn nháp"}>{drafter==="hola"?<span className="size-3.5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent"/>:<Sparkles className="size-[15px]"/>}Hola</button>
+        <button type="button" onClick={()=>askAssistant("hole")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hole (kỹ): đọc hồ sơ khách, tra job/chiến dịch rồi viết ý anh/chị đã gõ thành câu trả lời":"Hole (kỹ): đọc hội thoại, hồ sơ khách, tra job/chiến dịch khi cần rồi soạn nháp"}>{drafter==="hole"?<span className="size-3.5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"/>:<Bot className="size-[15px]"/>}Hole</button>
         {beforeDraft!==null&&!drafting?<button type="button" onClick={undoDraft} className="inline-flex min-h-[34px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800"><Undo2 className="size-3.5"/>Hoàn tác</button>:null}
         <span className="min-w-0 flex-1 truncate px-1 text-right text-xs text-slate-500" aria-live="polite">{hint??(state.status==="error"?state.message:null)}</span>
         <button type="submit" disabled={pending||drafting||!responseWindowOpen||!idempotencyKey||!text.trim()||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
