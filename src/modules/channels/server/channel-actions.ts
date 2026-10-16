@@ -17,7 +17,8 @@ import { isGroupConversation } from "@/modules/assistant/core/assistant-tools";
 // The Zalo bridge can only send one-to-one messages today (thread type USER). A group chat is
 // refused here before any send action exists, so nothing is left pending or failed.
 const ZALO_GROUP_UNSUPPORTED = "Chưa hỗ trợ gửi tin vào nhóm Zalo từ HireX. Vui lòng nhắn trong nhóm bằng ứng dụng Zalo.";
-/** Zalo group chat: flagged in metadata, or someone other than the thread itself has written in it. */
+/** Zalo group chat: flagged in metadata, or someone other than the thread itself has written in it
+ * (Zalo's own notices, sender "system", e.g. "đã đồng ý kết bạn", do not count). */
 async function isZaloGroupConversation(workspaceId: string, conversationId: string) {
   const db = createPrivilegedClient();
   const { data: conversation } = await db.from("omnichannel_conversations").select("channel_type,provider_conversation_id,metadata")
@@ -26,7 +27,7 @@ async function isZaloGroupConversation(workspaceId: string, conversationId: stri
   if (isGroupConversation(conversation.metadata)) return true;
   if (typeof conversation.provider_conversation_id !== "string") return false;
   const { data: others } = await db.from("omnichannel_messages").select("id").eq("workspace_id", workspaceId).eq("conversation_id", conversationId)
-    .eq("direction", "INBOUND").neq("sender_external_id", conversation.provider_conversation_id).limit(1);
+    .eq("direction", "INBOUND").neq("sender_external_id", conversation.provider_conversation_id).neq("sender_external_id", "system").limit(1);
   return (others ?? []).length > 0;
 }
 

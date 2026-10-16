@@ -479,7 +479,7 @@ export function metadataName(metadata: unknown): string | null {
  * means the thread is a group. (Not applied to other channels, whose thread ids work differently.)
  */
 export function isZaloGroupThread(channel: string, providerConversationId: string | null | undefined, inboundSender: string | null | undefined) {
-  return channel === "ZALO" && Boolean(providerConversationId) && Boolean(inboundSender) && providerConversationId !== inboundSender;
+  return channel === "ZALO" && Boolean(providerConversationId) && Boolean(inboundSender) && inboundSender !== "system" && providerConversationId !== inboundSender;
 }
 
 /** E-mail from robots (no-reply, notifications, sign-up mails…): nobody needs to answer these. */

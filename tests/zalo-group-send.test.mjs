@@ -18,3 +18,11 @@ test('cancelling a pending message only touches never-attempted approved actions
   assert.match(cancel, /\.eq\("status", "APPROVED"\)\.eq\("attempt_count", 0\)/);
   assert.match(cancel, /status: "CANCELLED"/);
 });
+
+test('Zalo system notices do not make a one-to-one chat a group', async () => {
+  const { isZaloGroupThread } = await import('../src/modules/assistant/core/assistant-tools.ts');
+  assert.equal(isZaloGroupThread('ZALO', '9187084085466763670', 'system'), false);
+  assert.equal(isZaloGroupThread('ZALO', '9187084085466763670', '9187084085466763670'), false);
+  assert.equal(isZaloGroupThread('ZALO', 'group-1', 'member-9'), true);
+  assert.match(source, /\.neq\("sender_external_id", "system"\)/);
+});

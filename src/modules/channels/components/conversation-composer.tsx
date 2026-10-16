@@ -108,7 +108,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
         <button type="submit" disabled={pending||drafting||!responseWindowOpen||!idempotencyKey||!text.trim()||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
       </div>
     </form>
-    {!responseWindowOpen?<p className="mt-2 text-xs font-medium text-amber-700">Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi.</p>:null}
+    {!responseWindowOpen&&!groupBlocked?<p className="mt-2 text-xs font-medium text-amber-700">Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi.</p>:null}
     {state.message&&state.status!=="error"?<p className="mt-1.5 px-1 text-xs text-slate-500">{state.message}</p>:null}
     <ProposedList actions={proposedActions} approvalDisabled={!responseWindowOpen}/>{pendingActions.map(action=><Pending key={action.id} action={action}/>)}
   </div>;
