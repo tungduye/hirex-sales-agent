@@ -51,12 +51,19 @@ async function persistSentConversationMessage(client: PrivilegedClient, actionId
 async function mapAction(client: PrivilegedClient, row: ActionRow | null): Promise<OutboundActionRecord | null> {
   if (!row || !isUuid(row.id) || !isUuid(row.workspace_id) || (row.conversation_id !== null && !isUuid(row.conversation_id)) || !isUuid(row.channel_account_id) || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || !["APPROVED","QUEUED","EXECUTING"].includes(String(row.status)) || typeof row.recipient_external_id !== "string" || (row.text_content !== null && typeof row.text_content !== "string") || !Array.isArray(row.attachment_ids) || !row.attachment_ids.every(isUuid) || typeof row.idempotency_key !== "string" || !isUuid(row.policy_decision_id) || !(isUuid(row.approved_by) || (row.approved_by === null && row.dispatch_source === "AI_AUTOMATION")) || typeof row.approved_at !== "string" || !["HUMAN_MANUAL","AI_AUTOMATION","CAMPAIGN","SYSTEM"].includes(String(row.dispatch_source))) return null;
   let providerConversationId: string | null = null;
+  let threadKind: "GROUP" | null = null;
   if (row.conversation_id) {
     const { data, error } = await client.from("omnichannel_conversations").select("provider_conversation_id").eq("id", row.conversation_id).eq("workspace_id", row.workspace_id).eq("channel_account_id", row.channel_account_id).maybeSingle();
     if (error || typeof data?.provider_conversation_id !== "string") return null;
     providerConversationId = data.provider_conversation_id;
+    if (row.channel_type === "ZALO") {
+      // Same rule as the inbox and the proposal (migration 086). Unknown means "do not send".
+      const { data: group, error: groupError } = await client.rpc("is_zalo_group_conversation", { p_conversation_id: row.conversation_id });
+      if (groupError || typeof group !== "boolean") return null;
+      if (group) threadKind = "GROUP";
+    }
   }
-  return { id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: isUuid(row.approved_by) ? row.approved_by : null, approvedAt: row.approved_at, dispatchSource: row.dispatch_source as OutboundActionRecord["dispatchSource"] };
+  return { ...(threadKind ? { threadKind } : {}), id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: isUuid(row.approved_by) ? row.approved_by : null, approvedAt: row.approved_at, dispatchSource: row.dispatch_source as OutboundActionRecord["dispatchSource"] };
 }
 
 export async function executeChannelOutboundAction(actionId: string, adapters: ChannelAdapterRegistry) {

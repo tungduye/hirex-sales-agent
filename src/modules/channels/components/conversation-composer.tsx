@@ -33,7 +33,7 @@ export function matchQuickReplies(templates:QuickReplyTemplate[],query:string){
 
 export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean}){
   // Zalo groups cannot be sent to from HireX yet (the bridge sends one-to-one only).
-  const groupBlocked=channelType==="ZALO"&&isGroup;
+  const zaloGroup=channelType==="ZALO"&&isGroup;
   const[state,send,pending]=useActionState(sendManualChannelMessage,initial),[text,setText]=useState("");
   const formRef=useRef<HTMLFormElement>(null);
   const textareaRef=useRef<HTMLTextAreaElement>(null);
@@ -62,7 +62,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const slashQuery=/^\/(\S*)$/u.exec(text)?.[1]??null;
   const showQuick=quickOpen||slashQuery!==null;
   const matches=matchQuickReplies(templates,slashQuery??"");
-  const responseWindowOpen=!groupBlocked&&(channelType!=="FACEBOOK"||isFacebookResponseWindowOpen({status:conversationStatus,latestInboundAt:lastInboundAt},new Date()));
+  const responseWindowOpen=(channelType!=="FACEBOOK"||isFacebookResponseWindowOpen({status:conversationStatus,latestInboundAt:lastInboundAt},new Date()));
 
   function closeQuick(){setQuickOpen(false);setActiveIndex(0);if(slashQuery!==null)updateText("");}
   function pickTemplate(template:QuickReplyTemplate){setQuickOpen(false);setActiveIndex(0);updateText(template.textContent);setHint(null);setBeforeDraft(null);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
@@ -84,7 +84,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
 
   return <div>
     {showQuick?<QuickReplyMenu templates={matches} total={templates.length} activeIndex={Math.min(activeIndex,Math.max(0,matches.length-1))} query={slashQuery} draftText={slashQuery===null?text.trim():""} onPick={pickTemplate} onClose={closeQuick} onSaved={template=>{setLocalTemplates(current=>[...current,template]);setHint(`Đã lưu mẫu /${template.shortcut}.`);}}/>:null}
-    {groupBlocked?<p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Đây là nhóm Zalo: HireX chưa gửi được tin vào nhóm. Anh/chị vẫn soạn nháp được (Hola/Hole) rồi sao chép sang ứng dụng Zalo để gửi.</p>:null}
+    {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.</p>:null}
     <form action={send} onSubmit={()=>{const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className="rounded-[14px] border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
       <input type="hidden" name="conversationId" value={conversationId}/><input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
       <label htmlFor={`composer-${conversationId}`} className="sr-only">Nội dung tin nhắn</label>
@@ -108,7 +108,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
         <button type="submit" disabled={pending||drafting||!responseWindowOpen||!idempotencyKey||!text.trim()||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
       </div>
     </form>
-    {!responseWindowOpen&&!groupBlocked?<p className="mt-2 text-xs font-medium text-amber-700">Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi.</p>:null}
+    {!responseWindowOpen?<p className="mt-2 text-xs font-medium text-amber-700">Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi.</p>:null}
     {state.message&&state.status!=="error"?<p className="mt-1.5 px-1 text-xs text-slate-500">{state.message}</p>:null}
     <ProposedList actions={proposedActions} approvalDisabled={!responseWindowOpen}/>{pendingActions.map(action=><Pending key={action.id} action={action}/>)}
   </div>;

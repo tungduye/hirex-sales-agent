@@ -19,6 +19,8 @@ export interface OutboundActionRecord {
   approvedBy: string | null;
   approvedAt: string;
   dispatchSource: "HUMAN_MANUAL" | "AI_AUTOMATION" | "CAMPAIGN" | "SYSTEM";
+  /** Zalo group chat (see SendMessageCommand.threadKind). */
+  threadKind?: "GROUP";
 }
 
 export interface ClaimedOutboundAction extends OutboundActionRecord {
@@ -91,7 +93,8 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
     workspaceId: claimed.workspaceId, channelAccountId: claimed.channelAccountId, channelType: claimed.channelType,
     providerConversationId: claimed.providerConversationId, recipientExternalId: claimed.recipientExternalId,
     text: claimed.textContent, attachments, idempotencyKey: claimed.idempotencyKey,
-    policyDecisionId: claimed.policyDecisionId, source: claimed.dispatchSource };
+    policyDecisionId: claimed.policyDecisionId, source: claimed.dispatchSource,
+    ...(claimed.threadKind === "GROUP" ? { threadKind: "GROUP" as const } : {}) };
   if (!isSendMessageCommand(command)) {
     try {
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_REJECTED" });

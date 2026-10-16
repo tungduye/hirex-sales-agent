@@ -12,24 +12,6 @@ import { dispatchManualFacebookProfileAction } from "./dispatch-manual-facebook-
 import { reconcileZaloDeliveryUnknown } from "./reconcile-zalo-delivery-unknown";
 import { canAccessChannelAccount, hasPermission } from "@/modules/access/server/access-control";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
-import { isGroupConversation } from "@/modules/assistant/core/assistant-tools";
-
-// The Zalo bridge can only send one-to-one messages today (thread type USER). A group chat is
-// refused here before any send action exists, so nothing is left pending or failed.
-const ZALO_GROUP_UNSUPPORTED = "Chưa hỗ trợ gửi tin vào nhóm Zalo từ HireX. Vui lòng nhắn trong nhóm bằng ứng dụng Zalo.";
-/** Zalo group chat: flagged in metadata, or someone other than the thread itself has written in it
- * (Zalo's own notices, sender "system", e.g. "đã đồng ý kết bạn", do not count). */
-async function isZaloGroupConversation(workspaceId: string, conversationId: string) {
-  const db = createPrivilegedClient();
-  const { data: conversation } = await db.from("omnichannel_conversations").select("channel_type,provider_conversation_id,metadata")
-    .eq("workspace_id", workspaceId).eq("id", conversationId).maybeSingle();
-  if (!conversation || conversation.channel_type !== "ZALO") return false;
-  if (isGroupConversation(conversation.metadata)) return true;
-  if (typeof conversation.provider_conversation_id !== "string") return false;
-  const { data: others } = await db.from("omnichannel_messages").select("id").eq("workspace_id", workspaceId).eq("conversation_id", conversationId)
-    .eq("direction", "INBOUND").neq("sender_external_id", conversation.provider_conversation_id).neq("sender_external_id", "system").limit(1);
-  return (others ?? []).length > 0;
-}
 
 const uuid = z.string().uuid();
 const conversationControlSchema = z.object({
@@ -180,7 +162,6 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
   if(!await hasPermission("inbox.reply"))return {status:"error",message:"Tài khoản của bạn không có quyền trả lời hội thoại."};
   const {data:conversation}=await createPrivilegedClient().from("omnichannel_conversations").select("channel_account_id").eq("id",parsed.data.conversationId).eq("workspace_id",account.workspaceId).maybeSingle();
   if(!conversation||!await canAccessChannelAccount(conversation.channel_account_id))return {status:"error",message:"Bạn chưa được cấp quyền sử dụng tài khoản kết nối của hội thoại này."};
-  if (await isZaloGroupConversation(account.workspaceId, parsed.data.conversationId)) return { status: "error", message: ZALO_GROUP_UNSUPPORTED };
   const { data: existingPending, error: pendingError } = await supabase.from("channel_outbound_actions").select("id")
     .eq("workspace_id", account.workspaceId).eq("conversation_id", parsed.data.conversationId)
     .eq("status", "APPROVED").eq("attempt_count", 0).limit(1);
@@ -236,7 +217,6 @@ export async function dispatchPendingManualChannelMessage(_state: ChannelActionS
     .eq("id", parsed.data).eq("workspace_id", account.workspaceId).maybeSingle();
   if (error || !action || action.status !== "APPROVED" || action.attempt_count !== 0 || action.channel_type !== "ZALO")
     return { status: "error", message: "This pending action is no longer eligible. Refresh the inbox." };
-  if (await isZaloGroupConversation(account.workspaceId, action.conversation_id)) return { status: "error", message: `${ZALO_GROUP_UNSUPPORTED} Bấm "Huỷ" để bỏ tin đang chờ.` };
   const result = await dispatchManualZaloAction(parsed.data, { reauthorizeExpiredHumanPolicy: true });
   revalidatePath("/inbox/all");
   if (result === "SENT") return { status: "success", message: "Zalo message sent once." };
@@ -294,7 +274,6 @@ export async function approveChannelMessage(_state: ChannelActionState, formData
     .select("id,channel_type,status,attempt_count,proposed_by,dispatch_source,idempotency_key,conversation_id")
     .eq("id", parsed.data).eq("workspace_id", account.workspaceId).maybeSingle();
   if (actionError || !action || action.status !== "PROPOSED") return { status: "error", message: "This draft is no longer available for approval. Refresh the inbox." };
-  if (action.channel_type === "ZALO" && await isZaloGroupConversation(account.workspaceId, action.conversation_id)) return { status: "error", message: ZALO_GROUP_UNSUPPORTED };
   const isAiRecruiterDraft=action.proposed_by === "AI_ASSIST" && action.dispatch_source === "AI_AUTOMATION" && action.idempotency_key?.startsWith("ai-recruiter-draft:");
   if(isAiRecruiterDraft){
     const refreshed = await supabase.rpc("refresh_ai_recruiter_draft_policy", { p_action_id: parsed.data });

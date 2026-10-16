@@ -104,6 +104,8 @@ export interface SendMessageCommand {
   idempotencyKey: string;
   policyDecisionId: string;
   source: "HUMAN_MANUAL" | "AI_AUTOMATION" | "CAMPAIGN" | "SYSTEM";
+  /** Zalo only: the conversation is a group chat, sent to the group itself (recipient = group id). */
+  threadKind?: "GROUP";
 }
 
 export interface ChannelSendResult {
@@ -173,6 +175,7 @@ export function isSendMessageCommand(value: unknown): value is SendMessageComman
     (command.providerConversationId === null ||
       hasSafeIdentifier(command.providerConversationId, 512)) &&
     hasSafeIdentifier(command.recipientExternalId, 512) &&
+    (command.threadKind === undefined || (command.threadKind === "GROUP" && command.channelType === "ZALO")) &&
     (command.text === null ||
       (typeof command.text === "string" &&
         command.text.trim().length > 0 &&

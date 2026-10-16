@@ -494,7 +494,8 @@ export function isAutomatedSender(address: string | null | undefined) {
 export function isGroupConversation(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
   const record = metadata as Record<string, unknown>;
-  return record.isGroup === true || typeof record.groupName === "string" || String(record.threadType ?? "").toUpperCase() === "GROUP";
+  return record.isGroup === true || typeof record.groupName === "string" || String(record.threadType ?? "").toUpperCase() === "GROUP"
+    || String(record.conversationKind ?? "").toUpperCase() === "GROUP";
 }
 
 export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [

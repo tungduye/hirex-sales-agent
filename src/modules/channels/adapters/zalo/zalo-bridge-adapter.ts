@@ -148,6 +148,11 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     }
     if (typeof command.conversationId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(command.conversationId))
       throw new ChannelError("DELIVERY_REJECTED", false);
+    // A group chat is sent to the group itself, and only as a person's reply. Anything else (for
+    // example an old pending action addressed to one member) is refused before reaching Zalo.
+    const group = command.threadKind === "GROUP";
+    if (group && (command.source !== "HUMAN_MANUAL" || !command.providerConversationId || command.recipientExternalId !== command.providerConversationId))
+      throw new ChannelError("DELIVERY_REJECTED", false);
     const body = JSON.stringify({
       workspaceId: command.workspaceId,
       connectedAccountId: command.channelAccountId,
@@ -156,6 +161,7 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       accountId: this.credential.bridgeAccountId,
       recipientId: command.recipientExternalId,
       threadId: command.providerConversationId,
+      ...(group ? { threadType: "GROUP" } : {}),
       text: command.text,
       attachments: command.attachments,
       idempotencyKey: command.idempotencyKey,
