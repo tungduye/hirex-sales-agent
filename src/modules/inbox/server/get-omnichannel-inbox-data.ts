@@ -343,7 +343,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       automated: row.channel_type === "EMAIL" && isAutomatedSender(typeof message?.sender_external_id === "string" ? message.sender_external_id : null),
       isGroup: isGroupConversation(row.metadata) || zaloGroupIds.has(row.id) || isZaloGroupThread(row.channel_type, typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null, message?.direction === "INBOUND" && typeof message.sender_external_id === "string" ? message.sender_external_id : null),
       providerConversationId: typeof row.provider_conversation_id === "string" ? row.provider_conversation_id : null,
-      groupKey: null, copyIds: [row.id],
+      groupKey: null, copyIds: [row.id], copyAccountIds: [row.channel_account_id],
     });
   }
   // A Zalo group several of our nicks are in is listed once; it opens the copy of the nick that last wrote there.

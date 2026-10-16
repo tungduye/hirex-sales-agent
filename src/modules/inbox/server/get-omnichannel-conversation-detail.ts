@@ -11,6 +11,7 @@ import { zaloProviderDisplayText } from "../core/zalo-provider-display-text";
 import { isFacebookProfileSystemPlaceholder } from "../core/facebook-profile-system-text";
 import type { OmnichannelConversationDetail, OmnichannelConversationDetailResult, OmnichannelInboxMessage } from "../types/omnichannel-inbox";
 import { canAccessChannelAccount } from "@/modules/access/server/access-control";
+import { normalizeGroupName, oneCopyPerNick } from "../core/group-merge";
 
 // Loading hundreds of messages and action rows on every realtime refresh makes
 // active inboxes feel sluggish. Older history remains available through the
@@ -67,17 +68,24 @@ function accountHealth(row: Record<string, unknown>, channelType: ChannelType): 
 }
 
 /**
- * "Gửi bằng" for a Zalo group several of our nicks are in: every copy of the group (same group id)
- * whose account this member may use, the current one first. Empty for one-to-one chats (two nicks
- * talking to the same person are separate chats) and when only one copy is usable.
+ * "Gửi bằng" for a Zalo group several of our nicks are in: every copy of the group whose account this
+ * member may use, the current one first. Zalo gives each nick a different id for the same group, so
+ * copies are found by group name (as in the inbox list); a name one nick has twice is ambiguous and
+ * gets no choice. Empty for one-to-one chats and when only one copy is usable.
  */
-async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string, groupId: string) {
+async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string, groupName: string | null) {
+  if (!groupName || !normalizeGroupName(groupName)) return [];
   const { data: isGroup } = await client.rpc("is_zalo_group_conversation", { p_conversation_id: conversationId });
   if (isGroup !== true) return [];
-  const { data: copies } = await client.from("omnichannel_conversations").select("id,channel_account_id,metadata")
-    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").eq("provider_conversation_id", groupId).limit(30);
-  const visible = (copies ?? []).filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
+  const { data: copies } = await client.from("omnichannel_conversations").select("id,channel_account_id,subject,metadata")
+    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").ilike("subject", groupName.replace(/[\\%_]/g, (char) => `\\${char}`)).limit(30);
+  const named = (copies ?? []).filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
+    && typeof copy.subject === "string" && normalizeGroupName(copy.subject) === normalizeGroupName(groupName)
     && !(copy.metadata && typeof copy.metadata === "object" && (copy.metadata as Record<string, unknown>).hidden === true));
+  if (named.length < 2 || !oneCopyPerNick(named.map((copy) => copy.channel_account_id as string))) return [];
+  const groupFlags = await Promise.all(named.map((copy) => copy.id === conversationId ? Promise.resolve(true)
+    : client.rpc("is_zalo_group_conversation", { p_conversation_id: copy.id }).then(({ data }) => data === true)));
+  const visible = named.filter((_, index) => groupFlags[index]);
   if (visible.length < 2) return [];
   const { data: accounts } = await client.from("channel_accounts").select("id,display_name")
     .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").is("deleted_at", null).in("id", visible.map((copy) => copy.channel_account_id as string));
@@ -202,7 +210,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     legacyEmailThreadId = text(legacyThread?.id);
   }
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
-  const sendAs = channelType === "ZALO" ? await zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, row.provider_conversation_id) : [];
+  const sendAs = channelType === "ZALO" ? await zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject)) : [];
   return {
     status: "ready",
     conversation: {

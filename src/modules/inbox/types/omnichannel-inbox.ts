@@ -37,10 +37,12 @@ export interface OmnichannelInboxConversation {
   /** E-mail from a robot sender (no-reply, notifications…). */
   automated: boolean;
   providerConversationId: string | null;
-  /** Zalo group listed once for all of our nicks in it ("ZALO:<group id>"); null for other rows. */
+  /** Zalo group listed once for all of our nicks in it ("ZALO:<group name>"); null for other rows. */
   groupKey: string | null;
   /** Every listed copy behind this row, the one it opens first (one id for ordinary rows). */
   copyIds: string[];
+  /** The nick (channel account) of each copy, same order as copyIds. */
+  copyAccountIds: string[];
 }
 
 export interface OmnichannelInboxProfile {
