@@ -59,7 +59,7 @@ export async function proposeCreateContact(args: Record<string, unknown>, contex
   // The same person twice makes campaigns message them twice: refuse a duplicate email, warn on phone.
   if (mail) {
     const { data } = await supabase.from("contacts").select("id,full_name").eq("workspace_id", context.workspaceId).ilike("email", safeLike(mail)).limit(1);
-    if (data?.length) return { ok: false, error: `Đã có liên hệ ${data[0].full_name} dùng email này (id ${data[0].id}). Đề xuất sửa liên hệ đó thay vì tạo mới.` };
+    if (data?.length) return { ok: false, error: `Đã có liên hệ ${data[0].full_name} dùng email này (id ${data[0].id}). Không tạo thẻ nào khác: báo người dùng liên hệ đã có (link /contacts/${data[0].id}) và hỏi họ muốn làm gì.` };
   }
   let warning: string | null = null;
   if (phone) {

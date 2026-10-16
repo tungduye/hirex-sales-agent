@@ -167,7 +167,9 @@
     ".next-assistant-read-1/types/**/*.ts",
     ".next-assistant-read-1/dev/types/**/*.ts",
     ".next-assistant-read-2/types/**/*.ts",
-    ".next-assistant-read-2/dev/types/**/*.ts"
+    ".next-assistant-read-2/dev/types/**/*.ts",
+    ".next-assistant-crm-1/types/**/*.ts",
+    ".next-assistant-crm-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
