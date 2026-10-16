@@ -77,11 +77,18 @@ async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>
   if (!groupName || !normalizeGroupName(groupName)) return [];
   const { data: isGroup } = await client.rpc("is_zalo_group_conversation", { p_conversation_id: conversationId });
   if (isGroup !== true) return [];
-  const { data: copies } = await client.from("omnichannel_conversations").select("id,channel_account_id,subject,metadata")
-    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").ilike("subject", groupName.replace(/[\\%_]/g, (char) => `\\${char}`)).limit(30);
-  const named = (copies ?? []).filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
-    && typeof copy.subject === "string" && normalizeGroupName(copy.subject) === normalizeGroupName(groupName)
-    && !(copy.metadata && typeof copy.metadata === "object" && (copy.metadata as Record<string, unknown>).hidden === true));
+  // Every named Zalo chat (only groups carry a name), page by page; names are compared after normalizing.
+  const copies: Array<{ id: unknown; channel_account_id: unknown; subject: unknown }> = [];
+  for (let from = 0; from < 10000; from += 1000) {
+    const { data, error } = await client.from("omnichannel_conversations").select("id,channel_account_id,subject")
+      .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").not("subject", "is", null)
+      .or("metadata->>hidden.is.null,metadata->>hidden.neq.true").order("id").range(from, from + 999);
+    if (error) return [];
+    copies.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const named = copies.filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
+    && typeof copy.subject === "string" && normalizeGroupName(copy.subject) === normalizeGroupName(groupName));
   if (named.length < 2 || !oneCopyPerNick(named.map((copy) => copy.channel_account_id as string))) return [];
   const groupFlags = await Promise.all(named.map((copy) => copy.id === conversationId ? Promise.resolve(true)
     : client.rpc("is_zalo_group_conversation", { p_conversation_id: copy.id }).then(({ data }) => data === true)));

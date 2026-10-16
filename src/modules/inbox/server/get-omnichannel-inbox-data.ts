@@ -90,6 +90,23 @@ export async function getInboxPeopleAndTags() {
   return peopleAndTags(stableMetadata, accountContext, accessibleAccountIds);
 }
 
+/**
+ * Every named Zalo chat (only groups carry a name) with its nick, page by page. Used to spot a name one nick
+ * has twice; names are compared after normalizing (spacing, letter case), so exact-text matching is not used.
+ */
+async function loadNamedZaloChats(client: Awaited<ReturnType<typeof createClient>>, workspaceId: string) {
+  const rows: Array<{ subject: unknown; channel_account_id: unknown }> = [];
+  for (let from = 0; from < 10000; from += 1000) {
+    const { data, error } = await client.from("omnichannel_conversations").select("subject,channel_account_id")
+      .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").not("subject", "is", null)
+      .or("metadata->>hidden.is.null,metadata->>hidden.neq.true").order("id").range(from, from + 999);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  return { data: rows, error: null };
+}
+
 async function loadTagLinks(client: Awaited<ReturnType<typeof createClient>>, conversationIds: string[]) {
   const rows: TagLinkRow[] = [];
   const batchSize = 75;
@@ -354,11 +371,9 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   // Names some nick has twice (two different groups) are never merged; checked over all conversations, not just this page.
   let ambiguous = new Set<string>();
   if (sharedCopyIds.length) {
-    const sharedSubjects = [...new Set(rows.flatMap((row) => sharedCopyIds.includes(row.id as string) && typeof row.subject === "string" ? [row.subject] : []))];
     const [{ data: outboundData }, { data: sameNameData, error: sameNameError }] = await Promise.all([
       supabase.rpc("get_inbox_last_outbound_at", { p_conversation_ids: sharedCopyIds }),
-      supabase.from("omnichannel_conversations").select("subject,channel_account_id").eq("workspace_id", accountContext.workspaceId)
-        .eq("channel_type", "ZALO").in("subject", sharedSubjects).or("metadata->>hidden.is.null,metadata->>hidden.neq.true").limit(5000),
+      loadNamedZaloChats(supabase, accountContext.workspaceId),
     ]);
     for (const item of (outboundData ?? []) as Array<{ conversation_id?: unknown; last_outbound_at?: unknown }>)
       if (typeof item.conversation_id === "string" && typeof item.last_outbound_at === "string") lastOutboundAt.set(item.conversation_id, item.last_outbound_at);
