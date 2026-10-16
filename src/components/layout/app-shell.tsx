@@ -61,7 +61,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
         <main className={fullBleed ? "w-full" : "mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8"}>{account.configurationComplete ? children : <AccountSetupRequired />}</main>
       </div>
     </div>
-    {account.configurationComplete && <AssistantPanel account={account} />}
+    {account.configurationComplete && <AssistantPanel account={account} workspaceAdmin={workspaceAdmin} />}
     </AccountProvider>
   );
 }

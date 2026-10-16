@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUp, CheckCircle2, Clock, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, X, XCircle } from "lucide-react";
+import { ArrowUp, BookOpen, CheckCircle2, Clock, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
@@ -17,8 +17,11 @@ interface Message { role: "user" | "assistant"; content: string; toolsUsed?: str
 const TOOL_LABELS = new Map(ASSISTANT_TOOLS.map((tool) => [tool.name, tool.label]));
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
-function suggestions(permissions: string[], pathname: string) {
+const DOCUMENTS_KEY = "hirex.assistant.documents";
+
+function suggestions(permissions: string[], pathname: string, documents: boolean) {
   const list: string[] = [];
+  if (documents) list.push("Thư viện tài liệu có những nhóm nào?");
   if (pathname.startsWith("/inbox/all/") && UUID.test(pathname) && permissions.includes("inbox.view")) list.push("Tóm tắt hội thoại này và ứng viên đang ở bước nào?");
   if (pathname.startsWith("/inbox/all/") && UUID.test(pathname) && permissions.includes("inbox.reply")) list.push("Soạn tin trả lời cho ứng viên này");
   list.push("Hôm nay có gì cần xử lý?");
@@ -29,8 +32,16 @@ function suggestions(permissions: string[], pathname: string) {
   return list.slice(0, 5);
 }
 
-export function AssistantPanel({ account }: { account: AccountContext }) {
+export function AssistantPanel({ account, workspaceAdmin = false }: { account: AccountContext; workspaceAdmin?: boolean }) {
   const pathname = usePathname();
+  // Admins only: lets the assistant read the document library (passages are sent to OpenAI).
+  const [documentsOn, setDocumentsOn] = useState(false);
+  useEffect(() => { try { setDocumentsOn(workspaceAdmin && window.localStorage.getItem(DOCUMENTS_KEY) === "1"); } catch { /* storage unavailable */ } }, [workspaceAdmin]);
+  const toggleDocuments = () => setDocumentsOn((value) => {
+    const next = !value;
+    try { window.localStorage.setItem(DOCUMENTS_KEY, next ? "1" : "0"); } catch { /* storage unavailable */ }
+    return next;
+  });
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -63,7 +74,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
       const response = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text, history, pagePath: pathname }),
+        body: JSON.stringify({ question: text, history, pagePath: pathname, allowDocuments: workspaceAdmin && documentsOn }),
       });
       const data = await response.json().catch(() => null) as { ok?: boolean; answer?: string; toolsUsed?: string[]; remainingToday?: number; message?: string; pendingActions?: { id: string; preview: ActionPreview; expiresAt: string }[] } | null;
       if (data?.ok && data.answer) {
@@ -78,7 +89,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, messages, pathname]);
+  }, [busy, messages, pathname, workspaceAdmin, documentsOn]);
 
   // Other parts of the app (e.g. the dashboard brief) open the panel with a question.
   const askRef = useRef(ask);
@@ -126,7 +137,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
     }
   }, []);
 
-  const prompts = useMemo(() => suggestions(account.permissions, pathname), [account.permissions, pathname]);
+  const prompts = useMemo(() => suggestions(account.permissions, pathname, workspaceAdmin && documentsOn), [account.permissions, pathname, workspaceAdmin, documentsOn]);
   const closeOnMobile = () => { if (window.innerWidth < 640) setOpen(false); };
 
   return (
@@ -145,6 +156,11 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
               <h2 id="assistant-title" className="text-sm font-bold">Trợ lý HireX</h2>
               <p className="text-xs text-slate-500">Tra cứu theo quyền tài khoản · mọi thao tác cần anh/chị bấm Xác nhận</p>
             </div>
+            {workspaceAdmin && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
+              title={documentsOn ? "Đang cho trợ lý đọc Thư viện tài liệu (gửi các đoạn liên quan tới OpenAI). Bấm để tắt." : "Cho trợ lý đọc Thư viện tài liệu: các đoạn liên quan sẽ được gửi tới OpenAI để trả lời."}
+              className={cn("mt-0.5 flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors", documentsOn ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>
+              <BookOpen className="size-3.5" />Tài liệu<span className={cn("size-1.5 rounded-full", documentsOn ? "bg-indigo-600" : "bg-slate-300")} />
+            </button>}
             {messages.length > 0 && <Button variant="ghost" size="icon" onClick={() => setMessages([])} disabled={busy} aria-label="Cuộc trò chuyện mới"><RotateCcw className="size-4" /></Button>}
             <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Đóng trợ lý"><X className="size-5" /></Button>
           </header>
@@ -153,6 +169,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
             {messages.length === 0 && (
               <div className="space-y-3">
                 <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chiến dịch, công việc, liên hệ, Kho content… và đề xuất thao tác (soạn tin trả lời ứng viên, tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
+                {workspaceAdmin && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-900">{documentsOn ? "Đang bật Tài liệu: em có thể tìm, đọc và trả lời từ Thư viện tài liệu, kèm nguồn." : "Bật nút “Tài liệu” ở trên để em tìm và trả lời từ Thư viện tài liệu (các đoạn liên quan sẽ được gửi tới OpenAI)."}</p>}
                 <div className="flex flex-col gap-2">
                   {prompts.map((prompt) => (
                     <button key={prompt} type="button" onClick={() => void ask(prompt)} className="rounded-lg border px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50">{prompt}</button>
@@ -169,7 +186,7 @@ export function AssistantPanel({ account }: { account: AccountContext }) {
                 {message.toolsUsed && message.toolsUsed.length > 0 && <p className="mt-2 text-[11px] text-slate-400">Đã tra: {message.toolsUsed.map((name) => TOOL_LABELS.get(name) ?? name).join(" · ")}</p>}
               </div>
             ))}
-            {busy && <p className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />Đang tra cứu dữ liệu…</p>}
+            {busy && <p className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />Đang tra cứu dữ liệu…{documentsOn ? " (đọc tài liệu có thể mất tới 1 phút)" : ""}</p>}
           </div>
 
           <form onSubmit={submit} className="border-t p-3">

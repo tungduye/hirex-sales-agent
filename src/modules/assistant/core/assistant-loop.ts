@@ -39,9 +39,9 @@ export function trimHistory(history: ChatTurn[]): ChatTurn[] {
     .map((turn) => ({ role: turn.role, content: turn.content.slice(0, 4000) }));
 }
 
-export function serializeToolOutput(value: unknown): string {
+export function serializeToolOutput(value: unknown, maxChars = MAX_TOOL_OUTPUT_CHARS): string {
   const text = JSON.stringify(value ?? null);
-  return text.length <= MAX_TOOL_OUTPUT_CHARS ? text : `${text.slice(0, MAX_TOOL_OUTPUT_CHARS)}…(đã cắt bớt)`;
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…(đã cắt bớt)`;
 }
 
 export async function runAssistant({ question, history, tools, deps }: { question: string; history: ChatTurn[]; tools: AssistantToolDefinition[]; deps: RunAssistantDeps }): Promise<AssistantResult> {
@@ -65,13 +65,14 @@ export async function runAssistant({ question, history, tools, deps }: { questio
       const parsed = parseToolCall(call.name, call.arguments, tools);
       if (!parsed.ok) return { call_id: call.call_id, value: { ok: false, error: parsed.error } };
       if (!toolsUsed.includes(parsed.tool.name)) toolsUsed.push(parsed.tool.name);
+      const maxChars = parsed.tool.maxOutputChars;
       try {
-        return { call_id: call.call_id, value: { ok: true, data: await deps.runTool(parsed.tool, parsed.args) } };
+        return { call_id: call.call_id, maxChars, value: { ok: true, data: await deps.runTool(parsed.tool, parsed.args) } };
       } catch {
         return { call_id: call.call_id, value: { ok: false, error: "Không lấy được dữ liệu lúc này." } };
       }
     }));
-    for (const output of outputs) input.push({ type: "function_call_output", call_id: output.call_id, output: serializeToolOutput(output.value) });
+    for (const output of outputs) input.push({ type: "function_call_output", call_id: output.call_id, output: serializeToolOutput(output.value, "maxChars" in output ? output.maxChars : undefined) });
     for (const call of reply.calls.slice(MAX_CALLS_PER_ROUND)) {
       input.push({ type: "function_call_output", call_id: call.call_id, output: serializeToolOutput({ ok: false, error: "Quá nhiều lệnh trong một lượt, hãy gọi lại nếu cần." }) });
     }

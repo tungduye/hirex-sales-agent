@@ -12,7 +12,7 @@ test('tools follow the member permissions', () => {
   assert.ok(!toolsFor(['roles.manage', 'settings.view'], false).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   assert.ok(toolsFor([], true).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   const everything = [...new Set(ASSISTANT_TOOLS.map((tool) => tool.permission))];
-  assert.equal(toolsFor(everything, true).length, ASSISTANT_TOOLS.length);
+  assert.equal(toolsFor(everything, true, { documents: true }).length, ASSISTANT_TOOLS.length);
 });
 
 test('every tool has a server implementation and a strict schema', () => {

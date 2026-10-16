@@ -16,6 +16,9 @@ import { contentSearchPattern } from "@/modules/content/core/content-list-query"
 import { contactSearchPattern } from "@/modules/crm/contacts/core/contact-list-query";
 import { getDashboardData } from "@/modules/crm/dashboard/server/get-dashboard-data";
 import { listEmailAccounts } from "@/modules/integrations/gmail/server/list-email-accounts";
+import { documentLink, readDocument, searchDocuments } from "@/modules/human-documents/core/assistant-documents";
+import { askDocuments } from "@/modules/human-documents/server/ask-documents";
+import { loadHumanSnapshot } from "@/modules/human-documents/server/snapshot";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
 // through the same server helpers the pages use, which apply the member's channel-account scope.
@@ -397,6 +400,29 @@ const runners: Record<string, Runner> = {
       content: (itemResult.data ?? []).map((row) => ({ ma: row.code, tieu_de: row.title, job: row.job_title, bo_phan: row.department, dinh_dang: row.content_format, tao_luc: row.created_at, link: `/content?q=${encodeURIComponent(row.code)}` })),
       yeu_cau_7_ngay: (batches.data ?? []).map((row) => ({ job: row.job_title, bo_phan: row.department, so_luong: row.quantity, trang_thai: row.status, da_luu: row.saved_count, bi_loai: row.rejected_count, ma_loi: row.error_code, luc: row.created_at })),
       link: "/content",
+    };
+  },
+
+  // Thư viện tài liệu (admins only; loadHumanSnapshot and askDocuments check it again).
+  async tim_tai_lieu(args) {
+    const snapshot = await loadHumanSnapshot();
+    if (!snapshot) return { loi: "Chưa có dữ liệu tài liệu (cấu hình ở trang Kết nối Human).", link: "/settings/human" };
+    return { ban_nhap_luc: snapshot.importedAt, ...searchDocuments(snapshot.documents, typeof args.tu_khoa === "string" ? args.tu_khoa : null, typeof args.nhom === "string" ? args.nhom : null), link: "/documents" };
+  },
+
+  async doc_tai_lieu(args) {
+    const snapshot = await loadHumanSnapshot();
+    if (!snapshot) return { loi: "Chưa có dữ liệu tài liệu." };
+    return readDocument(snapshot.documents, Number(args.document_id), typeof args.phan === "number" ? args.phan : null, typeof args.tu_khoa === "string" ? args.tu_khoa : null);
+  },
+
+  async hoi_tai_lieu(args) {
+    // The admin switched on "Tài liệu" in the panel, which is the consent to send passages to OpenAI.
+    const result = await askDocuments({ question: String(args.cau_hoi), selectedId: typeof args.document_id === "number" ? args.document_id : undefined, consent: true });
+    return {
+      tra_loi: result.answer,
+      ...(result.error ? { loi: true } : {}),
+      nguon: result.sources.map((source) => ({ id: source.id, ten: source.name, trich_dan: source.quote, link: documentLink(source.id) })),
     };
   },
 };

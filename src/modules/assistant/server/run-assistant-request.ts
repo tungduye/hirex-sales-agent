@@ -10,7 +10,8 @@ import { openAiToolSpecs, toolsFor } from "@/modules/assistant/core/assistant-to
 import { runAssistantTool } from "@/modules/assistant/server/assistant-tool-runner";
 import type { PendingAction } from "@/modules/assistant/server/assistant-proposals";
 
-export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null }
+/** allowDocuments: the admin switched on "Tài liệu" in the panel (consent to send passages to OpenAI). */
+export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean }
 export type AssistantResponse =
   | { ok: true; answer: string; toolsUsed: string[]; remainingToday: number; pendingActions: PendingAction[] }
   | { ok: false; status: number; message: string };
@@ -52,10 +53,11 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
   }
 
   const isAdmin = await isWorkspaceAdmin();
-  const tools = toolsFor(account.permissions, isAdmin);
+  const documents = !isAdmin ? "none" : request.allowDocuments ? "on" : "off";
+  const tools = toolsFor(account.permissions, isAdmin, { documents: documents === "on" });
   const proposals: PendingAction[] = [];
   const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };
-  const instructions = assistantInstructions({ fullName: account.fullName, now: new Date(), toolLabels: tools.map((tool) => tool.label), context: pageContext(request.pagePath) });
+  const instructions = assistantInstructions({ fullName: account.fullName, now: new Date(), toolLabels: tools.map((tool) => tool.label), context: pageContext(request.pagePath), documents });
   const specs = openAiToolSpecs(tools);
   const started = Date.now();
 

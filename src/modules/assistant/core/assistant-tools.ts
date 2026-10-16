@@ -16,6 +16,10 @@ export interface AssistantToolDefinition {
   label: string;
   /** Phase 2: the tool only creates a confirmation card; nothing changes until the member confirms. */
   proposal?: boolean;
+  /** Reads the document library: only offered when the admin switched on "Tài liệu" in the panel. */
+  documents?: boolean;
+  /** Longer output than MAX_TOOL_OUTPUT_CHARS (document passages). */
+  maxOutputChars?: number;
 }
 
 const noArgs = { type: "object", additionalProperties: false, properties: {}, required: [] } as const;
@@ -160,6 +164,61 @@ function PROPOSAL_TOOLS(): AssistantToolDefinition[] {
       },
       args: z.object({ doi_tuong: z.enum(["BOT", "HOI_THOAI"]), id: z.string().uuid(), hanh_dong: z.enum(["CHUYEN_DRAFT", "DUNG_KHAN_CAP"]) }).strict()
         .refine((value) => !(value.doi_tuong === "HOI_THOAI" && value.hanh_dong === "DUNG_KHAN_CAP")),
+    },
+  ];
+}
+
+// Document library ("Tài liệu", imported from Human): administrators only. Reading only; the text
+// goes to OpenAI, so the admin switches it on in the panel first.
+function DOCUMENT_TOOLS(): AssistantToolDefinition[] {
+  return [
+    {
+      name: "tim_tai_lieu",
+      permission: "workspace.admin",
+      documents: true,
+      label: "Tìm tài liệu",
+      description: "Tìm trong Thư viện tài liệu theo tên, nhóm/thư mục và nội dung; trả về tối đa 15 tài liệu khớp nhất (id, tên, nhóm, thư mục, đoạn khớp, link) và tổng số khớp. Không có từ khóa = tổng quan thư viện (số tài liệu, các nhóm và số tài liệu mỗi nhóm).",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["tu_khoa", "nhom"],
+        properties: {
+          tu_khoa: nullableString("Từ khóa hoặc tên tài liệu (tiếng Việt có/không dấu), hoặc null."),
+          nhom: nullableString("Một phần tên nhóm/thư mục để lọc, hoặc null."),
+        },
+      },
+      args: z.object({ tu_khoa: text(200).nullable(), nhom: text(200).nullable() }).strict(),
+      maxOutputChars: 16_000,
+    },
+    {
+      name: "doc_tai_lieu",
+      permission: "workspace.admin",
+      documents: true,
+      label: "Đọc tài liệu",
+      description: "Đọc nội dung một tài liệu theo id (lấy từ tim_tai_lieu). Có tu_khoa: trả về tối đa 4 đoạn liên quan nhất trong tài liệu. Không có tu_khoa: đọc theo phần, mỗi phần 6.000 ký tự (phan = 1, 2, …).",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["document_id", "tu_khoa", "phan"],
+        properties: {
+          document_id: { type: "integer", description: "Id tài liệu (số)." },
+          tu_khoa: nullableString("Điều cần tìm trong tài liệu, hoặc null để đọc theo phần."),
+          phan: nullableInteger("Phần cần đọc (mặc định 1)."),
+        },
+      },
+      args: z.object({ document_id: z.number().int().positive(), tu_khoa: text(300).nullable(), phan: z.number().int().min(1).max(500).nullable() }).strict(),
+      maxOutputChars: 14_000,
+    },
+    {
+      name: "hoi_tai_lieu",
+      permission: "workspace.admin",
+      documents: true,
+      label: "Hỏi tài liệu (có kiểm tra trích dẫn)",
+      description: "Hỏi đáp/tổng hợp trên Thư viện tài liệu bằng bộ hỏi đáp riêng có kiểm tra trích dẫn nguyên văn (chậm hơn, 10–90 giây). Dùng cho câu cần tổng hợp nhiều tài liệu, \"tổng hợp/tóm tắt <thư mục hoặc nhóm>\", hoặc khi cần câu trả lời có trích dẫn đã kiểm tra. Có thể giới hạn trong một tài liệu bằng document_id.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["cau_hoi", "document_id"],
+        properties: {
+          cau_hoi: { type: "string", description: "Câu hỏi đầy đủ, tiếng Việt. Muốn tổng hợp thư mục thì bắt đầu bằng \"Tổng hợp <tên thư mục>\"." },
+          document_id: nullableInteger("Chỉ hỏi trong tài liệu này, hoặc null."),
+        },
+      },
+      args: z.object({ cau_hoi: text(1200).min(3), document_id: z.number().int().positive().nullable() }).strict(),
     },
   ];
 }
@@ -374,14 +433,16 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     parameters: { type: "object", additionalProperties: false, required: ["tu_khoa"], properties: { tu_khoa: nullableString("Mã (CT-000001), tiêu đề hoặc tên job; null để xem tổng quan.") } },
     args: z.object({ tu_khoa: text(100).nullable() }).strict(),
   },
+  ...DOCUMENT_TOOLS(),
   ...PROPOSAL_TOOLS(),
 ];
 
 export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);
 
-/** Tools this member may use. */
-export function toolsFor(permissions: readonly string[], isAdmin: boolean): AssistantToolDefinition[] {
-  return ASSISTANT_TOOLS.filter((tool) => tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission));
+/** Tools this member may use. Document tools also need the panel's "Tài liệu" switch. */
+export function toolsFor(permissions: readonly string[], isAdmin: boolean, options: { documents?: boolean } = {}): AssistantToolDefinition[] {
+  return ASSISTANT_TOOLS.filter((tool) => (!tool.documents || options.documents === true)
+    && (tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission)));
 }
 
 /** Tool list in OpenAI Responses API format. */

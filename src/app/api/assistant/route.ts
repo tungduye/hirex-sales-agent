@@ -6,6 +6,7 @@ const bodySchema = z.object({
   question: z.string().trim().min(1).max(1000),
   history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) })).max(40).default([]),
   pagePath: z.string().max(300).nullable().default(null),
+  allowDocuments: z.boolean().default(false),
 });
 
 export async function POST(request: Request) {
