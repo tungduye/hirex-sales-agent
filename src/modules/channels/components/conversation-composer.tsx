@@ -3,7 +3,7 @@
 import { Bot, ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
 import type { ChannelType } from "../core/channel-contracts";
-import { approveChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage } from "../server/channel-actions";
+import { approveChannelMessage,cancelPendingManualChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage } from "../server/channel-actions";
 import { generateOmnichannelDraft } from "../server/omnichannel-ai-actions";
 import { generateHoleDraft } from "@/modules/assistant/server/hole-draft-action";
 import type { ChannelActionState } from "../types/channel-action-state";
@@ -31,7 +31,9 @@ export function matchQuickReplies(templates:QuickReplyTemplate[],query:string){
   return [...starts,...rest];
 }
 
-export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[]}){
+export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean}){
+  // Zalo groups cannot be sent to from HireX yet (the bridge sends one-to-one only).
+  const groupBlocked=channelType==="ZALO"&&isGroup;
   const[state,send,pending]=useActionState(sendManualChannelMessage,initial),[text,setText]=useState("");
   const formRef=useRef<HTMLFormElement>(null);
   const textareaRef=useRef<HTMLTextAreaElement>(null);
@@ -60,7 +62,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const slashQuery=/^\/(\S*)$/u.exec(text)?.[1]??null;
   const showQuick=quickOpen||slashQuery!==null;
   const matches=matchQuickReplies(templates,slashQuery??"");
-  const responseWindowOpen=channelType!=="FACEBOOK"||isFacebookResponseWindowOpen({status:conversationStatus,latestInboundAt:lastInboundAt},new Date());
+  const responseWindowOpen=!groupBlocked&&(channelType!=="FACEBOOK"||isFacebookResponseWindowOpen({status:conversationStatus,latestInboundAt:lastInboundAt},new Date()));
 
   function closeQuick(){setQuickOpen(false);setActiveIndex(0);if(slashQuery!==null)updateText("");}
   function pickTemplate(template:QuickReplyTemplate){setQuickOpen(false);setActiveIndex(0);updateText(template.textContent);setHint(null);setBeforeDraft(null);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
@@ -82,6 +84,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
 
   return <div>
     {showQuick?<QuickReplyMenu templates={matches} total={templates.length} activeIndex={Math.min(activeIndex,Math.max(0,matches.length-1))} query={slashQuery} draftText={slashQuery===null?text.trim():""} onPick={pickTemplate} onClose={closeQuick} onSaved={template=>{setLocalTemplates(current=>[...current,template]);setHint(`Đã lưu mẫu /${template.shortcut}.`);}}/>:null}
+    {groupBlocked?<p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Đây là nhóm Zalo: HireX chưa gửi được tin vào nhóm. Anh/chị vẫn soạn nháp được (Hola/Hole) rồi sao chép sang ứng dụng Zalo để gửi.</p>:null}
     <form action={send} onSubmit={()=>{const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className="rounded-[14px] border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
       <input type="hidden" name="conversationId" value={conversationId}/><input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
       <label htmlFor={`composer-${conversationId}`} className="sr-only">Nội dung tin nhắn</label>
@@ -141,7 +144,7 @@ function QuickReplyMenu({templates,total,activeIndex,query,draftText,onPick,onCl
   </div>;
 }
 
-function Pending({action}:{action:{id:string;text:string|null}}){const[state,dispatch,pending]=useActionState(dispatchPendingManualChannelMessage,initial);return <div className="mt-2 flex items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs"><span className="truncate">Đang chờ: {action.text}</span><form action={dispatch}><input type="hidden" name="actionId" value={action.id}/><button disabled={pending} className="rounded bg-blue-600 px-2 py-1 font-semibold text-white disabled:opacity-50">{pending?"Đang gửi…":"Gửi tin đang chờ"}</button></form>{state.message?<span>{state.message}</span>:null}</div>}
+function Pending({action}:{action:{id:string;text:string|null}}){const[state,dispatch,pending]=useActionState(dispatchPendingManualChannelMessage,initial);const[cancelState,cancel,cancelling]=useActionState(cancelPendingManualChannelMessage,initial);const message=cancelState.message??state.message;return <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs"><span className="min-w-0 flex-1 truncate">Đang chờ: {action.text}</span><div className="flex gap-1.5"><form action={dispatch}><input type="hidden" name="actionId" value={action.id}/><button disabled={pending||cancelling} className="rounded bg-blue-600 px-2 py-1 font-semibold text-white disabled:opacity-50">{pending?"Đang gửi…":"Gửi tin đang chờ"}</button></form><form action={cancel}><input type="hidden" name="actionId" value={action.id}/><button disabled={pending||cancelling} className="rounded border border-slate-300 bg-white px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50" title="Bỏ tin này, tin chưa được gửi">{cancelling?"Đang huỷ…":"Huỷ"}</button></form></div>{message?<span className="w-full">{message}</span>:null}</div>}
 
 function Proposed({action,approvalDisabled}:{action:{id:string;text:string|null;proposedBy:string};approvalDisabled:boolean}){const[state,approve,pending]=useActionState(approveChannelMessage,initial);return <div className="mt-2 flex items-center justify-between gap-2 rounded border bg-white p-2 text-xs"><span className="truncate">{action.proposedBy}: {action.text}</span><form action={approve}><input type="hidden" name="actionId" value={action.id}/><button disabled={pending||approvalDisabled} className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Duyệt</button></form>{state.message?<span>{state.message}</span>:null}</div>}
 
