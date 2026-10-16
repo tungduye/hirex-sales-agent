@@ -43,6 +43,11 @@ export function searchDocuments(documents: HumanDocument[], keyword: string | nu
   const inGroup = (document: HumanDocument) => !wantedGroup || normalize(document.group).includes(wantedGroup) || (document.folderPath ?? []).some((name) => normalize(name).includes(wantedGroup));
   const terms = keyword ? searchTerms(keyword) : [];
   const phrase = keyword ? normalize(keyword).trim() : "";
+  // A term matches at the start of a word: "quy" finds "quy trình" but not "quyền".
+  const patterns = terms.map((term) => new RegExp(`(?:^|[^a-z0-9])${term}`));
+  const has = (haystack: string, index: number) => haystack.includes(terms[index]) && patterns[index].test(haystack);
+  // Up to 3 words: all must be there; longer questions: at least 60% of them.
+  const needed = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.6);
   const scored: { document: HumanDocument; score: number }[] = [];
   for (const item of documentIndex(documents)) {
     if (!inGroup(item.document)) continue;
@@ -50,14 +55,13 @@ export function searchDocuments(documents: HumanDocument[], keyword: string | nu
     const folder = normalize((item.document.folderPath ?? []).join(" "));
     let score = phrase && item.search.includes(phrase) ? 5 : 0;
     let matched = 0;
-    for (const term of terms) {
-      const inTitle = item.title.includes(term) || folder.includes(term);
-      const inBody = item.search.includes(term);
-      if (inTitle || inBody) matched++;
+    for (let index = 0; index < terms.length; index++) {
+      const inTitle = has(item.title, index) || has(folder, index);
+      const inBody = inTitle || has(item.search, index);
+      if (inBody) matched++;
       score += (inTitle ? 3 : 0) + (inBody ? 1 : 0);
     }
-    // Long questions: most of the words must be there, not just one common word.
-    if (matched > 0 && matched >= Math.min(terms.length, Math.ceil(terms.length * 0.5))) scored.push({ document: item.document, score: score + matched * 2 });
+    if (matched > 0 && matched >= needed) scored.push({ document: item.document, score: score + matched * 2 });
   }
   scored.sort((a, b) => b.score - a.score || a.document.name.localeCompare(b.document.name, "vi"));
   const groupCounts = new Map<string, number>();

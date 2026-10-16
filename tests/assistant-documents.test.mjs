@@ -98,3 +98,32 @@ test('document tools may return longer output', async () => {
   } });
   assert.equal(outputs[0].output.includes('đã cắt bớt'), false);
 });
+
+test('a link written inside bold stays clickable', async () => {
+  const { parseInline } = await import('../src/modules/assistant/core/assistant-markdown.ts');
+  assert.deepEqual(parseInline('Đã đọc **[150926_Quy trình](/documents?id=5774)** xong'), [
+    { type: 'text', text: 'Đã đọc ' },
+    { type: 'link', text: '150926_Quy trình', href: '/documents?id=5774' },
+    { type: 'text', text: ' xong' },
+  ]);
+  assert.deepEqual(parseInline('**Nguồn: [A](/documents?id=1)**'), [{ type: 'bold', text: 'Nguồn: ' }, { type: 'link', text: 'A', href: '/documents?id=1' }]);
+  assert.deepEqual(parseInline('**đậm**'), [{ type: 'bold', text: 'đậm' }]);
+});
+
+test('search matches word starts and needs every word of a short query', () => {
+  const library = [
+    { id: 1, name: 'Quy trình tuyển dụng', group: 'HR', status: '' },
+    { id: 2, name: 'Quyền lợi nhân viên', group: 'HR', status: '<p>tuyển dụng nội bộ</p>' },
+    { id: 3, name: 'JD lập trình viên', group: 'HR', status: '<p>Quy trình phỏng vấn</p>' },
+  ];
+  assert.deepEqual(searchDocuments(library, 'quy trình tuyển dụng', null).tai_lieu.map((item) => item.id), [1]);
+  assert.deepEqual(searchDocuments(library, 'quy trình', null).tai_lieu.map((item) => item.id), [1, 3]);
+});
+
+test('questions without a system tool search the documents first', () => {
+  const base = { fullName: 'An', now: new Date('2026-10-16T02:00:00Z'), toolLabels: [], context: null };
+  const on = assistantInstructions({ ...base, documents: 'on' });
+  assert.match(on, /PHẢI gọi tim_tai_lieu/);
+  assert.match(on, /theo tài liệu <tên>/);
+  assert.match(assistantInstructions({ ...base, documents: 'off' }), /số lượng|bộ phận tự báo cáo/);
+});

@@ -14,7 +14,12 @@ export function parseInline(text: string): Inline[] {
   let last = 0;
   for (const match of text.matchAll(INLINE)) {
     if (match.index! > last) result.push({ type: "text", text: text.slice(last, match.index) });
-    if (match[1] !== undefined) result.push({ type: "bold", text: match[1] });
+    if (match[1] !== undefined) {
+      // "**[tên](/link)**": keep the link clickable (the text around it stays bold).
+      const inner = parseInline(match[1]);
+      if (inner.some((part) => part.type === "link")) result.push(...inner.map((part): Inline => part.type === "text" ? { type: "bold", text: part.text } : part));
+      else result.push({ type: "bold", text: match[1] });
+    }
     else if (isInternalLink(match[3])) result.push({ type: "link", text: match[2], href: match[3] });
     else result.push({ type: "text", text: match[2] });
     last = match.index! + match[0].length;
