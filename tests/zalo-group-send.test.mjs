@@ -50,7 +50,7 @@ test('the inbox lists a shared group once and lets the member pick the sending n
   const detail = readFileSync(new URL('../src/modules/inbox/server/get-omnichannel-conversation-detail.ts', import.meta.url), 'utf8');
   const list = readFileSync(new URL('../src/modules/inbox/components/infinite-conversation-list.tsx', import.meta.url), 'utf8');
   assert.match(loader, /rpc\("get_inbox_last_outbound_at"/);
-  assert.match(loader, /mergeGroupCopies\(conversations, lastOutboundAt\)/);
+  assert.match(loader, /mergeGroupCopies\(conversations, lastOutboundAt, ambiguous\)/);
   assert.match(detail, /rpc\("is_zalo_group_conversation"/);
   assert.match(detail, /await canAccessChannelAccount\(accountId\)/, 'only nicks the member may use');
   assert.match(list, /conversation\.copyIds\.map\(\(id\)=>fetch\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'menu actions reach every copy');

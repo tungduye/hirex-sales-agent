@@ -37,6 +37,20 @@ function later(a: string | null | undefined, b: string | null | undefined) {
   return Date.parse(b) > Date.parse(a) ? b : a;
 }
 
+/** Group names (as keys) that one nick has more than once, from {subject, channel account} rows. */
+export function ambiguousGroupKeys(rows: ReadonlyArray<{ subject: string | null; channelAccountId: string }>) {
+  const seen = new Set<string>();
+  const ambiguous = new Set<string>();
+  for (const row of rows) {
+    const name = normalizeGroupName(row.subject);
+    if (!name) continue;
+    const key = `ZALO:${name}`;
+    const pair = `${key}\u0000${row.channelAccountId}`;
+    if (seen.has(pair)) ambiguous.add(key); else seen.add(pair);
+  }
+  return ambiguous;
+}
+
 /** True when the copies are one per nick (no nick has two groups with this name). */
 export function oneCopyPerNick(accountIds: readonly string[]) {
   return new Set(accountIds).size === accountIds.length;
@@ -47,13 +61,14 @@ export function oneCopyPerNick(accountIds: readonly string[]) {
  * first). The row opens the copy of the nick that last wrote in the group (lastOutboundAt), or the
  * newest copy when none of our nicks wrote yet (so it also shows that nick's name). Preview and time
  * come from the newest copy; unread is the highest of the copies (they hold the same messages, so
- * adding would double count).
+ * adding would double count). ambiguousKeys: names some nick has twice anywhere (not only on
+ * this page); those are never merged.
  */
-export function mergeGroupCopies<T extends GroupCopy>(items: readonly T[], lastOutboundAt: ReadonlyMap<string, string>): Array<T & { groupKey: string | null; copyIds: string[]; copyAccountIds: string[] }> {
+export function mergeGroupCopies<T extends GroupCopy>(items: readonly T[], lastOutboundAt: ReadonlyMap<string, string>, ambiguousKeys: ReadonlySet<string> = new Set()): Array<T & { groupKey: string | null; copyIds: string[]; copyAccountIds: string[] }> {
   const byKey = new Map<string, T[]>();
   for (const item of items) {
     const key = groupKeyOf(item);
-    if (key) byKey.set(key, [...(byKey.get(key) ?? []), item]);
+    if (key && !ambiguousKeys.has(key)) byKey.set(key, [...(byKey.get(key) ?? []), item]);
   }
   for (const [key, copies] of byKey) if (!oneCopyPerNick(copies.map((copy) => copy.channelAccountId))) byKey.delete(key);
   const result: Array<T & { groupKey: string | null; copyIds: string[]; copyAccountIds: string[] }> = [];

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendPage, groupKeyOf, mergeGroupCopies, rowIndexFor } from '../src/modules/inbox/core/group-merge.ts';
+import { ambiguousGroupKeys, appendPage, groupKeyOf, mergeGroupCopies, rowIndexFor } from '../src/modules/inbox/core/group-merge.ts';
 
 // Zalo gives each nick its own id for the same group, so copies are matched by group name.
 const row = (id, over = {}) => ({ id, channelAccountId: `acc-${id}`, channelType: 'ZALO', isGroup: true, subject: 'Nick Intalent _ Quản lý',
@@ -53,4 +53,13 @@ test('a later page joins copies to the listed group row (one per nick) and live 
   assert.equal(rowIndexFor(next, 'c'), 0);
   assert.equal(rowIndexFor(next, 'd'), 1);
   assert.equal(rowIndexFor(next, 'zz'), -1);
+});
+
+test('names a nick has twice anywhere (not only on this page) are left unmerged', () => {
+  const ambiguous = ambiguousGroupKeys([{ subject: 'Nick Intalent _ Quản lý', channelAccountId: 'acc-a' }, { subject: 'nick intalent _ quản lý ', channelAccountId: 'acc-a' },
+    { subject: 'Nhóm khác', channelAccountId: 'acc-a' }, { subject: 'Nhóm khác', channelAccountId: 'acc-b' }]);
+  assert.deepEqual([...ambiguous], ['ZALO:nick intalent _ quản lý']);
+  const merged = mergeGroupCopies([row('a'), row('b'), row('c')], new Map(), ambiguous);
+  assert.equal(merged.length, 3);
+  assert.ok(merged.every((item) => item.groupKey === null));
 });

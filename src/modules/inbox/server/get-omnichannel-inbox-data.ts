@@ -14,7 +14,7 @@ import type { OmnichannelInboxAccount, OmnichannelInboxConversation, Omnichannel
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
 import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
-import { groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
+import { ambiguousGroupKeys, groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
@@ -351,12 +351,23 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   for (const item of conversations) { const key = groupKeyOf(item); if (key) keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1); }
   const sharedCopyIds = conversations.flatMap((item) => { const key = groupKeyOf(item); return key && (keyCounts.get(key) ?? 0) > 1 ? [item.id] : []; });
   const lastOutboundAt = new Map<string, string>();
+  // Names some nick has twice (two different groups) are never merged; checked over all conversations, not just this page.
+  let ambiguous = new Set<string>();
   if (sharedCopyIds.length) {
-    const { data: outboundData } = await supabase.rpc("get_inbox_last_outbound_at", { p_conversation_ids: sharedCopyIds });
+    const sharedSubjects = [...new Set(rows.flatMap((row) => sharedCopyIds.includes(row.id as string) && typeof row.subject === "string" ? [row.subject] : []))];
+    const [{ data: outboundData }, { data: sameNameData, error: sameNameError }] = await Promise.all([
+      supabase.rpc("get_inbox_last_outbound_at", { p_conversation_ids: sharedCopyIds }),
+      supabase.from("omnichannel_conversations").select("subject,channel_account_id").eq("workspace_id", accountContext.workspaceId)
+        .eq("channel_type", "ZALO").in("subject", sharedSubjects).or("metadata->>hidden.is.null,metadata->>hidden.neq.true").limit(5000),
+    ]);
     for (const item of (outboundData ?? []) as Array<{ conversation_id?: unknown; last_outbound_at?: unknown }>)
       if (typeof item.conversation_id === "string" && typeof item.last_outbound_at === "string") lastOutboundAt.set(item.conversation_id, item.last_outbound_at);
+    // Unknown means "do not merge".
+    ambiguous = sameNameError ? new Set(sharedCopyIds.flatMap((id) => { const item = conversations.find((c) => c.id === id); const key = item ? groupKeyOf(item) : null; return key ? [key] : []; }))
+      : ambiguousGroupKeys(((sameNameData ?? []) as Array<{ subject: unknown; channel_account_id: unknown }>).flatMap((item) =>
+        typeof item.channel_account_id === "string" ? [{ subject: typeof item.subject === "string" ? item.subject : null, channelAccountId: item.channel_account_id }] : []));
   }
-  const listed = mergeGroupCopies(conversations, lastOutboundAt);
+  const listed = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
