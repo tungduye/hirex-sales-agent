@@ -337,7 +337,7 @@ const runners: Record<string, Runner> = {
       .eq("workspace_id", scope.workspaceId).or(`name.ilike.${pattern},website.ilike.${pattern}`).order("name").limit(10);
     if (error) return { loi: "Không tìm được công ty." };
     return {
-      cong_ty: (data ?? []).map((row) => ({ ten: row.name, website: row.website, nganh: row.industry, quoc_gia: row.country, trang_thai: row.status, so_lien_he: (row.contacts as unknown as { count: number }[] | null)?.[0]?.count ?? null })),
+      cong_ty: (data ?? []).map((row) => ({ id: row.id, ten: row.name, website: row.website, nganh: row.industry, quoc_gia: row.country, trang_thai: row.status, so_lien_he: (row.contacts as unknown as { count: number }[] | null)?.[0]?.count ?? null })),
       link: "/companies",
     };
   },

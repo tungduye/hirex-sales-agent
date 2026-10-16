@@ -157,6 +157,8 @@ export const readTools2: Record<string, (args: Record<string, unknown>, scope: S
       moc: { tao: campaign.created_at, bat_dau: campaign.started_at, hoan_thanh: campaign.completed_at, luot_tiep_theo: campaign.pacing_next_at },
       gioi_han: { tin_moi_ngay: campaign.daily_message_limit, cach_nhau_giay: [campaign.min_delay_seconds, campaign.max_delay_seconds], moi_dot: campaign.batch_size, nghi_giua_dot_phut: campaign.batch_pause_minutes },
       nguoi_nhan: data.recipients.length, nguoi_nhan_theo_trang_thai: countBy(data.recipients.map((row) => row.status)),
+      ly_do_dung_hoac_loi: Object.entries(countBy(data.recipients.filter((row) => row.status === "FAILED" || row.status === "DELIVERY_UNKNOWN" || row.status === "SUPPRESSED").map((row) => `${row.status}: ${row.stop_reason ?? "KHONG_RO"}`)))
+        .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([ly_do, so]) => ({ ly_do, so })),
       tin_da_gui: sent, tin_loi: failed, tin_chua_xac_dinh: unknown,
       cac_buoc: steps.map((step) => ({ thu_tu: step.position, cho_phut: step.delay_minutes, kenh: step.allowed_channels, noi_dung_rut_gon: clip(step.text_template, 400), so_bien_the: Array.isArray(step.content_variants) ? step.content_variants.length : 0 })),
       tai_khoan_gui: (data.senders as Row[]).map((row) => one(row.channel_accounts as Row | Row[] | null)?.display_name ?? null),

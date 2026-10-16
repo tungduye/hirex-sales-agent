@@ -57,3 +57,13 @@ test('instructions explain details, page links and missing scan data', async () 
   assert.match(text, /gọi mo_trang/);
   assert.match(text, /chưa lưu kết quả Scan CV/);
 });
+
+test('links with bracketed names or escaped slashes stay clickable', async () => {
+  const { parseInline } = await import('../src/modules/assistant/core/assistant-markdown.ts');
+  assert.deepEqual(parseInline('1. [CT-000015 – [Hà Nội] BrSE](\\/content?q=CT-000015) — mới'), [
+    { type: 'text', text: '1. ' },
+    { type: 'link', text: 'CT-000015 – [Hà Nội] BrSE', href: '/content?q=CT-000015' },
+    { type: 'text', text: ' — mới' },
+  ]);
+  assert.deepEqual(parseInline('[A](https://evil.example)'), [{ type: 'text', text: 'A' }]);
+});

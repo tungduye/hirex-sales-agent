@@ -6,8 +6,9 @@ import { isInternalLink } from "./assistant-instructions.ts";
 export type Inline = { type: "text"; text: string } | { type: "bold"; text: string } | { type: "link"; text: string; href: string };
 export type Block = { type: "paragraph"; inlines: Inline[] } | { type: "list"; ordered: boolean; start: number; items: Inline[][] } | { type: "heading"; inlines: Inline[] };
 
-// Models sometimes write "[tên]( /link )" with spaces inside the parentheses; accept that too.
-const INLINE = /\*\*([^*]+)\*\*|\[([^\]]+)\]\(\s*([^)\s]+)\s*\)/g;
+// Models sometimes write "[tên]( /link )" with spaces inside the parentheses, "\/link" with an escaped
+// slash, or a name that itself has brackets ("[[Hà Nội] BrSE](/content…)"); accept those too.
+const INLINE = /\*\*([^*]+)\*\*|\[((?:[^[\]]|\[[^[\]]*\])+)\]\(\s*([^)\s]+)\s*\)/g;
 
 export function parseInline(text: string): Inline[] {
   const result: Inline[] = [];
@@ -20,7 +21,7 @@ export function parseInline(text: string): Inline[] {
       if (inner.some((part) => part.type === "link")) result.push(...inner.map((part): Inline => part.type === "text" ? { type: "bold", text: part.text } : part));
       else result.push({ type: "bold", text: match[1] });
     }
-    else if (isInternalLink(match[3])) result.push({ type: "link", text: match[2], href: match[3] });
+    else if (isInternalLink(match[3].replace(/\\\//g, "/"))) result.push({ type: "link", text: match[2], href: match[3].replace(/\\\//g, "/") });
     else result.push({ type: "text", text: match[2] });
     last = match.index! + match[0].length;
   }
