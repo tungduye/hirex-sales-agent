@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, createHmac } from "node:crypto";
 import { connect } from "node:net";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, renameSync, unlinkSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +24,24 @@ export function cleanRuntimeEnvironment(source) {
   return Object.fromEntries(Object.entries(source).filter(([key]) => ![
     "HIREX_REAL_INBOUND_ONE_SHOT_EVENT_ID", "HIREX_SESSIONLESS_TEST", "HIREX_QA_BOOT_TEST", "ELECTRON_RUN_AS_NODE",
   ].includes(key.toUpperCase())));
+}
+// Built output the two runtime processes load. After "npm run build" / "npm run build:electron" these files
+// change; the running processes keep the old code until restarted, so the supervisor restarts them itself.
+const buildMarkers = [
+  path.join(adapterRoot, "dist", "src", "app.js"),
+  path.join(adapterRoot, "dist", "src", "domain", "send-service.js"),
+  path.join(deplaoRoot, "dist-electron", "electron", "main.js"),
+  path.join(deplaoRoot, "dist-electron", "electron", "hirex-binding", "index.js"),
+];
+/** Newest modification time among the build outputs (0 when none can be read). */
+export function newestBuildTime(files = buildMarkers, stat = statSync) {
+  let newest = 0;
+  for (const file of files) { try { newest = Math.max(newest, stat(file).mtimeMs); } catch { /* missing during a build */ } }
+  return newest;
+}
+/** Restart only for a build newer than the running processes, and only once it has been quiet for a while (finished writing). */
+export function shouldRestartForBuild(newest, startedAt, now, quietMs = 20000) {
+  return newest > startedAt && now - newest >= quietMs;
 }
 function log(event, fields = {}) { console.log(JSON.stringify({ at: new Date().toISOString(), event, ...fields })); }
 function atomicJson(file, data) {
@@ -132,6 +150,12 @@ async function main() {
   for (;;) {
     const now = Date.now();
     const listening = await Promise.all(ports.map(portOpen));
+    if (now - lastRestart > 30000 && shouldRestartForBuild(newestBuildTime(), startedAt, now)) {
+      log("RUNTIME_RESTART_NEW_BUILD", { adapterPid: adapter.pid, deplaoPid: deplao.pid });
+      stopChild(deplao); stopChild(adapter); lastRestart = now;
+      await new Promise(resolve => setTimeout(resolve, 1500)); startRuntime();
+      continue;
+    }
     if (now - startedAt > 60000 && now - lastRestart > 120000 && (!listening.every(Boolean) || adapter.exitCode !== null || deplao.exitCode !== null)) {
       stopChild(deplao); stopChild(adapter); lastRestart = now;
       await new Promise(resolve => setTimeout(resolve, 1500)); startRuntime();

@@ -125,6 +125,8 @@ export interface OmnichannelConversationDetail {
   legacyEmailThreadId: string | null;
   /** Zalo group with several of our nicks in it: the copies this member may send from ("Gửi bằng"). */
   sendAs: Array<{ conversationId: string; accountDisplayName: string }>;
+  /** Facebook Page: this chat in Meta Business Suite (no 24-hour limit there); null for other channels. */
+  businessSuiteUrl: string | null;
 }
 
 export type OmnichannelConversationDetailResult =

@@ -107,6 +107,17 @@ async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>
   return options.length > 1 ? options : [];
 }
 
+/**
+ * Facebook Page chat opened in Meta Business Suite. Replies sent there are not limited by the 24-hour window
+ * that applies to HireX (Meta's Send API); the Page's reply comes back to HireX like any other Page message.
+ */
+export function businessSuiteInboxUrl(pageId: string | null, userId: string | null) {
+  if (!pageId || !/^\d{1,30}$/.test(pageId)) return null;
+  const query = new URLSearchParams({ asset_id: pageId });
+  if (userId && /^\d{1,30}$/.test(userId)) { query.set("selected_item_id", userId); query.set("thread_type", "FB_MESSAGE"); }
+  return `https://business.facebook.com/latest/inbox/all/?${query.toString()}`;
+}
+
 export async function getOmnichannelConversationDetail(conversationId: string): Promise<OmnichannelConversationDetailResult> {
   if (!z.uuid().safeParse(conversationId).success) return { status: "not_found", conversation: null };
   const accountContext = await getAccountContext();
@@ -127,7 +138,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   }
   const channelType = row.channel_type as ChannelType;
   const [{ data: channelAccount, error: accountError }, { data: messageRows, error: messageError }, { data: tagRows }, { data: actionRows }, contactResult] = await Promise.all([
-    accountClient.from("channel_accounts").select("id,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,legacy_email_account_id").eq("id", row.channel_account_id).eq("workspace_id", accountContext.workspaceId).eq("channel_type", channelType).is("deleted_at", null).maybeSingle(),
+    accountClient.from("channel_accounts").select("id,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,legacy_email_account_id,external_account_id").eq("id", row.channel_account_id).eq("workspace_id", accountContext.workspaceId).eq("channel_type", channelType).is("deleted_at", null).maybeSingle(),
     accountClient.from("omnichannel_messages").select("id,conversation_id,channel_type,direction,sender_external_id,text_content,provider_message_id,attachment_count,received_at,sent_at,created_at,metadata").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId).order("created_at", { ascending: false }).limit(MAX_MESSAGES + 1),
     accountClient.from("conversation_tag_links").select("tag_id").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId),
     accountClient.from("channel_outbound_actions").select("id,text_content,proposed_by,status,attempt_count,created_at,updated_at,provider_message_id,attachment_ids,safe_error_code,reconciliation_status,idempotency_key").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId).order("created_at", { ascending: false }).limit(MAX_MESSAGES),
@@ -244,6 +255,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       legacyEmailAccountId,
       legacyEmailThreadId,
       sendAs,
+      businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id), row.provider_conversation_id) : null,
     },
   };
 }

@@ -31,7 +31,7 @@ export function matchQuickReplies(templates:QuickReplyTemplate[],query:string){
   return [...starts,...rest];
 }
 
-export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean}){
+export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false,businessSuiteUrl=null}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean;businessSuiteUrl?:string|null}){
   // Zalo groups cannot be sent to from HireX yet (the bridge sends one-to-one only).
   const zaloGroup=channelType==="ZALO"&&isGroup;
   const[state,send,pending]=useActionState(sendManualChannelMessage,initial),[text,setText]=useState("");
@@ -108,7 +108,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
         <button type="submit" disabled={pending||drafting||!responseWindowOpen||!idempotencyKey||!text.trim()||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
       </div>
     </form>
-    {!responseWindowOpen?<p className="mt-2 text-xs font-medium text-amber-700">Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi.</p>:null}
+    {!responseWindowOpen?<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-amber-700"><span>{businessSuiteUrl?"Đã quá 24 giờ từ tin cuối của khách nên HireX không gửi được qua Facebook. Bản nháp vẫn được giữ; trả lời trong Meta Business Suite (không giới hạn thời gian).":"Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi."}</span>{businessSuiteUrl?<a href={businessSuiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-lg border border-blue-200 bg-white px-2.5 py-1 font-semibold text-blue-700 hover:bg-blue-50">Mở trong Meta Business Suite ↗</a>:null}</p>:null}
     {state.message&&state.status!=="error"?<p className="mt-1.5 px-1 text-xs text-slate-500">{state.message}</p>:null}
     <ProposedList actions={proposedActions} approvalDisabled={!responseWindowOpen}/>{pendingActions.map(action=><Pending key={action.id} action={action}/>)}
   </div>;
