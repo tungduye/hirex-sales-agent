@@ -171,6 +171,8 @@ async function main() {
         schedule("facebook-history-sync", "sync-deplao-facebook-history.mjs", ["--apply"], 120000);
       if (existsSync(path.join(root, "scripts/sync-zalo-recent-messages.mjs")))
         schedule("recent-message-sync", "sync-zalo-recent-messages.mjs", ["--once", `--since=${since}`]);
+      if (existsSync(path.join(root, "scripts/sync-zalo-group-members.mjs")))
+        schedule("group-member-sync", "sync-zalo-group-members.mjs", ["--once"], 300000);
       if (existsSync(path.join(stateRoot, "zalo-media-sync-authorized")))
         schedule("attachment-sync", "sync-zalo-live-attachments.mjs");
     }

@@ -1,5 +1,7 @@
 "use client";
 
+import { EmojiPicker } from "./emoji-picker";
+import { insertAt } from "../core/text-insert";
 import { Bot, ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
 import type { ChannelType } from "../core/channel-contracts";
@@ -80,6 +82,13 @@ export function ConversationComposer({conversationId,channelType,conversationSta
       else setHint(message??`${name} chưa soạn được, anh/chị thử lại sau.`);
     });
   }
+  // Emoji go in at the caret (or replace the selection), and the caret moves after them.
+  function insertEmoji(emoji:string){
+    const area=textareaRef.current;
+    const next=insertAt(text,emoji,area?.selectionStart??text.length,area?.selectionEnd??text.length);
+    updateText(next.text);
+    window.requestAnimationFrame(()=>{area?.focus();area?.setSelectionRange(next.caret,next.caret);});
+  }
   function undoDraft(){if(beforeDraft===null)return;updateText(beforeDraft);setBeforeDraft(null);setHint(null);}
 
   return <div>
@@ -101,6 +110,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
         placeholder="Nhập tin nhắn… (Enter gửi · Shift+Enter xuống dòng · / mẫu trả lời)" rows={3} disabled={drafting} className="block max-h-48 min-h-[72px] w-full resize-none rounded-t-[14px] bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:text-slate-400"/>
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2 pt-1">
         <button type="button" onClick={()=>setQuickOpen(open=>!open)} aria-expanded={showQuick} className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold ${showQuick?"bg-slate-100 text-slate-900":"text-slate-700 hover:bg-slate-100"}`} title="Câu trả lời mẫu (gõ / để mở)"><Zap className="size-[15px]"/>Mẫu</button>
+        <EmojiPicker onPick={insertEmoji} disabled={drafting}/>
         <button type="button" onClick={()=>askAssistant("hola")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hola (nhanh): viết lại ý anh/chị đã gõ thành câu trả lời hoàn chỉnh":"Hola (nhanh): đọc các tin gần nhất và soạn nháp"}>{drafter==="hola"?<span className="size-3.5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent"/>:<Sparkles className="size-[15px]"/>}Hola</button>
         <button type="button" onClick={()=>askAssistant("hole")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hole (kỹ): đọc hồ sơ khách, tra job/chiến dịch rồi viết ý anh/chị đã gõ thành câu trả lời":"Hole (kỹ): đọc hội thoại, hồ sơ khách, tra job/chiến dịch khi cần rồi soạn nháp"}>{drafter==="hole"?<span className="size-3.5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"/>:<Bot className="size-[15px]"/>}Hole</button>
         {beforeDraft!==null&&!drafting?<button type="button" onClick={undoDraft} className="inline-flex min-h-[34px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800"><Undo2 className="size-3.5"/>Hoàn tác</button>:null}

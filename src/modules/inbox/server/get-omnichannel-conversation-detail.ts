@@ -117,6 +117,25 @@ export function businessSuiteInboxUrl(pageId: string | null) {
   return `https://business.facebook.com/latest/inbox/all/?${new URLSearchParams({ asset_id: pageId }).toString()}`;
 }
 
+/**
+ * Zalo group: member names/avatars as this nick sees them (synced from Deplao, read under row security so only
+ * nicks the member may use), plus our own nicks by their Zalo id. Empty for one-to-one chats.
+ */
+async function zaloGroupParticipants(client: Awaited<ReturnType<typeof createClient>>, accountClient: ReturnType<typeof createPrivilegedClient>,
+  workspaceId: string, channelAccountId: string, groupId: string) {
+  const people: Record<string, { name: string; avatarUrl: string | null }> = {};
+  const { data: members } = await client.from("zalo_group_members").select("member_id,display_name,avatar_url")
+    .eq("workspace_id", workspaceId).eq("channel_account_id", channelAccountId).eq("group_id", groupId).limit(3000);
+  if (!members?.length) return people;
+  for (const member of members) if (typeof member.member_id === "string" && typeof member.display_name === "string")
+    people[member.member_id] = { name: member.display_name, avatarUrl: typeof member.avatar_url === "string" ? member.avatar_url : null };
+  const { data: nicks } = await accountClient.from("channel_accounts").select("external_account_id,display_name")
+    .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").is("deleted_at", null);
+  for (const nick of nicks ?? []) if (typeof nick.external_account_id === "string" && typeof nick.display_name === "string" && !people[nick.external_account_id])
+    people[nick.external_account_id] = { name: nick.display_name, avatarUrl: null };
+  return people;
+}
+
 export async function getOmnichannelConversationDetail(conversationId: string): Promise<OmnichannelConversationDetailResult> {
   if (!z.uuid().safeParse(conversationId).success) return { status: "not_found", conversation: null };
   const accountContext = await getAccountContext();
@@ -227,7 +246,10 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     legacyEmailThreadId = text(legacyThread?.id);
   }
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
-  const sendAs = channelType === "ZALO" ? await zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject)) : [];
+  const [sendAs, participants] = channelType === "ZALO"
+    ? await Promise.all([zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject)),
+      zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id)])
+    : [[], {}];
   return {
     status: "ready",
     conversation: {
@@ -254,6 +276,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       legacyEmailAccountId,
       legacyEmailThreadId,
       sendAs,
+      accountExternalId: text(channelAccount.external_account_id),
+      participants,
       businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id)) : null,
     },
   };

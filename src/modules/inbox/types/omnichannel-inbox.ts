@@ -127,6 +127,10 @@ export interface OmnichannelConversationDetail {
   sendAs: Array<{ conversationId: string; accountDisplayName: string }>;
   /** Facebook Page: this chat in Meta Business Suite (no 24-hour limit there); null for other channels. */
   businessSuiteUrl: string | null;
+  /** The opened nick's own Zalo id (to recognise mentions of it). */
+  accountExternalId: string | null;
+  /** Zalo group: who is who (sender id -> name/avatar), our own nicks included; empty for other chats. */
+  participants: Record<string, { name: string; avatarUrl: string | null }>;
 }
 
 export type OmnichannelConversationDetailResult =
