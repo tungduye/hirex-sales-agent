@@ -59,6 +59,6 @@ test('the inbox lists a shared group once and lets the member pick the sending n
 test('expired Facebook Page chats offer the chat in Meta Business Suite', () => {
   const detail = readFileSync(new URL('../src/modules/inbox/server/get-omnichannel-conversation-detail.ts', import.meta.url), 'utf8');
   const composer = readFileSync(new URL('../src/modules/channels/components/conversation-composer.tsx', import.meta.url), 'utf8');
-  assert.match(detail, /businessSuiteUrl: channelType === "FACEBOOK" \? businessSuiteInboxUrl\(text\(channelAccount\.external_account_id\), row\.provider_conversation_id\) : null/);
+  assert.match(detail, /businessSuiteUrl: channelType === "FACEBOOK" \? businessSuiteInboxUrl\(text\(channelAccount\.external_account_id\)\) : null/);
   assert.match(composer, /\{businessSuiteUrl\?<a href=\{businessSuiteUrl\} target="_blank" rel="noopener noreferrer"/);
 });

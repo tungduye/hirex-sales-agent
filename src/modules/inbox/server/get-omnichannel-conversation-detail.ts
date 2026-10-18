@@ -108,14 +108,13 @@ async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>
 }
 
 /**
- * Facebook Page chat opened in Meta Business Suite. Replies sent there are not limited by the 24-hour window
- * that applies to HireX (Meta's Send API); the Page's reply comes back to HireX like any other Page message.
+ * The Page's inbox in Meta Business Suite. Replies sent there are not limited by the 24-hour window that applies
+ * to HireX (Meta's Send API). Business Suite cannot open a chat from the customer's Page-scoped id (it shows
+ * "Đã xảy ra lỗi"), so the link opens the Page inbox and the member picks the customer there.
  */
-export function businessSuiteInboxUrl(pageId: string | null, userId: string | null) {
+export function businessSuiteInboxUrl(pageId: string | null) {
   if (!pageId || !/^\d{1,30}$/.test(pageId)) return null;
-  const query = new URLSearchParams({ asset_id: pageId });
-  if (userId && /^\d{1,30}$/.test(userId)) { query.set("selected_item_id", userId); query.set("thread_type", "FB_MESSAGE"); }
-  return `https://business.facebook.com/latest/inbox/all/?${query.toString()}`;
+  return `https://business.facebook.com/latest/inbox/all/?${new URLSearchParams({ asset_id: pageId }).toString()}`;
 }
 
 export async function getOmnichannelConversationDetail(conversationId: string): Promise<OmnichannelConversationDetailResult> {
@@ -255,7 +254,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       legacyEmailAccountId,
       legacyEmailThreadId,
       sendAs,
-      businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id), row.provider_conversation_id) : null,
+      businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id)) : null,
     },
   };
 }

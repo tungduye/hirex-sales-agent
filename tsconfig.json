@@ -191,7 +191,9 @@
     ".next-zalo-group-merge-4/types/**/*.ts",
     ".next-zalo-group-merge-4/dev/types/**/*.ts",
     ".next-zalo-group-merge-5/types/**/*.ts",
-    ".next-zalo-group-merge-5/dev/types/**/*.ts"
+    ".next-zalo-group-merge-5/dev/types/**/*.ts",
+    ".next-fb-business-suite-1/types/**/*.ts",
+    ".next-fb-business-suite-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
