@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { acquireRecentLock, saveRecentState } from "./lib/zalo-recent-reconciliation.mjs";
-import { mapGroupMemberRow, selectChangedMembers } from "./lib/zalo-group-members.mjs";
+import { mapGroupMemberRow, selectChangedMembers, selectRecentSendersOutsideList } from "./lib/zalo-group-members.mjs";
 import { existsSync, readFileSync } from "node:fs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,7 +15,8 @@ createRequire(import.meta.url)("@next/env").loadEnvConfig(projectRoot);
 const profileRoot = process.env.HIREX_DEPLAO_QA_PROFILE || process.env.HIREX_DEPLAO_QA_USER_DATA_DIR ||
   "C:\\Users\\Admin\\AppData\\Local\\HireX\\ZaloRuntime\\deplao-qa-profile";
 const databasePath = path.join(profileRoot, "deplao-tool.db");
-const statePath = path.join(projectRoot, "runtime", "zalo-group-member-cursors.json");
+// v2: names now also come from the nick's friends/contacts, so every row is read again once.
+const statePath = path.join(projectRoot, "runtime", "zalo-group-member-cursors-v2.json");
 const args = process.argv.slice(2);
 if (args.some((arg) => !["--once", "--dry-run"].includes(arg))) throw new Error("GROUP_MEMBER_ARGUMENT_INVALID");
 const dryRun = args.includes("--dry-run");
@@ -65,6 +66,14 @@ async function main() {
         if (!dryRun) saveRecentState(statePath, state);
         if (rows.length < 2000) break;
       }
+      // Recent writers missing from the member list (90 days), named from friends/contacts.
+      const extras = selectRecentSendersOutsideList(database, account.external_account_id, Date.now() - 90 * 86_400_000)
+        .map((row) => mapGroupMemberRow(row, account)).filter(Boolean);
+      if (!dryRun) for (let index = 0; index < extras.length; index += BATCH) {
+        const { error } = await client.from("zalo_group_members").upsert(extras.slice(index, index + BATCH), { onConflict: "channel_account_id,group_id,member_id" });
+        if (error) throw new Error("GROUP_MEMBER_UPSERT_FAILED");
+      }
+      written += extras.length;
     }
     console.log(JSON.stringify({ status: dryRun ? "dry-run" : "complete", written, skipped }));
   } finally {

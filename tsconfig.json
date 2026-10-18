@@ -195,7 +195,9 @@
     ".next-fb-business-suite-1/types/**/*.ts",
     ".next-fb-business-suite-1/dev/types/**/*.ts",
     ".next-fb-business-suite-2/types/**/*.ts",
-    ".next-fb-business-suite-2/dev/types/**/*.ts"
+    ".next-fb-business-suite-2/dev/types/**/*.ts",
+    ".next-group-ux-1/types/**/*.ts",
+    ".next-group-ux-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

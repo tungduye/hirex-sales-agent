@@ -18,9 +18,35 @@ export function mapGroupMemberRow(row, account) {
   };
 }
 
+// Deplao often has a member without a name in the group list but knows the person as a friend or contact of the
+// same nick: use that name (and avatar) instead.
+const nameFallback = (owner, member) => `coalesce(
+    (select nullif(f.display_name, '') from friends f where f.owner_zalo_id = ${owner} and f.user_id = ${member}),
+    (select nullif(c.display_name, '') from contacts c where c.owner_zalo_id = ${owner} and c.contact_id = ${member}))`;
+const avatarFallback = (owner, member) => `coalesce(
+    (select nullif(f.avatar, '') from friends f where f.owner_zalo_id = ${owner} and f.user_id = ${member}),
+    (select nullif(c.avatar_url, '') from contacts c where c.owner_zalo_id = ${owner} and c.contact_id = ${member}))`;
+
 /** Rows changed after the account's cursor {at: Deplao updated_at in ms, id: row id}, oldest first. */
 export function selectChangedMembers(database, accountZaloId, cursor, limit = 2000) {
-  return database.prepare(`select id, group_id, member_id, display_name, avatar, role, updated_at from page_group_member
-    where owner_zalo_id = ? and (updated_at > ? or (updated_at = ? and id > ?)) order by updated_at, id limit ?`)
+  return database.prepare(`select m.id, m.group_id, m.member_id,
+      coalesce(nullif(m.display_name, ''), ${nameFallback("m.owner_zalo_id", "m.member_id")}, '') display_name,
+      coalesce(nullif(m.avatar, ''), ${avatarFallback("m.owner_zalo_id", "m.member_id")}, '') avatar, m.role, m.updated_at
+    from page_group_member m
+    where m.owner_zalo_id = ? and (m.updated_at > ? or (m.updated_at = ? and m.id > ?)) order by m.updated_at, m.id limit ?`)
     .all(accountZaloId, cursor.at, cursor.at, cursor.id, limit);
+}
+
+/**
+ * People who wrote in a group recently but are missing from Deplao's member list, named from the nick's friends or
+ * contacts. Small (a few hundred rows), so it is read in full on every run.
+ */
+export function selectRecentSendersOutsideList(database, accountZaloId, sinceMs) {
+  return database.prepare(`select s.t group_id, s.u member_id, ${nameFallback("s.o", "s.u")} display_name,
+      coalesce(${avatarFallback("s.o", "s.u")}, '') avatar, 0 role, s.at updated_at
+    from (select owner_zalo_id o, thread_id t, sender_id u, max(timestamp) at from messages
+      where channel = 'zalo' and thread_type = 1 and is_sent = 0 and owner_zalo_id = ? and sender_id glob '[0-9]*' and timestamp > ?
+      group by owner_zalo_id, thread_id, sender_id) s
+    where not exists (select 1 from page_group_member m where m.owner_zalo_id = s.o and m.group_id = s.t and m.member_id = s.u)
+      and ${nameFallback("s.o", "s.u")} is not null`).all(accountZaloId, sinceMs);
 }

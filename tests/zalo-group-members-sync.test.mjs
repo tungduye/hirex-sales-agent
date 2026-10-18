@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mapGroupMemberRow, selectChangedMembers } from '../scripts/lib/zalo-group-members.mjs';
+import { mapGroupMemberRow, selectChangedMembers, selectRecentSendersOutsideList } from '../scripts/lib/zalo-group-members.mjs';
 
 const account = { id: 'acc-1', workspace_id: 'ws-1' };
 
@@ -16,11 +16,29 @@ test('member rows map to HireX rows; unnamed or malformed rows are skipped', () 
 
 test('incremental reading does not skip rows that share a timestamp across batches', () => {
   const db = new DatabaseSync(':memory:');
-  db.exec(`create table page_group_member (id integer primary key autoincrement, owner_zalo_id text, group_id text, member_id text, display_name text, avatar text, role integer, updated_at integer)`);
+  db.exec(`create table page_group_member (id integer primary key autoincrement, owner_zalo_id text, group_id text, member_id text, display_name text, avatar text, role integer, updated_at integer);
+    create table friends (owner_zalo_id text, user_id text, display_name text, avatar text);
+    create table contacts (owner_zalo_id text, contact_id text, display_name text, avatar_url text)`);
   const insert = db.prepare('insert into page_group_member(owner_zalo_id,group_id,member_id,display_name,avatar,role,updated_at) values(?,?,?,?,?,?,?)');
   for (let index = 0; index < 5; index++) insert.run('100', '900', String(10 + index), `M${index}`, '', 0, 1000);
   insert.run('200', '900', '99', 'Other nick', '', 0, 1000);
   let cursor = { at: 0, id: 0 }; const seen = [];
   for (;;) { const rows = selectChangedMembers(db, '100', cursor, 2); if (!rows.length) break; seen.push(...rows.map((r) => r.member_id)); cursor = { at: rows.at(-1).updated_at, id: rows.at(-1).id }; }
   assert.deepEqual(seen, ['10', '11', '12', '13', '14']);
+});
+
+test('missing names come from the same nick\'s friends or contacts, and recent writers outside the list are added', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`create table page_group_member (id integer primary key autoincrement, owner_zalo_id text, group_id text, member_id text, display_name text, avatar text, role integer, updated_at integer);
+    create table friends (owner_zalo_id text, user_id text, display_name text, avatar text);
+    create table contacts (owner_zalo_id text, contact_id text, display_name text, avatar_url text);
+    create table messages (id integer primary key, owner_zalo_id text, thread_id text, thread_type integer, sender_id text, is_sent integer, timestamp integer, channel text);
+    insert into page_group_member(owner_zalo_id,group_id,member_id,display_name,avatar,role,updated_at) values('100','900','11','','',0,5),('100','900','12','','',0,6),('100','900','13','Có tên','',0,7);
+    insert into friends values('100','11','Bạn Lan','https://a/lan.jpg'),('200','12','Nick khác thấy','');
+    insert into contacts values('100','12','Liên hệ Huy',''),('100','14','Người ngoài danh sách','');
+    insert into messages(owner_zalo_id,thread_id,thread_type,sender_id,is_sent,timestamp,channel) values('100','900',1,'14',0,1000,'zalo'),('100','900',1,'13',0,1000,'zalo'),('100','900',1,'99',0,1000,'zalo'),('100','900',1,'system',0,1000,'zalo')`);
+  const rows = selectChangedMembers(db, '100', { at: 0, id: 0 });
+  assert.deepEqual(rows.map((r) => [r.member_id, r.display_name, r.avatar]), [['11', 'Bạn Lan', 'https://a/lan.jpg'], ['12', 'Liên hệ Huy', ''], ['13', 'Có tên', '']]);
+  const extras = selectRecentSendersOutsideList(db, '100', 0);
+  assert.deepEqual(extras.map((r) => [r.group_id, r.member_id, r.display_name]), [['900', '14', 'Người ngoài danh sách']]);
 });

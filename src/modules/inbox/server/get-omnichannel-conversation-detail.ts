@@ -122,13 +122,21 @@ export function businessSuiteInboxUrl(pageId: string | null) {
  * nicks the member may use), plus our own nicks by their Zalo id. Empty for one-to-one chats.
  */
 async function zaloGroupParticipants(client: Awaited<ReturnType<typeof createClient>>, accountClient: ReturnType<typeof createPrivilegedClient>,
-  workspaceId: string, channelAccountId: string, groupId: string) {
+  workspaceId: string, channelAccountId: string, groupId: string, senderIds: string[]) {
   const people: Record<string, { name: string; avatarUrl: string | null }> = {};
   const { data: members } = await client.from("zalo_group_members").select("member_id,display_name,avatar_url")
     .eq("workspace_id", workspaceId).eq("channel_account_id", channelAccountId).eq("group_id", groupId).limit(3000);
   if (!members?.length) return people;
   for (const member of members) if (typeof member.member_id === "string" && typeof member.display_name === "string")
     people[member.member_id] = { name: member.display_name, avatarUrl: typeof member.avatar_url === "string" ? member.avatar_url : null };
+  // Someone who wrote here but is not in this group's list may be known to the same nick from another group.
+  const missing = [...new Set(senderIds)].filter((id) => /^[0-9]{1,40}$/.test(id) && !people[id]).slice(0, 200);
+  if (missing.length) {
+    const { data: elsewhere } = await client.from("zalo_group_members").select("member_id,display_name,avatar_url")
+      .eq("workspace_id", workspaceId).eq("channel_account_id", channelAccountId).in("member_id", missing).limit(1000);
+    for (const member of elsewhere ?? []) if (typeof member.member_id === "string" && typeof member.display_name === "string" && !people[member.member_id])
+      people[member.member_id] = { name: member.display_name, avatarUrl: typeof member.avatar_url === "string" ? member.avatar_url : null };
+  }
   const { data: nicks } = await accountClient.from("channel_accounts").select("external_account_id,display_name")
     .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").is("deleted_at", null);
   for (const nick of nicks ?? []) if (typeof nick.external_account_id === "string" && typeof nick.display_name === "string" && !people[nick.external_account_id])
@@ -248,7 +256,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
   const [sendAs, participants] = channelType === "ZALO"
     ? await Promise.all([zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject)),
-      zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id)])
+      zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
+        messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : []))])
     : [[], {}];
   return {
     status: "ready",
