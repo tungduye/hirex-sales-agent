@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, FileText, LoaderCircle, Pencil, Plus, Search, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, FileText, LoaderCircle, Pencil, Plus, Search, Send, Sparkles, Trash2, X, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,8 @@ import type { ContentCategory } from "@/modules/content/core/content-category";
 import { buildContentTree, NO_CATEGORY, type TreeFilter } from "@/modules/content/core/content-tree";
 import { ContentFolderTree, ITEM_DRAG_TYPE, MoveToFolder } from "@/modules/content/components/content-folder-tree";
 import { editContentItem } from "@/modules/content/server/content-quick-actions";
+import { markContentPosted, recordContentCopy, rewriteContentItem, saveContentAsTemplate, unmarkContentPosted } from "@/modules/content/server/content-item-actions";
+import { POST_CHANNELS } from "@/modules/content/core/content-options";
 import { wordCount } from "@/modules/content/core/content-quality";
 import { batchStatus, isBatchRunning, type BatchTone, type ContentBatchSummary } from "@/modules/content/core/batch-status";
 
@@ -82,6 +84,7 @@ export function ContentLibraryView({ items, categories, batches, total, libraryT
 
   const handleDeleted = useCallback((message: string) => { setSelectedId(null); setNotice(message); router.refresh(); }, [router]);
   const selected = items.find((item) => item.id === selectedId) ?? items[0] ?? null;
+  const knownPlaces = useMemo(() => [...new Set(items.flatMap((item) => item.posts.map((post) => post.place)))].slice(0, 50), [items]);
   const pages = Math.max(1, Math.ceil(total / query.pageSize));
   const folderName = current.format ? formatLabel(current.format) : current.category ? (current.category === NO_CATEGORY ? "Chưa phân loại" : categoryName.get(current.category) ?? "") : current.department ? departmentLabel(current.department) : "Tất cả content";
   const createButton = canCreate ? <Button asChild><Link href="/content/new"><Plus className="size-4" />Tạo content</Link></Button> : undefined;
@@ -114,7 +117,9 @@ export function ContentLibraryView({ items, categories, batches, total, libraryT
                 <ul className="max-h-72 divide-y overflow-y-auto border-b">
                   {items.map((item) => <li key={item.id} draggable={canManage} onDragStart={(event) => { event.dataTransfer.setData(ITEM_DRAG_TYPE, item.id); event.dataTransfer.effectAllowed = "move"; }} title={canManage ? "Kéo thả vào thư mục bên trái để chuyển" : undefined}><button type="button" onClick={() => setSelectedId(item.id)} className={cn("block w-full px-4 py-2.5 text-left", selected?.id === item.id ? "bg-indigo-50" : "hover:bg-slate-50")}>
                     <span className="flex flex-wrap items-center gap-x-2 text-xs"><span className="font-mono font-semibold text-slate-500">{item.code}</span><span className="text-slate-500">{languageLabel(item.language)}</span>
-                      {item.used && <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700">Đã dùng</span>}<span className="ml-auto text-slate-400">{formatDate(item.createdAt)}</span></span>
+                      {item.used && <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700">Đã dùng</span>}
+                      {item.posts.length > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700">Đã đăng {item.posts.length}</span>}
+                      {item.jobClosed && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">Job đã đóng</span>}<span className="ml-auto text-slate-400">{formatDate(item.createdAt)}</span></span>
                     <span className="mt-0.5 block truncate text-sm font-bold uppercase text-blue-700">{item.title}</span>
                   </button></li>)}
                   {items.length === 0 && <li className="px-4 py-10 text-center text-sm text-slate-500">Không có content khớp bộ lọc.</li>}
@@ -124,7 +129,7 @@ export function ContentLibraryView({ items, categories, batches, total, libraryT
                   <span className="ml-auto flex gap-2"><Button variant="outline" size="sm" disabled={query.page <= 1 || isNavigating} onClick={() => go({ page: query.page - 1 })}><ChevronLeft className="size-4" />Trước</Button>
                     <Button variant="outline" size="sm" disabled={query.page >= pages || isNavigating} onClick={() => go({ page: query.page + 1 })}>Sau<ChevronRight className="size-4" /></Button></span>
                 </div>}
-                {selected ? <ContentReader key={selected.id} item={selected} categoryName={selected.categoryId ? categoryName.get(selected.categoryId) ?? null : null} canDelete={canDelete} onDeleted={handleDeleted}
+                {selected ? <ContentReader key={selected.id} item={selected} categoryName={selected.categoryId ? categoryName.get(selected.categoryId) ?? null : null} canDelete={canDelete} canManage={canManage} knownPlaces={knownPlaces} onDeleted={handleDeleted}
                   onSaved={(message) => { setNotice(message); router.refresh(); }} moveControl={canManage ? <MoveToFolder tree={tree} itemKind="content" itemId={selected.id} onChanged={(message) => { setNotice(message); router.refresh(); }} /> : null} />
                   : <p className="py-16 text-center text-sm text-slate-400">Chọn một content để đọc.</p>}
               </div>
@@ -163,7 +168,7 @@ function RecentBatches({ batches, now }: { batches: ContentBatchSummary[]; now: 
   );
 }
 
-function ContentReader({ item, categoryName, canDelete, onDeleted, onSaved, moveControl }: { item: ContentListItem; categoryName: string | null; canDelete: boolean; onDeleted: (message: string) => void; onSaved: (message: string) => void; moveControl?: ReactNode }) {
+function ContentReader({ item, categoryName, canDelete, canManage, knownPlaces, onDeleted, onSaved, moveControl }: { item: ContentListItem; categoryName: string | null; canDelete: boolean; canManage: boolean; knownPlaces: string[]; onDeleted: (message: string) => void; onSaved: (message: string) => void; moveControl?: ReactNode }) {
   const { departmentLabel, formatLabel, languageLabel, styleLabel } = useContentLists();
   const [copied, setCopied] = useState<"all" | "body" | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -176,9 +181,20 @@ function ContentReader({ item, categoryName, canDelete, onDeleted, onSaved, move
     setError(null);
     startDelete(async () => { const result = await editContentItem({ id: item.id, title, body }); if (result.ok) { setEditing(false); onSaved(result.message); } else setError(result.message); });
   }
+  const [panel, setPanel] = useState<"rewrite" | "post" | null>(null);
+  const [note, setNote] = useState("");
+  const [channel, setChannel] = useState<string>(POST_CHANNELS[0].value);
+  const [place, setPlace] = useState("");
+  function act(action: () => Promise<{ ok: boolean; message: string }>, after?: () => void) {
+    setError(null);
+    startDelete(async () => {
+      const result = await action().catch(() => ({ ok: false, message: "Không thực hiện được, thử lại sau." }));
+      if (result.ok) { after?.(); onSaved(result.message); } else setError(result.message);
+    });
+  }
   async function copy(kind: "all" | "body") {
     setError(null);
-    if (await copyText(kind === "all" ? postText(item.title, item.body) : item.body)) { setCopied(kind); setTimeout(() => setCopied(null), 2000); }
+    if (await copyText(kind === "all" ? postText(item.title, item.body) : item.body)) { setCopied(kind); setTimeout(() => setCopied(null), 2000); void recordContentCopy(item.id); }
     else setError("Trình duyệt không cho phép sao chép. Hãy bôi đen và sao chép thủ công.");
   }
   function remove() {
@@ -198,12 +214,34 @@ function ContentReader({ item, categoryName, canDelete, onDeleted, onSaved, move
         {editing
           ? <><Button size="sm" onClick={save} disabled={deleting}>{deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}Lưu</Button><Button size="sm" variant="outline" onClick={() => { setEditing(false); setTitle(item.title); setBody(item.body); }} disabled={deleting}>Huỷ</Button></>
           : <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="size-4" />Sửa</Button>}
+        {!editing && <Button size="sm" variant="outline" onClick={() => setPanel(panel === "rewrite" ? null : "rewrite")}><Sparkles className="size-4" />Viết lại</Button>}
+        <Button size="sm" variant="outline" onClick={() => setPanel(panel === "post" ? null : "post")}><Send className="size-4" />Đã đăng ở…</Button>
+        {canManage && <Button size="sm" variant="outline" onClick={() => act(() => saveContentAsTemplate(item.id))} disabled={deleting}><BookmarkPlus className="size-4" />Lưu làm mẫu</Button>}
         {moveControl}
         {canDelete && (confirming
           ? <span className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2 text-xs text-rose-700">Xóa vĩnh viễn {item.code}?<Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={deleting}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={remove} disabled={deleting}>{deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></span>
           : <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConfirming(true)}><Trash2 className="size-4" />Xóa</Button>)}
       </div>
+      {panel === "rewrite" && <form className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3" onSubmit={(event) => { event.preventDefault(); act(() => rewriteContentItem({ id: item.id, note }), () => { setPanel(null); setNote(""); }); }}>
+        <p className="text-xs font-semibold text-indigo-900">AI viết lại bài này theo yêu cầu (giữ mã, giữ dữ kiện)</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">{["Ngắn hơn", "Dài hơn, chi tiết hơn", "Thân thiện hơn", "Nhấn mạnh lương", "Đổi câu mở đầu"].map((chip) => <button key={chip} type="button" onClick={() => setNote(chip)} className="rounded-full border bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-indigo-100">{chip}</button>)}</div>
+        <div className="mt-2 flex gap-2"><input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="Hoặc gõ yêu cầu, ví dụ: thêm ý onsite 3 tháng" className="h-9 min-w-0 flex-1 rounded-lg border bg-white px-3 text-sm focus:border-indigo-400 focus:outline-none" />
+          <Button size="sm" type="submit" disabled={deleting || note.trim().length < 2}>{deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Viết lại</Button></div>
+      </form>}
+      {panel === "post" && <form className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3" onSubmit={(event) => { event.preventDefault(); act(() => markContentPosted({ id: item.id, channel, place }), () => { setPanel(null); setPlace(""); }); }}>
+        <select value={channel} onChange={(event) => setChannel(event.target.value)} aria-label="Kênh" className="h-9 rounded-lg border bg-white px-2 text-sm">{POST_CHANNELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+        <input list={`places-${item.id}`} value={place} onChange={(event) => setPlace(event.target.value)} maxLength={200} placeholder="Tên nhóm / trang đã đăng" className="h-9 min-w-48 flex-1 rounded-lg border bg-white px-3 text-sm focus:border-emerald-400 focus:outline-none" />
+        <datalist id={`places-${item.id}`}>{knownPlaces.map((value) => <option key={value} value={value} />)}</datalist>
+        <Button size="sm" type="submit" disabled={deleting || !place.trim()}>{deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}Lưu</Button>
+      </form>}
       {error && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">{error}</p>}
+      {item.jobClosed && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Job đã đóng trong Bảng Job — cân nhắc trước khi đăng bài này.</p>}
+      {canManage && item.copyCount + item.posts.length >= 3 && <p className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">Bài này được dùng nhiều ({item.copyCount} lần sao chép, {item.posts.length} lần đăng) — nên lưu làm mẫu để AI học theo.
+        <button type="button" onClick={() => act(() => saveContentAsTemplate(item.id))} className="font-semibold underline">Lưu làm mẫu</button></p>}
+      {item.posts.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"><span className="font-semibold text-slate-600">Đã đăng:</span>
+        {item.posts.map((post) => <span key={post.id} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800" title={`${post.postedByName ?? ""} · ${formatDate(post.postedAt)}`}>
+          {POST_CHANNELS.find((option) => option.value === post.channel)?.label} · {post.place}
+          <button type="button" onClick={() => act(() => unmarkContentPosted(post.id))} aria-label={`Bỏ đánh dấu ${post.place}`} className="text-emerald-600 hover:text-rose-600"><X className="size-3" /></button></span>)}</div>}
       <div className="mt-3 flex flex-wrap gap-1.5 text-xs">{tags.map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>
       {editing
         ? <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={14} maxLength={20000} aria-label="Nội dung" className="mt-4 w-full rounded-lg border border-indigo-300 p-3 text-sm leading-7 focus:outline-none" />

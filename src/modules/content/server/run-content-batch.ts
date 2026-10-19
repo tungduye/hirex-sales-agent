@@ -4,7 +4,7 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ContentBrief } from "@/modules/content/core/content-options";
 import { contentShingles, storedSimilarity, type IndexedContent } from "@/modules/content/core/content-similarity";
 import { briefFactText, briefTitleIsJapanese, briefTitlePrefix, languageParts, type ContentBriefWithCategory } from "@/modules/content/core/content-prompt";
-import { finalizeTitle, scoreDraft } from "@/modules/content/core/content-quality";
+import { draftProblem, finalizeTitle, scoreDraft } from "@/modules/content/core/content-quality";
 import { produceUniqueContent, recheckAgainst, type Draft } from "@/modules/content/core/produce-unique-content";
 import { assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, type TemplateSample } from "@/modules/content/core/template-plan";
 import { generateContentRound, generateFromTemplate } from "@/modules/content/server/generate-content";
@@ -22,7 +22,7 @@ interface LibraryRow { id: string; body: string; job_title: string }
  * Reads every content item of the workspace (Supabase returns at most 1,000 rows per request).
  * The duplicate rule covers the whole library, so this fails rather than checking part of it.
  */
-async function loadLibrary(db: Db, workspaceId: string, since?: string): Promise<LibraryRow[]> {
+export async function loadLibrary(db: Db, workspaceId: string, since?: string): Promise<LibraryRow[]> {
   const rows: LibraryRow[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = db.from("content_items").select("id, body, job_title").eq("workspace_id", workspaceId);
@@ -133,6 +133,8 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
     const prepare = (draft: Draft): Draft | null => {
       const item: Draft = { ...draft, title: finalizeTitle(draft.title, prefix, briefTitleIsJapanese(brief)) };
       if (findBlockedTerm(`${item.title}\n${item.body}`, blocked)) return null;
+      // Pre-save check: length clearly off, or a salary the brief never gave → a replacement is written.
+      if (draftProblem(item, { wordRange: brief.wordRange ?? null, languageCount, facts, isComment: brief.contentFormat === "COMMENT" })) return null;
       const template = draft.templateId ? templateById.get(draft.templateId) : undefined;
       if (template) {
         // Facts copied from the sample (its salary, years, headcount…) are never saved.
@@ -178,6 +180,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
         max_similarity: storedSimilarity(item.similarity),
         most_similar_item_id: item.similarItemId,
         template_id: item.templateId ?? null,
+        job_id: brief.jobId ?? null,
         created_by: userId,
       }))).select("id");
       if (error || !data) throw new Error("SAVE_FAILED");

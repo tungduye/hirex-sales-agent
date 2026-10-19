@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { createContentBatch } from "@/modules/content/server/content-actions";
 import { analyzeContentBrief, type BriefSuggestion } from "@/modules/content/server/content-brief-ai";
 import { getContentBatchResult, type BatchResult } from "@/modules/content/server/content-batch-result";
+import { recordContentCopy } from "@/modules/content/server/content-item-actions";
 import { initialCreateContentState } from "@/modules/content/core/content-state";
 import { MAX_CONTENT_QUANTITY, OTHER_OPTION } from "@/modules/content/core/content-options";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
@@ -23,12 +24,26 @@ const inputClass = "block w-full rounded-lg border bg-slate-50 px-3 text-sm focu
 const MEMORY_KEY = "hirex.content.lastChoice";
 type Fields = { jobTitle: string; position: string; location: string; languagesRequired: string; salary: string; techSkills: string; highlights: string; jdText: string; blockedTerms: string; styleNote: string; sampleContent: string };
 const EMPTY: Fields = { jobTitle: "", position: "", location: "", languagesRequired: "", salary: "", techSkills: "", highlights: "", jdText: "", blockedTerms: "", styleNote: "", sampleContent: "" };
+/** Fills empty fields from a Bảng Job job; the client's name goes to the blocked words. */
+function jobFields(job: JobChoice, current: Fields): Fields {
+  return {
+    ...current, jobTitle: job.title,
+    position: current.position || job.careerTrack, location: current.location || job.location,
+    languagesRequired: current.languagesRequired || (job.japaneseLevelMin ? `Tiếng Nhật ${job.japaneseLevelMin}` : ""),
+    salary: current.salary || job.salaryRange || "", highlights: current.highlights || job.sellingPoints || "",
+    jdText: current.jdText || [job.summary, job.requirements].filter(Boolean).join("\n"),
+    blockedTerms: current.blockedTerms.includes(job.companyName) ? current.blockedTerms : [current.blockedTerms, job.companyName].filter(Boolean).join("; "),
+  };
+}
 const SUGGEST_LABEL: Partial<Record<keyof Fields, string>> = { position: "Vị trí", location: "Địa điểm", languagesRequired: "Ngoại ngữ", salary: "Mức lương", techSkills: "Skill", jobTitle: "Tên job" };
 
-export function CreateContentScreen({ templates, categories, jobs, initialTemplateId = null }: { templates: ContentTemplate[]; categories: ContentCategory[]; jobs: JobChoice[]; initialTemplateId?: string | null }) {
+export function CreateContentScreen({ templates, categories, jobs, initialTemplateId = null, initialJobId = null }: { templates: ContentTemplate[]; categories: ContentCategory[]; jobs: JobChoice[]; initialTemplateId?: string | null; initialJobId?: string | null }) {
   const startTemplate = templates.find((template) => template.id === initialTemplateId) ?? null;
   const lists = useContentLists();
-  const [fields, setFields] = useState<Fields>(EMPTY);
+  const startJob = jobs.find((job) => job.id === initialJobId) ?? null;
+  const [fields, setFields] = useState<Fields>(() => startJob ? jobFields(startJob, EMPTY) : EMPTY);
+  // The Bảng Job job this content is for (closed jobs flag their content).
+  const [jobId, setJobId] = useState<string | null>(startJob?.id ?? null);
   const set = (name: keyof Fields, value: string) => setFields((current) => ({ ...current, [name]: value }));
   const [format, setFormat] = useState(startTemplate?.format && lists.formats.some((item) => item.value === startTemplate.format) ? startTemplate.format : lists.formats.find((item) => item.value === "POST_LONG")?.value ?? lists.formats[0]?.value ?? "POST_LONG");
   const [language, setLanguage] = useState(lists.languages[0]?.value ?? "VI");
@@ -118,16 +133,8 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
   function pickJob(title: string) {
     set("jobTitle", title);
     const job = jobs.find((item) => item.title.toLocaleLowerCase("vi") === title.trim().toLocaleLowerCase("vi"));
-    if (!job) return;
-    setFields((current) => ({
-      ...current, jobTitle: job.title,
-      position: current.position || job.careerTrack, location: current.location || job.location,
-      languagesRequired: current.languagesRequired || (job.japaneseLevelMin ? `Tiếng Nhật ${job.japaneseLevelMin}` : ""),
-      salary: current.salary || job.salaryRange || "", highlights: current.highlights || job.sellingPoints || "",
-      jdText: current.jdText || [job.summary, job.requirements].filter(Boolean).join("\n"),
-      // The client's name never appears in content.
-      blockedTerms: current.blockedTerms.includes(job.companyName) ? current.blockedTerms : [current.blockedTerms, job.companyName].filter(Boolean).join("; "),
-    }));
+    setJobId(job?.id ?? null);
+    if (job) setFields((current) => jobFields(job, current));
   }
 
   function submit() {
@@ -135,7 +142,7 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
     const data = new FormData();
     for (const [key, value] of Object.entries(fields)) data.set(key, value);
     data.set("contentFormat", format); data.set("contentLanguage", language); data.set("quantity", quantity);
-    data.set("department", department); data.set("categoryId", categoryId); data.set("style", style); data.set("styleOther", styleOther);
+    data.set("department", department); data.set("jobId", jobId ?? ""); data.set("categoryId", categoryId); data.set("style", style); data.set("styleOther", styleOther);
     for (const id of templateIds) data.append("templateId", id);
     remember({ department, categoryId });
     startSubmit(async () => {
@@ -290,7 +297,7 @@ function Results({ batchId, requested }: { batchId: string | null; requested: nu
 function ResultCard({ item }: { item: BatchResult["items"][number] }) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
-  async function copy() { if (await copyText(postText(item.title, item.body))) { setCopied(true); setTimeout(() => setCopied(false), 2000); } }
+  async function copy() { if (await copyText(postText(item.title, item.body))) { setCopied(true); setTimeout(() => setCopied(false), 2000); void recordContentCopy(item.id); } }
   return (
     <article className="rounded-xl border bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">

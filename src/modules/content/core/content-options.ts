@@ -103,6 +103,8 @@ export const contentBriefSchema = z.object({
   categoryId: categoryIdSchema,
   templateIds: z.array(z.string().regex(UUID, "Mẫu không hợp lệ")).transform((ids) => [...new Set(ids)])
     .pipe(z.array(z.string()).max(MAX_TEMPLATES_PER_BATCH, `Chọn tối đa ${MAX_TEMPLATES_PER_BATCH} mẫu`)),
+  /** Job of Bảng Job this brief is for (optional). */
+  jobId: z.string().optional().transform((value) => value?.trim() || null).pipe(z.string().regex(UUID, "Job không hợp lệ").nullable()),
   quantity: z.coerce.number({ message: "Nhập số lượng" }).int("Số nguyên").min(1, "Ít nhất 1").max(MAX_CONTENT_QUANTITY, `Tối đa ${MAX_CONTENT_QUANTITY}`),
 });
 
@@ -128,6 +130,7 @@ export function briefInputFromFormData(formData: FormData) {
     department: text("department"),
     categoryId: text("categoryId"),
     templateIds: formData.getAll("templateId").filter((value): value is string => typeof value === "string"),
+    jobId: text("jobId"),
     quantity: text("quantity"),
   };
 }
@@ -166,3 +169,9 @@ export function templateInputFromFormData(formData: FormData) {
     body: text("body"),
   };
 }
+
+/** Where a content can be marked as posted ("Đã đăng ở…"). */
+export const POST_CHANNELS = [
+  { value: "FACEBOOK_GROUP", label: "Nhóm Facebook" }, { value: "FACEBOOK_PAGE", label: "Page" }, { value: "FACEBOOK_PROFILE", label: "FB cá nhân" },
+  { value: "ZALO_GROUP", label: "Nhóm Zalo" }, { value: "LINKEDIN", label: "LinkedIn" }, { value: "OTHER", label: "Khác" },
+] as const;

@@ -22,7 +22,6 @@ export async function startContentBatch(account: { workspaceId: string; userId: 
   const settings = await loadContentSettings();
   const department = findOption(activeOptions(settings.departments), brief.department);
   const format = findOption(activeOptions(settings.formats), brief.contentFormat);
-  const parts = brief.contentLanguage.split("_");
   if (!department) return { ok: false, message: "Bộ phận này đang tắt trong Cài đặt Kho content." };
   if (!format) return { ok: false, message: "Định dạng này đang tắt trong Cài đặt Kho content." };
   if (!findOption(activeOptions(settings.languages), brief.contentLanguage)) return { ok: false, message: "Ngôn ngữ này đang tắt trong Cài đặt Kho content." };
@@ -48,25 +47,36 @@ export async function startContentBatch(account: { workspaceId: string; userId: 
     blocked_terms: brief.blockedTerms,
     template_ids: brief.templateIds,
     quantity: brief.quantity,
+    job_id: brief.jobId ?? null,
     model,
   }).select("id").single();
   if (error || !batch) return { ok: false, message: error?.code === "23503" ? "Phân loại không thuộc bộ phận đã chọn." : "Không tạo được yêu cầu. Vui lòng thử lại." };
   const batchId = (batch as { id: string }).id;
   // The category name tells the AI which kind of post to write ("Dạng share", "Giới thiệu"…).
-  let withCategory: ContentBriefWithCategory = {
+  const withCategory = await enrichBrief(brief, account.workspaceId);
+  after(() => runContentBatch({ batchId, workspaceId: account.workspaceId, userId: account.userId, brief: withCategory, model }));
+  revalidatePath("/content");
+  return { ok: true, batchId };
+}
+
+/** The brief plus what Cài đặt Kho content says about its choices (labels, notes, word range). */
+export async function enrichBrief(brief: ContentBrief, workspaceId: string): Promise<ContentBriefWithCategory> {
+  const settings = await loadContentSettings();
+  const department = findOption(settings.departments, brief.department);
+  const format = findOption(settings.formats, brief.contentFormat);
+  const parts = brief.contentLanguage.split("_");
+  let enriched: ContentBriefWithCategory = {
     ...brief,
-    departmentLabel: department.label, departmentGuide: department.guide,
-    formatLabel: format.label, formatGuide: format.guide,
-    wordRange: format.wordMin && format.wordMax ? [format.wordMin, format.wordMax] : null,
+    departmentLabel: department?.label ?? null, departmentGuide: department?.guide ?? null,
+    formatLabel: format?.label ?? null, formatGuide: format?.guide ?? null,
+    wordRange: format?.wordMin && format.wordMax ? [format.wordMin, format.wordMax] : null,
     languageNames: Object.fromEntries(parts.map((part) => [part, optionLabel(settings.languages, part)])),
     styleLabel: findOption(settings.styles, brief.style)?.label ?? null,
   };
   if (brief.categoryId) {
-    const { data: category } = await supabase.from("content_categories").select("name, guide").eq("workspace_id", account.workspaceId).eq("id", brief.categoryId).maybeSingle();
+    const { data: category } = await (await createClient()).from("content_categories").select("name, guide").eq("workspace_id", workspaceId).eq("id", brief.categoryId).maybeSingle();
     const row = category as { name: string; guide: string | null } | null;
-    withCategory = { ...withCategory, categoryName: row?.name ?? null, categoryGuide: row?.guide ?? null };
+    enriched = { ...enriched, categoryName: row?.name ?? null, categoryGuide: row?.guide ?? null };
   }
-  after(() => runContentBatch({ batchId, workspaceId: account.workspaceId, userId: account.userId, brief: withCategory, model }));
-  revalidatePath("/content");
-  return { ok: true, batchId };
+  return enriched;
 }

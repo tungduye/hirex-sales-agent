@@ -30,3 +30,15 @@ test('score prefers the right length and less similarity', () => {
   const close = scoreDraft({ title: '[HÀ NỘI] BRSE JAVA – LƯƠNG 50M', body: body(100), similarity: 0.45 }, input);
   assert.ok(good > long && good > close);
 });
+
+test('pre-save check: length far outside the range, invented salary', async () => {
+  const { draftProblem, inventedMoney } = await import('../src/modules/content/core/content-quality.ts');
+  const words = (n) => Array.from({ length: n }, () => 'chữ').join(' ');
+  const base = { wordRange: [80, 120], languageCount: 1, facts: 'Lương 50 - 65M gross, N2', isComment: false };
+  assert.equal(draftProblem({ title: 'A', body: words(100) }, base), null);
+  assert.equal(draftProblem({ title: 'A', body: words(30) }, base), 'TOO_SHORT');
+  assert.equal(draftProblem({ title: 'A', body: words(200) }, base), 'TOO_LONG');
+  assert.equal(draftProblem({ title: 'LƯƠNG 50–65M', body: words(100) }, base), null);
+  assert.equal(draftProblem({ title: 'LƯƠNG UP TO 90M', body: words(100) }, base), 'INVENTED_MONEY');
+  assert.deepEqual(inventedMoney('offer $3,000 hoặc 800 man', 'up to 800 man'), ['3000']);
+});

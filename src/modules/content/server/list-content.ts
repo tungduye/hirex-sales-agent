@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import type { ContentBatchSummary } from "@/modules/content/core/batch-status";
 import { contentSearchPattern, normalizeContentListQuery, type ContentListQuery } from "@/modules/content/core/content-list-query";
@@ -23,6 +24,11 @@ export interface ContentListItem {
   templateCode: string | null;
   /** Already used by a campaign (each content serves one campaign). */
   used: boolean;
+  /** "Đã đăng ở…" marks, newest first. */
+  posts: Array<{ id: string; channel: string; place: string; postedAt: string; postedByName: string | null }>;
+  copyCount: number;
+  /** Made for a job of Bảng Job that is no longer open. */
+  jobClosed: boolean;
 }
 
 export interface ListContentResult {
@@ -44,6 +50,7 @@ interface BatchRow {
 interface ContentRow {
   id: string; code: string; title: string; body: string; job_title: string; content_language: string; content_format: string;
   department: string; category_id: string | null; style: string; max_similarity: number | string; created_at: string; created_by: string; template_id: string | null;
+  job_id: string | null; copy_count: number;
 }
 
 export async function listContent(raw: Record<string, string | string[] | undefined> = {}): Promise<ListContentResult> {
@@ -54,7 +61,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
   const supabase = await createClient();
   let itemsQuery = supabase
     .from("content_items")
-    .select("id, code, title, body, job_title, content_language, content_format, department, category_id, style, max_similarity, created_at, created_by, template_id", { count: "exact" })
+    .select("id, code, title, body, job_title, content_language, content_format, department, category_id, style, max_similarity, created_at, created_by, template_id, job_id, copy_count", { count: "exact" })
     .eq("workspace_id", account.workspaceId);
   const pattern = contentSearchPattern(query.q);
   if (pattern) itemsQuery = itemsQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
@@ -103,6 +110,27 @@ export async function listContent(raw: Record<string, string | string[] | undefi
     for (const usage of (data ?? []) as { content_item_id: string }[]) usedIds.add(usage.content_item_id);
   }
 
+  const posts = new Map<string, ContentListItem["posts"]>();
+  if (rows.length > 0) {
+    const { data } = await supabase.from("content_item_posts").select("id, content_item_id, channel, place, posted_at, posted_by").eq("workspace_id", account.workspaceId)
+      .in("content_item_id", rows.map((row) => row.id)).order("posted_at", { ascending: false }).limit(500);
+    const posterIds = [...new Set((data ?? []).flatMap((post) => typeof post.posted_by === "string" && !names.has(post.posted_by) ? [post.posted_by] : []))];
+    if (posterIds.length) {
+      const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", posterIds);
+      for (const profile of (people ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
+    }
+    for (const post of (data ?? []) as Array<{ id: string; content_item_id: string; channel: string; place: string; posted_at: string; posted_by: string | null }>) {
+      posts.set(post.content_item_id, [...(posts.get(post.content_item_id) ?? []), { id: post.id, channel: post.channel, place: post.place, postedAt: post.posted_at, postedByName: post.posted_by ? names.get(post.posted_by) ?? null : null }]);
+    }
+  }
+  // Job status needs no jobs.view: only whether the job is still open.
+  const jobIds = [...new Set(rows.flatMap((row) => row.job_id ? [row.job_id] : []))];
+  const closedJobs = new Set<string>();
+  if (jobIds.length > 0) {
+    const { data } = await createPrivilegedClient().from("recruitment_jobs").select("id, status").eq("workspace_id", account.workspaceId).in("id", jobIds);
+    for (const job of (data ?? []) as { id: string; status: string }[]) if (job.status !== "OPEN") closedJobs.add(job.id);
+  }
+
   const templateIds = [...new Set(rows.flatMap((row) => row.template_id ? [row.template_id] : []))];
   const templateCodes = new Map<string, string>();
   if (templateIds.length > 0) {
@@ -127,6 +155,9 @@ export async function listContent(raw: Record<string, string | string[] | undefi
       createdByName: names.get(row.created_by) ?? null,
       templateCode: row.template_id ? templateCodes.get(row.template_id) ?? null : null,
       used: usedIds.has(row.id),
+      posts: posts.get(row.id) ?? [],
+      copyCount: Number(row.copy_count ?? 0),
+      jobClosed: Boolean(row.job_id && closedJobs.has(row.job_id)),
     })),
     batches,
     total: itemsResult.count ?? rows.length,

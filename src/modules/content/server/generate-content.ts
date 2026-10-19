@@ -2,7 +2,7 @@ import "server-only";
 
 import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
 import type { ContentBrief } from "@/modules/content/core/content-options";
-import { buildContentRequest, buildTemplateItemRequest, parseGeneratedBatch, type ContentRoundInput, type GeneratedItem } from "@/modules/content/core/content-prompt";
+import { buildContentRequest, buildRewriteRequest, buildTemplateItemRequest, parseGeneratedBatch, type ContentBriefWithCategory, type ContentRoundInput, type GeneratedItem } from "@/modules/content/core/content-prompt";
 import type { TemplateSample } from "@/modules/content/core/template-plan";
 
 export function contentModel() {
@@ -42,5 +42,11 @@ export function generateContentRound(input: ContentRoundInput & { model: string 
 /** One draft written closely after one sample template. */
 export async function generateFromTemplate(input: { brief: ContentBrief; template: TemplateSample; round: number; avoid: string[]; model: string }): Promise<GeneratedItem | null> {
   const items = await callModel(input.model, buildTemplateItemRequest(input));
+  return items[0] ?? null;
+}
+
+/** One rewritten version of a saved content. */
+export async function rewriteContent(input: { brief: ContentBriefWithCategory; title: string; body: string; note: string; model: string }): Promise<GeneratedItem | null> {
+  const items = await callModel(input.model, buildRewriteRequest(input));
   return items[0] ?? null;
 }

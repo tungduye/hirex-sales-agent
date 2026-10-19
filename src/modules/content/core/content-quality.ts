@@ -53,3 +53,32 @@ export function scoreDraft(draft: { title: string; body: string; similarity: num
   score += Math.max(0, 3 - draft.similarity * 6);
   return Math.round(score * 100) / 100;
 }
+
+const MONEY = /(?:\$\s?(\d[\d.,]*))|(\d[\d.,]*)\s?(?:m\b|tr\b|triệu|man\b|万|usd|\$|k\b|yên|円)/giu;
+const digits = (value: string) => value.replace(/[^\d]/gu, "").replace(/^0+/u, "");
+
+/** Money figures in the draft that the brief never gave (a made-up salary). */
+export function inventedMoney(text: string, facts: string) {
+  const known = new Set([...facts.matchAll(/\d[\d.,]*/gu)].map((match) => digits(match[0])).filter(Boolean));
+  const found: string[] = [];
+  for (const match of text.matchAll(MONEY)) {
+    const value = digits(match[1] ?? match[2] ?? "");
+    if (value && !known.has(value)) found.push(value);
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * Last check before a draft is saved (the batch then writes a replacement): length clearly outside the
+ * format's range, or a salary figure not in the brief. Returns the reason, or null when it passes.
+ */
+export function draftProblem(draft: { title: string; body: string }, input: { wordRange: [number, number] | null; languageCount: number; facts: string; isComment: boolean }) {
+  if (input.wordRange && !input.isComment) {
+    const [min, max] = input.wordRange.map((value) => value * input.languageCount);
+    const words = wordCount(draft.body);
+    if (words < min * 0.6) return "TOO_SHORT";
+    if (words > max * 1.5) return "TOO_LONG";
+  }
+  if (inventedMoney(`${draft.title}\n${draft.body}`, input.facts).length > 0) return "INVENTED_MONEY";
+  return null;
+}

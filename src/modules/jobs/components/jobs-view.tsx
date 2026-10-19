@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, BriefcaseBusiness, Download, EyeOff, FileUp, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, BriefcaseBusiness, Download, EyeOff, FileUp, Plus, Search, Sparkles, X } from "lucide-react";
+import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { CAREER_TRACKS, isStale, JAPANESE_LEVELS, JOB_PRIORITY_LABEL, JOB_STATUS_LABEL, JOB_STATUSES, locationGroup, WORK_MODES, type Job, type JobStatus } from "../core/job-fields";
 import { importJobs, saveJob, setJobStatus, type JobActionState, type JobImportResult } from "../server/job-actions";
@@ -15,7 +16,7 @@ function ago(iso: string, now: number) {
   return days <= 0 ? "Hôm nay" : days === 1 ? "Hôm qua" : days < 30 ? `${days} ngày trước` : `${Math.floor(days / 30)} tháng trước`;
 }
 
-export function JobsView({ jobs, canManage, members }: { jobs: Job[]; canManage: boolean; members: Array<{ id: string; name: string }> }) {
+export function JobsView({ jobs, canManage, members, canCreateContent = false }: { jobs: Job[]; canManage: boolean; members: Array<{ id: string; name: string }>; canCreateContent?: boolean }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<JobStatus | "ALL">("OPEN");
   const [track, setTrack] = useState("");
@@ -60,7 +61,7 @@ export function JobsView({ jobs, canManage, members }: { jobs: Job[]; canManage:
         <table className="w-full min-w-[960px] text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500"><tr>
             <th className="px-3 py-2.5">Mã</th><th className="px-3 py-2.5">Vị trí</th><th className="px-3 py-2.5">Công ty</th><th className="px-3 py-2.5">Địa điểm</th>
-            <th className="px-3 py-2.5">Tiếng Nhật</th><th className="px-3 py-2.5">Lương</th><th className="px-3 py-2.5">Trạng thái</th><th className="px-3 py-2.5">Cập nhật</th>
+            <th className="px-3 py-2.5">Tiếng Nhật</th><th className="px-3 py-2.5">Lương</th><th className="px-3 py-2.5">Trạng thái</th><th className="px-3 py-2.5">Cập nhật</th>{canCreateContent && <th className="px-3 py-2.5"><span className="sr-only">Content</span></th>}
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {visible.map((job) => <tr key={job.id} onClick={() => setEditing(job)} className="cursor-pointer hover:bg-blue-50/40">
@@ -72,6 +73,7 @@ export function JobsView({ jobs, canManage, members }: { jobs: Job[]; canManage:
               <td className="px-3 py-2.5 text-slate-700">{job.salaryRange ?? "—"}</td>
               <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>{canManage ? <StatusSelect job={job}/> : <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[job.status]}`}>{JOB_STATUS_LABEL[job.status]}</span>}</td>
               <td className={`whitespace-nowrap px-3 py-2.5 text-xs ${job.status === "OPEN" && isStale(job.updatedAt, now) ? "font-semibold text-amber-700" : "text-slate-500"}`}>{ago(job.updatedAt, now)}{job.ownerName ? <p className="text-slate-400">{job.ownerName}</p> : null}</td>
+              {canCreateContent && <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>{job.status === "OPEN" && <Link href={`/content/new?job=${job.id}`} title="Tạo content đăng tuyển cho job này" className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Sparkles className="size-3.5"/>Tạo content</Link>}</td>}
             </tr>)}
           </tbody>
         </table>
