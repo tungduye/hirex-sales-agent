@@ -1,7 +1,8 @@
 "use client";
 
 import { Pencil, Route, X } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { FACT_FIELDS, flowSummary, REC_OUTCOME_LABEL, REC_OUTCOMES, REC_STEPS, type RecFlowState } from "../core/rec-flow";
 import { loadRecFlow, saveRecFlow } from "../server/rec-flow-actions";
 
@@ -13,10 +14,20 @@ export type RecFlowEventDetail = { conversationId: string; state: RecFlowState }
 export function RecFlowBar({ conversationId }: { conversationId: string }) {
   const [state, setState] = useState<RecFlowState | null>(null);
   const [editing, setEditing] = useState(false);
+  const router = useRouter();
+  const outcomeRef = useRef<RecFlowState["outcome"] | undefined>(undefined);
+  // A new outcome tags the chat (and on a CV assigns it and opens a care task): refresh so the panel shows it.
+  const show = (next: RecFlowState | null, saved: boolean) => {
+    if (saved && next && outcomeRef.current !== undefined && next.outcome !== outcomeRef.current) router.refresh();
+    outcomeRef.current = next?.outcome ?? null;
+    setState(next);
+  };
+  const showRef = useRef(show);
+  useEffect(() => { showRef.current = show; });
   useEffect(() => {
     let live = true;
-    loadRecFlow(conversationId).then((value) => { if (live) setState(value); }).catch(() => {});
-    const onEvent = (event: Event) => { const detail = (event as CustomEvent<RecFlowEventDetail>).detail; if (detail?.conversationId === conversationId) setState(detail.state); };
+    loadRecFlow(conversationId).then((value) => { if (live) showRef.current(value, false); }).catch(() => {});
+    const onEvent = (event: Event) => { const detail = (event as CustomEvent<RecFlowEventDetail>).detail; if (detail?.conversationId === conversationId) showRef.current(detail.state, true); };
     window.addEventListener(REC_FLOW_EVENT, onEvent);
     return () => { live = false; window.removeEventListener(REC_FLOW_EVENT, onEvent); };
   }, [conversationId]);
@@ -32,7 +43,7 @@ export function RecFlowBar({ conversationId }: { conversationId: string }) {
       {summary.outcome ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">{summary.outcome}</span> : null}
       <button type="button" onClick={() => setEditing((open) => !open)} className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-semibold text-indigo-700 hover:bg-indigo-100" title="Sửa bước hoặc thông tin ứng viên nếu AI hiểu sai"><Pencil className="size-3"/>Sửa</button>
     </div>
-    {editing ? <FlowEditor conversationId={conversationId} state={state} onSaved={(next) => { setState(next); setEditing(false); }} onClose={() => setEditing(false)}/> : null}
+    {editing ? <FlowEditor conversationId={conversationId} state={state} onSaved={(next) => { show(next, true); setEditing(false); }} onClose={() => setEditing(false)}/> : null}
   </div>;
 }
 

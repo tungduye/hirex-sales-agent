@@ -233,7 +233,9 @@
     ".next-bang-job/types/**/*.ts",
     ".next-bang-job/dev/types/**/*.ts",
     ".next-luong-rec/types/**/*.ts",
-    ".next-luong-rec/dev/types/**/*.ts"
+    ".next-luong-rec/dev/types/**/*.ts",
+    ".next-luong-rec-2/types/**/*.ts",
+    ".next-luong-rec-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyHolaResult, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, holaInstructions, jobsForPrompt, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
+import { applyHolaResult, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, careTaskTitle, holaInstructions, holeInstructions, jobsForPrompt, OUTCOME_TAGS, REC_OUTCOMES, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
 
 const J1 = '11111111-1111-4111-8111-111111111111', J2 = '22222222-2222-4222-8222-222222222222', J3 = '33333333-3333-4333-8333-333333333333';
 const job = (id, code, location, track, extra = {}) => ({ id, code, title: `${track} job`, careerTrack: track, companyName: `Cty ${code}`, companyNamePublic: true, location,
@@ -53,4 +53,22 @@ test('the schema and instructions carry the approved rules', () => {
   assert.match(text, /CHO_UNG_VIEN_TRA_LOI = true/);
   assert.match(text, /xưng chị thì gọi chị/);
   assert.match(text, /Tiếng Nhật hiện tại của anh khoảng N mấy rồi ạ, anh đã từng sống hoặc làm việc ở Nhật lâu chưa anh/);
+});
+
+test('Hole keeps the shared voice, data and output rules but is free to reorder and asks for the CV', () => {
+  const hole = holeInstructions(), hola = holaInstructions();
+  assert.match(hole, /^Bạn là Hole/);
+  for (const part of ['NỐI TIẾP', 'GIỌNG', 'DỮ LIỆU', 'AN TOÀN', 'ĐẦU RA']) assert.ok(hole.includes(part), part);
+  assert.match(hole, /NHẬN CV/);
+  assert.ok(!hole.includes('Câu mẫu'), 'Hole does not read the script lines');
+  assert.notEqual(hole, hola);
+});
+
+test('every outcome has tags; a CV means "Chờ REC care"; care task titles are bounded', () => {
+  for (const outcome of REC_OUTCOMES) assert.ok(OUTCOME_TAGS[outcome].length > 0 && OUTCOME_TAGS[outcome].every((tag) => /^#[0-9A-F]{6}$/i.test(tag.color)));
+  assert.deepEqual(OUTCOME_TAGS.CV_RECEIVED.map((tag) => tag.name), ['Đã có CV', 'Chờ REC care']);
+  assert.equal(OUTCOME_TAGS.NEED_OTHER_JOB[0].name, 'Cần job khác');
+  assert.equal(careTaskTitle(' Cao Thị Thu Thảo '), 'Care CV: Cao Thị Thu Thảo');
+  assert.equal(careTaskTitle(null), 'Care CV: ứng viên');
+  assert.equal(careTaskTitle('x'.repeat(500)).length, 240);
 });

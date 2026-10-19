@@ -6,12 +6,15 @@ import { canAccessChannelAccount, hasPermission, isWorkspaceAdmin } from "@/modu
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { draftReply } from "@/modules/assistant/server/reply-engine";
 import { assistantModel } from "@/modules/assistant/server/run-assistant-request";
+import type { RecFlowState } from "@/modules/rec-flow/core/rec-flow";
+import { draftRecReply } from "@/modules/rec-flow/server/rec-draft";
+import { flowConversation } from "@/modules/rec-flow/server/rec-flow-store";
 
 // "Hole" button in the Suối Nguồn composer: a careful draft from the shared reply engine. Same checks as
 // "Hola" (reply permission + access to the conversation's account). Not counted in the Trợ lý daily
 // limit; a short per-member burst limit keeps double clicks and loops from running up cost.
 
-export interface HoleDraftResult { draftText: string | null; message: string }
+export interface HoleDraftResult { draftText: string | null; message: string; /** Rec flow state to save once the draft is sent (one-to-one candidate chats). */ flow?: RecFlowState }
 const schema = z.object({ conversationId: z.string().uuid(), instruction: z.string().max(1000).refine((value) => !value.includes("\u0000")) });
 const recent = new Map<string, number[]>();
 const PER_MINUTE = 6;
@@ -34,6 +37,12 @@ export async function generateHoleDraft(input: { conversationId: string; instruc
   recent.set(key, [...calls, now]);
 
   try {
+    // One-to-one Zalo/Facebook chat with a candidate: Hole works the Rec flow freely, pulling toward the CV.
+    const flowScope = await flowConversation(parsed.data.conversationId, "inbox.reply");
+    if (flowScope) {
+      const flowResult = await draftRecReply({ scope: flowScope, instruction: parsed.data.instruction, mode: "hole", apiKey, model });
+      return flowResult.ok ? { draftText: flowResult.draft, message: "Hole đã soạn nháp, sửa lại rồi bấm Gửi.", flow: flowResult.flow } : { draftText: null, message: flowResult.message };
+    }
     const result = await draftReply({
       conversationId: parsed.data.conversationId, instruction: parsed.data.instruction,
       context: { workspaceId: account.workspaceId, userId: account.userId, permissions: account.permissions, isAdmin: await isWorkspaceAdmin() },

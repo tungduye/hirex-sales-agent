@@ -10,7 +10,7 @@ import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "
 import type { ChannelType } from "../core/channel-contracts";
 import { approveChannelMessage,cancelPendingManualChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage,sendZaloFileReply } from "../server/channel-actions";
 import { generateOmnichannelDraft } from "../server/omnichannel-ai-actions";
-import { generateHoleDraft } from "@/modules/assistant/server/hole-draft-action";
+import { generateHoleDraft, type HoleDraftResult } from "@/modules/assistant/server/hole-draft-action";
 import type { ChannelActionState } from "../types/channel-action-state";
 import type { QuickReplyTemplate } from "../types/quick-reply";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
@@ -143,7 +143,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     startDrafting(async()=>{
       let draft:string|null=null,message:string|null=null;
       if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow??null;}
-      else{pendingFlowRef.current=null;const result=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;}
+      else{const result:HoleDraftResult=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow??null;}
       setDrafter(null);
       if(draft){setBeforeDraft(text);updateText(draft);setHint(`${name} đã soạn nháp${splitParts(draft).length>1?", mỗi đoạn ngăn bởi dòng --- là một tin riêng":""}; sửa lại rồi bấm Gửi.`);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
       else setHint(message??`${name} chưa soạn được, anh/chị thử lại sau.`);
