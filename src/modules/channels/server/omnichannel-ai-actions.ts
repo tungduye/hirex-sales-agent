@@ -51,7 +51,7 @@ async function holaFlowDraft(scope:FlowScope,instruction:string,apiKey:string,mo
   try{
     const response=await postOpenAIResponse({apiKey,timeoutMs:45_000,body:{model,max_output_tokens:1500,instructions:holaInstructions(),
       input:JSON.stringify({TRANG_THAI:{buocHienTai:state.step,daBiet:state.facts,jobDaGioiThieu:offered,soJobBiTuChoi:state.rejectedJobs.length,ketQua:state.outcome},
-        JOBS:jobsForPrompt(jobs,state),CUOC_CHAT:chat,Y_CUA_NHAN_VIEN:instruction||null}).slice(0,60000),
+        JOBS:jobsForPrompt(jobs,state),CUOC_CHAT:chat,CHO_UNG_VIEN_TRA_LOI:chat.at(-1)?.from==="Recruiter",Y_CUA_NHAN_VIEN:instruction||null}).slice(0,60000),
       text:{format:{type:"json_schema",name:"hola_rec_draft",strict:true,schema:HOLA_RESULT_SCHEMA}}}});
     if(!response.ok)return{status:"error",message:"Không kết nối được Hola, thử lại sau.",draftText:null};
     const raw=responseOutputText(await response.json()).trim();

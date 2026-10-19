@@ -50,6 +50,7 @@ test('the schema and instructions carry the approved rules', () => {
   assert.deepEqual(HOLA_RESULT_SCHEMA.required, ['step', 'facts', 'offeredJobCode', 'rejectedJobCode', 'rejectReason', 'outcome', 'parts']);
   const text = holaInstructions();
   assert.match(text, /Không emoji/);
+  assert.match(text, /CHO_UNG_VIEN_TRA_LOI = true/);
   assert.match(text, /xưng chị thì gọi chị/);
   assert.match(text, /Tiếng Nhật hiện tại của anh khoảng N mấy rồi ạ, anh đã từng sống hoặc làm việc ở Nhật lâu chưa anh/);
 });
