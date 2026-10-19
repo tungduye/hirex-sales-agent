@@ -213,7 +213,9 @@
     ".next-group-merge-5/types/**/*.ts",
     ".next-group-merge-5/dev/types/**/*.ts",
     ".next-zalo-files/types/**/*.ts",
-    ".next-zalo-files/dev/types/**/*.ts"
+    ".next-zalo-files/dev/types/**/*.ts",
+    ".next-zalo-files-2/types/**/*.ts",
+    ".next-zalo-files-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
