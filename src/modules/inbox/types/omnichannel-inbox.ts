@@ -1,3 +1,4 @@
+import type { MessageReaction } from "@/modules/channels/core/zalo-reactions";
 import type { ZaloSendLock } from "@/modules/channels/core/send-locks";
 import type { ChannelAccountStatus, ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { ConversationStatus, TakeoverMode } from "@/modules/channels/core/conversation-policy";
@@ -99,6 +100,8 @@ export interface OmnichannelInboxMessage {
   deliveryStatus: "RECEIVED" | "PENDING" | "SENDING" | "SENT" | "DELIVERY_UNKNOWN" | "FAILED" | "BLOCKED";
   actionId?: string;
   reconciliationStatus?: "NONE" | "NEEDS_REVIEW" | "ACKNOWLEDGED_NO_RETRY";
+  /** Zalo reactions this nick sees on the message. */
+  reactions?: MessageReaction[];
 }
 
 export interface OmnichannelConversationDetail {

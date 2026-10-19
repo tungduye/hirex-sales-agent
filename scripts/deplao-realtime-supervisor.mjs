@@ -190,6 +190,8 @@ async function main() {
       // Frees nicks locked by a "delivery unknown" send and tells HireX which nicks are still locked.
       if (existsSync(path.join(root, "scripts/reconcile-zalo-send-locks.mjs")))
         schedule("send-lock-reconcile", "reconcile-zalo-send-locks.mjs", ["--once"], 120000);
+      if (existsSync(path.join(root, "scripts/sync-zalo-reactions.mjs")))
+        schedule("reaction-sync", "sync-zalo-reactions.mjs", ["--once"], 120000);
       if (existsSync(path.join(stateRoot, "zalo-media-sync-authorized")))
         schedule("attachment-sync", "sync-zalo-live-attachments.mjs");
     }

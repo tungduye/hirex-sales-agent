@@ -20,6 +20,7 @@ const SEND_PATH="/v1/messages/send";
 const RECONCILE_PATH="/v1/deliveries/reconcile";
 const FIND_BY_PHONE_PATH="/v1/zalo/users/find-by-phone";
 const FRIEND_REQUEST_PATH="/v1/zalo/friend-requests/send";
+const REACT_PATH="/v1/messages/react";
 const SEND_TIMEOUT_MS=20_000;
 
 export type ZaloWebhookDiagnosticCode =
@@ -235,6 +236,13 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       !(result.avatarUrl === null || typeof result.avatarUrl === "string") || typeof result.isFriend !== "boolean")
       throw new ChannelError("ACCOUNT_UNAVAILABLE", false);
     return { userId: result.userId, displayName: result.displayName, avatarUrl: result.avatarUrl as string | null, isFriend: result.isFriend };
+  }
+
+  /** A person's quick reaction (HEART, LIKE, ...) to one message of this nick's chat. True when Zalo took it. */
+  async addReaction(input: { threadId: string; threadType: "USER" | "GROUP"; messageId: string; icon: string }, idempotencyKey: string) {
+    if (!isString(input.threadId, 512) || !/^[1-9][0-9]{0,39}$/u.test(input.messageId) || !isString(idempotencyKey)) throw new ChannelError("DELIVERY_REJECTED", false);
+    const result = await this.contactRequest(REACT_PATH, { threadId: input.threadId, threadType: input.threadType, messageId: input.messageId, icon: input.icon }, idempotencyKey);
+    return result.status === "REACTED";
   }
 
   async sendFriendRequest(userId: string, message: string, idempotencyKey: string) {

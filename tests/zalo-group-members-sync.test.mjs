@@ -42,3 +42,22 @@ test('missing names come from the same nick\'s friends or contacts, and recent w
   const extras = selectRecentSendersOutsideList(db, '100', 0);
   assert.deepEqual(extras.map((r) => [r.group_id, r.member_id, r.display_name]), [['900', '14', 'Người ngoài danh sách']]);
 });
+
+test('a writer this nick cannot name is named through another of our nicks that saw the same message', async () => {
+  const { selectCrossNickSenders } = await import('../scripts/lib/zalo-group-members.mjs');
+  const db = new DatabaseSync(':memory:');
+  db.exec(`create table page_group_member (id integer primary key autoincrement, owner_zalo_id text, group_id text, member_id text, display_name text, avatar text, role integer, updated_at integer);
+    create table friends (owner_zalo_id text, user_id text, display_name text, avatar text);
+    create table contacts (owner_zalo_id text, contact_id text, display_name text, avatar_url text);
+    create table accounts (zalo_id text, full_name text, avatar_url text);
+    create table messages (id integer primary key, msg_id text, owner_zalo_id text, thread_id text, thread_type integer, sender_id text, is_sent integer, timestamp integer, channel text);
+    insert into accounts values ('FLORA','Flora',''),('STELLA','Stella Nguyen','https://a/stella.jpg'),('NHUNG','Hồng Nhung','');
+    -- Stella wrote m1: Stella's copy is sent; Flora sees it from id 79.
+    insert into messages(msg_id,owner_zalo_id,thread_id,thread_type,sender_id,is_sent,timestamp,channel) values
+      ('m1','STELLA','g-s',1,'STELLA',1,1000,'zalo'),('m1','FLORA','g-f',1,'79',0,1000,'zalo'),
+      ('m2','NHUNG','g-n',1,'555',0,2000,'zalo'),('m2','FLORA','g-f',1,'88',0,2000,'zalo'),
+      ('m3','FLORA','g-f',1,'99',0,3000,'zalo');
+    insert into page_group_member(owner_zalo_id,group_id,member_id,display_name,avatar,role,updated_at) values('NHUNG','g-n','555','Leonard','',0,1)`);
+  const rows = selectCrossNickSenders(db, 'FLORA', 0).map((row) => [row.group_id, row.member_id, row.display_name, row.avatar]);
+  assert.deepEqual(rows, [['g-f', '79', 'Stella Nguyen', 'https://a/stella.jpg'], ['g-f', '88', 'Leonard', '']]);
+});

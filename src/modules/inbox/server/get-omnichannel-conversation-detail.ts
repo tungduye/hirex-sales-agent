@@ -13,6 +13,7 @@ import type { OmnichannelConversationDetail, OmnichannelConversationDetailResult
 import { canAccessChannelAccount } from "@/modules/access/server/access-control";
 import { normalizeGroupName, oneCopyPerNick } from "../core/group-merge";
 import type { ZaloSendLock } from "@/modules/channels/core/send-locks";
+import { toMessageReactions, type MessageReaction } from "@/modules/channels/core/zalo-reactions";
 
 // Loading hundreds of messages and action rows on every realtime refresh makes
 // active inboxes feel sluggish. Older history remains available through the
@@ -261,6 +262,16 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
         messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : []))])
     : [[], {}];
+  // Reactions (❤️ 👍 ...) this nick sees on these messages (synced from Deplao by sync-zalo-reactions.mjs).
+  if (channelType === "ZALO") {
+    const ids = [...new Set(messages.map((message) => message.providerMessageId).filter((id) => /^[0-9]{1,40}$/u.test(id)))];
+    if (ids.length > 0) {
+      const { data: reactionRows } = await accountClient.from("zalo_message_reactions").select("provider_message_id,summary,mine")
+        .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", ids.slice(0, 500));
+      const byId = new Map<string, MessageReaction[]>((reactionRows ?? []).map((reaction): [string, MessageReaction[]] => [String(reaction.provider_message_id), toMessageReactions(reaction.summary, reaction.mine)]));
+      for (const message of messages) { const reactions = byId.get(message.providerMessageId); if (reactions?.length) message.reactions = reactions; }
+    }
+  }
   // A nick locked by an unsettled send cannot send; the composer says so (see reconcile-zalo-send-locks.mjs).
   const lockRow = channelType === "ZALO"
     ? (await accountClient.from("zalo_account_send_locks").select("reason,locked_since,auto_release_at,conversation_id")

@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { acquireRecentLock, saveRecentState } from "./lib/zalo-recent-reconciliation.mjs";
-import { mapGroupMemberRow, selectChangedMembers, selectRecentSendersOutsideList } from "./lib/zalo-group-members.mjs";
+import { mapGroupMemberRow, selectChangedMembers, selectCrossNickSenders, selectRecentSendersOutsideList } from "./lib/zalo-group-members.mjs";
 import { existsSync, readFileSync } from "node:fs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,8 +67,14 @@ async function main() {
         if (rows.length < 2000) break;
       }
       // Recent writers missing from the member list (90 days), named from friends/contacts.
-      const extras = selectRecentSendersOutsideList(database, account.external_account_id, Date.now() - 90 * 86_400_000)
-        .map((row) => mapGroupMemberRow(row, account)).filter(Boolean);
+      // ...and writers named through another of our nicks in the same group (our nicks see each other this way).
+      const since = Date.now() - 90 * 86_400_000;
+      const byMember = new Map();
+      for (const row of [...selectRecentSendersOutsideList(database, account.external_account_id, since), ...selectCrossNickSenders(database, account.external_account_id, since)]) {
+        const mapped = mapGroupMemberRow(row, account);
+        if (mapped) byMember.set(`${mapped.group_id}:${mapped.member_id}`, mapped);
+      }
+      const extras = [...byMember.values()];
       if (!dryRun) for (let index = 0; index < extras.length; index += BATCH) {
         const { error } = await client.from("zalo_group_members").upsert(extras.slice(index, index + BATCH), { onConflict: "channel_account_id,group_id,member_id" });
         if (error) throw new Error("GROUP_MEMBER_UPSERT_FAILED");
