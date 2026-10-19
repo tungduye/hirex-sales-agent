@@ -1,5 +1,6 @@
 import "server-only";
 
+import { updateTag } from "next/cache";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { canAccessChannelAccount, hasPermission } from "@/modules/access/server/access-control";
@@ -59,6 +60,8 @@ async function tagId(db: Db, workspaceId: string, tag: { name: string; color: st
   if (data?.[0]?.id) return String(data[0].id);
   const { data: created, error } = await db.from("conversation_tags").insert({ workspace_id: workspaceId, name: tag.name, color: tag.color }).select("id").single();
   if (error || !created) throw new Error("TAG_CREATE_FAILED");
+  // The inbox caches the workspace's tag list; refresh it so the new tag shows on the chat right away.
+  try { updateTag("inbox-metadata"); } catch { /* outside a server action: the cache expires within a minute */ }
   return String(created.id);
 }
 
