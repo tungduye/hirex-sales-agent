@@ -5,6 +5,8 @@ export interface CreateContentState {
   /** Codes of the items saved by the last submission, e.g. ["CT-000101", "CT-000102"]. */
   codes?: string[];
   rejected?: number;
+  /** The batch just started (the "Tạo content" screen follows it until done). */
+  batchId?: string;
 }
 
 export const initialCreateContentState: CreateContentState = { success: false, message: null };

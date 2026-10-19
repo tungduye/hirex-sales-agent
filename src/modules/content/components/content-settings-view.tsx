@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
-import { contentCodePrefix, findOption, optionsOf, suggestAbbr, wordRangeLabel, type ContentOption, type ContentSettings, type OptionKind } from "@/modules/content/core/content-settings";
+import { contentCodePrefix, findOption, OPTION_KIND_LABEL, optionsOf, suggestAbbr, wordRangeLabel, type ContentOption, type ContentSettings, type OptionKind } from "@/modules/content/core/content-settings";
 import { moveContentOption, saveContentCategory, saveContentOption, type SettingsActionResult } from "@/modules/content/server/content-settings-actions";
 
 type Tab = "DEPARTMENT" | "FORMAT" | "LANGUAGE" | "STYLE";
@@ -56,7 +56,7 @@ export function ContentSettingsView({ settings, categories, canManage }: { setti
         {TABS.map((item) => <button key={item.value} type="button" role="tab" aria-selected={tab === item.value} onClick={() => changeTab(item.value)}
           className={cn("rounded-full border px-3 py-1.5 text-sm transition-colors", tab === item.value ? "border-blue-600 bg-blue-50 font-semibold text-blue-700" : "bg-white text-slate-600 hover:bg-slate-50")}>{item.label}</button>)}
       </div>
-      <div className="grid items-start gap-4 overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)]">
         <aside className="rounded-xl border bg-white shadow-sm">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{tab === "DEPARTMENT" ? "Bộ phận" : TABS.find((item) => item.value === tab)?.label}</p>
@@ -68,7 +68,7 @@ export function ContentSettingsView({ settings, categories, canManage }: { setti
                 <div className={cn("group flex items-center gap-1 rounded-lg pr-1", isSelected(selected, option) && "bg-blue-50")}>
                   <button type="button" onClick={() => { setNotice(null); setSelected({ type: "option", kind: tab, code: option.code }); }} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm">
                     {tab === "DEPARTMENT" && <ChevronRight className="size-3.5 shrink-0 text-slate-400" />}
-                    <span className={cn("truncate font-semibold", option.active ? "text-slate-900" : "text-slate-400")}>{option.label}</span>
+                    <span className={cn("min-w-0 font-semibold leading-5", option.active ? "text-slate-900" : "text-slate-400")}>{option.label}</span>
                     {option.abbr && <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">{option.abbr}</span>}
                     {!option.active && <EyeOff className="size-3.5 shrink-0 text-slate-400" aria-label="Đã ẩn" />}
                     {tab === "FORMAT" && wordRangeLabel(option) && <span className="ml-auto shrink-0 text-xs text-slate-400">{wordRangeLabel(option)}</span>}
@@ -139,7 +139,7 @@ function OptionForm({ kind, option, settings, canManage, onSaved }: { kind: Opti
   const [active, setActive] = useState(option?.active ?? true);
   const { pending, errors, message, run } = useSave(onSaved);
   const disabled = pending || !canManage;
-  const kindLabel = TABS.find((item) => item.value === kind)?.label.split(" ")[0] ?? "";
+  const kindLabel = OPTION_KIND_LABEL[kind];
   const preview = useMemo(() => {
     if (kind === "STYLE" || !abbr) return null;
     const override = { ...settings, [kind === "DEPARTMENT" ? "departments" : kind === "FORMAT" ? "formats" : "languages"]: [{ ...(option ?? {}), code: "__", abbr } as ContentOption] };

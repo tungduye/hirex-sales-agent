@@ -2,14 +2,14 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Copy, LoaderCircle, Plus, Search, Tags, Trash2, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
 import { copyText } from "@/modules/content/components/copy-text";
 import Link from "next/link";
-import type { ContentDepartment } from "@/modules/content/core/content-options";
+import { buildContentTree, matchesFilter, NO_CATEGORY, pathKeys, type TreeFilter, type TreeNode } from "@/modules/content/core/content-tree";
 import { useContentLists } from "@/modules/content/components/content-settings-context";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
 import { initialTemplateFormState } from "@/modules/content/core/content-state";
@@ -18,109 +18,140 @@ import type { ContentTemplate } from "@/modules/content/server/template-row";
 
 const inputClass = "block w-full rounded-lg border bg-slate-50 px-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-60";
 
-type Editing = { mode: "new" } | { mode: "edit"; template: ContentTemplate } | { mode: "view"; template: ContentTemplate };
+type Editing = { mode: "new" } | { mode: "edit"; template: ContentTemplate };
+
+const FOLDER_COLORS = ["text-rose-500", "text-orange-400", "text-sky-500"];
 
 export function TemplateLibraryView({ templates, categories, loadError, canManage }: { templates: ContentTemplate[]; categories: ContentCategory[]; loadError: string | null; canManage: boolean }) {
   const router = useRouter();
-  const { allDepartments, allFormats, allLanguages, departmentLabel, formatLabel, languageLabel } = useContentLists();
-  const [department, setDepartmentState] = useState<ContentDepartment | "ALL">("ALL");
-  const [format, setFormat] = useState<string>("ALL");
-  const [category, setCategory] = useState<string>("ALL");
+  const lists = useContentLists();
+  const { allLanguages, departmentLabel, formatLabel, languageLabel } = lists;
+  const [filter, setFilter] = useState<TreeFilter>({});
   const [language, setLanguage] = useState<string>("ALL");
-  const setDepartment = (value: ContentDepartment | "ALL") => { setDepartmentState(value); setCategory("ALL"); };
-  const categoryName = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories]);
-  const categoryChoices = department === "ALL" ? categories : categoriesOf(categories, department, { includeInactive: true });
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
   const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
+  const categoryName = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories]);
 
-  const counts = useMemo(() => Object.fromEntries(allDepartments.map((item) => [item.value, templates.filter((template) => template.department === item.value && template.active).length])), [templates, allDepartments]);
-  const visible = useMemo(() => {
+  // Search, language and status narrow the whole tree; the folder picks within it.
+  const searched = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("vi");
-    return templates.filter((template) =>
-      (department === "ALL" || template.department === department)
-      && (format === "ALL" || (template.format ?? "POST_LONG") === format)
-      && (category === "ALL" || (category === "NONE" ? !template.categoryId : template.categoryId === category))
-      && (language === "ALL" || template.language === language)
+    return templates.filter((template) => (language === "ALL" || template.language === language)
       && (status === "ALL" || (status === "ACTIVE") === template.active)
-      && (!needle || [template.code, template.groupName, template.tags, template.body].some((value) => value?.toLocaleLowerCase("vi").includes(needle))));
-  }, [templates, department, format, category, language, status, search]);
+      && (!needle || [template.code, template.groupName, template.tags, template.body, template.note].some((value) => value?.toLocaleLowerCase("vi").includes(needle))));
+  }, [templates, language, status, search]);
+  const entries = useMemo(() => searched.map((template) => ({ department: template.department, categoryId: template.categoryId ?? null, format: template.format ?? null })), [searched]);
+  const tree = useMemo(() => buildContentTree(entries, { departments: lists.settings.departments, formats: lists.settings.formats, categories }), [entries, lists.settings, categories]);
+  const visible = useMemo(() => searched.filter((template) => matchesFilter({ department: template.department, categoryId: template.categoryId ?? null, format: template.format ?? null }, filter)), [searched, filter]);
+  const selected = visible.find((template) => template.id === selectedId) ?? visible[0] ?? null;
 
-  const done = useCallback((message: string) => {
-    setEditing(null);
-    setNotice(message);
-    router.refresh();
-  }, [router]);
+  function choose(next: TreeFilter, key?: string) {
+    setFilter(next); setSelectedId(null);
+    if (key) setOpened((current) => new Set([...current, ...pathKeys(next), key]));
+  }
+  function toggle(key: string) { setOpened((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
+  const done = useCallback((message: string) => { setEditing(null); setNotice(message); router.refresh(); }, [router]);
+  const isActive = (node: TreeNode) => node.filter.department === filter.department && node.filter.category === filter.category && node.filter.format === filter.format;
+  const folderName = filter.format ? formatLabel(filter.format) : filter.category ? (filter.category === NO_CATEGORY ? "Chưa phân loại" : categoryName.get(filter.category) ?? "") : filter.department ? departmentLabel(filter.department) : "Tất cả mẫu";
 
-  const addButton = canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" asChild><Link href="/content/settings"><Tags className="size-4" />Bộ phận & Phân loại</Link></Button><Button onClick={() => { setNotice(null); setEditing({ mode: "new" }); }}><Plus className="size-4" />Thêm mẫu</Button></div> : undefined;
-  const selectClass = "h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none";
+  function node(item: TreeNode): ReactNode {
+    const expanded = opened.has(item.key);
+    return <li key={item.key}>
+      <div className={cn("flex items-center rounded", isActive(item) && "bg-indigo-100")}>
+        {item.children.length > 0
+          ? <button type="button" aria-label={expanded ? "Thu" : "Mở"} aria-expanded={expanded} onClick={() => toggle(item.key)} className="rounded p-1 text-slate-400 hover:text-slate-700"><ChevronRight className={cn("size-3", expanded && "rotate-90")} /></button>
+          : <span className="w-5" />}
+        <button type="button" onClick={() => choose(item.filter, item.key)} className={cn("flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-left text-xs", isActive(item) ? "font-semibold text-indigo-800" : "text-slate-700", item.hidden && "opacity-60")}>
+          {item.depth < 2 ? <Folder className={cn("size-3.5 shrink-0", FOLDER_COLORS[item.depth])} /> : <FileText className="size-3.5 shrink-0 text-slate-400" />}
+          <span className={cn("truncate", item.depth === 0 && "font-medium")}>{item.label}</span>
+          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-slate-400">{item.count}</span>
+        </button>
+      </div>
+      {expanded && item.children.length > 0 && <ul className="ml-3 border-l border-dotted border-slate-300 pl-1">{item.children.map(node)}</ul>}
+    </li>;
+  }
+
+  const addButton = canManage ? <Button onClick={() => { setNotice(null); setEditing({ mode: "new" }); }}><Plus className="size-4" />Thêm mẫu</Button> : undefined;
+  const selectClass = "h-9 rounded-lg border bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none";
 
   return (
     <>
       <PageHeader title="Kho content" description="Kho mẫu: các bài mẫu để AI học giọng văn, bố cục và CTA khi tạo content. Dữ kiện trong mẫu không bao giờ được dùng lại." action={addButton} />
       <ContentTabs active="/content/templates" />
       {notice && <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700" role="status">{notice}</div>}
-      {loadError ? (
-        <div className="rounded-xl border border-rose-200 bg-white p-8 text-center text-sm text-rose-700 shadow-sm">{loadError}</div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b p-4">
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Bộ phận">
-              {[{ value: "ALL", label: "Tất cả" }, ...allDepartments].map((item) => (
-                <button key={item.value} type="button" role="tab" aria-selected={department === item.value} onClick={() => setDepartment(item.value)}
-                  className={cn("rounded-full border px-3 py-1.5 text-sm transition-colors", department === item.value ? "border-blue-600 bg-blue-50 font-semibold text-blue-700" : "bg-white text-slate-600 hover:bg-slate-50")}>
-                  {item.label}{item.value !== "ALL" && <span className="ml-1.5 text-xs text-slate-400">{counts[item.value]}</span>}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <select aria-label="Định dạng" value={format} onChange={(event) => setFormat(event.target.value)} className={selectClass}>
-                <option value="ALL">Mọi định dạng</option>{allFormats.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-              <select aria-label="Phân loại" value={category} onChange={(event) => setCategory(event.target.value)} className={selectClass}>
-                <option value="ALL">Mọi phân loại</option><option value="NONE">Chưa phân loại</option>
-                {categoryChoices.map((item) => <option key={item.id} value={item.id}>{department === "ALL" ? `${departmentLabel(item.department)} · ` : ""}{item.name}{item.active ? "" : " (đã ẩn)"}</option>)}
-              </select>
-              <select aria-label="Ngôn ngữ" value={language} onChange={(event) => setLanguage(event.target.value)} className={selectClass}>
-                <option value="ALL">Mọi ngôn ngữ</option>{allLanguages.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Tìm theo mã, nhóm, tag, nội dung…" /></div>
-              <select aria-label="Trạng thái" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none">
-                <option value="ACTIVE">Đang dùng</option><option value="INACTIVE">Đã tắt</option><option value="ALL">Tất cả trạng thái</option>
-              </select>
-              <span className="text-xs font-medium text-slate-500 sm:ml-auto">{visible.length} mẫu</span>
-            </div>
+      {loadError ? <div className="rounded-xl border border-rose-200 bg-white p-8 text-center text-sm text-rose-700 shadow-sm">{loadError}</div> : (
+        <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b bg-slate-50/50 p-3">
+            <div className="flex min-w-60 flex-1 items-center gap-2 rounded-xl border bg-white px-3 focus-within:border-indigo-400"><Search className="size-4 shrink-0 text-slate-400" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Tìm mẫu" placeholder="Tìm theo mã, nhóm, tag, nội dung…" className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" /></div>
+            <select aria-label="Ngôn ngữ" value={language} onChange={(event) => setLanguage(event.target.value)} className={selectClass}><option value="ALL">Mọi ngôn ngữ</option>{allLanguages.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+            <select aria-label="Trạng thái" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={selectClass}><option value="ACTIVE">Đang dùng</option><option value="INACTIVE">Đã tắt</option><option value="ALL">Mọi trạng thái</option></select>
           </div>
-          {visible.length === 0 ? (
-            <p className="px-5 py-14 text-center text-sm text-slate-500">{templates.length === 0 ? "Chưa có mẫu nào." : "Không có mẫu khớp bộ lọc."}</p>
-          ) : (
-            <ul className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-              {visible.map((template) => (
-                <li key={template.id}>
-                  <button type="button" onClick={() => setEditing({ mode: "view", template })} className={cn("flex h-full w-full flex-col rounded-xl border p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40", !template.active && "opacity-60")}>
-                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      <span className="font-mono font-semibold text-blue-700">{template.code}</span>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{departmentLabel(template.department)}</span>
-                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{formatLabel(template.format ?? "POST_LONG")}</span>
-                      {template.categoryId && categoryName.get(template.categoryId) && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-violet-700">{categoryName.get(template.categoryId)}</span>}
-                      <span className="text-slate-500">{languageLabel(template.language)}</span>
-                      {!template.active && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">Đã tắt</span>}
-                    </span>
-                    {template.groupName && <span className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{template.groupName}</span>}
-                    <span className="mt-1 line-clamp-5 whitespace-pre-wrap text-sm leading-6 text-slate-700">{template.body}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="grid lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_240px]">
+            <nav aria-label="Cây thư mục mẫu" className="min-w-0 border-b bg-slate-50/70 lg:border-b-0 lg:border-r">
+              <div className="flex items-center justify-between border-b p-3 text-xs text-slate-500">
+                <span>{searched.length.toLocaleString("vi-VN")} mẫu</span>
+                <span className="flex items-center gap-2"><button type="button" onClick={() => setOpened(new Set())} className="text-indigo-600">Thu gọn</button>
+                  {canManage && <Link href="/content/settings" title="Thêm bộ phận / phân loại" aria-label="Thêm bộ phận hoặc phân loại" className="inline-flex size-6 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"><Plus className="size-3.5" /></Link>}</span>
+              </div>
+              <div className="max-h-[72vh] overflow-auto p-2">
+                <button type="button" onClick={() => choose({})} className={cn("mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs", !filter.department ? "bg-indigo-100 font-semibold text-indigo-800" : "text-slate-700 hover:bg-white")}><FolderOpen className="size-3.5 text-slate-500" />Tất cả mẫu<span className="ml-auto text-[11px] text-slate-400">{searched.length}</span></button>
+                <ul>{tree.map(node)}</ul>
+                {tree.length === 0 && <p className="p-4 text-sm text-slate-500">Không có mẫu phù hợp.</p>}
+              </div>
+            </nav>
+            <div className="min-w-0">
+              <div className="border-b px-4 py-2.5 text-xs text-slate-500"><span className="font-semibold text-slate-700">{folderName}</span> · {visible.length} mẫu</div>
+              <ul className="max-h-64 divide-y overflow-y-auto border-b">
+                {visible.map((template) => <li key={template.id}><button type="button" onClick={() => setSelectedId(template.id)} className={cn("block w-full px-4 py-2.5 text-left", selected?.id === template.id ? "bg-indigo-50" : "hover:bg-slate-50", !template.active && "opacity-60")}>
+                  <span className="flex flex-wrap items-center gap-x-2 text-xs"><span className="font-mono font-semibold text-blue-700">{template.code}</span>
+                    {template.groupName && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{template.groupName}</span>}
+                    <span className="text-slate-500">{languageLabel(template.language)}</span>{!template.active && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">Đã tắt</span>}</span>
+                  <span className="mt-0.5 block truncate text-sm text-slate-700">{template.body.split("\n").find((line) => line.trim())}</span>
+                </button></li>)}
+                {visible.length === 0 && <li className="px-4 py-10 text-center text-sm text-slate-500">{templates.length === 0 ? "Chưa có mẫu nào." : "Không có mẫu trong thư mục này."}</li>}
+              </ul>
+              <article className="p-5">{selected ? <>
+                <p className="font-mono text-xs font-semibold text-indigo-600">{selected.code}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-xs">{[departmentLabel(selected.department), formatLabel(selected.format ?? "POST_LONG"), selected.categoryId ? categoryName.get(selected.categoryId) : null, languageLabel(selected.language)].filter(Boolean).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>
+                <div className="mt-4 max-h-[55vh] overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-800">{selected.body}</div>
+              </> : <p className="py-16 text-center text-sm text-slate-400">Chọn một mẫu để đọc.</p>}</article>
+            </div>
+            {selected && <TemplateActions key={selected.id} template={selected} canManage={canManage} onEdit={() => setEditing({ mode: "edit", template: selected })} onDone={done} />}
+          </div>
         </div>
       )}
-      {editing?.mode === "view" && <TemplateDetail template={editing.template} categoryName={editing.template.categoryId ? categoryName.get(editing.template.categoryId) ?? null : null} canManage={canManage} onClose={() => setEditing(null)} onEdit={() => setEditing({ mode: "edit", template: editing.template })} onDone={done} />}
-      {(editing?.mode === "new" || editing?.mode === "edit") && <TemplateForm template={editing.mode === "edit" ? editing.template : null} categories={categories} onClose={() => setEditing(null)} onSaved={done} />}
+      {editing && <TemplateForm template={editing.mode === "edit" ? editing.template : null} categories={categories} onClose={() => setEditing(null)} onSaved={done} />}
     </>
+  );
+}
+
+function TemplateActions({ template, canManage, onEdit, onDone }: { template: ContentTemplate; canManage: boolean; onEdit: () => void; onDone: (message: string) => void }) {
+  const [busy, startAction] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  function run(action: () => Promise<{ ok: boolean; message: string }>) {
+    startAction(async () => { const result = await action(); if (result.ok) onDone(result.message); else setError(result.message); });
+  }
+  const info = [template.groupName && `Nhóm: ${template.groupName}`, template.tone && `Tone: ${template.tone}`, template.cta && `CTA: ${template.cta}`, `Trọng số ${template.weight}`, template.tags && `Tags: ${template.tags}`, template.note && `Ghi chú: ${template.note}`].filter((value): value is string => Boolean(value));
+  return (
+    <aside className="space-y-2 border-t p-4 xl:border-l xl:border-t-0">
+      <Button className="w-full" size="sm" onClick={async () => { if (await copyText(template.body)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else setError("Trình duyệt không cho phép sao chép."); }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
+      <Button className="w-full" size="sm" variant="outline" asChild><Link href={`/content/new?template=${template.id}`}><Sparkles className="size-4" />Tạo content từ mẫu này</Link></Button>
+      {canManage && <>
+        <Button className="w-full" size="sm" variant="outline" onClick={onEdit} disabled={busy}><Pencil className="size-4" />Sửa</Button>
+        <Button className="w-full" size="sm" variant="outline" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? <><EyeOff className="size-4" />Tắt mẫu</> : <><Eye className="size-4" />Bật mẫu</>}</Button>
+        {confirming
+          ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">Xóa vĩnh viễn {template.code}?<div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteTemplate(template.id))} disabled={busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></div></div>
+          : <Button className="w-full text-rose-600 hover:bg-rose-50 hover:text-rose-700" size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 className="size-4" />Xóa</Button>}
+      </>}
+      {error && <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700" role="alert">{error}</p>}
+      {info.length > 0 && <ul className="space-y-1 border-t pt-3 text-xs text-slate-500">{info.map((line) => <li key={line} className="break-words">{line}</li>)}</ul>}
+    </aside>
   );
 }
 
@@ -137,40 +168,6 @@ function Modal({ title, subtitle, onClose, busy, children, footer }: { title: st
         {footer && <div className="flex flex-wrap items-center justify-end gap-3 border-t px-6 py-4">{footer}</div>}
       </div>
     </div>
-  );
-}
-
-function TemplateDetail({ template, categoryName, canManage, onClose, onEdit, onDone }: { template: ContentTemplate; categoryName: string | null; canManage: boolean; onClose: () => void; onEdit: () => void; onDone: (message: string) => void }) {
-  const [busy, startAction] = useTransition();
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const { departmentLabel, formatLabel, languageLabel } = useContentLists();
-
-  function run(action: () => Promise<{ ok: boolean; message: string }>) {
-    startAction(async () => { const result = await action(); if (result.ok) onDone(result.message); else setError(result.message); });
-  }
-
-  const meta = [departmentLabel(template.department), formatLabel(template.format ?? "POST_LONG"), categoryName, languageLabel(template.language), template.groupName, template.tone && `Tone: ${template.tone}`, template.cta && `CTA: ${template.cta}`, `Trọng số ${template.weight}`].filter((value): value is string => Boolean(value));
-
-  return (
-    <Modal title={template.code} onClose={onClose} busy={busy}
-      subtitle={<div className="mt-2 flex flex-wrap gap-1.5 text-xs">{meta.map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>}
-      footer={<>
-        {canManage && (confirming
-          ? <><span className="mr-auto text-sm text-rose-700">Xóa vĩnh viễn mẫu {template.code}?</span><Button variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={busy}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteTemplate(template.id))} disabled={busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></>
-          : <>
-              <Button variant="ghost" size="sm" className="mr-auto text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConfirming(true)}><Trash2 className="size-4" />Xóa</Button>
-              <Button variant="outline" size="sm" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? "Tắt mẫu" : "Bật mẫu"}</Button>
-              <Button variant="outline" size="sm" onClick={onEdit} disabled={busy}>Sửa</Button>
-            </>)}
-        <Button size="sm" onClick={async () => { if (await copyText(template.body)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else setError("Trình duyệt không cho phép sao chép. Hãy bôi đen và sao chép thủ công."); }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
-      </>}>
-      <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{template.body}</div>
-      {template.tags && <p className="mt-4 text-xs text-slate-500">Tags: {template.tags}</p>}
-      {template.note && <p className="mt-1 text-xs text-slate-500">Ghi chú: {template.note}</p>}
-      {error && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">{error}</p>}
-    </Modal>
   );
 }
 

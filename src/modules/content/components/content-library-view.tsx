@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, FileText, LoaderCircle, Plus, Search, Trash2, X, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,7 @@ export function ContentLibraryView({ items, templates, categories, batches, tota
   }, [router]);
 
   const pages = Math.max(1, Math.ceil(total / query.pageSize));
-  const createButton = canCreate ? <Button onClick={() => { setNotice(null); setDialogOpen(true); }}><Plus className="size-4" />Tạo content</Button> : undefined;
+  const createButton = canCreate ? <Button asChild><Link href="/content/new"><Plus className="size-4" />Tạo content</Link></Button> : undefined;
 
   return (
     <>
@@ -121,7 +122,7 @@ export function ContentLibraryView({ items, templates, categories, batches, tota
                 {items.map((item) => (
                   <tr key={item.id} className="cursor-pointer transition-colors hover:bg-slate-50/70" onClick={() => setSelected(item)}>
                     <td className="whitespace-nowrap px-5 py-4"><button type="button" className="font-mono text-sm font-semibold text-blue-700 hover:underline" onClick={(event) => { event.stopPropagation(); setSelected(item); }}>{item.code}</button>{item.used && <span className="mt-1 block w-fit rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700" title="Đã gắn với một chiến dịch, không dùng lại">Đã dùng</span>}</td>
-                    <td className="max-w-[360px] px-4 py-4"><p className="truncate text-sm font-semibold text-slate-900">{item.title}</p><p className="mt-0.5 truncate text-xs text-slate-500">{item.jobTitle}</p></td>
+                    <td className="max-w-[360px] px-4 py-4"><p className="truncate text-sm font-bold uppercase text-blue-700">{item.title}</p><p className="mt-0.5 truncate text-xs text-slate-500">{item.jobTitle}</p></td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{languageLabel(item.language)}</td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{formatLabel(item.format)}</td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{departmentLabel(item.department)}{item.categoryId && categoryName.get(item.categoryId) ? <span className="mt-0.5 block text-xs text-violet-700">{categoryName.get(item.categoryId)}</span> : null}</td>
@@ -208,7 +209,7 @@ function ContentDetailDialog({ item, categoryName, canDelete, onClose, onDeleted
         <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
           <div className="min-w-0">
             <p className="font-mono text-xs font-semibold text-blue-700">{item.code}</p>
-            <h2 id="content-detail-title" className="mt-1 text-lg font-bold tracking-tight">{item.title}</h2>
+            <h2 id="content-detail-title" className="mt-1 text-lg font-bold uppercase tracking-tight text-blue-700">{item.title}</h2>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
               {[item.jobTitle, languageLabel(item.language), formatLabel(item.format), departmentLabel(item.department), categoryName, styleLabel(item.style), item.templateCode ? `Theo mẫu ${item.templateCode}` : null, `Trùng cao nhất ${percent(item.maxSimilarity)}`].filter((tag): tag is string => Boolean(tag)).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}
             </div>

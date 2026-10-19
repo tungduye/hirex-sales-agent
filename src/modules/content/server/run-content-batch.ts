@@ -3,9 +3,10 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import type { ContentBrief } from "@/modules/content/core/content-options";
 import { contentShingles, storedSimilarity, type IndexedContent } from "@/modules/content/core/content-similarity";
-import { briefFactText, briefTitlePrefix, languageParts, type ContentBriefWithCategory } from "@/modules/content/core/content-prompt";
+import { briefFactText, briefTitleIsJapanese, briefTitlePrefix, languageParts, type ContentBriefWithCategory } from "@/modules/content/core/content-prompt";
+import { finalizeTitle, scoreDraft } from "@/modules/content/core/content-quality";
 import { produceUniqueContent, recheckAgainst, type Draft } from "@/modules/content/core/produce-unique-content";
-import { applyTitlePrefix, assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, type TemplateSample } from "@/modules/content/core/template-plan";
+import { assignTemplates, findBlockedTerm, leakedNumbers, lengthRange, parseBlockedTerms, pickTemplates, templateProfile, type TemplateSample } from "@/modules/content/core/template-plan";
 import { generateContentRound, generateFromTemplate } from "@/modules/content/server/generate-content";
 import { mapTemplateRow, TEMPLATE_COLUMNS, type TemplateRow } from "@/modules/content/server/template-row";
 
@@ -130,7 +131,7 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
     };
 
     const prepare = (draft: Draft): Draft | null => {
-      const item: Draft = { ...draft, title: applyTitlePrefix(draft.title, prefix) };
+      const item: Draft = { ...draft, title: finalizeTitle(draft.title, prefix, briefTitleIsJapanese(brief)) };
       if (findBlockedTerm(`${item.title}\n${item.body}`, blocked)) return null;
       const template = draft.templateId ? templateById.get(draft.templateId) : undefined;
       if (template) {
@@ -152,6 +153,9 @@ async function runNow({ batchId, workspaceId, userId, brief, model }: ContentBat
       initialAvoid: recentSameJob,
       generate,
       prepare,
+      // Write a couple more than asked and keep the best (length in range, title, least similar).
+      extra: Math.min(2, Math.max(1, Math.ceil(brief.quantity / 3))),
+      score: (item) => scoreDraft(item, { wordRange: brief.wordRange ?? null, languageCount, isComment: brief.contentFormat === "COMMENT" }),
     });
 
     // Items saved elsewhere (another server process) while this batch was generated.

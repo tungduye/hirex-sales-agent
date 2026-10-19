@@ -37,6 +37,9 @@ export interface ProduceUniqueContentInput {
   /** Normalizes a draft (e.g. title prefix) or returns null to drop it (blocked term, fact leak, wrong length). */
   prepare?: (draft: Draft) => Draft | null;
   maxRewriteRounds?: number;
+  /** Extra drafts written in the first round; the best `quantity` (by `score`) are kept. */
+  extra?: number;
+  score?: (item: AcceptedContent) => number;
 }
 
 export interface ProduceUniqueContentResult {
@@ -49,14 +52,14 @@ export interface ProduceUniqueContentResult {
 
 const isSavedItemId = (id: string | null) => Boolean(id && !id.includes(":"));
 
-export async function produceUniqueContent({ quantity, library, references = [], initialAvoid = [], generate, prepare, maxRewriteRounds = 2 }: ProduceUniqueContentInput): Promise<ProduceUniqueContentResult> {
+export async function produceUniqueContent({ quantity, library, references = [], initialAvoid = [], generate, prepare, maxRewriteRounds = 2, extra = 0, score }: ProduceUniqueContentInput): Promise<ProduceUniqueContentResult> {
   const accepted: AcceptedContent[] = [];
   const avoid = [...initialAvoid];
   let rounds = 0;
   let dropped = 0;
 
   for (let round = 0; round <= maxRewriteRounds && accepted.length < quantity; round++) {
-    const needed = quantity - accepted.length;
+    const needed = quantity - accepted.length + (round === 0 ? extra : 0);
     rounds++;
     const drafts = (await generate({ count: needed, round, avoid: [...avoid] })).slice(0, needed);
     for (const raw of drafts) {
@@ -75,7 +78,9 @@ export async function produceUniqueContent({ quantity, library, references = [],
     }
   }
 
-  return { accepted, rejected: quantity - accepted.length, rounds, dropped };
+  // Written a few extra: keep the best ones.
+  const kept = accepted.length > quantity && score ? [...accepted].sort((a, b) => score(b) - score(a)).slice(0, quantity) : accepted.slice(0, quantity);
+  return { accepted: kept, rejected: quantity - kept.length, rounds, dropped };
 }
 
 /**

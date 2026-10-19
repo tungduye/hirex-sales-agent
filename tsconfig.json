@@ -251,7 +251,9 @@
     ".next-hole-van-phong/types/**/*.ts",
     ".next-hole-van-phong/dev/types/**/*.ts",
     ".next-rec-phan-hoi/types/**/*.ts",
-    ".next-rec-phan-hoi/dev/types/**/*.ts"
+    ".next-rec-phan-hoi/dev/types/**/*.ts",
+    ".next-content-cai-dat/types/**/*.ts",
+    ".next-content-cai-dat/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

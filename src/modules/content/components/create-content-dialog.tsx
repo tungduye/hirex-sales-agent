@@ -142,7 +142,7 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
   );
 }
 
-function TemplatePicker({ templates, selected, onChange, disabled }: { templates: ContentTemplate[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
+export function TemplatePicker({ templates, selected, onChange, disabled }: { templates: ContentTemplate[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const { languageLabel } = useContentLists();
   const full = selected.length >= MAX_TEMPLATES_PER_BATCH;
@@ -184,11 +184,11 @@ function TemplatePicker({ templates, selected, onChange, disabled }: { templates
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return <fieldset className="space-y-4"><legend className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">{title}</legend>{children}</fieldset>;
 }
 
-function Field({ label, required, hint, error, children }: { label: string; required?: boolean; hint?: string; error?: string; children: ReactNode }) {
+export function Field({ label, required, hint, error, children }: { label: string; required?: boolean; hint?: string; error?: string; children: ReactNode }) {
   return (
     <label className="block space-y-2">
       <span className="block text-sm font-semibold text-slate-700">{label}{required && <span className="ml-1 text-rose-500">*</span>}</span>

@@ -21,9 +21,16 @@ export async function createContentBatch(_previous: CreateContentState, formData
     return { success: false, message: "Kiểm tra lại các trường được đánh dấu.", fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[] | undefined> };
   }
   const brief = parsed.data;
+  // Titles always open with "[ĐỊA ĐIỂM] VỊ TRÍ": both are required except for Truyền thông / Thông báo.
+  if (!["MEDIA", "NOTICE"].includes(brief.department) && brief.contentFormat !== "COMMENT") {
+    const fieldErrors: Record<string, string[]> = {};
+    if (!brief.location) fieldErrors.location = ["Nhập địa điểm (tiêu đề luôn có địa điểm)"];
+    if (!brief.position) fieldErrors.position = ["Nhập vị trí (tiêu đề luôn có vị trí)"];
+    if (Object.keys(fieldErrors).length) return { success: false, message: "Thiếu địa điểm hoặc vị trí.", fieldErrors };
+  }
   const started = await startContentBatch(account, brief);
   if (!started.ok) return { success: false, message: started.message };
-  return { success: true, message: `Đang tạo ${brief.quantity} content cho “${brief.jobTitle}”. Kết quả sẽ hiện trong kho sau khoảng 1–2 phút.` };
+  return { success: true, batchId: started.batchId, message: `Đang tạo ${brief.quantity} content cho “${brief.jobTitle}”.` };
 }
 
 export async function deleteContentItem(itemId: string): Promise<ContentActionResult> {

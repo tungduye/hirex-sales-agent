@@ -48,7 +48,7 @@ test('per-item request asks to mirror the sample and to replace every fact', () 
   assert.match(request.instructions, /GIỮ THEO MẪU/);
   assert.match(request.instructions, /THAY TOÀN BỘ DỮ KIỆN/);
   assert.match(request.instructions, /3 đoạn/);
-  assert.match(request.instructions, /"\[HCM\]"/);
+  assert.match(request.instructions, /"\[HCM\] BRSE"/);
   assert.match(request.instructions, /đúng 1 item/);
   const input = JSON.parse(request.input);
   assert.equal(input.sample, LEARN_001);

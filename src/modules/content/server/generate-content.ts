@@ -6,7 +6,8 @@ import { buildContentRequest, buildTemplateItemRequest, parseGeneratedBatch, typ
 import type { TemplateSample } from "@/modules/content/core/template-plan";
 
 export function contentModel() {
-  return process.env.CONTENT_AI_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || null;
+  // Content uses the strongest model configured: its own, else the assistant's, else the default.
+  return process.env.CONTENT_AI_MODEL?.trim() || process.env.ASSISTANT_AI_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || null;
 }
 
 async function callModel(model: string, request: { instructions: string; input: string; maxOutputTokens: number; schema: object }): Promise<GeneratedItem[]> {
