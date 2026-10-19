@@ -225,7 +225,9 @@
     ".next-suoi-nguon/types/**/*.ts",
     ".next-suoi-nguon/dev/types/**/*.ts",
     ".next-tai-khoan/types/**/*.ts",
-    ".next-tai-khoan/dev/types/**/*.ts"
+    ".next-tai-khoan/dev/types/**/*.ts",
+    ".next-an-tro-ly/types/**/*.ts",
+    ".next-an-tro-ly/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
