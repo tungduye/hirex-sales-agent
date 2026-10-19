@@ -16,8 +16,9 @@ const SIDEBAR_KEY = "hirex.sidebarCollapsed";
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
-  // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view.
-  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/");
+  // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view;
+  // so does "Tài khoản", which shows the account manager site inside HireX.
+  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts";
   // The main menu can shrink to an icon column; the choice is remembered in this browser.
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { try { setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* storage unavailable */ } }, []);

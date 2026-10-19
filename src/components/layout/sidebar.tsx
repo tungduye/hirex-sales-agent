@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bot, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from "lucide-react";
+import { BarChart3, Bot, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -20,6 +20,7 @@ const navigation: NavItem[] = [
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
   { label: "Kho content", href: "/content", icon: FileText, permission:"content.view" },
   { label: "Tài liệu", href: "/documents", icon: FileScan, permission:"roles.manage", adminOnly: true },
+  { label: "Tài khoản", href: "/accounts", icon: KeyRound, permission:"accounts.view" },
 ];
 
 /** Shown when hovering (or clicking) "Cài đặt". */

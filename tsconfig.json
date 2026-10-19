@@ -221,7 +221,9 @@
     ".next-channel-logos-2/types/**/*.ts",
     ".next-channel-logos-2/dev/types/**/*.ts",
     ".next-channel-logos-3/types/**/*.ts",
-    ".next-channel-logos-3/dev/types/**/*.ts"
+    ".next-channel-logos-3/dev/types/**/*.ts",
+    ".next-suoi-nguon/types/**/*.ts",
+    ".next-suoi-nguon/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
