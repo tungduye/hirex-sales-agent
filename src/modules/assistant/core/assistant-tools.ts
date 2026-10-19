@@ -335,7 +335,7 @@ function READ_TOOLS_2(): AssistantToolDefinition[] {
       name: "chi_tiet_lien_he",
       permission: "contacts.view",
       label: "Xem chi tiết liên hệ",
-      description: "Chi tiết một liên hệ (id từ tim_lien_he hoặc trang đang mở): thông tin, công ty, các kênh liên lạc và đồng ý nhận marketing, ghi chú gần đây, hội thoại trong Hồ Chứa, công việc liên quan, chiến dịch đã nhận (phần nào người dùng không có quyền xem thì bỏ qua).",
+      description: "Chi tiết một liên hệ (id từ tim_lien_he hoặc trang đang mở): thông tin, công ty, các kênh liên lạc và đồng ý nhận marketing, ghi chú gần đây, hội thoại trong Suối Nguồn, công việc liên quan, chiến dịch đã nhận (phần nào người dùng không có quyền xem thì bỏ qua).",
       parameters: { type: "object", additionalProperties: false, required: ["contact_id"], properties: { contact_id: uuidArg("UUID liên hệ.") } },
       args: z.object({ contact_id: z.string().uuid() }).strict(),
     },
@@ -543,7 +543,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     name: "hoi_thoai_cho_tra_loi",
     permission: "inbox.view",
     label: "Tìm tin nhắn chưa trả lời",
-    description: "Các hội thoại trong Hồ Chứa mà tin cuối cùng là của khách/ứng viên và đã chờ ít nhất N giờ (trong 7 ngày gần đây), chờ lâu nhất trước; nhom_chat = nhóm chat.",
+    description: "Các hội thoại trong Suối Nguồn mà tin cuối cùng là của khách/ứng viên và đã chờ ít nhất N giờ (trong 7 ngày gần đây), chờ lâu nhất trước; nhom_chat = nhóm chat.",
     parameters: {
       type: "object", additionalProperties: false, required: ["gio_toi_thieu", "so_luong"],
       properties: {
@@ -557,7 +557,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     name: "tim_hoi_thoai",
     permission: "inbox.view",
     label: "Tìm hội thoại",
-    description: "Tìm hội thoại trong Hồ Chứa theo tên khách/ứng viên (tên liên hệ hoặc tên hiển thị trên Zalo/Facebook). Trả về tối đa 8 hội thoại, mới nhất trước, kèm id, kênh, tài khoản và tin cuối.",
+    description: "Tìm hội thoại trong Suối Nguồn theo tên khách/ứng viên (tên liên hệ hoặc tên hiển thị trên Zalo/Facebook). Trả về tối đa 8 hội thoại, mới nhất trước, kèm id, kênh, tài khoản và tin cuối.",
     parameters: { type: "object", additionalProperties: false, required: ["tu_khoa"], properties: { tu_khoa: { type: "string", description: "Tên hoặc một phần tên." } } },
     args: z.object({ tu_khoa: text(100).min(1) }).strict(),
   },
@@ -565,7 +565,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
     name: "chi_tiet_hoi_thoai",
     permission: "inbox.view",
     label: "Đọc hội thoại",
-    description: "Thông tin và tối đa 20 tin nhắn gần nhất của một hội thoại trong Hồ Chứa, theo id hội thoại (UUID).",
+    description: "Thông tin và tối đa 20 tin nhắn gần nhất của một hội thoại trong Suối Nguồn, theo id hội thoại (UUID).",
     parameters: {
       type: "object", additionalProperties: false, required: ["conversation_id"],
       properties: { conversation_id: { type: "string", description: "UUID của hội thoại." } },

@@ -16,7 +16,7 @@ const SIDEBAR_KEY = "hirex.sidebarCollapsed";
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
-  // Hồ Chứa uses the whole screen (no page padding or max width) so the composer stays in view.
+  // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view.
   const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/");
   // The main menu can shrink to an icon column; the choice is remembered in this browser.
   const [collapsed, setCollapsed] = useState(false);

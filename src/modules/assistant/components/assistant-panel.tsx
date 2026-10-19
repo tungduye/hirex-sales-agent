@@ -168,7 +168,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
 
   return (
     <>
-      {/* In Hồ Chứa the floating button would cover the composer: the header "Trợ lý" button (and Ctrl+K) open it there. */}
+      {/* In Suối Nguồn the floating button would cover the composer: the header "Trợ lý" button (and Ctrl+K) open it there. */}
       {!open && !pathname.startsWith("/inbox") && (
         <button type="button" onClick={() => setOpen(true)} className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" aria-label="Mở Trợ lý HireX (Ctrl + K)">
           <Sparkles className="size-4 text-blue-300" />Trợ lý<kbd className="hidden rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium sm:inline">Ctrl K</kbd>

@@ -15,7 +15,7 @@ type NavItem = { label: string; href: string; icon: typeof LayoutDashboard; perm
 /** Main menu. */
 const navigation: NavItem[] = [
   { label: "Tổng quan", href: "/", icon: LayoutDashboard, permission:"dashboard.view" },
-  { label: "Hồ Chứa", href: "/inbox", icon: Inbox, permission:"inbox.view" },
+  { label: "Suối Nguồn", href: "/inbox", icon: Inbox, permission:"inbox.view" },
   { label: "Scan", href: "/scan", icon: FileScan, permission:"scan.view" },
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
   { label: "Kho content", href: "/content", icon: FileText, permission:"content.view" },

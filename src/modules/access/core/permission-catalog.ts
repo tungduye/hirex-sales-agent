@@ -2,7 +2,7 @@ export const permissionGroups = [
   { key:"dashboard", label:"Tổng quan", actions:[["view","Xem"]] },
   { key:"companies", label:"Công ty", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"],["export","Xuất"],["import","Nhập"]] },
   { key:"contacts", label:"Liên hệ", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"],["export","Xuất"],["import","Nhập"]] },
-  { key:"inbox", label:"Hồ Chứa", actions:[["view","Xem"],["reply","Trả lời"],["update","Cập nhật"]] },
+  { key:"inbox", label:"Suối Nguồn", actions:[["view","Xem"],["reply","Trả lời"],["update","Cập nhật"]] },
   { key:"scan", label:"Scan", actions:[["view","Xem"],["cv","Chạy Scan CV"],["website","Chạy Scan Website"],["export","Xuất kết quả"]] },
   { key:"campaigns", label:"Chiến dịch", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"],["launch","Khởi chạy"],["export","Xuất"],["import","Nhập"]] },
   { key:"content", label:"Kho content", actions:[["view","Xem"],["create","Tạo"],["delete","Xóa"],["templates","Quản lý kho mẫu"]] },

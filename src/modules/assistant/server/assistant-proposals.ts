@@ -240,7 +240,7 @@ async function proposeReply(args: Record<string, unknown>, context: ActionContex
   const accessible = await getAccessibleChannelAccountIds();
   if (!conversation || (accessible && !accessible.includes(conversation.channel_account_id))) return { ok: false, error: "Không tìm thấy hội thoại hoặc tài khoản không có quyền dùng kênh của hội thoại này." };
   const channel = REPLY_CHANNELS[conversation.channel_type];
-  if (!channel) return { ok: false, error: conversation.channel_type === "EMAIL" ? "Hội thoại email chưa gửi được qua trợ lý; hãy trả lời trực tiếp trong Hồ Chứa." : "Kênh của hội thoại này chưa hỗ trợ gửi qua trợ lý." };
+  if (!channel) return { ok: false, error: conversation.channel_type === "EMAIL" ? "Hội thoại email chưa gửi được qua trợ lý; hãy trả lời trực tiếp trong Suối Nguồn." : "Kênh của hội thoại này chưa hỗ trợ gửi qua trợ lý." };
   const [account, contact, lastInbound, pending, binding, recentSenders] = await Promise.all([
     db.from("channel_accounts").select("display_name,status").eq("workspace_id", context.workspaceId).eq("id", conversation.channel_account_id).maybeSingle(),
     conversation.contact_id ? db.from("contacts").select("full_name").eq("workspace_id", context.workspaceId).eq("id", conversation.contact_id).maybeSingle() : Promise.resolve({ data: null }),
@@ -249,7 +249,7 @@ async function proposeReply(args: Record<string, unknown>, context: ActionContex
     db.from("ai_recruiter_channel_bindings").select("enabled,ai_recruiter_bots!inner(enabled,mode)").eq("workspace_id", context.workspaceId).eq("channel_account_id", conversation.channel_account_id).maybeSingle(),
     db.from("omnichannel_messages").select("sender_external_id").eq("workspace_id", context.workspaceId).eq("conversation_id", conversation.id).eq("direction", "INBOUND").order("created_at", { ascending: false }).limit(30),
   ]);
-  if ((pending.data ?? []).length) return { ok: false, error: "Hội thoại đang có một tin chờ gửi. Hãy xử lý tin đó trong Hồ Chứa trước." };
+  if ((pending.data ?? []).length) return { ok: false, error: "Hội thoại đang có một tin chờ gửi. Hãy xử lý tin đó trong Suối Nguồn trước." };
   if (account.data && account.data.status !== "CONNECTED") return { ok: false, error: `Tài khoản ${account.data.display_name ?? channel} đang không kết nối (${account.data.status}), chưa gửi được.` };
   const metadata = (conversation.metadata ?? {}) as Record<string, unknown>;
   const name = contact.data?.full_name ?? metadataName(metadata) ?? "khách (không rõ tên)";

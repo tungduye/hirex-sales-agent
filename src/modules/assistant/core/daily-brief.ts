@@ -20,7 +20,7 @@ export interface BriefInput {
 }
 
 export const AREA_LABELS: Record<BriefArea, string> = {
-  inbox: "Hồ Chứa", channels: "Tài khoản kết nối", email_worker: "Bộ gửi email", campaigns: "Chiến dịch", tasks: "Công việc", ai_recruiter: "AI Recruiter",
+  inbox: "Suối Nguồn", channels: "Tài khoản kết nối", email_worker: "Bộ gửi email", campaigns: "Chiến dịch", tasks: "Công việc", ai_recruiter: "AI Recruiter",
 };
 const CHANNEL_LABELS: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Facebook Page", FACEBOOK_PROFILE: "Facebook cá nhân", EMAIL: "Email" };
 const channelLabel = (value: string) => CHANNEL_LABELS[value] ?? value;

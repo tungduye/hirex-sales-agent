@@ -43,7 +43,7 @@ export async function createContactForConversation(conversationId: string, fullN
   if (!conversation) return denied;
   if (conversation.contactId) return { ok: false, message: "Hội thoại đã có liên hệ." };
   const db = createPrivilegedClient();
-  const { data: created, error } = await db.from("contacts").insert({ workspace_id: conversation.workspaceId, full_name: name.data, phone: phoneValue.data || null, source: "Hồ Chứa", lead_status: "CONTACTED" }).select("id").single();
+  const { data: created, error } = await db.from("contacts").insert({ workspace_id: conversation.workspaceId, full_name: name.data, phone: phoneValue.data || null, source: "Suối Nguồn", lead_status: "CONTACTED" }).select("id").single();
   if (error || !created) return { ok: false, message: "Chưa tạo được liên hệ, thử lại sau." };
   // Only link when nobody linked it in the meantime.
   const { data: linked } = await db.from("omnichannel_conversations").update({ contact_id: created.id }).eq("workspace_id", conversation.workspaceId).eq("id", conversation.id).is("contact_id", null).select("id");

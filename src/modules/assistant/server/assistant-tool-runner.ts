@@ -68,7 +68,7 @@ export async function queryWaitingConversations(supabase: ReadClient, workspaceI
     .order("last_message_at", { ascending: false }).limit(300);
   if (accessible) query = query.in("channel_account_id", accessible);
   const { data: conversations, error } = await query;
-  if (error) return { loi: "Không tải được Hồ Chứa." };
+  if (error) return { loi: "Không tải được Suối Nguồn." };
   const rows = conversations ?? [];
   const latest = new Map<string, { id: string; direction: string; text: string | null; at: string; sender: string }>();
   // Several different people writing in one conversation = a group chat (no explicit flag exists).

@@ -7,7 +7,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { draftReply } from "@/modules/assistant/server/reply-engine";
 import { assistantModel } from "@/modules/assistant/server/run-assistant-request";
 
-// "Hole" button in the Hồ Chứa composer: a careful draft from the shared reply engine. Same checks as
+// "Hole" button in the Suối Nguồn composer: a careful draft from the shared reply engine. Same checks as
 // "Hola" (reply permission + access to the conversation's account). Not counted in the Trợ lý daily
 // limit; a short per-member burst limit keeps double clicks and loops from running up cost.
 

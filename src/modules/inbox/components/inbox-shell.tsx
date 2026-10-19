@@ -8,7 +8,7 @@ import type { OmnichannelInboxData } from "../types/omnichannel-inbox";
 import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
 
 /**
- * Hồ Chứa frame. The conversation list lives here (in the layout) and is loaded from the browser, so
+ * Suối Nguồn frame. The conversation list lives here (in the layout) and is loaded from the browser, so
  * opening another conversation only loads that conversation instead of rebuilding the whole list.
  */
 export function InboxShell({ children }: { children: ReactNode }) {
@@ -45,7 +45,7 @@ export function InboxShell({ children }: { children: ReactNode }) {
 
   if (!data) return <div className="flex h-[calc(100dvh-4rem)] min-h-[520px] overflow-hidden bg-white">
     <aside className={`${selectedConversationId ? "hidden lg:flex" : "flex"} w-full shrink-0 flex-col border-r border-slate-200 lg:w-[340px]`} aria-busy="true" aria-label="Đang tải danh sách hội thoại">
-      <div className="space-y-2.5 border-b border-slate-100 p-3.5"><p className="text-lg font-bold text-slate-950">Hồ Chứa</p><div className="h-9 animate-pulse rounded-lg bg-slate-100"/><div className="h-8 animate-pulse rounded-lg bg-slate-100"/></div>
+      <div className="space-y-2.5 border-b border-slate-100 p-3.5"><p className="text-lg font-bold text-slate-950">Suối Nguồn</p><div className="h-9 animate-pulse rounded-lg bg-slate-100"/><div className="h-8 animate-pulse rounded-lg bg-slate-100"/></div>
       {failed ? <div className="m-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Chưa tải được danh sách. <button type="button" onClick={() => void load(query)} className="font-semibold underline">Thử lại</button></div>
         : <div className="space-y-2 p-3">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-14 animate-pulse rounded-xl bg-slate-100"/>)}</div>}
     </aside>

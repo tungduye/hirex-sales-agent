@@ -7,7 +7,7 @@ type PageDefinition = { path: string; label: string; permission: string | "works
 
 export const PAGES = {
   TONG_QUAN: { path: "/", label: "Tổng quan", permission: "dashboard.view" },
-  HO_CHUA: { path: "/inbox/all", label: "Hồ Chứa", permission: "inbox.view" },
+  HO_CHUA: { path: "/inbox/all", label: "Suối Nguồn", permission: "inbox.view" },
   LIEN_HE: { path: "/contacts", label: "Liên hệ", permission: "contacts.view" },
   CONG_TY: { path: "/companies", label: "Công ty", permission: "companies.view" },
   CHIEN_DICH_EMAIL: { path: "/campaigns", label: "Chiến dịch Email", permission: "campaigns.view" },

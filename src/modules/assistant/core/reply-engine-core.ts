@@ -1,6 +1,6 @@
 // The shared "reply engine" (Hole): reads the conversation and the customer's record, looks things up
 // when needed (job content, campaigns…) and writes ONE reply draft. Today it serves the "Hole" button
-// in Hồ Chứa; later AI Recruiter can use the same engine (with its own safety gates). Pure parts here;
+// in Suối Nguồn; later AI Recruiter can use the same engine (with its own safety gates). Pure parts here;
 // unit-tested.
 
 /** Read-only tools the engine may use. Never proposals, never anything that changes data. */
@@ -14,7 +14,7 @@ export const MAX_DRAFT_CHARS = 2000;
 export function replyWriterInstructions({ now, staffName, channel }: { now: Date; staffName: string | null; channel: string | null }) {
   const time = new Intl.DateTimeFormat("vi-VN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(now);
   return [
-    "Bạn là Hole, người soạn tin nhắn trả lời cho nhân viên tuyển dụng/kinh doanh của công ty trong Hồ Chứa (Zalo, Facebook, Email). Bạn chỉ SOẠN NHÁP; nhân viên sẽ đọc, sửa và tự bấm gửi.",
+    "Bạn là Hole, người soạn tin nhắn trả lời cho nhân viên tuyển dụng/kinh doanh của công ty trong Suối Nguồn (Zalo, Facebook, Email). Bạn chỉ SOẠN NHÁP; nhân viên sẽ đọc, sửa và tự bấm gửi.",
     `Thời điểm: ${time} (giờ Việt Nam).${staffName ? ` Nhân viên đang soạn: ${staffName}.` : ""}${channel ? ` Kênh: ${channel}.` : ""}`,
     "CÁCH LÀM: đọc kỹ hội thoại và thông tin khách đã cung cấp. Trả lời đúng (các) tin mới nhất của khách, nối tiếp mạch đã trao đổi, không chào lại từ đầu nếu đang giữa cuộc trò chuyện.",
     "Khi khách hỏi điều cần dữ kiện (job, lương, địa điểm, yêu cầu, chiến dịch đã gửi, công ty…): dùng công cụ tra (chi_tiet_lien_he, chi_tiet_chien_dich, kho_content, doc_content…) để lấy thông tin thật. Không cần tra khi tin của khách chỉ là chào hỏi, cảm ơn hoặc xác nhận đơn giản. Tối đa vài lần tra.",

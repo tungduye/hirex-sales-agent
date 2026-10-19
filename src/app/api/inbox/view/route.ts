@@ -1,6 +1,6 @@
 import { getOmnichannelInboxData } from "@/modules/inbox/server/get-omnichannel-inbox-data";
 
-/** Everything the Hồ Chứa list column needs (accounts, members, tags, first page of conversations). */
+/** Everything the Suối Nguồn list column needs (accounts, members, tags, first page of conversations). */
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   const data = await getOmnichannelInboxData({
