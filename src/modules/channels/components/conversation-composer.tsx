@@ -15,6 +15,9 @@ import type { ChannelActionState } from "../types/channel-action-state";
 import type { QuickReplyTemplate } from "../types/quick-reply";
 import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
 import { INBOX_OPTIMISTIC_EVENT } from "@/modules/inbox/components/inbox-live-events";
+import { RecFlowBar, REC_FLOW_EVENT } from "@/modules/rec-flow/components/rec-flow-bar";
+import { saveRecFlow } from "@/modules/rec-flow/server/rec-flow-actions";
+import { splitParts, type RecFlowState } from "@/modules/rec-flow/core/rec-flow";
 
 const initial:ChannelActionState={status:"idle",message:null};
 function createRequestId(){
@@ -81,6 +84,15 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const[sendingFiles,setSendingFiles]=useState(false);
   const[dragging,setDragging]=useState(false);
   const pendingFiles=files.filter(item=>item.status==="ready"||item.status==="failed");
+  // Rec flow: Hola's proposed next state (step, what the candidate said) is saved once its draft is sent.
+  const recFlowChat=!isGroup&&(channelType==="ZALO"||channelType==="FACEBOOK"||channelType==="FACEBOOK_PROFILE");
+  const pendingFlowRef=useRef<RecFlowState|null>(null);
+  async function commitFlow(){
+    const flow=pendingFlowRef.current;pendingFlowRef.current=null;
+    if(!flow||!recFlowChat)return;
+    const saved=await saveRecFlow({conversationId,flow}).catch(()=>null);
+    if(saved)window.dispatchEvent(new CustomEvent(REC_FLOW_EVENT,{detail:{conversationId,state:saved}}));
+  }
   useEffect(()=>{
     if(!submittedTextRef.current||state.status==="idle")return;
     if(state.status==="error"){
@@ -91,6 +103,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
       return()=>window.clearTimeout(restore);
     }
     if(state.status!=="success")return;
+    void commitFlow();
     const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));onCancelReply?.();},0);
     return()=>window.clearTimeout(reset);
   },[state,idempotencyKey,conversationId,onCancelReply]);
@@ -129,10 +142,10 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     setQuickOpen(false);setDrafter(which);setHint(which==="hola"?"Hola đang soạn…":"Hole đang đọc hồ sơ khách và soạn… (khoảng 10–20 giây)");
     startDrafting(async()=>{
       let draft:string|null=null,message:string|null=null;
-      if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;}
-      else{const result=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;}
+      if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow??null;}
+      else{pendingFlowRef.current=null;const result=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;}
       setDrafter(null);
-      if(draft){setBeforeDraft(text);updateText(draft);setHint(`${name} đã soạn nháp, sửa lại rồi bấm Gửi.`);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
+      if(draft){setBeforeDraft(text);updateText(draft);setHint(`${name} đã soạn nháp${splitParts(draft).length>1?", mỗi đoạn ngăn bởi dòng --- là một tin riêng":""}; sửa lại rồi bấm Gửi.`);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
       else setHint(message??`${name} chưa soạn được, anh/chị thử lại sau.`);
     });
   }
@@ -174,17 +187,31 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     if(sendingFiles)return;
     setSendingFiles(true);setHint(null);
     try{
-      const value=text.trim();
-      if(value&&formRef.current){
-        const formData=new FormData(formRef.current);
-        window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));
-        const result=await sendManualChannelMessage(initial,formData);
-        if(result.status!=="success"){
-          window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"FAILED"}}));
-          setHint(result.message??"Chưa gửi được tin nhắn; tệp chưa được gửi.");return;
+      // Text: one message, or several when lines of "---" split it (Hola drafts up to 3 short messages).
+      const parts=splitParts(text);
+      if(parts.length&&formRef.current){
+        const base=new FormData(formRef.current);
+        for(let index=0;index<parts.length;index++){
+          const part=parts[index]!,key=index===0?idempotencyKey:createRequestId();
+          const formData=new FormData();
+          formData.set("conversationId",conversationId);formData.set("idempotencyKey",key);formData.set("text",part);
+          const partMentions=zaloGroup?buildMentions(part,picks):[];
+          if(partMentions.length)formData.set("mentions",JSON.stringify(partMentions));
+          const quote=base.get("quoteMessageId");
+          if(index===0&&typeof quote==="string"&&quote)formData.set("quoteMessageId",quote);
+          if(index>0)await wait(1200);
+          window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:key,conversationId,text:part,timestamp:new Date().toISOString(),status:"SENDING"}}));
+          const result=await sendManualChannelMessage(initial,formData);
+          if(result.status!=="success"){
+            window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:key,conversationId,text:part,timestamp:new Date().toISOString(),status:"FAILED"}}));
+            // Keep what was not sent in the box.
+            setText(parts.slice(index).join("\n---\n"));setIdempotencyKey(createRequestId());
+            setHint(result.message??"Chưa gửi được tin nhắn.");return;
+          }
         }
+        void commitFlow();
         setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));
-        await wait(1200);
+        if(pendingFiles.length)await wait(1200);
       }
       onCancelReply?.();
       let failures=0,first=true;
@@ -215,7 +242,8 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.{mentionMembers.length?" Gõ @ để tag thành viên.":""}</p>:null}
     {showMentions?<div role="listbox" aria-label="Tag thành viên" className="mb-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">{mentionOptions.map((member,index)=>{const person=mentionMembers.find(item=>item.uid===member.uid);return <button key={`${member.uid}:${member.name}`} type="button" role="option" aria-selected={index===mentionIndex} onMouseDown={event=>{event.preventDefault();pickMention(member);}} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${index===mentionIndex?"bg-blue-50 text-blue-800":"hover:bg-slate-50"}`}>{person?.avatarUrl?<img src={person.avatarUrl} alt="" className="size-6 rounded-full object-cover"/>:<span className="flex size-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{member.uid==="-1"?"@":member.name.slice(0,1).toUpperCase()}</span>}<span className="truncate font-medium">{member.uid==="-1"?"@All · cả nhóm":member.name}</span></button>;})}</div>:null}
     {replyTo&&channelType==="ZALO"?<div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-blue-400 bg-blue-50 px-3 py-1.5 text-xs"><Reply className="mt-0.5 size-3.5 shrink-0 text-blue-600"/><div className="min-w-0 flex-1"><p className="font-semibold text-blue-800">Trả lời {replyTo.sender}</p><p className="truncate text-slate-600">{replyTo.text}</p></div><button type="button" onClick={onCancelReply} aria-label="Bỏ trả lời" className="rounded p-0.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700"><X className="size-3.5"/></button></div>:null}
-    <form action={send} onDragOver={canAttach?event=>{if(Array.from(event.dataTransfer.types).includes("Files")){event.preventDefault();setDragging(true);}}:undefined} onDragLeave={canAttach?()=>setDragging(false):undefined} onDrop={canAttach?event=>{if(event.dataTransfer.files.length){event.preventDefault();setDragging(false);addFiles(event.dataTransfer.files);}}:undefined} onSubmit={event=>{if(pendingFiles.length>0){event.preventDefault();void sendWithFiles();return;}const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className={`rounded-[14px] border bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 ${dragging?"border-blue-400 ring-2 ring-blue-200":"border-slate-300"}`}>
+    {recFlowChat?<RecFlowBar conversationId={conversationId}/>:null}
+    <form action={send} onDragOver={canAttach?event=>{if(Array.from(event.dataTransfer.types).includes("Files")){event.preventDefault();setDragging(true);}}:undefined} onDragLeave={canAttach?()=>setDragging(false):undefined} onDrop={canAttach?event=>{if(event.dataTransfer.files.length){event.preventDefault();setDragging(false);addFiles(event.dataTransfer.files);}}:undefined} onSubmit={event=>{if(pendingFiles.length>0||splitParts(text).length>1){event.preventDefault();void sendWithFiles();return;}const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className={`rounded-[14px] border bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 ${dragging?"border-blue-400 ring-2 ring-blue-200":"border-slate-300"}`}>
       <input type="hidden" name="conversationId" value={conversationId}/>{mentions.length?<input type="hidden" name="mentions" value={JSON.stringify(mentions)}/>:null}{replyTo&&channelType==="ZALO"?<input type="hidden" name="quoteMessageId" value={replyTo.messageId}/>:null}<input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
       {files.length?<ul aria-label="Tệp sẽ gửi" className="flex flex-wrap gap-2 px-3 pt-3">{files.map(item=><li key={item.key} className={`relative flex max-w-[240px] items-center gap-2 rounded-lg border px-2 py-1.5 text-xs ${item.status==="failed"?"border-red-200 bg-red-50":item.status==="sent"?"border-emerald-200 bg-emerald-50":"border-slate-200 bg-slate-50"}`} title={item.error??item.file.name}>
         {item.previewUrl?<img src={item.previewUrl} alt="" className="size-9 shrink-0 rounded object-cover"/>:<span className="flex size-9 shrink-0 items-center justify-center rounded bg-white text-slate-500"><FileText className="size-4"/></span>}

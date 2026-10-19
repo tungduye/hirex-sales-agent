@@ -229,7 +229,9 @@
     ".next-an-tro-ly/types/**/*.ts",
     ".next-an-tro-ly/dev/types/**/*.ts",
     ".next-logo-kenh/types/**/*.ts",
-    ".next-logo-kenh/dev/types/**/*.ts"
+    ".next-logo-kenh/dev/types/**/*.ts",
+    ".next-bang-job/types/**/*.ts",
+    ".next-bang-job/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
