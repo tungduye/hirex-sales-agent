@@ -3,11 +3,12 @@
 import { EmojiPicker } from "./emoji-picker";
 import { buildMentions, mentionQueryAt, suggestMembers, type MentionPick } from "../core/zalo-mentions";
 import { insertAt } from "../core/text-insert";
-import { Bot, ChevronDown, Reply, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
+import { Bot, ChevronDown, FileText, Paperclip, Reply, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
+import { formatFileSize, isZaloImage, MAX_ZALO_FILES_PER_SEND, zaloContentType, zaloFileProblem, ZALO_FILE_PROBLEM_TEXT } from "../core/zalo-files";
 import { DRAFT_EVENT, draftStore, readDraft, writeDraft } from "../core/composer-drafts";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
 import type { ChannelType } from "../core/channel-contracts";
-import { approveChannelMessage,cancelPendingManualChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage } from "../server/channel-actions";
+import { approveChannelMessage,cancelPendingManualChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage,sendZaloFileReply } from "../server/channel-actions";
 import { generateOmnichannelDraft } from "../server/omnichannel-ai-actions";
 import { generateHoleDraft } from "@/modules/assistant/server/hole-draft-action";
 import type { ChannelActionState } from "../types/channel-action-state";
@@ -21,6 +22,18 @@ function createRequestId(){
   const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
   const hex=Array.from(bytes,value=>value.toString(16).padStart(2,"0")).join("");
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
+/** A file picked for a Zalo chat: uploaded, then sent as its own message. */
+type PickedFile={key:string;file:File;previewUrl:string|null;status:"ready"|"uploading"|"sending"|"sent"|"failed";attachmentId?:string;error?:string};
+const wait=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
+async function uploadZaloFile(conversationId:string,file:File):Promise<{id:string}|{error:string}>{
+  const body=new FormData();body.set("file",file);
+  try{
+    const response=await fetch(`/api/inbox/conversations/${conversationId}/attachments`,{method:"POST",body});
+    const result=await response.json().catch(()=>null) as {ok?:boolean;id?:string;message?:string}|null;
+    return result?.ok&&typeof result.id==="string"?{id:result.id}:{error:result?.message??"Chưa tải tệp lên được."};
+  }catch{return{error:"Mất kết nối khi tải tệp lên."};}
 }
 
 /** Lower-case, no Vietnamese accents: "Chào hỏi" matches "chao". */
@@ -58,6 +71,16 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const[picks,setPicks]=useState<MentionPick[]>([]);
   const[mentionIndex,setMentionIndex]=useState(0);
   const[mentionDismissed,setMentionDismissed]=useState<number|null>(null);
+  // Zalo: files picked with the paperclip, pasted, or dropped on the box; each is sent as its own message.
+  const canAttach=channelType==="ZALO";
+  const fileInputRef=useRef<HTMLInputElement>(null);
+  const[files,setFiles]=useState<PickedFile[]>([]);
+  const filesRef=useRef<PickedFile[]>([]);
+  useEffect(()=>{filesRef.current=files;},[files]);
+  useEffect(()=>()=>{for(const item of filesRef.current)if(item.previewUrl)URL.revokeObjectURL(item.previewUrl);},[]);
+  const[sendingFiles,setSendingFiles]=useState(false);
+  const[dragging,setDragging]=useState(false);
+  const pendingFiles=files.filter(item=>item.status==="ready"||item.status==="failed");
   useEffect(()=>{
     if(!submittedTextRef.current||state.status==="idle")return;
     if(state.status==="error"){
@@ -130,17 +153,79 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     window.requestAnimationFrame(()=>{textareaRef.current?.focus();textareaRef.current?.setSelectionRange(position,position);});
   }
   function undoDraft(){if(beforeDraft===null)return;updateText(beforeDraft);setBeforeDraft(null);setHint(null);}
+  function addFiles(list:FileList|File[]|null){
+    if(!canAttach||!list)return;
+    const picked=Array.from(list),problems:string[]=[],added:PickedFile[]=[];
+    for(const file of picked){
+      const problem=zaloFileProblem({name:file.name,size:file.size});
+      if(problem){problems.push(`${file.name}: ${ZALO_FILE_PROBLEM_TEXT[problem]}`);continue;}
+      added.push({key:createRequestId(),file,status:"ready",previewUrl:isZaloImage(file.name,zaloContentType(file.name,file.type))?URL.createObjectURL(file):null});
+    }
+    const room=MAX_ZALO_FILES_PER_SEND-filesRef.current.filter(item=>item.status!=="sent").length;
+    for(const item of added.slice(Math.max(0,room)))if(item.previewUrl)URL.revokeObjectURL(item.previewUrl);
+    if(added.length>room)problems.push(`Mỗi lần gửi tối đa ${MAX_ZALO_FILES_PER_SEND} tệp.`);
+    if(room>0&&added.length)setFiles(current=>[...current.filter(item=>item.status!=="sent"),...added.slice(0,room)]);
+    setHint(problems.length?problems.join(" "):null);
+  }
+  function removeFile(key:string){setFiles(current=>{const item=current.find(entry=>entry.key===key);if(item?.previewUrl)URL.revokeObjectURL(item.previewUrl);return current.filter(entry=>entry.key!==key);});}
+  function patchFile(key:string,patch:Partial<PickedFile>){setFiles(current=>current.map(item=>item.key===key?{...item,...patch}:item));}
+  // Text first (with its tags and quote), then each file in order. A file that fails stays in the box to retry.
+  async function sendWithFiles(){
+    if(sendingFiles)return;
+    setSendingFiles(true);setHint(null);
+    try{
+      const value=text.trim();
+      if(value&&formRef.current){
+        const formData=new FormData(formRef.current);
+        window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));
+        const result=await sendManualChannelMessage(initial,formData);
+        if(result.status!=="success"){
+          window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"FAILED"}}));
+          setHint(result.message??"Chưa gửi được tin nhắn; tệp chưa được gửi.");return;
+        }
+        setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));
+        await wait(1200);
+      }
+      onCancelReply?.();
+      let failures=0,first=true;
+      for(const item of filesRef.current.filter(entry=>entry.status==="ready"||entry.status==="failed")){
+        if(!first)await wait(1200);
+        first=false;
+        let attachmentId=item.attachmentId;
+        if(!attachmentId){
+          patchFile(item.key,{status:"uploading",error:undefined});
+          const uploaded=await uploadZaloFile(conversationId,item.file);
+          if("error" in uploaded){failures++;patchFile(item.key,{status:"failed",error:uploaded.error});continue;}
+          attachmentId=uploaded.id;
+        }
+        patchFile(item.key,{status:"sending",attachmentId,error:undefined});
+        let result=await sendZaloFileReply({conversationId,attachmentId,idempotencyKey:createRequestId()});
+        // The nick finishes the previous message first: wait a moment and try once more.
+        if(result.status==="error"&&result.message?.includes("đang xử lý")){await wait(2500);result=await sendZaloFileReply({conversationId,attachmentId,idempotencyKey:createRequestId()});}
+        if(result.status==="success")patchFile(item.key,{status:"sent"});
+        else{failures++;patchFile(item.key,{status:"failed",error:result.message??"Chưa gửi được tệp."});}
+      }
+      setHint(failures?`${failures} tệp chưa gửi được. Bấm Gửi để thử lại hoặc bỏ tệp đó.`:null);
+      window.setTimeout(()=>setFiles(current=>{for(const item of current)if(item.status==="sent"&&item.previewUrl)URL.revokeObjectURL(item.previewUrl);return current.filter(item=>item.status!=="sent");}),1500);
+    }finally{setSendingFiles(false);}
+  }
 
   return <div>
     {showQuick?<QuickReplyMenu templates={matches} total={templates.length} activeIndex={Math.min(activeIndex,Math.max(0,matches.length-1))} query={slashQuery} draftText={slashQuery===null?text.trim():""} onPick={pickTemplate} onClose={closeQuick} onSaved={template=>{setLocalTemplates(current=>[...current,template]);setHint(`Đã lưu mẫu /${template.shortcut}.`);}}/>:null}
     {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.{mentionMembers.length?" Gõ @ để tag thành viên.":""}</p>:null}
     {showMentions?<div role="listbox" aria-label="Tag thành viên" className="mb-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">{mentionOptions.map((member,index)=>{const person=mentionMembers.find(item=>item.uid===member.uid);return <button key={`${member.uid}:${member.name}`} type="button" role="option" aria-selected={index===mentionIndex} onMouseDown={event=>{event.preventDefault();pickMention(member);}} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${index===mentionIndex?"bg-blue-50 text-blue-800":"hover:bg-slate-50"}`}>{person?.avatarUrl?<img src={person.avatarUrl} alt="" className="size-6 rounded-full object-cover"/>:<span className="flex size-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{member.uid==="-1"?"@":member.name.slice(0,1).toUpperCase()}</span>}<span className="truncate font-medium">{member.uid==="-1"?"@All · cả nhóm":member.name}</span></button>;})}</div>:null}
     {replyTo&&channelType==="ZALO"?<div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-blue-400 bg-blue-50 px-3 py-1.5 text-xs"><Reply className="mt-0.5 size-3.5 shrink-0 text-blue-600"/><div className="min-w-0 flex-1"><p className="font-semibold text-blue-800">Trả lời {replyTo.sender}</p><p className="truncate text-slate-600">{replyTo.text}</p></div><button type="button" onClick={onCancelReply} aria-label="Bỏ trả lời" className="rounded p-0.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700"><X className="size-3.5"/></button></div>:null}
-    <form action={send} onSubmit={()=>{const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className="rounded-[14px] border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+    <form action={send} onDragOver={canAttach?event=>{if(Array.from(event.dataTransfer.types).includes("Files")){event.preventDefault();setDragging(true);}}:undefined} onDragLeave={canAttach?()=>setDragging(false):undefined} onDrop={canAttach?event=>{if(event.dataTransfer.files.length){event.preventDefault();setDragging(false);addFiles(event.dataTransfer.files);}}:undefined} onSubmit={event=>{if(pendingFiles.length>0){event.preventDefault();void sendWithFiles();return;}const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className={`rounded-[14px] border bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 ${dragging?"border-blue-400 ring-2 ring-blue-200":"border-slate-300"}`}>
       <input type="hidden" name="conversationId" value={conversationId}/>{mentions.length?<input type="hidden" name="mentions" value={JSON.stringify(mentions)}/>:null}{replyTo&&channelType==="ZALO"?<input type="hidden" name="quoteMessageId" value={replyTo.messageId}/>:null}<input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
+      {files.length?<ul aria-label="Tệp sẽ gửi" className="flex flex-wrap gap-2 px-3 pt-3">{files.map(item=><li key={item.key} className={`relative flex max-w-[240px] items-center gap-2 rounded-lg border px-2 py-1.5 text-xs ${item.status==="failed"?"border-red-200 bg-red-50":item.status==="sent"?"border-emerald-200 bg-emerald-50":"border-slate-200 bg-slate-50"}`} title={item.error??item.file.name}>
+        {item.previewUrl?<img src={item.previewUrl} alt="" className="size-9 shrink-0 rounded object-cover"/>:<span className="flex size-9 shrink-0 items-center justify-center rounded bg-white text-slate-500"><FileText className="size-4"/></span>}
+        <span className="min-w-0"><span className="block truncate font-medium text-slate-800">{item.file.name}</span><span className={`block truncate ${item.status==="failed"?"text-red-600":"text-slate-500"}`}>{item.status==="uploading"?"Đang tải lên…":item.status==="sending"?"Đang gửi…":item.status==="sent"?"Đã gửi":item.status==="failed"?item.error??"Chưa gửi được":formatFileSize(item.file.size)}</span></span>
+        {item.status==="uploading"||item.status==="sending"?<span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"/>:item.status!=="sent"?<button type="button" onClick={()=>removeFile(item.key)} disabled={sendingFiles} aria-label={`Bỏ ${item.file.name}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"><X className="size-3.5"/></button>:null}
+      </li>)}</ul>:null}
       <label htmlFor={`composer-${conversationId}`} className="sr-only">Nội dung tin nhắn</label>
-      <textarea id={`composer-${conversationId}`} ref={textareaRef} name="text" required value={text} onFocus={ensureRequestId} onChange={event=>{updateText(event.target.value);setCaret(event.target.selectionStart??event.target.value.length);setMentionIndex(0);setMentionDismissed(null);if(hint&&!drafting)setHint(null);setActiveIndex(0);}}
+      <textarea id={`composer-${conversationId}`} ref={textareaRef} name="text" required={pendingFiles.length===0} value={text} onFocus={ensureRequestId} onChange={event=>{updateText(event.target.value);setCaret(event.target.selectionStart??event.target.value.length);setMentionIndex(0);setMentionDismissed(null);if(hint&&!drafting)setHint(null);setActiveIndex(0);}}
         onSelect={event=>setCaret(event.currentTarget.selectionStart??0)}
+        onPaste={canAttach?event=>{if(event.clipboardData.files.length){event.preventDefault();addFiles(event.clipboardData.files);}}:undefined}
         onKeyDown={event=>{
           if(showMentions){
             if(event.key==="ArrowDown"){event.preventDefault();setMentionIndex(index=>(index+1)%mentionOptions.length);return;}
@@ -155,17 +240,18 @@ export function ConversationComposer({conversationId,channelType,conversationSta
           }
           if(showQuick&&event.key==="Escape"){event.preventDefault();closeQuick();return;}
           if(replyTo&&event.key==="Escape"){event.preventDefault();onCancelReply?.();return;}
-          if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();if(text.trim()&&slashQuery===null&&!pending&&!drafting&&responseWindowOpen&&idempotencyKey)formRef.current?.requestSubmit();}
+          if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();if((text.trim()||pendingFiles.length)&&slashQuery===null&&!pending&&!sendingFiles&&!drafting&&responseWindowOpen&&idempotencyKey)formRef.current?.requestSubmit();}
         }}
         placeholder="Nhập tin nhắn… (Enter gửi · Shift+Enter xuống dòng · / mẫu trả lời)" rows={3} disabled={drafting} className="block max-h-48 min-h-[72px] w-full resize-none rounded-t-[14px] bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:text-slate-400"/>
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2 pt-1">
         <button type="button" onClick={()=>setQuickOpen(open=>!open)} aria-expanded={showQuick} className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold ${showQuick?"bg-slate-100 text-slate-900":"text-slate-700 hover:bg-slate-100"}`} title="Câu trả lời mẫu (gõ / để mở)"><Zap className="size-[15px]"/>Mẫu</button>
         <EmojiPicker onPick={insertEmoji} disabled={drafting}/>
+        {canAttach?<><input ref={fileInputRef} type="file" multiple hidden onChange={event=>{addFiles(event.target.files);event.target.value="";}}/><button type="button" onClick={()=>fileInputRef.current?.click()} disabled={drafting||sendingFiles} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60" title="Gửi ảnh hoặc tệp (tối đa 25 MB mỗi tệp). Có thể dán ảnh (Ctrl+V) hoặc kéo thả tệp vào ô soạn tin."><Paperclip className="size-[15px]"/>Tệp</button></>:null}
         <button type="button" onClick={()=>askAssistant("hola")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hola (nhanh): viết lại ý anh/chị đã gõ thành câu trả lời hoàn chỉnh":"Hola (nhanh): đọc các tin gần nhất và soạn nháp"}>{drafter==="hola"?<span className="size-3.5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent"/>:<Sparkles className="size-[15px]"/>}Hola</button>
         <button type="button" onClick={()=>askAssistant("hole")} disabled={drafting} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60" title={text.trim()&&slashQuery===null?"Hole (kỹ): đọc hồ sơ khách, tra job/chiến dịch rồi viết ý anh/chị đã gõ thành câu trả lời":"Hole (kỹ): đọc hội thoại, hồ sơ khách, tra job/chiến dịch khi cần rồi soạn nháp"}>{drafter==="hole"?<span className="size-3.5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"/>:<Bot className="size-[15px]"/>}Hole</button>
         {beforeDraft!==null&&!drafting?<button type="button" onClick={undoDraft} className="inline-flex min-h-[34px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800"><Undo2 className="size-3.5"/>Hoàn tác</button>:null}
         <span className="min-w-0 flex-1 truncate px-1 text-right text-xs text-slate-500" aria-live="polite">{hint??(state.status==="error"?state.message:null)}</span>
-        <button type="submit" disabled={pending||drafting||!responseWindowOpen||!idempotencyKey||!text.trim()||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
+        <button type="submit" disabled={pending||sendingFiles||drafting||!responseWindowOpen||!idempotencyKey||(!text.trim()&&pendingFiles.length===0)||slashQuery!==null} className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-[10px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Gửi tin nhắn">{pending||sendingFiles?<span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>:<>Gửi<SendHorizontal className="size-4"/></>}</button>
       </div>
     </form>
     {!responseWindowOpen?<p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-amber-700"><span>{businessSuiteUrl?"Đã quá 24 giờ từ tin cuối của khách nên HireX không gửi được qua Facebook. Bản nháp vẫn được giữ; trả lời trong Meta Business Suite (không giới hạn thời gian): mở hộp thư của Page rồi chọn khách trong danh sách.":"Đã hết thời gian phản hồi Facebook. Bản nháp vẫn được giữ nhưng không thể gửi."}</span>{businessSuiteUrl?<a href={businessSuiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-lg border border-blue-200 bg-white px-2.5 py-1 font-semibold text-blue-700 hover:bg-blue-50">Mở trong Meta Business Suite ↗</a>:null}</p>:null}

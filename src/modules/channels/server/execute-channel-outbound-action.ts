@@ -22,14 +22,17 @@ interface AttachmentRow { id: unknown; storage_bucket: unknown; storage_path: un
 function isUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value); }
 
 type PrivilegedClient = ReturnType<typeof createPrivilegedClient>;
+const ZALO_FILE_BUCKET = "channel-attachments";
+const SIGNED_LINK_SECONDS = 600;
 
 async function persistSentConversationMessage(client: PrivilegedClient, actionId: string, workspaceId: string) {
   const { data: action, error } = await client.from("channel_outbound_actions")
-    .select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,text_content,provider_message_id,accepted_at")
+    .select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,text_content,attachment_ids,provider_message_id,accepted_at")
     .eq("id", actionId).eq("workspace_id", workspaceId).eq("status", "SENT").maybeSingle();
+  const attachmentIds = Array.isArray(action?.attachment_ids) && action.attachment_ids.every(isUuid) ? action.attachment_ids as string[] : [];
   if (error || !action || !isUuid(action.conversation_id) || !isUuid(action.channel_account_id) ||
       typeof action.provider_message_id !== "string" || typeof action.accepted_at !== "string" ||
-      typeof action.recipient_external_id !== "string" || typeof action.text_content !== "string") return false;
+      typeof action.recipient_external_id !== "string" || (typeof action.text_content !== "string" && attachmentIds.length === 0)) return false;
   const { data: account, error: accountError } = await client.from("channel_accounts")
     .select("external_account_id").eq("id", action.channel_account_id).eq("workspace_id", workspaceId).maybeSingle();
   if (accountError || typeof account?.external_account_id !== "string") return false;
@@ -42,11 +45,21 @@ async function persistSentConversationMessage(client: PrivilegedClient, actionId
     direction: "OUTBOUND",
     sender_external_id: account.external_account_id,
     recipient_external_ids: [action.recipient_external_id],
-    text_content: action.text_content,
+    text_content: typeof action.text_content === "string" ? action.text_content : null,
+    attachment_count: attachmentIds.length,
     sent_at: action.accepted_at,
     metadata: { outboundActionId: actionId },
   }, { onConflict: "workspace_id,channel_account_id,provider_message_id", ignoreDuplicates: true });
-  return !insertError;
+  if (insertError) return false;
+  if (attachmentIds.length === 0) return true;
+  // The sent file shows in the conversation straight away (also when Deplao's copy of the message arrived first).
+  const { data: message, error: messageError } = await client.from("omnichannel_messages").select("id")
+    .eq("workspace_id", workspaceId).eq("channel_account_id", action.channel_account_id).eq("provider_message_id", action.provider_message_id).maybeSingle();
+  if (messageError || !isUuid(message?.id)) return false;
+  const { error: linkError } = await client.from("channel_message_attachments").upsert(
+    attachmentIds.map((attachmentId, position) => ({ workspace_id: workspaceId, message_id: message.id, attachment_id: attachmentId, position })),
+    { onConflict: "message_id,attachment_id", ignoreDuplicates: true });
+  return !linkError;
 }
 
 async function mapAction(client: PrivilegedClient, row: ActionRow | null): Promise<OutboundActionRecord | null> {
@@ -122,6 +135,14 @@ export async function executeChannelOutboundAction(actionId: string, adapters: C
       for (const id of input.attachmentIds) {
         const row = byId.get(id);
         if (!row || !isUuid(row.id) || typeof row.storage_bucket !== "string" || typeof row.storage_path !== "string" || typeof row.filename !== "string" || typeof row.content_type !== "string" || !Number.isSafeInteger(row.size_bytes) || typeof row.sha256 !== "string") throw new Error("ATTACHMENT_INVALID");
+        // Zalo: the bridge fetches the file itself through a short-lived link and checks its size and SHA-256.
+        if (input.channelType === "ZALO") {
+          if (row.storage_bucket !== ZALO_FILE_BUCKET) throw new Error("ATTACHMENT_INVALID");
+          const { data: signed, error: signError } = await client.storage.from(row.storage_bucket).createSignedUrl(row.storage_path, SIGNED_LINK_SECONDS);
+          if (signError || typeof signed?.signedUrl !== "string") throw new Error("ATTACHMENT_MISSING");
+          attachments.push({ id, filename: row.filename, contentType: row.content_type, sizeBytes: Number(row.size_bytes), sha256: row.sha256, signedUrl: signed.signedUrl });
+          continue;
+        }
         const { data: blob, error: downloadError } = await client.storage.from(row.storage_bucket).download(row.storage_path);
         if (downloadError || !blob) throw new Error("ATTACHMENT_MISSING");
         const bytes = Buffer.from(await blob.arrayBuffer());

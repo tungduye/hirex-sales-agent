@@ -4,7 +4,9 @@ const nextConfig: NextConfig = {
   distDir: process.env.HIREX_BUILD_DIR || ".next",
   // Mutable bridge state is read from the host at runtime, never bundled.
   outputFileTracingExcludes: { "/*": ["./runtime/**/*", "./playwright/.auth/**/*"] },
-  experimental: { serverActions: { bodySizeLimit: "6mb" } },
+  // Files sent into Zalo chats are uploaded through /api/inbox/.../attachments (up to 25 MB); the proxy
+  // (src/proxy.ts) runs on that route too and would otherwise cut request bodies at 10 MB.
+  experimental: { serverActions: { bodySizeLimit: "6mb" }, proxyClientMaxBodySize: "26mb" },
   allowedDevOrigins: ["127.0.0.1", "app.hirexmkt.online"],
   async headers() {
     return [

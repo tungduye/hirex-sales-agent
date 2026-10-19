@@ -22,6 +22,8 @@ const FIND_BY_PHONE_PATH="/v1/zalo/users/find-by-phone";
 const FRIEND_REQUEST_PATH="/v1/zalo/friend-requests/send";
 const REACT_PATH="/v1/messages/react";
 const SEND_TIMEOUT_MS=20_000;
+// A file is downloaded by the bridge and uploaded to Zalo before it answers (the bridge itself gives up after 75 s).
+const FILE_SEND_TIMEOUT_MS=85_000;
 
 export type ZaloWebhookDiagnosticCode =
   | "TIMESTAMP_INVALID"
@@ -154,6 +156,11 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     const group = command.threadKind === "GROUP";
     if (group && (command.source !== "HUMAN_MANUAL" || !command.providerConversationId || command.recipientExternalId !== command.providerConversationId))
       throw new ChannelError("DELIVERY_REJECTED", false);
+    // A person's reply may be one stored file, sent on its own (no text, tags or quote).
+    const file = command.attachments[0];
+    if (command.attachments.length > 1 || (file && (command.source !== "HUMAN_MANUAL" || command.text !== null || command.mentions?.length ||
+        command.quoteMessageId || typeof file.signedUrl !== "string")))
+      throw new ChannelError("DELIVERY_REJECTED", false);
     const body = JSON.stringify({
       workspaceId: command.workspaceId,
       connectedAccountId: command.channelAccountId,
@@ -165,7 +172,7 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       ...(group ? { threadType: "GROUP", ...(command.mentions?.length ? { mentions: command.mentions } : {}) } : {}),
       ...(command.quoteMessageId && command.source === "HUMAN_MANUAL" ? { quoteMessageId: command.quoteMessageId } : {}),
       text: command.text,
-      attachments: command.attachments,
+      attachments: file ? [{ id: file.id, filename: file.filename, contentType: file.contentType, sizeBytes: file.sizeBytes, sha256: file.sha256, url: file.signedUrl }] : [],
       idempotencyKey: command.idempotencyKey,
       source: command.source,
     });
@@ -176,7 +183,7 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       url: `${this.credential.bridgeBaseUrl.replace(/\/$/u, "")}${SEND_PATH}`,
       headers: { "content-type": "application/json", "x-hirex-timestamp": timestamp, "x-hirex-signature": signature, "x-hirex-idempotency-key":command.idempotencyKey },
       body,
-      timeoutMs: SEND_TIMEOUT_MS,
+      timeoutMs: file ? FILE_SEND_TIMEOUT_MS : SEND_TIMEOUT_MS,
     });
     const result = response.body as { status?: unknown; messageId?: unknown; threadId?: unknown; errorCode?: unknown };
     if (response.status === 409 && result?.status === "BLOCKED" && result.errorCode === "ACCOUNT_BUSY") throw new ChannelError("ACCOUNT_BUSY", false);

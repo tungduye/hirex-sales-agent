@@ -44,7 +44,7 @@ export interface OutboundExecutionDependencies {
   loadPolicy(policyDecisionId: string): Promise<CurrentPolicyEvidence | null>;
   isSuppressed(input: { workspaceId: string; channelType: ChannelType; recipientExternalId: string }): Promise<boolean>;
   claim(input: { actionId: string; workspaceId: string; executionLockId: string }): Promise<ClaimedOutboundAction | null>;
-  loadClaimedAttachments(input: { actionId: string; workspaceId: string; executionLockId: string; attachmentIds: string[] }): Promise<SendAttachment[]>;
+  loadClaimedAttachments(input: { actionId: string; workspaceId: string; executionLockId: string; attachmentIds: string[]; channelType: ChannelType }): Promise<SendAttachment[]>;
   validatePreSend(input: { action: ClaimedOutboundAction; now: string }): Promise<{ allowed: boolean; safeErrorCode: string }>;
   finalizeSent(input: { actionId: string; workspaceId: string; executionLockId: string; providerMessageId: string; providerConversationId: string; acceptedAt: string }): Promise<boolean>;
   finalizeFailed(input: { actionId: string; workspaceId: string; executionLockId: string; safeErrorCode: string }): Promise<boolean>;
@@ -86,7 +86,7 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
   try { claimed = await dependencies.claim({ actionId, workspaceId: action.workspaceId, executionLockId }); } catch { return { status: "UNAVAILABLE", actionId }; }
   if (!claimed || claimed.status !== "EXECUTING" || claimed.id !== action.id || claimed.workspaceId !== action.workspaceId || claimed.executionLockId !== executionLockId) return { status: "NOT_ELIGIBLE", actionId };
   let attachments: SendAttachment[];
-  try { attachments = await dependencies.loadClaimedAttachments({ actionId, workspaceId: action.workspaceId, executionLockId, attachmentIds: claimed.attachmentIds }); }
+  try { attachments = await dependencies.loadClaimedAttachments({ actionId, workspaceId: action.workspaceId, executionLockId, attachmentIds: claimed.attachmentIds, channelType: claimed.channelType }); }
   catch {
     try {
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_REJECTED" });

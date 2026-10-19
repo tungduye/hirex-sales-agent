@@ -206,10 +206,12 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     if (linkError) return { status: "error", conversation: null };
     const attachmentIds = [...new Set((links ?? []).flatMap((link) => typeof link.attachment_id === "string" ? [link.attachment_id] : []))];
     const attachmentById = new Map<string, { id: string; filename: string; contentType: string; sizeBytes: number; downloadUrl: string }>();
+    const shaById = new Map<string, string>();
     if (attachmentIds.length > 0) {
       const { data: stored, error: storedError } = await accountClient.from("channel_attachments")
-        .select("id,filename,content_type,size_bytes").eq("workspace_id", accountContext.workspaceId).in("id", attachmentIds);
+        .select("id,filename,content_type,size_bytes,sha256").eq("workspace_id", accountContext.workspaceId).in("id", attachmentIds);
       if (storedError) return { status: "error", conversation: null };
+      for (const item of stored ?? []) if (typeof item.id === "string" && typeof item.sha256 === "string") shaById.set(item.id, item.sha256);
       for (const item of stored ?? []) {
         if (typeof item.id !== "string" || typeof item.filename !== "string" || typeof item.content_type !== "string" || !Number.isSafeInteger(item.size_bytes))
           return { status: "error", conversation: null };
@@ -224,6 +226,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       const attachment = attachmentById.get(link.attachment_id);
       if (!attachment) return { status: "error", conversation: null };
       const current = storedByMessage.get(link.message_id) ?? [];
+      const sha = shaById.get(link.attachment_id);
+      if (sha && current.some((item) => item.id && shaById.get(item.id) === sha)) continue;
       current.push(attachment);
       storedByMessage.set(link.message_id, current);
     }
@@ -240,6 +244,16 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     const marker = action.idempotency_key.indexOf(":retry:");
     return marker > 0 ? [action.idempotency_key.slice(0, marker)] : [];
   }));
+  // Files of replies still being sent (or that failed) show with their name and a download link.
+  const actionFileIds = [...new Set((actionRows ?? []).flatMap((action) => ["APPROVED", "EXECUTING", "FAILED", "DELIVERY_UNKNOWN"].includes(String(action.status)) && Array.isArray(action.attachment_ids)
+    ? action.attachment_ids.filter((id: unknown): id is string => typeof id === "string") : []))];
+  const actionFiles = new Map<string, OmnichannelInboxMessage["attachments"][number]>();
+  if (actionFileIds.length > 0) {
+    const { data: stored } = await accountClient.from("channel_attachments").select("id,filename,content_type,size_bytes")
+      .eq("workspace_id", accountContext.workspaceId).in("id", actionFileIds);
+    for (const item of stored ?? []) if (typeof item.id === "string" && typeof item.filename === "string" && typeof item.content_type === "string" && Number.isSafeInteger(item.size_bytes))
+      actionFiles.set(item.id, { id: item.id, filename: item.filename, contentType: item.content_type, sizeBytes: item.size_bytes, downloadUrl: `/api/inbox/attachments/${item.id}` });
+  }
   for (const action of actionRows ?? []) {
     if (!["APPROVED", "EXECUTING", "FAILED", "DELIVERY_UNKNOWN"].includes(String(action.status)) || typeof action.id !== "string") continue;
     if (action.safe_error_code === "ACCOUNT_BUSY" && typeof action.idempotency_key === "string" && successfullyRetriedKeys.has(action.idempotency_key)) continue;
@@ -249,7 +263,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     const status = action.safe_error_code === "ACCOUNT_BUSY" ? "BLOCKED" : action.status === "APPROVED" ? "PENDING" : action.status === "EXECUTING" ? "SENDING" : action.status;
     messages.push({ id: `action:${action.id}`, conversationId, channelType, direction: "OUTBOUND", senderExternalId: row.channel_account_id,
       text: text(action.text_content), timestamp, providerMessageId: typeof action.provider_message_id === "string" ? action.provider_message_id : `action:${action.id}`,
-      attachmentCount: Array.isArray(action.attachment_ids) ? action.attachment_ids.length : 0, attachments: [],
+      attachmentCount: Array.isArray(action.attachment_ids) ? action.attachment_ids.length : 0,
+      attachments: Array.isArray(action.attachment_ids) ? action.attachment_ids.flatMap((id: unknown) => typeof id === "string" && actionFiles.has(id) ? [actionFiles.get(id)!] : []) : [],
       deliveryStatus: status as OmnichannelInboxMessage["deliveryStatus"], actionId: action.id,
       reconciliationStatus: ["NONE","NEEDS_REVIEW","ACKNOWLEDGED_NO_RETRY"].includes(String(action.reconciliation_status)) ? action.reconciliation_status as OmnichannelInboxMessage["reconciliationStatus"] : undefined });
   }

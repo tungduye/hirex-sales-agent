@@ -69,7 +69,10 @@ export interface SendAttachment {
   contentType: string;
   sizeBytes: number;
   sha256: string;
-  contentBase64: string;
+  /** The file's bytes (channels that upload them directly). */
+  contentBase64?: string;
+  /** Zalo: a short-lived signed storage link; the bridge downloads the file and checks size and SHA-256. */
+  signedUrl?: string;
 }
 
 export interface CanonicalInboundMessage {
@@ -161,9 +164,11 @@ function isSendAttachment(value: unknown): value is SendAttachment {
     Number.isSafeInteger(attachment.sizeBytes) && (attachment.sizeBytes ?? -1) >= 0 &&
     (attachment.sizeBytes ?? 0) <= 25 * 1024 * 1024 &&
     typeof attachment.sha256 === "string" && /^[0-9a-f]{64}$/u.test(attachment.sha256) &&
-    typeof attachment.contentBase64 === "string" && attachment.contentBase64.length > 0 &&
-    attachment.contentBase64.length % 4 === 0 &&
-    /^[A-Za-z0-9+/]*(?:={1,2})?$/u.test(attachment.contentBase64)
+    // Exactly one way to get the bytes.
+    ((typeof attachment.contentBase64 === "string" && attachment.signedUrl === undefined && attachment.contentBase64.length > 0 &&
+      attachment.contentBase64.length % 4 === 0 && /^[A-Za-z0-9+/]*(?:={1,2})?$/u.test(attachment.contentBase64)) ||
+     (attachment.contentBase64 === undefined && typeof attachment.signedUrl === "string" && attachment.signedUrl.length <= 4700 &&
+      /^https:\/\/[^/?#\s]+\/storage\/v1\/object\/sign\/[^\s]+\?token=[A-Za-z0-9._-]+$/u.test(attachment.signedUrl)))
   );
 }
 
