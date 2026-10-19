@@ -73,3 +73,16 @@ test('overlapping pages: copies already listed are skipped and the rest join the
   assert.deepEqual(next[0].copyIds, ['a', 'b', 'c', 'd', 'e']);
   assert.equal(appendPage(next, [{ ...row('b'), groupKey: key }]).length, 1, 'a fully listed row adds nothing');
 });
+
+test('copies with the same group key merge even when nicks call the group differently', async () => {
+  const { groupKeyOf, mergeGroupCopies } = await import('../src/modules/inbox/core/group-merge.ts');
+  const base = { channelType: 'ZALO', isGroup: true, unreadCount: 0, isPinned: false, latestText: 'x', latestDirection: null, senderExternalId: null, lastInboundAt: null };
+  const items = [
+    { ...base, id: 'a', channelAccountId: 'n1', subject: 'Nick Intalent _ Quản lý', lastMessageAt: '2026-10-19T05:17:00Z', zaloGroupKey: '1:9' },
+    { ...base, id: 'b', channelAccountId: 'n2', subject: 'Nick Zalo Intalent _ Nhóm quản lý', lastMessageAt: '2026-10-19T05:17:00Z', zaloGroupKey: '1:9' },
+    { ...base, id: 'c', channelAccountId: 'n3', subject: 'Nick Intalent _ Quản lý', lastMessageAt: '2026-10-19T05:16:00Z' },
+  ];
+  assert.equal(groupKeyOf(items[0]), 'ZALO#1:9');
+  const merged = mergeGroupCopies(items, new Map());
+  assert.deepEqual(merged.map((row) => row.copyIds), [['a', 'b'], ['c']]);
+});

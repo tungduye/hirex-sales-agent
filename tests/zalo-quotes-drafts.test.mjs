@@ -46,3 +46,11 @@ test('a quoted reply is checked against the conversation and travels only with a
   const adapter = readFileSync(new URL('../src/modules/channels/adapters/zalo/zalo-bridge-adapter.ts', import.meta.url), 'utf8');
   assert.match(adapter, /command\.quoteMessageId && command\.source === "HUMAN_MANUAL" \? \{ quoteMessageId: command\.quoteMessageId \}/u);
 });
+
+test('a broken emoji in a quote cannot break the batch', () => {
+  const quote = mapQuote({ msgId: '9', quote_data: JSON.stringify({ msg: 'Chào \ud83d', fromD: 'Lan \ude00', msgType: 'webchat', msgId: '8' }) });
+  assert.equal(quote.quotedText, 'Chào'); assert.equal(quote.quotedSender, 'Lan');
+  const long = mapQuote({ msgId: '9', quote_data: JSON.stringify({ msg: '😀'.repeat(600), msgType: 'webchat' }) });
+  assert.equal(Array.from(long.quotedText).length, 500); assert.doesNotThrow(() => JSON.parse(JSON.stringify(long)));
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(long.quotedText), false);
+});

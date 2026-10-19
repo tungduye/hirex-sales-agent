@@ -2,7 +2,9 @@
 // the list showed the same group once per nick. These helpers fold the copies into one row. Pure;
 // unit-tested.
 //
-// Zalo gives every nick a different id for the same group, so copies are matched by group name.
+// Zalo gives every nick a different id for the same group. Copies are matched by zaloGroupKey when the sync found
+// that they share messages (the same message has one id for every nick: proof it is one group, even after a
+// rename), and otherwise by group name.
 // Safety: a name that one nick has twice (two different groups with the same name) is never
 // merged. One-to-one chats are never merged (two nicks talking to the same person are two chats).
 
@@ -19,6 +21,8 @@ export interface GroupCopy {
   latestDirection: "INBOUND" | "OUTBOUND" | null;
   senderExternalId: string | null;
   lastInboundAt: string | null;
+  /** Same value on every nick's copy of one Zalo group (set by sync-zalo-group-members.mjs). */
+  zaloGroupKey?: string | null;
 }
 
 export function normalizeGroupName(name: string | null | undefined) {
@@ -26,7 +30,8 @@ export function normalizeGroupName(name: string | null | undefined) {
 }
 
 /** Key shared by every copy of the same group; null when the row is not a mergeable group. */
-export function groupKeyOf(item: Pick<GroupCopy, "channelType" | "isGroup" | "subject">): string | null {
+export function groupKeyOf(item: Pick<GroupCopy, "channelType" | "isGroup" | "subject"> & { zaloGroupKey?: string | null }): string | null {
+  if (item.channelType === "ZALO" && item.isGroup && item.zaloGroupKey) return `ZALO#${item.zaloGroupKey}`;
   const name = normalizeGroupName(item.subject);
   return item.channelType === "ZALO" && item.isGroup && name ? `ZALO:${name}` : null;
 }

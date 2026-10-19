@@ -41,6 +41,8 @@ export interface OmnichannelInboxConversation {
   providerConversationId: string | null;
   /** Zalo group listed once for all of our nicks in it ("ZALO:<group name>"); null for other rows. */
   groupKey: string | null;
+  /** Zalo group identity shared by every nick's copy (see group-merge.ts); null when unknown. */
+  zaloGroupKey?: string | null;
   /** Every listed copy behind this row, the one it opens first (one id for ordinary rows). */
   copyIds: string[];
   /** The nick (channel account) of each copy, same order as copyIds. */

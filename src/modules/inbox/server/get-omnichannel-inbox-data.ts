@@ -94,6 +94,12 @@ export async function getInboxPeopleAndTags() {
  * Every named Zalo chat (only groups carry a name) with its nick, page by page. Used to spot a name one nick
  * has twice; names are compared after normalizing (spacing, letter case), so exact-text matching is not used.
  */
+/** Identity shared by every nick's copy of one Zalo group (metadata.zaloGroupKey, from the member sync). */
+function zaloGroupKey(metadata: unknown): string | null {
+  const value = metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>).zaloGroupKey : null;
+  return typeof value === "string" && /^[0-9]{1,40}:[0-9]{1,40}$/u.test(value) ? value : null;
+}
+
 async function loadNamedZaloChats(client: Awaited<ReturnType<typeof createClient>>, workspaceId: string) {
   const rows: Array<{ subject: unknown; channel_account_id: unknown }> = [];
   for (let from = 0; from < 10000; from += 1000) {
@@ -356,6 +362,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
       latestDirection: message?.direction === "INBOUND" || message?.direction === "OUTBOUND" ? message.direction : null,
       senderExternalId: typeof message?.sender_external_id === "string" ? message.sender_external_id : null,
       contactName: typeof row.contact_id === "string" ? contactNames.get(row.contact_id) ?? null : null,
+      zaloGroupKey: row.channel_type === "ZALO" ? zaloGroupKey(row.metadata) : null,
       participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Unknown account",
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.

@@ -73,12 +73,14 @@ async function main() {
         if (quotes >= MAX_QUOTES_PER_RUN) break;
         const rows = selectQuotedMessages(database, owner, after);
         if (rows.length === 0) break;
-        const mapped = rows.map(mapQuote).filter(Boolean).map((item) => ({ workspace_id: account.workspace_id, channel_account_id: account.id,
+        // Deplao can hold the same message twice for a nick; one row per message id in a batch.
+        const unique = [...new Map(rows.map(mapQuote).filter(Boolean).map((item) => [item.msgId, item])).values()];
+        const mapped = unique.map((item) => ({ workspace_id: account.workspace_id, channel_account_id: account.id,
           provider_message_id: item.msgId, quoted_message_id: item.quotedMessageId, quoted_text: item.quotedText, quoted_sender: item.quotedSender,
           updated_at: new Date().toISOString() }));
         if (!dryRun) for (let index = 0; index < mapped.length; index += BATCH) {
           const { error } = await client.from("zalo_message_quotes").upsert(mapped.slice(index, index + BATCH), { onConflict: "channel_account_id,provider_message_id" });
-          if (error) throw new Error("QUOTE_UPSERT_FAILED");
+          if (error) { console.error(JSON.stringify({ status: "error", code: "QUOTE_UPSERT_FAILED", dbCode: typeof error.code === "string" ? error.code.slice(0, 10) : null })); throw new Error("QUOTE_UPSERT_FAILED"); }
         }
         quotes += mapped.length;
         after = Number(rows.at(-1).id);

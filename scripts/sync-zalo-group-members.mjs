@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { acquireRecentLock, saveRecentState } from "./lib/zalo-recent-reconciliation.mjs";
-import { mapGroupMemberRow, selectChangedMembers, selectCrossNickSenders, selectRecentSendersOutsideList } from "./lib/zalo-group-members.mjs";
+import { mapGroupMemberRow, selectChangedMembers, selectCrossNickSenders, selectGroupIdentities, selectGroupNames, selectRecentSendersOutsideList } from "./lib/zalo-group-members.mjs";
 import { existsSync, readFileSync } from "node:fs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,6 +20,8 @@ const statePath = path.join(projectRoot, "runtime", "zalo-group-member-cursors-v
 const args = process.argv.slice(2);
 if (args.some((arg) => !["--once", "--dry-run"].includes(arg))) throw new Error("GROUP_MEMBER_ARGUMENT_INVALID");
 const dryRun = args.includes("--dry-run");
+// A group the sync only knew by id was saved as "Zalo group <id>"; that (or no name) is what gets replaced.
+const PLACEHOLDER = /^Zalo group [0-9]{1,40}$/u, UNNAMED_FILTER = 'subject.is.null,subject.like."Zalo group *"';
 const BATCH = 500, MAX_ROWS_PER_RUN = 20000;
 
 function loadState() {
@@ -45,7 +47,9 @@ async function main() {
     database = new DatabaseSync(databasePath, { readOnly: true });
     database.exec("pragma busy_timeout=5000");
     const state = loadState();
-    let written = 0, skipped = 0;
+    let written = 0, skipped = 0, named = 0, linked = 0;
+    // One key per Zalo group across all our nicks (shared message ids), so the inbox lists each group once.
+    const identities = selectGroupIdentities(database, Date.now() - 90 * 86_400_000);
     for (const account of accounts.data ?? []) {
       if (!/^[0-9]{1,40}$/u.test(account.external_account_id ?? "")) continue;
       const saved = state.accounts[account.external_account_id];
@@ -80,8 +84,47 @@ async function main() {
         if (error) throw new Error("GROUP_MEMBER_UPSERT_FAILED");
       }
       written += extras.length;
+      // Mark every copy of a group seen by several of our nicks with the group's key (written once; kept in metadata).
+      const keyed = [...identities].filter(([node]) => node.startsWith(`${account.external_account_id}:`))
+        .map(([node, key]) => ({ threadId: node.slice(account.external_account_id.length + 1), key }));
+      for (let index = 0; index < keyed.length; index += 200) {
+        const chunk = keyed.slice(index, index + 200);
+        const { data: copies, error } = await client.from("omnichannel_conversations").select("id,provider_conversation_id,metadata")
+          .eq("workspace_id", account.workspace_id).eq("channel_account_id", account.id).eq("channel_type", "ZALO")
+          .in("provider_conversation_id", chunk.map((item) => item.threadId));
+        if (error) throw new Error("GROUP_KEY_QUERY_FAILED");
+        for (const copy of copies ?? []) {
+          const key = chunk.find((item) => item.threadId === copy.provider_conversation_id)?.key;
+          const metadata = copy.metadata && typeof copy.metadata === "object" && !Array.isArray(copy.metadata) ? copy.metadata : {};
+          if (!key || metadata.zaloGroupKey === key) continue;
+          if (!dryRun) {
+            const { error: updateError } = await client.from("omnichannel_conversations").update({ metadata: { ...metadata, zaloGroupKey: key } })
+              .eq("id", copy.id).eq("workspace_id", account.workspace_id);
+            if (updateError) throw new Error("GROUP_KEY_UPDATE_FAILED");
+          }
+          linked += 1;
+        }
+      }
+      // Groups HireX lists without a real name ("Zalo group 1408…"): give them their Zalo name. Only empty or
+      // placeholder names are replaced, never a real one. With names, the copies of one group seen by several nicks merge.
+      const groupNames = selectGroupNames(database, account.external_account_id, since);
+      for (let index = 0; index < groupNames.length; index += 200) {
+        const chunk = groupNames.slice(index, index + 200);
+        const { data: unnamed, error } = await client.from("omnichannel_conversations").select("id,provider_conversation_id,subject")
+          .eq("workspace_id", account.workspace_id).eq("channel_account_id", account.id).eq("channel_type", "ZALO").or(UNNAMED_FILTER)
+          .in("provider_conversation_id", chunk.map((item) => item.threadId));
+        if (error) throw new Error("GROUP_NAME_QUERY_FAILED");
+        for (const row of (unnamed ?? []).filter((item) => item.subject === null || PLACEHOLDER.test(item.subject))) {
+          const name = chunk.find((item) => item.threadId === row.provider_conversation_id)?.name;
+          if (!name || dryRun) { if (name) named += 1; continue; }
+          const { error: updateError } = await client.from("omnichannel_conversations").update({ subject: name })
+            .eq("id", row.id).eq("workspace_id", account.workspace_id).or(UNNAMED_FILTER);
+          if (updateError) throw new Error("GROUP_NAME_UPDATE_FAILED");
+          named += 1;
+        }
+      }
     }
-    console.log(JSON.stringify({ status: dryRun ? "dry-run" : "complete", written, skipped }));
+    console.log(JSON.stringify({ status: dryRun ? "dry-run" : "complete", written, skipped, named, linked }));
   } finally {
     database?.close();
     release();

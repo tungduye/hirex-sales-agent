@@ -75,13 +75,20 @@ function accountHealth(row: Record<string, unknown>, channelType: ChannelType): 
  * copies are found by group name (as in the inbox list); a name one nick has twice is ambiguous and
  * gets no choice. Empty for one-to-one chats and when only one copy is usable.
  */
-async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string, groupName: string | null) {
-  if (!groupName || !normalizeGroupName(groupName)) return [];
+async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string, groupName: string | null, groupKey: string | null = null) {
+  if (!groupKey && (!groupName || !normalizeGroupName(groupName))) return [];
   const { data: isGroup } = await client.rpc("is_zalo_group_conversation", { p_conversation_id: conversationId });
   if (isGroup !== true) return [];
   // Every named Zalo chat (only groups carry a name), page by page; names are compared after normalizing.
   const copies: Array<{ id: unknown; channel_account_id: unknown; subject: unknown }> = [];
-  for (let from = 0; from < 10000; from += 1000) {
+  // Known identity (the copies share messages): exactly those copies, whatever each nick calls the group.
+  if (groupKey) {
+    const { data, error } = await client.from("omnichannel_conversations").select("id,channel_account_id,subject")
+      .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").eq("metadata->>zaloGroupKey", groupKey)
+      .or("metadata->>hidden.is.null,metadata->>hidden.neq.true").limit(100);
+    if (error) return [];
+    copies.push(...(data ?? []));
+  } else for (let from = 0; from < 10000; from += 1000) {
     const { data, error } = await client.from("omnichannel_conversations").select("id,channel_account_id,subject")
       .eq("workspace_id", workspaceId).eq("channel_type", "ZALO").not("subject", "is", null)
       .or("metadata->>hidden.is.null,metadata->>hidden.neq.true").order("id").range(from, from + 999);
@@ -90,7 +97,7 @@ async function zaloGroupSendAs(client: ReturnType<typeof createPrivilegedClient>
     if ((data ?? []).length < 1000) break;
   }
   const named = copies.filter((copy) => typeof copy.id === "string" && typeof copy.channel_account_id === "string"
-    && typeof copy.subject === "string" && normalizeGroupName(copy.subject) === normalizeGroupName(groupName));
+    && (groupKey ? true : typeof copy.subject === "string" && normalizeGroupName(copy.subject) === normalizeGroupName(groupName)));
   if (named.length < 2 || !oneCopyPerNick(named.map((copy) => copy.channel_account_id as string))) return [];
   const groupFlags = await Promise.all(named.map((copy) => copy.id === conversationId ? Promise.resolve(true)
     : client.rpc("is_zalo_group_conversation", { p_conversation_id: copy.id }).then(({ data }) => data === true)));
@@ -258,7 +265,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   }
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
   const [sendAs, participants] = channelType === "ZALO"
-    ? await Promise.all([zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject)),
+    ? await Promise.all([zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject),
+      row.metadata && typeof row.metadata === "object" && typeof (row.metadata as Record<string, unknown>).zaloGroupKey === "string" ? (row.metadata as Record<string, unknown>).zaloGroupKey as string : null),
       zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
         messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : []))])
     : [[], {}];

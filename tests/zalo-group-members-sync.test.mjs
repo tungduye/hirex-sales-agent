@@ -61,3 +61,28 @@ test('a writer this nick cannot name is named through another of our nicks that 
   const rows = selectCrossNickSenders(db, 'FLORA', 0).map((row) => [row.group_id, row.member_id, row.display_name, row.avatar]);
   assert.deepEqual(rows, [['g-f', '79', 'Stella Nguyen', 'https://a/stella.jpg'], ['g-f', '88', 'Leonard', '']]);
 });
+
+test('a group a nick knows only by id is named from its own contacts or from another nick in the same group', async () => {
+  const { selectGroupNames } = await import('../scripts/lib/zalo-group-members.mjs');
+  const db = new DatabaseSync(':memory:');
+  db.exec(`create table contacts (owner_zalo_id text, contact_id text, display_name text);
+    create table messages (id integer primary key, msg_id text, owner_zalo_id text, thread_id text, thread_type integer, channel text, timestamp integer);
+    insert into contacts values ('MINA','g-own','Nhóm có tên'),('MINA','g-m','22'),('STELLA','g-s','Nick Intalent _ Quản lý'),('MINA','g-x','');
+    insert into messages(msg_id,owner_zalo_id,thread_id,thread_type,channel,timestamp) values
+      ('1','MINA','g-own',1,'zalo',100),('2','MINA','g-m',1,'zalo',100),('2','STELLA','g-s',1,'zalo',100),('3','MINA','g-x',1,'zalo',100),('4','MINA','person',0,'zalo',100)`);
+  db.exec("update messages set thread_id = case thread_id when 'g-own' then '11' when 'g-m' then '22' when 'g-x' then '33' else thread_id end");
+  db.exec("update contacts set contact_id = case contact_id when 'g-own' then '11' when 'g-m' then '22' when 'g-x' then '33' else contact_id end where owner_zalo_id='MINA'");
+  const rows = selectGroupNames(db, 'MINA', 0).sort((a, b) => a.threadId.localeCompare(b.threadId));
+  assert.deepEqual(rows, [{ threadId: '11', name: 'Nhóm có tên' }, { threadId: '22', name: 'Nick Intalent _ Quản lý' }]);
+});
+
+test('copies of one group across nicks share a key through a shared message, even with different names', async () => {
+  const { selectGroupIdentities } = await import('../scripts/lib/zalo-group-members.mjs');
+  const db = new DatabaseSync(':memory:');
+  db.exec(`create table messages (id integer primary key, msg_id text, owner_zalo_id text, thread_id text, thread_type integer, channel text, timestamp integer);
+    insert into messages(msg_id,owner_zalo_id,thread_id,thread_type,channel,timestamp) values
+      ('1','30','300',1,'zalo',10),('1','10','100',1,'zalo',10),('2','10','100',1,'zalo',10),('2','20','200',1,'zalo',10),
+      ('3','10','101',1,'zalo',10),('4','10','102',0,'zalo',10),('4','20','202',0,'zalo',10)`);
+  const keys = selectGroupIdentities(db, 0);
+  assert.deepEqual(Object.fromEntries(keys), { '10:100': '10:100', '30:300': '10:100', '20:200': '10:100' });
+});

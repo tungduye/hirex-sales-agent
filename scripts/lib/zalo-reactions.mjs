@@ -56,9 +56,14 @@ export function mapQuote(row) {
   let quote;
   try { quote = JSON.parse(row.quote_data); } catch { return null; }
   if (!quote || typeof quote !== "object" || !/^[0-9]{1,40}$/u.test(String(row.msgId ?? ""))) return null;
-  const raw = typeof quote.msg === "string" ? quote.msg.replace(/\s+/gu, " ").trim() : "";
-  const text = (raw || QUOTE_KIND_TEXT[quote.msgType] || "[Tin nhắn]").slice(0, 500);
-  const sender = typeof quote.fromD === "string" && quote.fromD.trim() ? quote.fromD.trim().slice(0, 255) : null;
+  // Postgres text cannot hold NUL or other control characters; quotes are shown on one line anyway.
+  // Broken emoji halves (lone surrogates) would make the whole batch invalid JSON for Postgres; cut by characters.
+  const clean = (value) => value.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/gu, " ").replace(/\s+/gu, " ").trim();
+  const cut = (value, max) => Array.from(value).slice(0, max).join("");
+  const raw = typeof quote.msg === "string" ? clean(quote.msg) : "";
+  const text = cut(raw || QUOTE_KIND_TEXT[quote.msgType] || "[Tin nhắn]", 500);
+  const sender = typeof quote.fromD === "string" && clean(quote.fromD) ? cut(clean(quote.fromD), 255) : null;
   const quoted = /^[0-9]{1,40}$/u.test(String(quote.msgId ?? "")) ? String(quote.msgId) : null;
   return { msgId: String(row.msgId), quotedMessageId: quoted, quotedText: text, quotedSender: sender };
 }

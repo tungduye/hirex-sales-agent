@@ -74,3 +74,53 @@ export function selectCrossNickSenders(database, accountZaloId, sinceMs) {
     where not exists (select 1 from page_group_member m where m.owner_zalo_id = s.ow and m.group_id = s.t and m.member_id = s.u and m.display_name <> '')
     group by s.t, s.u`).all(accountZaloId, sinceMs).filter((row) => row.display_name);
 }
+
+/**
+ * Group chats of this nick with a usable name. Deplao often knows a group only by its id for some nicks; then the
+ * name comes from another of our nicks in the same group (same message id = same group). Recent groups only.
+ */
+export function selectGroupNames(database, accountZaloId, sinceMs) {
+  const named = (alias) => `nullif(nullif(trim(${alias}.display_name), ''), ${alias}.contact_id)`;
+  return database.prepare(`select g.t thread_id,
+      coalesce((select ${named("c")} from contacts c where c.owner_zalo_id = ? and c.contact_id = g.t and ${named("c")} not glob '[0-9]*'),
+        (select ${named("oc")} from messages m join messages o on o.msg_id = m.msg_id and o.owner_zalo_id <> m.owner_zalo_id
+           join contacts oc on oc.owner_zalo_id = o.owner_zalo_id and oc.contact_id = o.thread_id
+         where m.owner_zalo_id = ? and m.thread_id = g.t and coalesce(m.msg_id, '') <> '' and ${named("oc")} not glob '[0-9]*'
+         order by m.timestamp desc limit 1)) name
+    from (select distinct thread_id t from messages where owner_zalo_id = ? and channel = 'zalo' and thread_type = 1 and timestamp > ?) g`)
+    .all(accountZaloId, accountZaloId, accountZaloId, sinceMs)
+    .filter((row) => typeof row.name === "string" && row.name.trim() && /^[0-9]{1,40}$/u.test(String(row.thread_id)))
+    .map((row) => ({ threadId: String(row.thread_id), name: row.name.replace(/[\u0000-\u001f\u007f]/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 255) }));
+}
+
+/**
+ * Which nicks' group chats are one and the same Zalo group: a message keeps one msg_id for every nick, so two
+ * group threads holding the same message are the same group (whatever each nick calls it, even after a rename).
+ * Returns "owner:thread" -> key, the key being the smallest "owner:thread" of the group (only groups seen by 2+ nicks).
+ */
+export function selectGroupIdentities(database, sinceMs) {
+  // One plain scan; grouping by message id happens here (a self-join on msg_id is far slower in SQLite).
+  const rows = database.prepare(`select msg_id, owner_zalo_id owner, thread_id thread from messages
+    where thread_type = 1 and channel = 'zalo' and timestamp > ? and coalesce(msg_id, '') <> ''`).all(sinceMs);
+  const byMessage = new Map();
+  for (const row of rows) {
+    const node = `${row.owner}:${row.thread}`;
+    if (!/^[0-9]{1,40}:[0-9]{1,40}$/u.test(node)) continue;
+    const list = byMessage.get(row.msg_id);
+    if (list) { if (!list.includes(node)) list.push(node); } else byMessage.set(row.msg_id, [node]);
+  }
+  const links = [];
+  for (const nodes of byMessage.values()) for (let index = 1; index < nodes.length; index++) links.push([nodes[0], nodes[index]]);
+  const parent = new Map();
+  const find = (node) => { let root = node; while (parent.get(root) !== root) root = parent.get(root); let next = node; while (next !== root) { const up = parent.get(next); parent.set(next, root); next = up; } return root; };
+  const add = (node) => { if (!parent.has(node)) parent.set(node, node); };
+  for (const [a, b] of links) {
+    if (a.split(":")[0] === b.split(":")[0]) continue;
+    add(a); add(b);
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) { if (ra < rb) parent.set(rb, ra); else parent.set(ra, rb); }
+  }
+  const keys = new Map();
+  for (const node of parent.keys()) keys.set(node, find(node));
+  return keys;
+}

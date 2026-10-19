@@ -207,7 +207,9 @@
     ".next-group-ux-4/types/**/*.ts",
     ".next-group-ux-4/dev/types/**/*.ts",
     ".next-group-ux-5/types/**/*.ts",
-    ".next-group-ux-5/dev/types/**/*.ts"
+    ".next-group-ux-5/dev/types/**/*.ts",
+    ".next-group-ux-6/types/**/*.ts",
+    ".next-group-ux-6/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
