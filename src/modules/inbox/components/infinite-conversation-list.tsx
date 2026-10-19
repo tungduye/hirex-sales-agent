@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import Link from "next/link";
 import { BellOff, CheckCheck, LoaderCircle, MoreVertical, Pin, Search, Trash2, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -160,18 +161,15 @@ export function waitBadge(lastInboundAt: string | null, now: number): { text: st
   return { text, className };
 }
 
-const CHANNEL_BADGE: Record<string, { short: string; className: string }> = {
-  ZALO: { short: "Z", className: "bg-[#0068ff]" }, FACEBOOK: { short: "f", className: "bg-[#1877f2]" },
-  FACEBOOK_PROFILE: { short: "f", className: "bg-indigo-600" }, EMAIL: { short: "@", className: "bg-slate-600" },
-};
+const LOGO_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] as const;
 
 function ConversationRow({ conversation, selected, tags, filters, now, draft = null }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
   const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
-  const badge = CHANNEL_BADGE[conversation.channelType] ?? CHANNEL_BADGE.EMAIL;
+  const badgeChannel = (LOGO_CHANNELS as readonly string[]).includes(conversation.channelType) ? conversation.channelType : "EMAIL";
   return <div className={`group relative rounded-[10px] border transition ${selected ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-slate-50"}`}><Link prefetch={false} href={inboxHref(conversation.id, filters)} className="block px-3 py-2.5" aria-label={`${label}${waiting ? `, ${waiting.text}` : ""}`}><div className="flex items-start gap-2.5">
-    <span className="relative shrink-0">{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-white px-1 text-[9px] font-bold leading-[13px] text-white ${badge.className}`} aria-hidden="true">{badge.short}</span></span>
+    <span className="relative shrink-0">{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold transition group-hover:opacity-0 ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500 transition group-hover:opacity-0">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>

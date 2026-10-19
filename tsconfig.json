@@ -217,7 +217,9 @@
     ".next-zalo-files-2/types/**/*.ts",
     ".next-zalo-files-2/dev/types/**/*.ts",
     ".next-channel-logos/types/**/*.ts",
-    ".next-channel-logos/dev/types/**/*.ts"
+    ".next-channel-logos/dev/types/**/*.ts",
+    ".next-channel-logos-2/types/**/*.ts",
+    ".next-channel-logos-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
