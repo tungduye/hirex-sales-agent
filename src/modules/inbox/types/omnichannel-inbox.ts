@@ -130,7 +130,7 @@ export interface OmnichannelConversationDetail {
   /** The opened nick's own Zalo id (to recognise mentions of it). */
   accountExternalId: string | null;
   /** Zalo group: who is who (sender id -> name/avatar), our own nicks included; empty for other chats. */
-  participants: Record<string, { name: string; avatarUrl: string | null }>;
+  participants: Record<string, { name: string; avatarUrl: string | null; member?: boolean }>;
 }
 
 export type OmnichannelConversationDetailResult =

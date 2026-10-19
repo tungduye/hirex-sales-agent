@@ -1,5 +1,6 @@
 "use server";
 
+import { parseMentions } from "@/modules/channels/core/zalo-mentions";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -188,6 +189,20 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
       ? { status: "success", message: "This message was already sent once." }
       : { status: "error", message: "This send request already exists. No duplicate was created." };
     return { status: "error", message: "Policy blocked this message or the channel is unavailable." };
+  }
+  // "@Name" tags picked in a Zalo group go out as real Zalo mentions; anywhere else they stay plain text.
+  const rawMentions = formData.get("mentions");
+  if (typeof rawMentions === "string" && rawMentions.length > 0 && rawMentions.length <= 10000) {
+    let mentions: ReturnType<typeof parseMentions> = null;
+    try { mentions = parseMentions(JSON.parse(rawMentions), parsed.data.text); } catch { mentions = null; }
+    if (!mentions) return { status: "error", message: "Không đọc được các tag @ trong tin. Hãy gõ lại @ và chọn người cần tag." };
+    const privileged = createPrivilegedClient();
+    const { data: isGroup } = await privileged.rpc("is_zalo_group_conversation", { p_conversation_id: parsed.data.conversationId });
+    if (isGroup === true) {
+      const { error: mentionError } = await privileged.from("channel_outbound_actions").update({ mentions })
+        .eq("id", actionId).eq("workspace_id", account.workspaceId).eq("status", "PROPOSED").eq("channel_type", "ZALO");
+      if (mentionError) return { status: "error", message: "Chưa gắn được tag cho tin này nên tin chưa được gửi. Hãy thử lại." };
+    }
   }
   const { data: approved, error: approvalError } = await supabase.rpc("approve_channel_outbound_action", { p_action_id: actionId });
   if (approvalError || approved !== true) return { status: "error", message: "The message failed its final policy check and was not sent." };

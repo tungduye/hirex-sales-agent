@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { splitMentions } from '../src/modules/inbox/core/mentions.ts';
 
@@ -21,4 +22,9 @@ test('text without mentions is one plain part', () => {
 test('a name must end at a word boundary', () => {
   assert.equal(splitMentions('@Allen ơi', ['Lan'], []).some((p) => p.mention), false);
   assert.equal(splitMentions('@Lan, ơi', ['Lan'], []).filter((p) => p.mention).length, 1);
+});
+
+test('Zalo system notices show as a centred notice, not as a member message', () => {
+  const detail = readFileSync(new URL('../src/modules/inbox/components/omnichannel-conversation-detail.tsx', import.meta.url), 'utf8');
+  assert.match(detail, /message\.direction === "INBOUND" && message\.senderExternalId === "system"\) return <p key=\{message\.id\} className="mx-auto/);
 });

@@ -106,6 +106,8 @@ export interface SendMessageCommand {
   source: "HUMAN_MANUAL" | "AI_AUTOMATION" | "CAMPAIGN" | "SYSTEM";
   /** Zalo only: the conversation is a group chat, sent to the group itself (recipient = group id). */
   threadKind?: "GROUP";
+  /** Zalo group only: "@Name" tags sent as Zalo mentions ({pos, len, uid}; uid "-1" = @All). */
+  mentions?: Array<{ pos: number; len: number; uid: string }>;
 }
 
 export interface ChannelSendResult {
@@ -176,6 +178,10 @@ export function isSendMessageCommand(value: unknown): value is SendMessageComman
       hasSafeIdentifier(command.providerConversationId, 512)) &&
     hasSafeIdentifier(command.recipientExternalId, 512) &&
     (command.threadKind === undefined || (command.threadKind === "GROUP" && command.channelType === "ZALO")) &&
+    (command.mentions === undefined || (command.threadKind === "GROUP" && typeof command.text === "string" && Array.isArray(command.mentions) &&
+      command.mentions.length > 0 && command.mentions.length <= 50 && command.mentions.every((mention) => Boolean(mention) &&
+        Number.isSafeInteger(mention.pos) && Number.isSafeInteger(mention.len) && mention.pos >= 0 && mention.len >= 2 &&
+        mention.pos + mention.len <= (command.text?.length ?? 0) && typeof mention.uid === "string" && /^(-1|[0-9]{1,40})$/.test(mention.uid)))) &&
     (command.text === null ||
       (typeof command.text === "string" &&
         command.text.trim().length > 0 &&

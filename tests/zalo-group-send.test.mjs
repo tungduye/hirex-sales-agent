@@ -15,13 +15,13 @@ test('Zalo group replies go through the normal send path (no more temporary bloc
 test('the bridge request marks a group and only for a manual reply addressed to the group', () => {
   assert.match(adapter, /const group = command\.threadKind === "GROUP";/);
   assert.match(adapter, /command\.source !== "HUMAN_MANUAL" \|\| !command\.providerConversationId \|\| command\.recipientExternalId !== command\.providerConversationId/);
-  assert.match(adapter, /\.\.\.\(group \? \{ threadType: "GROUP" \} : \{\}\)/);
+  assert.match(adapter, /\.\.\.\(group \? \{ threadType: "GROUP", /);
 });
 
 test('group-ness comes from the shared database rule and an unknown answer stops the send', () => {
   assert.match(executor, /rpc\("is_zalo_group_conversation", \{ p_conversation_id: row\.conversation_id \}\)/);
   assert.match(executor, /if \(groupError \|\| typeof group !== "boolean"\) return null;/);
-  assert.match(core, /claimed\.threadKind === "GROUP" \? \{ threadKind: "GROUP" as const \} : \{\}/);
+  assert.match(core, /claimed\.threadKind === "GROUP" \? \{ threadKind: "GROUP" as const, /);
 });
 
 test('cancelling a pending message only touches never-attempted approved actions', () => {

@@ -161,7 +161,7 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       accountId: this.credential.bridgeAccountId,
       recipientId: command.recipientExternalId,
       threadId: command.providerConversationId,
-      ...(group ? { threadType: "GROUP" } : {}),
+      ...(group ? { threadType: "GROUP", ...(command.mentions?.length ? { mentions: command.mentions } : {}) } : {}),
       text: command.text,
       attachments: command.attachments,
       idempotencyKey: command.idempotencyKey,

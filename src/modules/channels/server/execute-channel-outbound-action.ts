@@ -1,3 +1,4 @@
+import { parseMentions, type ZaloMention } from "../core/zalo-mentions";
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -13,7 +14,7 @@ interface ActionRow {
   id: unknown; workspace_id: unknown; conversation_id: unknown; channel_account_id: unknown;
   channel_type: unknown; recipient_external_id: unknown; status: unknown; text_content: unknown;
   attachment_ids: unknown; idempotency_key: unknown; policy_decision_id: unknown;
-  approved_by: unknown; approved_at: unknown;
+  approved_by: unknown; approved_at: unknown; mentions?: unknown;
   dispatch_source: unknown;
 }
 interface AttachmentRow { id: unknown; storage_bucket: unknown; storage_path: unknown; filename: unknown; content_type: unknown; size_bytes: unknown; sha256: unknown }
@@ -63,13 +64,20 @@ async function mapAction(client: PrivilegedClient, row: ActionRow | null): Promi
       if (group) threadKind = "GROUP";
     }
   }
-  return { ...(threadKind ? { threadKind } : {}), id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: isUuid(row.approved_by) ? row.approved_by : null, approvedAt: row.approved_at, dispatchSource: row.dispatch_source as OutboundActionRecord["dispatchSource"] };
+  // Mentions only travel with a person's reply into a Zalo group, and must still match the text.
+  let mentions: ZaloMention[] | undefined;
+  if (row.mentions !== null && row.mentions !== undefined) {
+    const parsed = threadKind === "GROUP" && row.dispatch_source === "HUMAN_MANUAL" && typeof row.text_content === "string" ? parseMentions(row.mentions, row.text_content) : null;
+    if (!parsed) return null;
+    mentions = parsed;
+  }
+  return { ...(threadKind ? { threadKind } : {}), ...(mentions ? { mentions } : {}), id: row.id, workspaceId: row.workspace_id, conversationId: row.conversation_id, providerConversationId, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType, recipientExternalId: row.recipient_external_id, status: row.status as OutboundActionRecord["status"], textContent: row.text_content, attachmentIds: row.attachment_ids, idempotencyKey: row.idempotency_key, policyDecisionId: row.policy_decision_id, approvedBy: isUuid(row.approved_by) ? row.approved_by : null, approvedAt: row.approved_at, dispatchSource: row.dispatch_source as OutboundActionRecord["dispatchSource"] };
 }
 
 export async function executeChannelOutboundAction(actionId: string, adapters: ChannelAdapterRegistry) {
   const client = createPrivilegedClient();
   const loadAction = async (id: string) => {
-    const { data, error } = await client.from("channel_outbound_actions").select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,status,text_content,attachment_ids,idempotency_key,policy_decision_id,approved_by,approved_at,dispatch_source").eq("id", id).maybeSingle();
+    const { data, error } = await client.from("channel_outbound_actions").select("id,workspace_id,conversation_id,channel_account_id,channel_type,recipient_external_id,status,text_content,attachment_ids,idempotency_key,policy_decision_id,approved_by,approved_at,dispatch_source,mentions").eq("id", id).maybeSingle();
     return error ? null : mapAction(client, data as ActionRow | null);
   };
   return executeOutboundAction(actionId, {

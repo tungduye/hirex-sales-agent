@@ -1,6 +1,7 @@
 "use client";
 
 import { EmojiPicker } from "./emoji-picker";
+import { buildMentions, mentionQueryAt, suggestMembers, type MentionPick } from "../core/zalo-mentions";
 import { insertAt } from "../core/text-insert";
 import { Bot, ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
@@ -33,7 +34,7 @@ export function matchQuickReplies(templates:QuickReplyTemplate[],query:string){
   return [...starts,...rest];
 }
 
-export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false,businessSuiteUrl=null}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean;businessSuiteUrl?:string|null}){
+export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false,businessSuiteUrl=null,mentionMembers=[]}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean;businessSuiteUrl?:string|null;mentionMembers?:Array<{uid:string;name:string;avatarUrl:string|null}>}){
   // Zalo groups cannot be sent to from HireX yet (the bridge sends one-to-one only).
   const zaloGroup=channelType==="ZALO"&&isGroup;
   const[state,send,pending]=useActionState(sendManualChannelMessage,initial),[text,setText]=useState("");
@@ -51,17 +52,26 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const[drafting,startDrafting]=useTransition();
   const[drafter,setDrafter]=useState<"hola"|"hole"|null>(null);
   const[beforeDraft,setBeforeDraft]=useState<string|null>(null);
+  // Zalo group: typing "@" suggests members; picked names are sent as real Zalo mentions.
+  const[caret,setCaret]=useState(0);
+  const[picks,setPicks]=useState<MentionPick[]>([]);
+  const[mentionIndex,setMentionIndex]=useState(0);
+  const[mentionDismissed,setMentionDismissed]=useState<number|null>(null);
   useEffect(()=>{
     if(!submittedTextRef.current||state.status==="idle")return;
     if(state.status==="error")window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:submittedTextRef.current,timestamp:new Date().toISOString(),status:"FAILED"}}));
     if(state.status!=="success")return;
-    const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setIdempotencyKey(createRequestId())},0);
+    const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setPicks([]);setIdempotencyKey(createRequestId())},0);
     return()=>window.clearTimeout(reset);
   },[state,idempotencyKey,conversationId]);
   function ensureRequestId(){if(!idempotencyKey)setIdempotencyKey(createRequestId());}
   function updateText(value:string){setText(value);if(!idempotencyKey||state.status!=="idle")setIdempotencyKey(createRequestId());}
   const templates=useMemo(()=>{const ids=new Set(quickReplies.map(item=>item.id));return [...quickReplies,...localTemplates.filter(item=>!ids.has(item.id))].filter(reply=>reply.channelTypes.length===0||reply.channelTypes.includes(channelType));},[quickReplies,localTemplates,channelType]);
   const slashQuery=/^\/(\S*)$/u.exec(text)?.[1]??null;
+  const mentionQuery=zaloGroup&&mentionMembers.length>0?mentionQueryAt(text,caret):null;
+  const mentionOptions=mentionQuery&&mentionQuery.start!==mentionDismissed?suggestMembers(mentionMembers,mentionQuery.query):[];
+  const showMentions=mentionOptions.length>0;
+  const mentions=zaloGroup?buildMentions(text,picks):[];
   const showQuick=quickOpen||slashQuery!==null;
   const matches=matchQuickReplies(templates,slashQuery??"");
   const responseWindowOpen=(channelType!=="FACEBOOK"||isFacebookResponseWindowOpen({status:conversationStatus,latestInboundAt:lastInboundAt},new Date()));
@@ -89,16 +99,33 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     updateText(next.text);
     window.requestAnimationFrame(()=>{area?.focus();area?.setSelectionRange(next.caret,next.caret);});
   }
+  function pickMention(member:MentionPick){
+    if(!mentionQuery)return;
+    const inserted=`@${member.name} `;
+    const next=text.slice(0,mentionQuery.start)+inserted+text.slice(caret);
+    const position=mentionQuery.start+inserted.length;
+    updateText(next);setCaret(position);setMentionIndex(0);
+    setPicks(current=>current.some(item=>item.uid===member.uid&&item.name===member.name)?current:[...current,{uid:member.uid,name:member.name}]);
+    window.requestAnimationFrame(()=>{textareaRef.current?.focus();textareaRef.current?.setSelectionRange(position,position);});
+  }
   function undoDraft(){if(beforeDraft===null)return;updateText(beforeDraft);setBeforeDraft(null);setHint(null);}
 
   return <div>
     {showQuick?<QuickReplyMenu templates={matches} total={templates.length} activeIndex={Math.min(activeIndex,Math.max(0,matches.length-1))} query={slashQuery} draftText={slashQuery===null?text.trim():""} onPick={pickTemplate} onClose={closeQuick} onSaved={template=>{setLocalTemplates(current=>[...current,template]);setHint(`Đã lưu mẫu /${template.shortcut}.`);}}/>:null}
-    {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.</p>:null}
+    {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.{mentionMembers.length?" Gõ @ để tag thành viên.":""}</p>:null}
+    {showMentions?<div role="listbox" aria-label="Tag thành viên" className="mb-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">{mentionOptions.map((member,index)=>{const person=mentionMembers.find(item=>item.uid===member.uid);return <button key={`${member.uid}:${member.name}`} type="button" role="option" aria-selected={index===mentionIndex} onMouseDown={event=>{event.preventDefault();pickMention(member);}} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${index===mentionIndex?"bg-blue-50 text-blue-800":"hover:bg-slate-50"}`}>{person?.avatarUrl?<img src={person.avatarUrl} alt="" className="size-6 rounded-full object-cover"/>:<span className="flex size-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{member.uid==="-1"?"@":member.name.slice(0,1).toUpperCase()}</span>}<span className="truncate font-medium">{member.uid==="-1"?"@All · cả nhóm":member.name}</span></button>;})}</div>:null}
     <form action={send} onSubmit={()=>{const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className="rounded-[14px] border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-      <input type="hidden" name="conversationId" value={conversationId}/><input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
+      <input type="hidden" name="conversationId" value={conversationId}/>{mentions.length?<input type="hidden" name="mentions" value={JSON.stringify(mentions)}/>:null}<input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
       <label htmlFor={`composer-${conversationId}`} className="sr-only">Nội dung tin nhắn</label>
-      <textarea id={`composer-${conversationId}`} ref={textareaRef} name="text" required value={text} onFocus={ensureRequestId} onChange={event=>{updateText(event.target.value);if(hint&&!drafting)setHint(null);setActiveIndex(0);}}
+      <textarea id={`composer-${conversationId}`} ref={textareaRef} name="text" required value={text} onFocus={ensureRequestId} onChange={event=>{updateText(event.target.value);setCaret(event.target.selectionStart??event.target.value.length);setMentionIndex(0);setMentionDismissed(null);if(hint&&!drafting)setHint(null);setActiveIndex(0);}}
+        onSelect={event=>setCaret(event.currentTarget.selectionStart??0)}
         onKeyDown={event=>{
+          if(showMentions){
+            if(event.key==="ArrowDown"){event.preventDefault();setMentionIndex(index=>(index+1)%mentionOptions.length);return;}
+            if(event.key==="ArrowUp"){event.preventDefault();setMentionIndex(index=>(index-1+mentionOptions.length)%mentionOptions.length);return;}
+            if((event.key==="Enter"&&!event.shiftKey)||event.key==="Tab"){event.preventDefault();pickMention(mentionOptions[Math.min(mentionIndex,mentionOptions.length-1)]);return;}
+            if(event.key==="Escape"){event.preventDefault();setMentionDismissed(mentionQuery?.start??null);return;}
+          }
           if(showQuick&&matches.length>0){
             if(event.key==="ArrowDown"){event.preventDefault();setActiveIndex(index=>(index+1)%matches.length);return;}
             if(event.key==="ArrowUp"){event.preventDefault();setActiveIndex(index=>(index-1+matches.length)%matches.length);return;}

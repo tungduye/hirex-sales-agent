@@ -123,12 +123,13 @@ export function businessSuiteInboxUrl(pageId: string | null) {
  */
 async function zaloGroupParticipants(client: Awaited<ReturnType<typeof createClient>>, accountClient: ReturnType<typeof createPrivilegedClient>,
   workspaceId: string, channelAccountId: string, groupId: string, senderIds: string[]) {
-  const people: Record<string, { name: string; avatarUrl: string | null }> = {};
+  // member: listed in this group as this nick sees it (only these ids can be tagged).
+  const people: Record<string, { name: string; avatarUrl: string | null; member?: boolean }> = {};
   const { data: members } = await client.from("zalo_group_members").select("member_id,display_name,avatar_url")
     .eq("workspace_id", workspaceId).eq("channel_account_id", channelAccountId).eq("group_id", groupId).limit(3000);
   if (!members?.length) return people;
   for (const member of members) if (typeof member.member_id === "string" && typeof member.display_name === "string")
-    people[member.member_id] = { name: member.display_name, avatarUrl: typeof member.avatar_url === "string" ? member.avatar_url : null };
+    people[member.member_id] = { name: member.display_name, avatarUrl: typeof member.avatar_url === "string" ? member.avatar_url : null, member: true };
   // Someone who wrote here but is not in this group's list may be known to the same nick from another group.
   const missing = [...new Set(senderIds)].filter((id) => /^[0-9]{1,40}$/.test(id) && !people[id]).slice(0, 200);
   if (missing.length) {
