@@ -49,6 +49,7 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
   const [message, setMessage] = useState<string | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [requested, setRequested] = useState(0);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
 
   // Bộ phận / Phân loại chosen last time (per browser).
   useEffect(() => {
@@ -80,6 +81,8 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
       }
       return copy;
     });
+    // Skills / highlights live under "Tuỳ chọn thêm": open it so what AI filled is seen.
+    if (next.highlights || next.techSkills) setMoreOpen(true);
     if (!onlyEmpty) {
       if (next.department) { setDepartment(next.department); setCategoryId(""); }
       if (next.contentFormat) setFormat(next.contentFormat);
@@ -140,6 +143,8 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
       if (!state.success || !state.batchId) { setMessage(state.message); setErrors(state.fieldErrors ?? {}); return; }
       setRequested(Number(quantity) || 1);
       setBatchId(state.batchId);
+      // On narrow screens the results sit under the form: bring them into view.
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     });
   }
 
@@ -241,7 +246,7 @@ export function CreateContentScreen({ templates, categories, jobs, initialTempla
             </div>
           </section>
         </form>
-        <Results key={batchId ?? "none"} batchId={batchId} requested={requested} />
+        <div ref={resultsRef} className="scroll-mt-4"><Results key={batchId ?? "none"} batchId={batchId} requested={requested} /></div>
       </div>
     </div>
   );

@@ -90,7 +90,7 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
             <select aria-label="Ngôn ngữ" value={language} onChange={(event) => setLanguage(event.target.value)} className={selectClass}><option value="ALL">Mọi ngôn ngữ</option>{allLanguages.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
             <select aria-label="Trạng thái" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={selectClass}><option value="ACTIVE">Đang dùng</option><option value="INACTIVE">Đã tắt</option><option value="ALL">Mọi trạng thái</option></select>
           </div>
-          <div className="grid lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_240px]">
+          <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
             <nav aria-label="Cây thư mục mẫu" className="min-w-0 border-b bg-slate-50/70 lg:border-b-0 lg:border-r">
               <div className="flex items-center justify-between border-b p-3 text-xs text-slate-500">
                 <span>{searched.length.toLocaleString("vi-VN")} mẫu</span>
@@ -116,11 +116,12 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
               </ul>
               <article className="p-5">{selected ? <>
                 <p className="font-mono text-xs font-semibold text-indigo-600">{selected.code}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-xs">{[departmentLabel(selected.department), formatLabel(selected.format ?? "POST_LONG"), selected.categoryId ? categoryName.get(selected.categoryId) : null, languageLabel(selected.language)].filter(Boolean).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>
+                <TemplateActions key={selected.id} template={selected} canManage={canManage} onEdit={() => setEditing({ mode: "edit", template: selected })} onDone={done} />
+                <div className="mt-3 flex flex-wrap gap-1.5 text-xs">{[departmentLabel(selected.department), formatLabel(selected.format ?? "POST_LONG"), selected.categoryId ? categoryName.get(selected.categoryId) : null, languageLabel(selected.language)].filter(Boolean).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>
                 <div className="mt-4 max-h-[55vh] overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-800">{selected.body}</div>
+                <TemplateInfo template={selected} />
               </> : <p className="py-16 text-center text-sm text-slate-400">Chọn một mẫu để đọc.</p>}</article>
             </div>
-            {selected && <TemplateActions key={selected.id} template={selected} canManage={canManage} onEdit={() => setEditing({ mode: "edit", template: selected })} onDone={done} />}
           </div>
         </div>
       )}
@@ -137,22 +138,27 @@ function TemplateActions({ template, canManage, onEdit, onDone }: { template: Co
   function run(action: () => Promise<{ ok: boolean; message: string }>) {
     startAction(async () => { const result = await action(); if (result.ok) onDone(result.message); else setError(result.message); });
   }
-  const info = [template.groupName && `Nhóm: ${template.groupName}`, template.tone && `Tone: ${template.tone}`, template.cta && `CTA: ${template.cta}`, `Trọng số ${template.weight}`, template.tags && `Tags: ${template.tags}`, template.note && `Ghi chú: ${template.note}`].filter((value): value is string => Boolean(value));
   return (
-    <aside className="space-y-2 border-t p-4 xl:border-l xl:border-t-0">
-      <Button className="w-full" size="sm" onClick={async () => { if (await copyText(template.body)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else setError("Trình duyệt không cho phép sao chép."); }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
-      <Button className="w-full" size="sm" variant="outline" asChild><Link href={`/content/new?template=${template.id}`}><Sparkles className="size-4" />Tạo content từ mẫu này</Link></Button>
-      {canManage && <>
-        <Button className="w-full" size="sm" variant="outline" onClick={onEdit} disabled={busy}><Pencil className="size-4" />Sửa</Button>
-        <Button className="w-full" size="sm" variant="outline" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? <><EyeOff className="size-4" />Tắt mẫu</> : <><Eye className="size-4" />Bật mẫu</>}</Button>
-        {confirming
-          ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">Xóa vĩnh viễn {template.code}?<div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteTemplate(template.id))} disabled={busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></div></div>
-          : <Button className="w-full text-rose-600 hover:bg-rose-50 hover:text-rose-700" size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 className="size-4" />Xóa</Button>}
-      </>}
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={async () => { if (await copyText(template.body)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else setError("Trình duyệt không cho phép sao chép."); }}><Copy className="size-4" />{copied ? "Đã sao chép" : "Sao chép"}</Button>
+        <Button size="sm" variant="outline" asChild><Link href={`/content/new?template=${template.id}`}><Sparkles className="size-4" />Tạo content từ mẫu này</Link></Button>
+        {canManage && <>
+          <Button size="sm" variant="outline" onClick={onEdit} disabled={busy}><Pencil className="size-4" />Sửa</Button>
+          <Button size="sm" variant="outline" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? <><EyeOff className="size-4" />Tắt mẫu</> : <><Eye className="size-4" />Bật mẫu</>}</Button>
+          {confirming
+            ? <span className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2 text-xs text-rose-700">Xóa vĩnh viễn {template.code}?<Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteTemplate(template.id))} disabled={busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></span>
+            : <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConfirming(true)}><Trash2 className="size-4" />Xóa</Button>}
+        </>}
+      </div>
       {error && <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700" role="alert">{error}</p>}
-      {info.length > 0 && <ul className="space-y-1 border-t pt-3 text-xs text-slate-500">{info.map((line) => <li key={line} className="break-words">{line}</li>)}</ul>}
-    </aside>
+    </div>
   );
+}
+
+function TemplateInfo({ template }: { template: ContentTemplate }) {
+  const info = [template.groupName && `Nhóm: ${template.groupName}`, template.tone && `Tone: ${template.tone}`, template.cta && `CTA: ${template.cta}`, `Trọng số ${template.weight}`, template.tags && `Tags: ${template.tags}`, template.note && `Ghi chú: ${template.note}`].filter((value): value is string => Boolean(value));
+  return info.length ? <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-slate-500">{info.map((line) => <li key={line} className="break-words">{line}</li>)}</ul> : null;
 }
 
 function Modal({ title, subtitle, onClose, busy, children, footer }: { title: string; subtitle?: ReactNode; onClose: () => void; busy: boolean; children: ReactNode; footer?: ReactNode }) {

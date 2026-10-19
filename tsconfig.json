@@ -253,7 +253,9 @@
     ".next-rec-phan-hoi/types/**/*.ts",
     ".next-rec-phan-hoi/dev/types/**/*.ts",
     ".next-content-cai-dat/types/**/*.ts",
-    ".next-content-cai-dat/dev/types/**/*.ts"
+    ".next-content-cai-dat/dev/types/**/*.ts",
+    ".next-kho-mau-cay/types/**/*.ts",
+    ".next-kho-mau-cay/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
