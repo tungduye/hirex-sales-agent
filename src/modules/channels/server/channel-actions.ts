@@ -239,7 +239,7 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
 /**
  * Sends one file the member just uploaded (upload route) into a Zalo chat, as its own message. Same checks as a
  * text reply (reply permission, access to the nick, one pending message at a time, one send per request id);
- * the reply is proposed, turned into "this file only" (migration 093), approved and sent once.
+ * the reply is proposed as "this file only" (migration 094), approved and sent once.
  */
 export async function sendZaloFileReply(input: { conversationId: string; attachmentId: string; idempotencyKey: string }): Promise<ChannelActionState> {
   const parsed = z.object({ conversationId: uuid, attachmentId: uuid, idempotencyKey: uuid }).safeParse(input);
@@ -263,15 +263,11 @@ export async function sendZaloFileReply(input: { conversationId: string; attachm
     .eq("workspace_id", account.workspaceId).eq("conversation_id", parsed.data.conversationId).eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle();
   if (existingRequestError) return { status: "error", message: "Không kiểm tra được yêu cầu gửi. Hệ thống không tạo yêu cầu mới." };
   if (existingRequest) return existingRequest.status === "SENT" ? { status: "success", message: "Tệp này đã được gửi." } : { status: "error", message: "Yêu cầu gửi tệp này đã tồn tại; không tạo bản trùng." };
-  // Proposed with a stand-in text (a proposal needs one), replaced by the file before approval.
-  const { data: actionId, error: proposalError } = await supabase.rpc("propose_channel_message", {
-    p_conversation_id: parsed.data.conversationId, p_text_content: `📎 ${file.filename}`, p_idempotency_key: parsed.data.idempotencyKey, p_proposed_by: "HUMAN" });
-  if (proposalError || typeof actionId !== "string") return { status: "error", message: "Chính sách gửi đã chặn tin này hoặc kênh đang không khả dụng." };
-  const { data: attached, error: attachError } = await supabase.rpc("attach_file_to_zalo_reply", { p_action_id: actionId, p_attachment_id: parsed.data.attachmentId });
-  if (attachError || attached !== true) {
-    await privileged.from("channel_outbound_actions").update({ status: "CANCELLED" }).eq("id", actionId).eq("workspace_id", account.workspaceId).eq("status", "PROPOSED");
-    return { status: "error", message: "Không gắn được tệp vào tin (tệp có thể đang được gửi ở một tin khác). Tệp chưa được gửi." };
-  }
+  // Proposed directly as "this one file, no text" (migration 094), then approved and sent like a text reply.
+  const { data: actionId, error: proposalError } = await supabase.rpc("propose_zalo_file_reply", {
+    p_conversation_id: parsed.data.conversationId, p_attachment_id: parsed.data.attachmentId, p_idempotency_key: parsed.data.idempotencyKey });
+  if (proposalError || typeof actionId !== "string")
+    return { status: "error", message: "Chưa tạo được tin gửi tệp (tệp có thể đang được gửi ở một tin khác, hoặc kênh đang bị chặn). Tệp chưa được gửi." };
   const { data: approved, error: approvalError } = await supabase.rpc("approve_channel_outbound_action", { p_action_id: actionId });
   if (approvalError || approved !== true) return { status: "error", message: "Tin không qua được bước kiểm tra cuối nên chưa được gửi." };
   const result = await dispatchManualZaloAction(actionId);

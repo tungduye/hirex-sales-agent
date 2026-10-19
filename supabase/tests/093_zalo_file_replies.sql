@@ -1,4 +1,4 @@
--- Verifies migration 093. Run through run-local.sh.
+-- Verifies migrations 093 and 094 (file replies). Run through run-local.sh.
 begin;
 create function pg_temp.assert_true(value boolean,label text) returns void language plpgsql as $$begin if value is not true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end$$;
 grant execute on function pg_temp.assert_true(boolean,text) to authenticated, service_role;
@@ -22,36 +22,28 @@ insert into public.channel_attachments(id,workspace_id,storage_bucket,storage_pa
   ('00000000-0000-4000-8000-0000000093f2','00000000-0000-4000-8000-0000000093a1','channel-attachments','x/outbound/2.pdf','B.pdf','application/pdf',100,repeat('b',64),'HUMAN_UPLOAD','00000000-0000-4000-8000-000000009302'),
   ('00000000-0000-4000-8000-0000000093f3','00000000-0000-4000-8000-0000000093a1','channel-attachments','x/in/3.jpg','in.jpg','image/jpeg',100,repeat('c',64),'INBOUND_PROVIDER',null);
 
+-- A stand-in proposal left by the first version is removed by 094.
 set local role authenticated;
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000009301',true);
 create temp table ids(name text, id uuid) on commit drop;
 grant all on ids to authenticated;
-insert into ids select 'a1', public.propose_channel_message('00000000-0000-4000-8000-0000000093d1','📎 CV.pdf','k-93-1','HUMAN');
-insert into ids select 'a2', public.propose_channel_message('00000000-0000-4000-8000-0000000093d1','📎 B.pdf','k-93-2','HUMAN');
-select pg_temp.assert_true((select count(*)=2 from ids where id is not null),'replies proposed');
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a1'),'00000000-0000-4000-8000-0000000093f2'),'cannot send a file another member uploaded');
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a1'),'00000000-0000-4000-8000-0000000093f3'),'cannot send a received file');
-select pg_temp.assert_true(public.attach_file_to_zalo_reply((select id from ids where name='a1'),'00000000-0000-4000-8000-0000000093f1'),'own upload attached');
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a2'),'00000000-0000-4000-8000-0000000093f1'),'one upload is sent at most once');
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a1'),'00000000-0000-4000-8000-0000000093f1'),'an action carries one file');
-select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000009302',true);
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a2'),'00000000-0000-4000-8000-0000000093f2'),'only the member who proposed the reply attaches to it');
+select pg_temp.assert_true(not exists(select 1 from pg_proc where proname='attach_file_to_zalo_reply'),'two-step version removed');
+select pg_temp.assert_true(public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f2','k-93-0') is null,'cannot send a file another member uploaded');
+select pg_temp.assert_true(public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f3','k-93-0') is null,'cannot send a received file');
+insert into ids select 'a1', public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f1','k-93-1');
+select pg_temp.assert_true((select id is not null from ids where name='a1'),'own upload proposed');
+select pg_temp.assert_true(public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f1','k-93-2') is null,'one upload is sent at most once');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000009303',true);
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a2'),'00000000-0000-4000-8000-0000000093f2'),'members without reply permission cannot attach');
+select pg_temp.assert_true(public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f1','k-93-3') is null,'members without reply permission cannot send files');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000009301',true);
 select pg_temp.assert_true(public.approve_channel_outbound_action((select id from ids where name='a1')),'the file reply is approved like a text reply');
 reset role;
-select pg_temp.assert_true((select text_content is null and attachment_ids=array['00000000-0000-4000-8000-0000000093f1'::uuid] and status='APPROVED' from public.channel_outbound_actions where id=(select id from ids where name='a1')),'action is the file only');
-select pg_temp.assert_true((select count(*)=1 from public.audit_logs where action='CHANNEL_MESSAGE_FILE_ATTACHED'),'attachment audited');
-set local role authenticated;
-select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000009301',true);
-insert into ids select 'a3', public.propose_channel_message('00000000-0000-4000-8000-0000000093d1','📎 CV.pdf','k-93-3','HUMAN');
-select pg_temp.assert_true(not public.attach_file_to_zalo_reply((select id from ids where name='a3'),'00000000-0000-4000-8000-0000000093f1'),'a file waiting to be sent cannot be sent again');
-reset role;
+select pg_temp.assert_true((select text_content is null and attachment_ids=array['00000000-0000-4000-8000-0000000093f1'::uuid] and status='APPROVED' and recipient_external_id='person-93' from public.channel_outbound_actions where id=(select id from ids where name='a1')),'action is the file only, to the last writer');
+select pg_temp.assert_true((select count(*)=1 from public.audit_logs where entity_id=(select id from ids where name='a1') and action='CHANNEL_MESSAGE_PROPOSED'),'proposal audited');
 update public.channel_outbound_actions set status='FAILED',attempt_count=1,safe_error_code='ACCOUNT_BUSY' where id=(select id from ids where name='a1');
 set local role authenticated;
-select pg_temp.assert_true(public.attach_file_to_zalo_reply((select id from ids where name='a3'),'00000000-0000-4000-8000-0000000093f1'),'after a definite failure the same file can be sent again');
+select pg_temp.assert_true(public.propose_zalo_file_reply('00000000-0000-4000-8000-0000000093d1','00000000-0000-4000-8000-0000000093f1','k-93-4') is not null,'after a definite failure the same file can be sent again');
 reset role;
-select pg_temp.assert_true(not has_function_privilege('anon','public.attach_file_to_zalo_reply(uuid,uuid)','execute'),'anonymous cannot call');
+select pg_temp.assert_true(not has_function_privilege('anon','public.propose_zalo_file_reply(uuid,uuid,text)','execute'),'anonymous cannot call');
 rollback;
