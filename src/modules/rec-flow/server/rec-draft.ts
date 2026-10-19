@@ -1,7 +1,7 @@
 import "server-only";
 
 import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
-import { applyHolaResult, HOLA_RESULT_SCHEMA, holaInstructions, holeInstructions, jobsForPrompt, type FlowJob, type RecFlowState } from "../core/rec-flow";
+import { applyHolaResult, HOLA_RESULT_SCHEMA, holaInstructions, holeInstructions, jobOverview, jobsForPrompt, offerMissing, readyForOffer, type FlowJob, type RecFlowState } from "../core/rec-flow";
 import { flowConversation, readFlow } from "./rec-flow-store";
 
 const JOB_FIELDS = "id,code,title,career_track,company_name,company_name_public,location,work_mode,japanese_level_min,experience_min,salary_range,selling_points,summary,requirements,jd_link,interview_process,priority";
@@ -51,7 +51,9 @@ export async function draftRecReply(input: { scope: FlowScope; instruction: stri
         TRANG_THAI: { buocHienTai: state.step, daBiet: state.facts, jobDaGioiThieu: state.offeredJobIds.map(label).filter(Boolean),
           jobBiTuChoi: state.rejectedJobs.map((job) => ({ ...label(job.jobId), lyDo: job.reason })), ketQua: state.outcome },
         UNG_VIEN: { ten: typeof contact?.full_name === "string" ? contact.full_name : null },
-        JOBS: jobsForPrompt(jobs, state, hole ? 20 : 12), CUOC_CHAT: chat, CHO_UNG_VIEN_TRA_LOI: chat.at(-1)?.from === "Recruiter",
+        DUOC_GIOI_THIEU_JOB: readyForOffer(state), CON_THIEU: readyForOffer(state) ? [] : offerMissing(state.facts),
+        TONG_QUAN_JOB: jobOverview(jobs),
+        JOBS: readyForOffer(state) ? jobsForPrompt(jobs, state, hole ? 20 : 12) : [], CUOC_CHAT: chat, CHO_UNG_VIEN_TRA_LOI: chat.at(-1)?.from === "Recruiter",
         Y_CUA_NHAN_VIEN: input.instruction || null,
       }).slice(0, 90_000),
       text: { format: { type: "json_schema", name: "rec_draft", strict: true, schema: HOLA_RESULT_SCHEMA } },

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyHolaResult, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, careTaskTitle, holaInstructions, holeInstructions, jobsForPrompt, OUTCOME_TAGS, REC_OUTCOMES, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
+import { applyHolaResult, jobOverview, offerMissing, readyForOffer, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, careTaskTitle, holaInstructions, holeInstructions, jobsForPrompt, OUTCOME_TAGS, REC_OUTCOMES, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
 
 const J1 = '11111111-1111-4111-8111-111111111111', J2 = '22222222-2222-4222-8222-222222222222', J3 = '33333333-3333-4333-8333-333333333333';
 const job = (id, code, location, track, extra = {}) => ({ id, code, title: `${track} job`, careerTrack: track, companyName: `Cty ${code}`, companyNamePublic: true, location,
@@ -11,12 +11,13 @@ test('stored states are cleaned: bad steps, unknown facts and bad job ids are dr
   assert.deepEqual(state, { step: 1, facts: { careerTrack: 'BrSE' }, offeredJobIds: [J1], rejectedJobs: [{ jobId: J2, reason: 'xa' }], outcome: null });
 });
 test('the bar says the step, what is known and what is missing', () => {
-  const summary = flowSummary(normalizeFlow({ step: 4, facts: { careerTrack: 'BrSE', location: 'Hà Nội' }, offeredJobIds: [J1] }));
+  const summary = flowSummary(normalizeFlow({ step: 4, facts: { careerTrack: 'BrSE', location: 'Hà Nội' } }));
   assert.equal(summary.stepLabel, 'Bước 4/8');
-  assert.equal(summary.stepName, 'Tiếng Nhật');
+  assert.equal(summary.stepName, 'Tìm hiểu ứng viên');
   assert.deepEqual(summary.known, ['Hướng nghề: BrSE', 'Khu vực: Hà Nội']);
-  assert.deepEqual(summary.missing, ['tiếng Nhật (nếu job cần)']);
-  assert.equal(summary.offered, 1);
+  assert.deepEqual(summary.missing, ['tiếng Nhật', 'kinh nghiệm', 'ưu tiên khi chuyển hoặc lương mong muốn']);
+  assert.equal(summary.offered, 0);
+  assert.deepEqual(flowSummary(normalizeFlow({ step: 6, facts: { careerTrack: 'BrSE' }, offeredJobIds: [J1] })).missing, []);
 });
 test('facts only fill or correct, never erase', () => {
   assert.deepEqual(mergeFacts({ careerTrack: 'BrSE', location: 'HN' }, { location: 'Hà Nội', careerTrack: null, japaneseLevel: 'N2' }), { careerTrack: 'BrSE', location: 'Hà Nội', japaneseLevel: 'N2' });
@@ -29,12 +30,13 @@ test('jobs for the prompt: same area and track first, offered/rejected left out,
 });
 test("Hola's answer becomes the draft and the next state; unknown job codes are ignored", () => {
   const jobs = [{ id: J1, code: 'HN_1' }];
-  const applied = applyHolaResult({ step: 5, facts: { careerTrack: null, location: 'Hà Nội', japaneseLevel: null, japanYears: null, experience: null, expectedSalary: null, availability: null },
-    offeredJobCode: 'HN_1', rejectedJobCode: 'NOPE', rejectReason: null, outcome: null, parts: ['Em có vị trí BrSE tại Cty A.', '---', 'Anh thấy ổn không ạ.'] }, normalizeFlow({ facts: { careerTrack: 'BrSE' } }), jobs);
+  const applied = applyHolaResult({ step: 5, facts: { careerTrack: null, location: 'Hà Nội', japaneseLevel: null, japanYears: null, experience: null, expectedSalary: null, motivation: null, availability: null },
+    offeredJobCode: 'HN_1', rejectedJobCode: 'NOPE', rejectReason: null, outcome: null, parts: ['Em có vị trí BrSE tại Cty A.', '---', 'Anh thấy ổn không ạ.'] },
+    normalizeFlow({ facts: { careerTrack: 'BrSE', location: 'HN', japaneseLevel: 'N2', experience: '3 năm BrSE', motivation: 'lương' } }), jobs);
   assert.equal(applied.draft, 'Em có vị trí BrSE tại Cty A.\n---\nAnh thấy ổn không ạ.');
   assert.deepEqual(applied.next.offeredJobIds, [J1]);
   assert.deepEqual(applied.next.rejectedJobs, []);
-  assert.deepEqual(applied.next.facts, { careerTrack: 'BrSE', location: 'Hà Nội' });
+  assert.deepEqual(applied.next.facts, { careerTrack: 'BrSE', location: 'Hà Nội', japaneseLevel: 'N2', experience: '3 năm BrSE', motivation: 'lương' });
   assert.equal(applied.next.step, 5);
   const cv = applyHolaResult({ step: 7, facts: {}, offeredJobCode: null, rejectedJobCode: null, rejectReason: null, outcome: 'CV_RECEIVED', parts: ['Em nhận được CV rồi ạ.'] }, EMPTY_FLOW, jobs);
   assert.equal(cv.next.step, 8);
@@ -71,4 +73,21 @@ test('every outcome has tags; a CV means "Chờ REC care"; care task titles are 
   assert.equal(careTaskTitle(' Cao Thị Thu Thảo '), 'Care CV: Cao Thị Thu Thảo');
   assert.equal(careTaskTitle(null), 'Care CV: ứng viên');
   assert.equal(careTaskTitle('x'.repeat(500)).length, 240);
+});
+
+test('no specific job before the candidate is understood', () => {
+  const early = normalizeFlow({ step: 2, facts: { careerTrack: 'PM', location: 'HCM' } });
+  assert.equal(readyForOffer(early), false);
+  assert.deepEqual(offerMissing(early.facts), ['tiếng Nhật', 'kinh nghiệm', 'ưu tiên khi chuyển hoặc lương mong muốn']);
+  const jumped = applyHolaResult({ step: 5, facts: {}, offeredJobCode: 'HN_1', rejectedJobCode: null, rejectReason: null, outcome: null, parts: ['Em có job Sabitech.'] }, early, [{ id: J1, code: 'HN_1' }]);
+  assert.deepEqual(jumped.next.offeredJobIds, []);
+  assert.equal(jumped.next.step, 4);
+  assert.equal(readyForOffer(normalizeFlow({ facts: { careerTrack: 'PM', location: 'HCM', japaneseLevel: 'N3', experience: '5 năm', expectedSalary: '50M' } })), true);
+});
+
+test('the overview groups jobs by track and area without company names', () => {
+  const overview = jobOverview([job(J1, 'A', 'Hà Nội', 'BrSE'), job(J2, 'B', 'Hà Nội', 'BrSE'), job(J3, 'C', 'Hồ Chí Minh', 'PM')]);
+  assert.equal(overview.length, 2);
+  assert.equal(overview[0].soJob, 2);
+  assert.ok(!JSON.stringify(overview).includes('Cty'));
 });
