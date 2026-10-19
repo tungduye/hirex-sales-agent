@@ -100,3 +100,11 @@ test('the flow is saved only when the sent text is still the AI draft', () => {
   assert.equal(draftKept(draft, 'Ok anh, em gửi anh link nhóm nhé'), false);
   assert.equal(draftKept('', 'abc'), false);
 });
+
+test('both writers get the situational acknowledgement rule and the ban on flattery', () => {
+  for (const text of [holaInstructions(), holeInstructions()]) {
+    assert.match(text, /PHẢN HỒI KHI ỨNG VIÊN VỪA TRẢ LỜI/);
+    assert.match(text, /nền tảng khá tốt/);
+    assert.ok(!text.includes('lợi thế lớn với BrSE)'), 'old flattering example removed');
+  }
+});
