@@ -52,3 +52,10 @@ test('format rule: built-in text, a changed word range wins, new formats use the
   assert.match(formatRule({ ...brief, wordRange: [40, 70] }), /ĐỘ DÀI BẮT BUỘC: body 40–70 chữ/);
   assert.match(formatRule({ contentFormat: 'TIKTOK', formatLabel: 'Kịch bản TikTok', wordRange: [60, 90], formatGuide: 'Có câu mở 3 giây đầu.' }), /^KỊCH BẢN TIKTOK\. .*60–90 chữ.*Có câu mở 3 giây đầu\.$/);
 });
+
+test('unique abbr adds a number when taken', async () => {
+  const { uniqueAbbr } = await import('../src/modules/content/core/content-settings.ts');
+  assert.equal(uniqueAbbr('GT', ['DS']), 'GT');
+  assert.equal(uniqueAbbr('GT', ['GT', 'GT2']), 'GT3');
+  assert.equal(uniqueAbbr('ABCDEFGH', ['ABCDEFGH']), 'ABCDEFG2');
+});

@@ -34,7 +34,8 @@ export function normalizeContentListQuery(raw: Record<string, string | string[] 
     language: CODE.test(lang) && lang !== "ALL" ? (lang as ContentLanguage) : "ALL",
     format: CODE.test(format) && format !== "ALL" ? (format as ContentFormat) : "ALL",
     department: CODE.test(department) && department !== "ALL" ? (department as ContentDepartment) : "ALL",
-    category: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(category) ? category : "ALL",
+    // A "Phân loại" id, or NONE for "Chưa phân loại".
+    category: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(category) ? category : category === "none" ? "NONE" : "ALL",
     page: Number.isFinite(pageNumber) && pageNumber >= 1 ? Math.min(pageNumber, 10_000) : 1,
     pageSize: CONTENT_PAGE_SIZE,
   };

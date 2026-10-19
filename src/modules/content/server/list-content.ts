@@ -31,6 +31,8 @@ export interface ListContentResult {
   batches: ContentBatchSummary[];
   total: number;
   libraryTotal: number;
+  /** Every item matching the search and language (bộ phận / phân loại / định dạng only), for the folder tree counts. */
+  treeEntries: Array<{ department: string; categoryId: string | null; format: string | null }>;
   query: ContentListQuery;
   error: string | null;
 }
@@ -47,7 +49,7 @@ interface ContentRow {
 export async function listContent(raw: Record<string, string | string[] | undefined> = {}): Promise<ListContentResult> {
   const query = normalizeContentListQuery(raw);
   const account = await getAccountContext();
-  if (!account?.workspaceId) return { items: [], batches: [], total: 0, libraryTotal: 0, query, error: null };
+  if (!account?.workspaceId) return { items: [], batches: [], total: 0, libraryTotal: 0, treeEntries: [], query, error: null };
 
   const supabase = await createClient();
   let itemsQuery = supabase
@@ -59,18 +61,23 @@ export async function listContent(raw: Record<string, string | string[] | undefi
   if (query.language !== "ALL") itemsQuery = itemsQuery.eq("content_language", query.language);
   if (query.format !== "ALL") itemsQuery = itemsQuery.eq("content_format", query.format);
   if (query.department !== "ALL") itemsQuery = itemsQuery.eq("department", query.department);
-  if (query.category !== "ALL") itemsQuery = itemsQuery.eq("category_id", query.category);
+  if (query.category === "NONE") itemsQuery = itemsQuery.is("category_id", null);
+  else if (query.category !== "ALL") itemsQuery = itemsQuery.eq("category_id", query.category);
+  let treeQuery = supabase.from("content_items").select("department, category_id, content_format").eq("workspace_id", account.workspaceId);
+  if (pattern) treeQuery = treeQuery.or(["code", "title", "job_title", "body"].map((column) => `${column}.ilike.${pattern}`).join(","));
+  if (query.language !== "ALL") treeQuery = treeQuery.eq("content_language", query.language);
   const from = (query.page - 1) * query.pageSize;
 
   const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-  const [itemsResult, totalResult, batchesResult] = await Promise.all([
+  const [itemsResult, totalResult, batchesResult, treeResult] = await Promise.all([
     itemsQuery.order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, from + query.pageSize - 1),
     supabase.from("content_items").select("id", { count: "exact", head: true }).eq("workspace_id", account.workspaceId),
     supabase.from("content_batches").select("id, job_title, quantity, status, saved_count, rejected_count, error_code, created_at")
       .eq("workspace_id", account.workspaceId).eq("created_by", account.userId).gte("created_at", since)
       .order("created_at", { ascending: false }).limit(5),
+    treeQuery.limit(20000),
   ]);
-  if (itemsResult.error) return { items: [], batches: [], total: 0, libraryTotal: 0, query, error: "Không tải được kho content. Vui lòng thử lại." };
+  if (itemsResult.error) return { items: [], batches: [], total: 0, libraryTotal: 0, treeEntries: [], query, error: "Không tải được kho content. Vui lòng thử lại." };
   const batches = ((batchesResult.data ?? []) as BatchRow[]).map((row) => ({
     id: row.id,
     jobTitle: row.job_title,
@@ -124,6 +131,7 @@ export async function listContent(raw: Record<string, string | string[] | undefi
     batches,
     total: itemsResult.count ?? rows.length,
     libraryTotal: totalResult.count ?? itemsResult.count ?? rows.length,
+    treeEntries: ((treeResult.data ?? []) as Array<{ department: string; category_id: string | null; content_format: string | null }>).map((row) => ({ department: row.department, categoryId: row.category_id, format: row.content_format })),
     query,
     error: null,
   };

@@ -2,14 +2,15 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ChevronRight, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, Eye, EyeOff, LoaderCircle, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
 import { copyText } from "@/modules/content/components/copy-text";
 import Link from "next/link";
-import { buildContentTree, matchesFilter, NO_CATEGORY, pathKeys, type TreeFilter, type TreeNode } from "@/modules/content/core/content-tree";
+import { buildContentTree, matchesFilter, NO_CATEGORY, type TreeFilter } from "@/modules/content/core/content-tree";
+import { ContentFolderTree, ITEM_DRAG_TYPE, MoveToFolder } from "@/modules/content/components/content-folder-tree";
 import { useContentLists } from "@/modules/content/components/content-settings-context";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
 import { initialTemplateFormState } from "@/modules/content/core/content-state";
@@ -20,7 +21,6 @@ const inputClass = "block w-full rounded-lg border bg-slate-50 px-3 text-sm focu
 
 type Editing = { mode: "new" } | { mode: "edit"; template: ContentTemplate };
 
-const FOLDER_COLORS = ["text-rose-500", "text-orange-400", "text-sky-500"];
 
 export function TemplateLibraryView({ templates, categories, loadError, canManage }: { templates: ContentTemplate[]; categories: ContentCategory[]; loadError: string | null; canManage: boolean }) {
   const router = useRouter();
@@ -33,7 +33,6 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [opened, setOpened] = useState<Set<string>>(() => new Set());
   const categoryName = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories]);
 
   // Search, language and status narrow the whole tree; the folder picks within it.
@@ -48,31 +47,9 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
   const visible = useMemo(() => searched.filter((template) => matchesFilter({ department: template.department, categoryId: template.categoryId ?? null, format: template.format ?? null }, filter)), [searched, filter]);
   const selected = visible.find((template) => template.id === selectedId) ?? visible[0] ?? null;
 
-  function choose(next: TreeFilter, key?: string) {
-    setFilter(next); setSelectedId(null);
-    if (key) setOpened((current) => new Set([...current, ...pathKeys(next), key]));
-  }
-  function toggle(key: string) { setOpened((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
+  function choose(next: TreeFilter) { setFilter(next); setSelectedId(null); }
   const done = useCallback((message: string) => { setEditing(null); setNotice(message); router.refresh(); }, [router]);
-  const isActive = (node: TreeNode) => node.filter.department === filter.department && node.filter.category === filter.category && node.filter.format === filter.format;
   const folderName = filter.format ? formatLabel(filter.format) : filter.category ? (filter.category === NO_CATEGORY ? "Chưa phân loại" : categoryName.get(filter.category) ?? "") : filter.department ? departmentLabel(filter.department) : "Tất cả mẫu";
-
-  function node(item: TreeNode): ReactNode {
-    const expanded = opened.has(item.key);
-    return <li key={item.key}>
-      <div className={cn("flex items-center rounded", isActive(item) && "bg-indigo-100")}>
-        {item.children.length > 0
-          ? <button type="button" aria-label={expanded ? "Thu" : "Mở"} aria-expanded={expanded} onClick={() => toggle(item.key)} className="rounded p-1 text-slate-400 hover:text-slate-700"><ChevronRight className={cn("size-3", expanded && "rotate-90")} /></button>
-          : <span className="w-5" />}
-        <button type="button" onClick={() => choose(item.filter, item.key)} className={cn("flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-left text-xs", isActive(item) ? "font-semibold text-indigo-800" : "text-slate-700", item.hidden && "opacity-60")}>
-          {item.depth < 2 ? <Folder className={cn("size-3.5 shrink-0", FOLDER_COLORS[item.depth])} /> : <FileText className="size-3.5 shrink-0 text-slate-400" />}
-          <span className={cn("truncate", item.depth === 0 && "font-medium")}>{item.label}</span>
-          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-slate-400">{item.count}</span>
-        </button>
-      </div>
-      {expanded && item.children.length > 0 && <ul className="ml-3 border-l border-dotted border-slate-300 pl-1">{item.children.map(node)}</ul>}
-    </li>;
-  }
 
   const addButton = canManage ? <Button onClick={() => { setNotice(null); setEditing({ mode: "new" }); }}><Plus className="size-4" />Thêm mẫu</Button> : undefined;
   const selectClass = "h-9 rounded-lg border bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none";
@@ -91,22 +68,11 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
             <select aria-label="Trạng thái" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={selectClass}><option value="ACTIVE">Đang dùng</option><option value="INACTIVE">Đã tắt</option><option value="ALL">Mọi trạng thái</option></select>
           </div>
           <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
-            <nav aria-label="Cây thư mục mẫu" className="min-w-0 border-b bg-slate-50/70 lg:border-b-0 lg:border-r">
-              <div className="flex items-center justify-between border-b p-3 text-xs text-slate-500">
-                <span>{searched.length.toLocaleString("vi-VN")} mẫu</span>
-                <span className="flex items-center gap-2"><button type="button" onClick={() => setOpened(new Set())} className="text-indigo-600">Thu gọn</button>
-                  {canManage && <Link href="/content/settings" title="Thêm bộ phận / phân loại" aria-label="Thêm bộ phận hoặc phân loại" className="inline-flex size-6 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"><Plus className="size-3.5" /></Link>}</span>
-              </div>
-              <div className="max-h-[72vh] overflow-auto p-2">
-                <button type="button" onClick={() => choose({})} className={cn("mb-1 flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs", !filter.department ? "bg-indigo-100 font-semibold text-indigo-800" : "text-slate-700 hover:bg-white")}><FolderOpen className="size-3.5 text-slate-500" />Tất cả mẫu<span className="ml-auto text-[11px] text-slate-400">{searched.length}</span></button>
-                <ul>{tree.map(node)}</ul>
-                {tree.length === 0 && <p className="p-4 text-sm text-slate-500">Không có mẫu phù hợp.</p>}
-              </div>
-            </nav>
+            <ContentFolderTree tree={tree} total={searched.length} unit="mẫu" active={filter} onChoose={choose} canManage={canManage} itemKind="template" onChanged={(message) => { setNotice(message); router.refresh(); }} />
             <div className="min-w-0">
               <div className="border-b px-4 py-2.5 text-xs text-slate-500"><span className="font-semibold text-slate-700">{folderName}</span> · {visible.length} mẫu</div>
               <ul className="max-h-64 divide-y overflow-y-auto border-b">
-                {visible.map((template) => <li key={template.id}><button type="button" onClick={() => setSelectedId(template.id)} className={cn("block w-full px-4 py-2.5 text-left", selected?.id === template.id ? "bg-indigo-50" : "hover:bg-slate-50", !template.active && "opacity-60")}>
+                {visible.map((template) => <li key={template.id} draggable={canManage} onDragStart={(event) => { event.dataTransfer.setData(ITEM_DRAG_TYPE, template.id); event.dataTransfer.effectAllowed = "move"; }} title={canManage ? "Kéo thả vào thư mục bên trái để chuyển" : undefined}><button type="button" onClick={() => setSelectedId(template.id)} className={cn("block w-full px-4 py-2.5 text-left", selected?.id === template.id ? "bg-indigo-50" : "hover:bg-slate-50", !template.active && "opacity-60")}>
                   <span className="flex flex-wrap items-center gap-x-2 text-xs"><span className="font-mono font-semibold text-blue-700">{template.code}</span>
                     {template.groupName && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{template.groupName}</span>}
                     <span className="text-slate-500">{languageLabel(template.language)}</span>{!template.active && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">Đã tắt</span>}</span>
@@ -116,7 +82,8 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
               </ul>
               <article className="p-5">{selected ? <>
                 <p className="font-mono text-xs font-semibold text-indigo-600">{selected.code}</p>
-                <TemplateActions key={selected.id} template={selected} canManage={canManage} onEdit={() => setEditing({ mode: "edit", template: selected })} onDone={done} />
+                <TemplateActions key={selected.id} template={selected} canManage={canManage} onEdit={() => setEditing({ mode: "edit", template: selected })} onDone={done}
+                  moveControl={canManage ? <MoveToFolder tree={tree} itemKind="template" itemId={selected.id} onChanged={done} /> : null} />
                 <div className="mt-3 flex flex-wrap gap-1.5 text-xs">{[departmentLabel(selected.department), formatLabel(selected.format ?? "POST_LONG"), selected.categoryId ? categoryName.get(selected.categoryId) : null, languageLabel(selected.language)].filter(Boolean).map((tag) => <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{tag}</span>)}</div>
                 <div className="mt-4 max-h-[55vh] overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-800">{selected.body}</div>
                 <TemplateInfo template={selected} />
@@ -130,7 +97,7 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
   );
 }
 
-function TemplateActions({ template, canManage, onEdit, onDone }: { template: ContentTemplate; canManage: boolean; onEdit: () => void; onDone: (message: string) => void }) {
+function TemplateActions({ template, canManage, onEdit, onDone, moveControl }: { template: ContentTemplate; canManage: boolean; onEdit: () => void; onDone: (message: string) => void; moveControl?: ReactNode }) {
   const [busy, startAction] = useTransition();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +112,7 @@ function TemplateActions({ template, canManage, onEdit, onDone }: { template: Co
         <Button size="sm" variant="outline" asChild><Link href={`/content/new?template=${template.id}`}><Sparkles className="size-4" />Tạo content từ mẫu này</Link></Button>
         {canManage && <>
           <Button size="sm" variant="outline" onClick={onEdit} disabled={busy}><Pencil className="size-4" />Sửa</Button>
+          {moveControl}
           <Button size="sm" variant="outline" onClick={() => run(() => setTemplateActive(template.id, !template.active))} disabled={busy}>{template.active ? <><EyeOff className="size-4" />Tắt mẫu</> : <><Eye className="size-4" />Bật mẫu</>}</Button>
           {confirming
             ? <span className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2 text-xs text-rose-700">Xóa vĩnh viễn {template.code}?<Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Không</Button><Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteTemplate(template.id))} disabled={busy}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}Xóa</Button></span>

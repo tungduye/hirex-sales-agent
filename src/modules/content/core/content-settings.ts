@@ -129,3 +129,15 @@ export const categoryInputSchema = z.object({
   guide: guideSchema,
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
+
+/** An abbr not used yet: GT, then GT2, GT3… (at most 8 characters). */
+export function uniqueAbbr(base: string, taken: Iterable<string | null | undefined>) {
+  const used = new Set([...taken].filter(Boolean) as string[]);
+  const root = (base || "X").slice(0, 8);
+  if (!used.has(root)) return root;
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${root.slice(0, 8 - String(n).length)}${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${root.slice(0, 4)}${String(Date.now()).slice(-4)}`;
+}
