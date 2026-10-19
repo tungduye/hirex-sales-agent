@@ -23,6 +23,7 @@ export async function draftRecReply(input: { scope: FlowScope; instruction: stri
     db.from("recruitment_jobs").select(JOB_FIELDS).eq("workspace_id", conversation.workspaceId).eq("status", "OPEN").order("updated_at", { ascending: false }).limit(300),
     conversation.contactId ? db.from("contacts").select("full_name").eq("workspace_id", conversation.workspaceId).eq("id", conversation.contactId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
+  const { data: nick } = await db.from("channel_accounts").select("display_name").eq("workspace_id", conversation.workspaceId).eq("id", conversation.channelAccountId).maybeSingle();
   if (error) return { ok: false, message: "Không đọc được nội dung cuộc chat." };
   const rows = (messages ?? []).reverse().filter((message) => message.sender_external_id !== "system");
   // File names the candidate sent (a CV shows up as "CV_Nguyen_Van_A.pdf").
@@ -50,6 +51,7 @@ export async function draftRecReply(input: { scope: FlowScope; instruction: stri
       input: JSON.stringify({
         TRANG_THAI: { buocHienTai: state.step, daBiet: state.facts, jobDaGioiThieu: state.offeredJobIds.map(label).filter(Boolean),
           jobBiTuChoi: state.rejectedJobs.map((job) => ({ ...label(job.jobId), lyDo: job.reason })), ketQua: state.outcome },
+        NICK: typeof nick?.display_name === "string" ? nick.display_name : null,
         UNG_VIEN: { ten: typeof contact?.full_name === "string" ? contact.full_name : null },
         DUOC_GIOI_THIEU_JOB: readyForOffer(state), CON_THIEU: readyForOffer(state) ? [] : offerMissing(state.facts),
         TONG_QUAN_JOB: jobOverview(jobs),

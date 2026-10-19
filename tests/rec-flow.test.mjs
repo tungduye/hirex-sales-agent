@@ -60,9 +60,10 @@ test('the schema and instructions carry the approved rules', () => {
 test('Hole keeps the shared voice, data and output rules but is free to reorder and asks for the CV', () => {
   const hole = holeInstructions(), hola = holaInstructions();
   assert.match(hole, /^Bạn là Hole/);
-  for (const part of ['NỐI TIẾP', 'GIỌNG', 'DỮ LIỆU', 'AN TOÀN', 'ĐẦU RA']) assert.ok(hole.includes(part), part);
+  for (const part of ['NỐI TIẾP', 'VĂN PHONG', 'DỮ LIỆU', 'AN TOÀN', 'ĐẦU RA', 'CON_THIEU']) assert.ok(hole.includes(part), part);
   assert.match(hole, /NHẬN CV/);
   assert.ok(!hole.includes('Câu mẫu'), 'Hole does not read the script lines');
+  assert.match(hole, /VĂN PHONG/);
   assert.notEqual(hole, hola);
 });
 

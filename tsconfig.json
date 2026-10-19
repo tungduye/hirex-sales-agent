@@ -245,7 +245,9 @@
     ".next-rec-tu-van/types/**/*.ts",
     ".next-rec-tu-van/dev/types/**/*.ts",
     ".next-rec-tu-van-2/types/**/*.ts",
-    ".next-rec-tu-van-2/dev/types/**/*.ts"
+    ".next-rec-tu-van-2/dev/types/**/*.ts",
+    ".next-rec-tu-van-3/types/**/*.ts",
+    ".next-rec-tu-van-3/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
