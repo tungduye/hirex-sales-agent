@@ -203,7 +203,9 @@
     ".next-group-ux-3/types/**/*.ts",
     ".next-group-ux-3/dev/types/**/*.ts",
     ".next-send-locks-1/types/**/*.ts",
-    ".next-send-locks-1/dev/types/**/*.ts"
+    ".next-send-locks-1/dev/types/**/*.ts",
+    ".next-group-ux-4/types/**/*.ts",
+    ".next-group-ux-4/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
