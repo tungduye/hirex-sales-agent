@@ -3,7 +3,8 @@
 import { EmojiPicker } from "./emoji-picker";
 import { buildMentions, mentionQueryAt, suggestMembers, type MentionPick } from "../core/zalo-mentions";
 import { insertAt } from "../core/text-insert";
-import { Bot, ChevronDown, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
+import { Bot, ChevronDown, Reply, SendHorizontal, Sparkles, Undo2, X, Zap } from "lucide-react";
+import { DRAFT_EVENT, draftStore, readDraft, writeDraft } from "../core/composer-drafts";
 import { useActionState,useEffect,useMemo,useRef,useState,useTransition } from "react";
 import type { ChannelType } from "../core/channel-contracts";
 import { approveChannelMessage,cancelPendingManualChannelMessage,dispatchPendingManualChannelMessage,saveQuickReply,sendManualChannelMessage } from "../server/channel-actions";
@@ -34,7 +35,7 @@ export function matchQuickReplies(templates:QuickReplyTemplate[],query:string){
   return [...starts,...rest];
 }
 
-export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false,businessSuiteUrl=null,mentionMembers=[]}:{conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean;businessSuiteUrl?:string|null;mentionMembers?:Array<{uid:string;name:string;avatarUrl:string|null}>}){
+export function ConversationComposer({conversationId,channelType,conversationStatus,lastInboundAt,proposedActions,pendingActions,quickReplies,isGroup=false,businessSuiteUrl=null,mentionMembers=[],replyTo=null,onCancelReply}:{replyTo?:{messageId:string;text:string;sender:string}|null;onCancelReply?:()=>void;conversationId:string;channelType:ChannelType;conversationStatus:string;lastInboundAt:string|null;proposedActions:Array<{id:string;text:string|null;proposedBy:string}>;pendingActions:Array<{id:string;text:string|null}>;quickReplies:QuickReplyTemplate[];isGroup?:boolean;businessSuiteUrl?:string|null;mentionMembers?:Array<{uid:string;name:string;avatarUrl:string|null}>}){
   // Zalo groups cannot be sent to from HireX yet (the bridge sends one-to-one only).
   const zaloGroup=channelType==="ZALO"&&isGroup;
   const[state,send,pending]=useActionState(sendManualChannelMessage,initial),[text,setText]=useState("");
@@ -59,11 +60,31 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const[mentionDismissed,setMentionDismissed]=useState<number|null>(null);
   useEffect(()=>{
     if(!submittedTextRef.current||state.status==="idle")return;
-    if(state.status==="error")window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:submittedTextRef.current,timestamp:new Date().toISOString(),status:"FAILED"}}));
+    if(state.status==="error"){
+      const failed=submittedTextRef.current;
+      window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:failed,timestamp:new Date().toISOString(),status:"FAILED"}}));
+      // Not sent: put the text back so it is not lost (it stays saved as this conversation's draft).
+      const restore=window.setTimeout(()=>{submittedTextRef.current=null;setText(current=>current||failed);},0);
+      return()=>window.clearTimeout(restore);
+    }
     if(state.status!=="success")return;
-    const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setPicks([]);setIdempotencyKey(createRequestId())},0);
+    const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));onCancelReply?.();},0);
     return()=>window.clearTimeout(reset);
-  },[state,idempotencyKey,conversationId]);
+  },[state,idempotencyKey,conversationId,onCancelReply]);
+  // This conversation's unsent text comes back when it is opened again.
+  useEffect(()=>{
+    const draft=readDraft(draftStore(),conversationId,Date.now());
+    if(!draft)return;
+    const load=window.setTimeout(()=>{setText(current=>current||draft.text);setPicks(current=>current.length?current:draft.picks);},0);
+    return()=>window.clearTimeout(load);
+  },[conversationId]);
+  useEffect(()=>{
+    if(submittedTextRef.current)return;
+    const save=window.setTimeout(()=>{writeDraft(draftStore(),conversationId,text,picks,Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));},400);
+    return()=>window.clearTimeout(save);
+  },[conversationId,text,picks]);
+  // Choosing "Trả lời" on a message puts the cursor in the box.
+  useEffect(()=>{if(replyTo)window.requestAnimationFrame(()=>textareaRef.current?.focus());},[replyTo]);
   function ensureRequestId(){if(!idempotencyKey)setIdempotencyKey(createRequestId());}
   function updateText(value:string){setText(value);if(!idempotencyKey||state.status!=="idle")setIdempotencyKey(createRequestId());}
   const templates=useMemo(()=>{const ids=new Set(quickReplies.map(item=>item.id));return [...quickReplies,...localTemplates.filter(item=>!ids.has(item.id))].filter(reply=>reply.channelTypes.length===0||reply.channelTypes.includes(channelType));},[quickReplies,localTemplates,channelType]);
@@ -114,8 +135,9 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     {showQuick?<QuickReplyMenu templates={matches} total={templates.length} activeIndex={Math.min(activeIndex,Math.max(0,matches.length-1))} query={slashQuery} draftText={slashQuery===null?text.trim():""} onPick={pickTemplate} onClose={closeQuick} onSaved={template=>{setLocalTemplates(current=>[...current,template]);setHint(`Đã lưu mẫu /${template.shortcut}.`);}}/>:null}
     {zaloGroup?<p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900">Nhóm Zalo: tin nhắn sẽ gửi vào nhóm, mọi thành viên đều thấy.{mentionMembers.length?" Gõ @ để tag thành viên.":""}</p>:null}
     {showMentions?<div role="listbox" aria-label="Tag thành viên" className="mb-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">{mentionOptions.map((member,index)=>{const person=mentionMembers.find(item=>item.uid===member.uid);return <button key={`${member.uid}:${member.name}`} type="button" role="option" aria-selected={index===mentionIndex} onMouseDown={event=>{event.preventDefault();pickMention(member);}} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${index===mentionIndex?"bg-blue-50 text-blue-800":"hover:bg-slate-50"}`}>{person?.avatarUrl?<img src={person.avatarUrl} alt="" className="size-6 rounded-full object-cover"/>:<span className="flex size-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">{member.uid==="-1"?"@":member.name.slice(0,1).toUpperCase()}</span>}<span className="truncate font-medium">{member.uid==="-1"?"@All · cả nhóm":member.name}</span></button>;})}</div>:null}
+    {replyTo&&channelType==="ZALO"?<div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-blue-400 bg-blue-50 px-3 py-1.5 text-xs"><Reply className="mt-0.5 size-3.5 shrink-0 text-blue-600"/><div className="min-w-0 flex-1"><p className="font-semibold text-blue-800">Trả lời {replyTo.sender}</p><p className="truncate text-slate-600">{replyTo.text}</p></div><button type="button" onClick={onCancelReply} aria-label="Bỏ trả lời" className="rounded p-0.5 text-slate-400 hover:bg-blue-100 hover:text-slate-700"><X className="size-3.5"/></button></div>:null}
     <form action={send} onSubmit={()=>{const value=text.trim();if(!value)return;submittedTextRef.current=value;window.dispatchEvent(new CustomEvent(INBOX_OPTIMISTIC_EVENT,{detail:{id:idempotencyKey,conversationId,text:value,timestamp:new Date().toISOString(),status:"SENDING"}}));setText("");setHint(null);setBeforeDraft(null);}} ref={formRef} className="rounded-[14px] border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-      <input type="hidden" name="conversationId" value={conversationId}/>{mentions.length?<input type="hidden" name="mentions" value={JSON.stringify(mentions)}/>:null}<input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
+      <input type="hidden" name="conversationId" value={conversationId}/>{mentions.length?<input type="hidden" name="mentions" value={JSON.stringify(mentions)}/>:null}{replyTo&&channelType==="ZALO"?<input type="hidden" name="quoteMessageId" value={replyTo.messageId}/>:null}<input suppressHydrationWarning type="hidden" name="idempotencyKey" value={idempotencyKey}/>
       <label htmlFor={`composer-${conversationId}`} className="sr-only">Nội dung tin nhắn</label>
       <textarea id={`composer-${conversationId}`} ref={textareaRef} name="text" required value={text} onFocus={ensureRequestId} onChange={event=>{updateText(event.target.value);setCaret(event.target.selectionStart??event.target.value.length);setMentionIndex(0);setMentionDismissed(null);if(hint&&!drafting)setHint(null);setActiveIndex(0);}}
         onSelect={event=>setCaret(event.currentTarget.selectionStart??0)}
@@ -132,6 +154,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
             if((event.key==="Enter"&&!event.shiftKey)||event.key==="Tab"){event.preventDefault();pickTemplate(matches[Math.min(activeIndex,matches.length-1)]);return;}
           }
           if(showQuick&&event.key==="Escape"){event.preventDefault();closeQuick();return;}
+          if(replyTo&&event.key==="Escape"){event.preventDefault();onCancelReply?.();return;}
           if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();if(text.trim()&&slashQuery===null&&!pending&&!drafting&&responseWindowOpen&&idempotencyKey)formRef.current?.requestSubmit();}
         }}
         placeholder="Nhập tin nhắn… (Enter gửi · Shift+Enter xuống dòng · / mẫu trả lời)" rows={3} disabled={drafting} className="block max-h-48 min-h-[72px] w-full resize-none rounded-t-[14px] bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:text-slate-400"/>

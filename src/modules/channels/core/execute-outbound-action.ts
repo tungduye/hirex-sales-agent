@@ -23,6 +23,8 @@ export interface OutboundActionRecord {
   threadKind?: "GROUP";
   /** Zalo group: "@Name" tags as Zalo mentions (see SendMessageCommand.mentions). */
   mentions?: Array<{ pos: number; len: number; uid: string }>;
+  /** Zalo: the earlier message this reply quotes (see SendMessageCommand.quoteMessageId). */
+  quoteMessageId?: string;
 }
 
 export interface ClaimedOutboundAction extends OutboundActionRecord {
@@ -96,7 +98,8 @@ export async function executeOutboundAction(actionId: string, dependencies: Outb
     providerConversationId: claimed.providerConversationId, recipientExternalId: claimed.recipientExternalId,
     text: claimed.textContent, attachments, idempotencyKey: claimed.idempotencyKey,
     policyDecisionId: claimed.policyDecisionId, source: claimed.dispatchSource,
-    ...(claimed.threadKind === "GROUP" ? { threadKind: "GROUP" as const, ...(claimed.mentions?.length ? { mentions: claimed.mentions } : {}) } : {}) };
+    ...(claimed.threadKind === "GROUP" ? { threadKind: "GROUP" as const, ...(claimed.mentions?.length ? { mentions: claimed.mentions } : {}) } : {}),
+    ...(claimed.quoteMessageId ? { quoteMessageId: claimed.quoteMessageId } : {}) };
   if (!isSendMessageCommand(command)) {
     try {
       const finalized = await dependencies.finalizeFailed({ actionId, workspaceId: action.workspaceId, executionLockId, safeErrorCode: "DELIVERY_REJECTED" });

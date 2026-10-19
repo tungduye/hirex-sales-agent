@@ -102,6 +102,8 @@ export interface OmnichannelInboxMessage {
   reconciliationStatus?: "NONE" | "NEEDS_REVIEW" | "ACKNOWLEDGED_NO_RETRY";
   /** Zalo reactions this nick sees on the message. */
   reactions?: MessageReaction[];
+  /** Zalo reply: the earlier message it quoted. */
+  quote?: { text: string; sender: string | null; messageId: string | null };
 }
 
 export interface OmnichannelConversationDetail {

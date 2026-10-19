@@ -204,6 +204,20 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
       if (mentionError) return { status: "error", message: "Chưa gắn được tag cho tin này nên tin chưa được gửi. Hãy thử lại." };
     }
   }
+  // A Zalo reply may quote one earlier message of this same conversation (received, or sent from HireX).
+  const rawQuote = formData.get("quoteMessageId");
+  if (typeof rawQuote === "string" && rawQuote.length > 0) {
+    if (!/^[1-9][0-9]{0,39}$/u.test(rawQuote)) return { status: "error", message: "Không đọc được tin đang trả lời. Hãy chọn lại tin cần trả lời." };
+    const privileged = createPrivilegedClient();
+    const [received, sent] = await Promise.all([
+      privileged.from("omnichannel_messages").select("id").eq("workspace_id", account.workspaceId).eq("conversation_id", parsed.data.conversationId).eq("provider_message_id", rawQuote).limit(1),
+      privileged.from("channel_outbound_actions").select("id").eq("workspace_id", account.workspaceId).eq("conversation_id", parsed.data.conversationId).eq("provider_message_id", rawQuote).eq("status", "SENT").limit(1),
+    ]);
+    if (!(received.data?.length || sent.data?.length)) return { status: "error", message: "Không tìm thấy tin đang trả lời trong hội thoại này." };
+    const { error: quoteError } = await privileged.from("channel_outbound_actions").update({ quote_message_id: rawQuote })
+      .eq("id", actionId).eq("workspace_id", account.workspaceId).eq("status", "PROPOSED").eq("channel_type", "ZALO");
+    if (quoteError) return { status: "error", message: "Chưa gắn được tin trả lời nên tin chưa được gửi. Hãy thử lại." };
+  }
   const { data: approved, error: approvalError } = await supabase.rpc("approve_channel_outbound_action", { p_action_id: actionId });
   if (approvalError || approved !== true) return { status: "error", message: "The message failed its final policy check and was not sent." };
   const { data: action, error: actionError } = await supabase.from("channel_outbound_actions")

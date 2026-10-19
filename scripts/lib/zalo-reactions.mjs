@@ -46,3 +46,26 @@ export function planReactionChanges(rows, ownerZaloId, previous) {
   const removed = Object.keys(previous).filter((id) => !(id in next));
   return { upserts, removed, next };
 }
+
+// Reply-quotes: Deplao stores, on a reply, which message it quoted:
+// {"msg":"text","fromD":"sender name","msgType":"webchat","msgId":"...","cliMsgId":"...","ownerId":"...","imageUrl":...}
+const QUOTE_KIND_TEXT = { "chat.photo": "[Hình ảnh]", photo: "[Hình ảnh]", image: "[Hình ảnh]", "share.file": "[Tệp]", file: "[Tệp]",
+  "chat.sticker": "[Sticker]", "chat.video.msg": "[Video]", "share.link": "[Liên kết]", "chat.voice": "[Tin nhắn thoại]" };
+
+export function mapQuote(row) {
+  let quote;
+  try { quote = JSON.parse(row.quote_data); } catch { return null; }
+  if (!quote || typeof quote !== "object" || !/^[0-9]{1,40}$/u.test(String(row.msgId ?? ""))) return null;
+  const raw = typeof quote.msg === "string" ? quote.msg.replace(/\s+/gu, " ").trim() : "";
+  const text = (raw || QUOTE_KIND_TEXT[quote.msgType] || "[Tin nhắn]").slice(0, 500);
+  const sender = typeof quote.fromD === "string" && quote.fromD.trim() ? quote.fromD.trim().slice(0, 255) : null;
+  const quoted = /^[0-9]{1,40}$/u.test(String(quote.msgId ?? "")) ? String(quote.msgId) : null;
+  return { msgId: String(row.msgId), quotedMessageId: quoted, quotedText: text, quotedSender: sender };
+}
+
+/** Replies with a quote, after Deplao row id afterId, oldest first. */
+export function selectQuotedMessages(database, ownerZaloId, afterId, limit = 2000) {
+  return database.prepare(`select id, msg_id msgId, quote_data from messages
+    where owner_zalo_id = ? and channel = 'zalo' and id > ? and quote_data is not null and quote_data not in ('', 'null')
+    order by id limit ?`).all(ownerZaloId, afterId, limit);
+}

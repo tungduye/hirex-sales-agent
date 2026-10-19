@@ -108,6 +108,8 @@ export interface SendMessageCommand {
   threadKind?: "GROUP";
   /** Zalo group only: "@Name" tags sent as Zalo mentions ({pos, len, uid}; uid "-1" = @All). */
   mentions?: Array<{ pos: number; len: number; uid: string }>;
+  /** Zalo only, a person's reply: the Zalo msg id of the earlier message this reply quotes. */
+  quoteMessageId?: string;
 }
 
 export interface ChannelSendResult {
@@ -182,6 +184,8 @@ export function isSendMessageCommand(value: unknown): value is SendMessageComman
       command.mentions.length > 0 && command.mentions.length <= 50 && command.mentions.every((mention) => Boolean(mention) &&
         Number.isSafeInteger(mention.pos) && Number.isSafeInteger(mention.len) && mention.pos >= 0 && mention.len >= 2 &&
         mention.pos + mention.len <= (command.text?.length ?? 0) && typeof mention.uid === "string" && /^(-1|[0-9]{1,40})$/.test(mention.uid)))) &&
+    (command.quoteMessageId === undefined || (command.channelType === "ZALO" && command.source === "HUMAN_MANUAL" &&
+      typeof command.quoteMessageId === "string" && /^[1-9][0-9]{0,39}$/u.test(command.quoteMessageId))) &&
     (command.text === null ||
       (typeof command.text === "string" &&
         command.text.trim().length > 0 &&

@@ -8,6 +8,7 @@ import type { ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow } from "./inbox-live-events";
 import { appendPage, rowIndexFor } from "../core/group-merge";
+import { DRAFT_EVENT, draftStore, listDrafts } from "@/modules/channels/core/composer-drafts";
 
 interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null }
 
@@ -27,6 +28,14 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   const setViewMode = (mode: ViewMode) => { setViewModeState(mode); try { window.localStorage.setItem(VIEW_KEY, mode); } catch { /* storage unavailable */ } };
   // Waiting times stay current without reloading.
   const [now, setNow] = useState(() => Date.now());
+  // Unsent drafts kept in this browser: the row shows "Nháp: ..." like Zalo.
+  const [drafts, setDrafts] = useState<Map<string, string>>(() => new Map());
+  useEffect(() => {
+    const refresh = () => setDrafts(listDrafts(draftStore(), Date.now()));
+    const first = window.setTimeout(refresh, 0);
+    window.addEventListener(DRAFT_EVENT, refresh); window.addEventListener("storage", refresh);
+    return () => { window.clearTimeout(first); window.removeEventListener(DRAFT_EVENT, refresh); window.removeEventListener("storage", refresh); };
+  }, []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer); }, []);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const filterKey = JSON.stringify(props.filters);
@@ -129,7 +138,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex flex-wrap gap-0.5">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}<span className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{hasNextPage ? "+" : ""}</span></button>)}</div>
       {props.channelChips}
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : needle || conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : needle || conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
 }
@@ -156,7 +165,7 @@ const CHANNEL_BADGE: Record<string, { short: string; className: string }> = {
   FACEBOOK_PROFILE: { short: "f", className: "bg-indigo-600" }, EMAIL: { short: "@", className: "bg-slate-600" },
 };
 
-function ConversationRow({ conversation, selected, tags, filters, now }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number }) {
+function ConversationRow({ conversation, selected, tags, filters, now, draft = null }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
   const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
@@ -166,7 +175,7 @@ function ConversationRow({ conversation, selected, tags, filters, now }: { conve
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold transition group-hover:opacity-0 ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500 transition group-hover:opacity-0">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
-      <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
+      <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{draft && !selected ? <><span className="font-semibold text-rose-600">Nháp: </span>{draft}</> : <>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</>}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
       {conversationTags.length ? <div className="mt-1 flex gap-1 overflow-hidden">{conversationTags.slice(0, 3).map((tag) => <span key={tag.id} className="max-w-24 truncate rounded-full border px-1.5 py-0.5 text-[9px]" style={{ borderColor: tag.color ?? "#94a3b8" }}>{tag.name}</span>)}</div> : null}
     </div></div></Link><ConversationMenu conversation={conversation}/></div>;
 }

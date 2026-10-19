@@ -270,6 +270,12 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
         .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", ids.slice(0, 500));
       const byId = new Map<string, MessageReaction[]>((reactionRows ?? []).map((reaction): [string, MessageReaction[]] => [String(reaction.provider_message_id), toMessageReactions(reaction.summary, reaction.mine)]));
       for (const message of messages) { const reactions = byId.get(message.providerMessageId); if (reactions?.length) message.reactions = reactions; }
+      // Which earlier message each reply quoted (shown above the reply, like Zalo).
+      const { data: quoteRows } = await accountClient.from("zalo_message_quotes").select("provider_message_id,quoted_message_id,quoted_text,quoted_sender")
+        .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", ids.slice(0, 500));
+      const quoteById = new Map<string, NonNullable<OmnichannelInboxMessage["quote"]>>((quoteRows ?? []).map((quote): [string, NonNullable<OmnichannelInboxMessage["quote"]>] => [String(quote.provider_message_id),
+        { text: String(quote.quoted_text ?? ""), sender: text(quote.quoted_sender), messageId: text(quote.quoted_message_id) }]));
+      for (const message of messages) { const quote = quoteById.get(message.providerMessageId); if (quote?.text) message.quote = quote; }
     }
   }
   // A nick locked by an unsettled send cannot send; the composer says so (see reconcile-zalo-send-locks.mjs).

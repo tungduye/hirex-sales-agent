@@ -1,5 +1,6 @@
-// Copies reactions (❤️ 👍 ...) on Zalo messages from Deplao into HireX (table zalo_message_reactions), per nick,
-// so the inbox shows them. Read-only on Deplao; only changed messages are written (hashes kept in runtime/).
+// Copies reactions (❤️ 👍 ...) and reply-quotes of Zalo messages from Deplao into HireX (tables zalo_message_reactions,
+// zalo_message_quotes), per nick, so the inbox shows them. Read-only on Deplao; only changes are written
+// (reaction hashes and a quote cursor per nick kept in runtime/).
 // Run by the Deplao supervisor; by hand: node scripts/sync-zalo-reactions.mjs --once [--dry-run]
 import { DatabaseSync } from "node:sqlite";
 import { createRequire } from "node:module";
@@ -8,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { acquireRecentLock, saveRecentState } from "./lib/zalo-recent-reconciliation.mjs";
-import { planReactionChanges, selectReactedMessages } from "./lib/zalo-reactions.mjs";
+import { mapQuote, planReactionChanges, selectQuotedMessages, selectReactedMessages } from "./lib/zalo-reactions.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 createRequire(import.meta.url)("@next/env").loadEnvConfig(projectRoot);
@@ -19,12 +20,13 @@ const statePath = path.join(projectRoot, "runtime", "zalo-reaction-hashes.json")
 const args = process.argv.slice(2);
 if (args.some((arg) => !["--once", "--dry-run"].includes(arg))) throw new Error("REACTION_ARGUMENT_INVALID");
 const dryRun = args.includes("--dry-run");
-const BATCH = 500;
+const BATCH = 500, MAX_QUOTES_PER_RUN = 20000;
 
 function loadState() {
-  if (!existsSync(statePath)) return { version: 1, accounts: {} };
+  if (!existsSync(statePath)) return { version: 1, accounts: {}, quoteCursors: {} };
   const state = JSON.parse(readFileSync(statePath, "utf8"));
   if (state?.version !== 1 || !state.accounts || typeof state.accounts !== "object") throw new Error("REACTION_STATE_INVALID");
+  state.quoteCursors ??= {};
   return state;
 }
 
@@ -44,7 +46,7 @@ async function main() {
     database = new DatabaseSync(databasePath, { readOnly: true });
     database.exec("pragma busy_timeout=5000");
     const state = loadState();
-    let written = 0, cleared = 0;
+    let written = 0, cleared = 0, quotes = 0;
     for (const account of accounts.data ?? []) {
       const owner = account.external_account_id;
       if (!/^[0-9]{1,40}$/u.test(owner ?? "")) continue;
@@ -65,8 +67,26 @@ async function main() {
         saveRecentState(statePath, state);
       }
       written += plan.upserts.length; cleared += plan.removed.length;
+      // Reply-quotes never change once written: read on from the last Deplao row id.
+      let after = Number(state.quoteCursors[key] ?? 0);
+      for (;;) {
+        if (quotes >= MAX_QUOTES_PER_RUN) break;
+        const rows = selectQuotedMessages(database, owner, after);
+        if (rows.length === 0) break;
+        const mapped = rows.map(mapQuote).filter(Boolean).map((item) => ({ workspace_id: account.workspace_id, channel_account_id: account.id,
+          provider_message_id: item.msgId, quoted_message_id: item.quotedMessageId, quoted_text: item.quotedText, quoted_sender: item.quotedSender,
+          updated_at: new Date().toISOString() }));
+        if (!dryRun) for (let index = 0; index < mapped.length; index += BATCH) {
+          const { error } = await client.from("zalo_message_quotes").upsert(mapped.slice(index, index + BATCH), { onConflict: "channel_account_id,provider_message_id" });
+          if (error) throw new Error("QUOTE_UPSERT_FAILED");
+        }
+        quotes += mapped.length;
+        after = Number(rows.at(-1).id);
+        if (!dryRun) { state.quoteCursors[key] = after; saveRecentState(statePath, state); }
+        if (rows.length < 2000) break;
+      }
     }
-    console.log(JSON.stringify({ status: dryRun ? "dry-run" : "complete", written, cleared }));
+    console.log(JSON.stringify({ status: dryRun ? "dry-run" : "complete", written, cleared, quotes }));
   } finally {
     database?.close();
     release();
