@@ -237,7 +237,9 @@
     ".next-luong-rec-2/types/**/*.ts",
     ".next-luong-rec-2/dev/types/**/*.ts",
     ".next-hole-rec/types/**/*.ts",
-    ".next-hole-rec/dev/types/**/*.ts"
+    ".next-hole-rec/dev/types/**/*.ts",
+    ".next-hole-rec-2/types/**/*.ts",
+    ".next-hole-rec-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
