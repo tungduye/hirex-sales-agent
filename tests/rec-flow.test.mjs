@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyHolaResult, jobOverview, offerMissing, readyForOffer, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, careTaskTitle, holaInstructions, holeInstructions, jobsForPrompt, OUTCOME_TAGS, REC_OUTCOMES, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
+import { applyHolaResult, draftKept, jobOverview, offerMissing, readyForOffer, EMPTY_FLOW, flowSummary, HOLA_RESULT_SCHEMA, careTaskTitle, holaInstructions, holeInstructions, jobsForPrompt, OUTCOME_TAGS, REC_OUTCOMES, mergeFacts, normalizeFlow, splitParts } from '../src/modules/rec-flow/core/rec-flow.ts';
 
 const J1 = '11111111-1111-4111-8111-111111111111', J2 = '22222222-2222-4222-8222-222222222222', J3 = '33333333-3333-4333-8333-333333333333';
 const job = (id, code, location, track, extra = {}) => ({ id, code, title: `${track} job`, careerTrack: track, companyName: `Cty ${code}`, companyNamePublic: true, location,
@@ -90,4 +90,12 @@ test('the overview groups jobs by track and area without company names', () => {
   assert.equal(overview.length, 2);
   assert.equal(overview[0].soJob, 2);
   assert.ok(!JSON.stringify(overview).includes('Cty'));
+});
+
+test('the flow is saved only when the sent text is still the AI draft', () => {
+  const draft = 'Dạ, hướng PM và BrSE đều có job phù hợp ở HCM ạ.\n---\nTiếng Nhật hiện tại của anh khoảng N mấy rồi ạ?';
+  assert.equal(draftKept(draft, draft), true);
+  assert.equal(draftKept(draft, 'Dạ hướng PM và BrSE bên em đều có job ở HCM. Tiếng Nhật của anh khoảng N mấy rồi ạ?'), true);
+  assert.equal(draftKept(draft, 'Ok anh, em gửi anh link nhóm nhé'), false);
+  assert.equal(draftKept('', 'abc'), false);
 });

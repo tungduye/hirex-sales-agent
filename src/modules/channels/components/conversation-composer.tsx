@@ -17,7 +17,7 @@ import { isFacebookResponseWindowOpen } from "../core/facebook-response-window";
 import { INBOX_OPTIMISTIC_EVENT } from "@/modules/inbox/components/inbox-live-events";
 import { RecFlowBar, REC_FLOW_EVENT } from "@/modules/rec-flow/components/rec-flow-bar";
 import { saveRecFlow } from "@/modules/rec-flow/server/rec-flow-actions";
-import { splitParts, type RecFlowState } from "@/modules/rec-flow/core/rec-flow";
+import { draftKept, splitParts, type RecFlowState } from "@/modules/rec-flow/core/rec-flow";
 
 const initial:ChannelActionState={status:"idle",message:null};
 function createRequestId(){
@@ -86,10 +86,12 @@ export function ConversationComposer({conversationId,channelType,conversationSta
   const pendingFiles=files.filter(item=>item.status==="ready"||item.status==="failed");
   // Rec flow: Hola's proposed next state (step, what the candidate said) is saved once its draft is sent.
   const recFlowChat=!isGroup&&(channelType==="ZALO"||channelType==="FACEBOOK"||channelType==="FACEBOOK_PROFILE");
-  const pendingFlowRef=useRef<RecFlowState|null>(null);
-  async function commitFlow(){
-    const flow=pendingFlowRef.current;pendingFlowRef.current=null;
-    if(!flow||!recFlowChat)return;
+  // Saved only when what is sent is still mostly the AI draft, not a message the member wrote instead.
+  const pendingFlowRef=useRef<{flow:RecFlowState;draft:string}|null>(null);
+  async function commitFlow(sent:string){
+    const pending=pendingFlowRef.current;pendingFlowRef.current=null;
+    if(!pending||!recFlowChat||!draftKept(pending.draft,sent))return;
+    const flow=pending.flow;
     const saved=await saveRecFlow({conversationId,flow}).catch(()=>null);
     if(saved)window.dispatchEvent(new CustomEvent(REC_FLOW_EVENT,{detail:{conversationId,state:saved}}));
   }
@@ -103,7 +105,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
       return()=>window.clearTimeout(restore);
     }
     if(state.status!=="success")return;
-    void commitFlow();
+    void commitFlow(submittedTextRef.current??"");
     const reset=window.setTimeout(()=>{submittedTextRef.current=null;setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));onCancelReply?.();},0);
     return()=>window.clearTimeout(reset);
   },[state,idempotencyKey,conversationId,onCancelReply]);
@@ -142,8 +144,8 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     setQuickOpen(false);setDrafter(which);setHint(which==="hola"?"Hola đang soạn…":"Hole đang đọc hồ sơ khách và soạn… (khoảng 10–20 giây)");
     startDrafting(async()=>{
       let draft:string|null=null,message:string|null=null;
-      if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow??null;}
-      else{const result:HoleDraftResult=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow??null;}
+      if(which==="hola"){const formData=new FormData();formData.set("conversationId",conversationId);formData.set("instruction",typed.slice(0,1000));const result=await generateOmnichannelDraft({status:"idle",message:null,draftText:null},formData);draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow&&draft?{flow:result.flow,draft}:null;}
+      else{const result:HoleDraftResult=await generateHoleDraft({conversationId,instruction:typed.slice(0,1000)}).catch(()=>({draftText:null,message:"Hole chưa kết nối được, thử lại sau."}));draft=result.draftText;message=result.message;pendingFlowRef.current=result.flow&&draft?{flow:result.flow,draft}:null;}
       setDrafter(null);
       if(draft){setBeforeDraft(text);updateText(draft);setHint(`${name} đã soạn nháp${splitParts(draft).length>1?", mỗi đoạn ngăn bởi dòng --- là một tin riêng":""}; sửa lại rồi bấm Gửi.`);window.requestAnimationFrame(()=>textareaRef.current?.focus());}
       else setHint(message??`${name} chưa soạn được, anh/chị thử lại sau.`);
@@ -209,7 +211,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
             setHint(result.message??"Chưa gửi được tin nhắn.");return;
           }
         }
-        void commitFlow();
+        void commitFlow(text);
         setText("");setPicks([]);setIdempotencyKey(createRequestId());writeDraft(draftStore(),conversationId,"",[],Date.now());window.dispatchEvent(new Event(DRAFT_EVENT));
         if(pendingFiles.length)await wait(1200);
       }

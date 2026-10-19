@@ -234,3 +234,15 @@ export function applyHolaResult(raw: unknown, state: RecFlowState, jobs: Array<{
 export function splitParts(text: string): string[] {
   return text.replace(/\r\n?/gu, "\n").split(/\n[ \t]*-{3,}[ \t]*\n/u).map((part) => part.trim()).filter(Boolean).slice(0, 5);
 }
+
+/**
+ * Whether what the member sent is still the AI draft (edited or not) rather than a message of their own.
+ * The flow state proposed with a draft is saved only then.
+ */
+export function draftKept(draft: string, sent: string) {
+  const words = (text: string) => fold(text).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/u).filter((word) => word.length > 1);
+  const drafted = new Set(words(draft)), kept = new Set(words(sent));
+  if (!drafted.size || !kept.size) return false;
+  let shared = 0; for (const word of drafted) if (kept.has(word)) shared += 1;
+  return shared / drafted.size >= 0.5;
+}
