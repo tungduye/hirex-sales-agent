@@ -12,6 +12,8 @@ const LANGUAGE_TAGS: Record<string, string> = { VI: "[VI]", EN: "[EN]", JA: "[JP
 export function languageParts(language: ContentLanguage): string[] {
   return language.split("_");
 }
+const languageName = (part: string, names?: Record<string, string>) => LANGUAGE_NAMES[part] ?? names?.[part]?.toLocaleLowerCase("vi") ?? part;
+const languageTag = (part: string) => LANGUAGE_TAGS[part] ?? `[${part}]`;
 
 interface DepartmentRule { reader: string; goal: string; voice: string; cta: string }
 
@@ -53,6 +55,8 @@ export const DEPARTMENT_RULES: Record<ContentDepartment, DepartmentRule> = {
     cta: "hành động cụ thể người đọc cần làm (xác nhận, đăng ký, liên hệ…) nếu có trong brief",
   },
 };
+
+const BUILTIN_WORD_RANGES: Record<string, [number, number]> = { EMAIL: [120, 200], POST_LONG: [180, 300], POST_MEDIUM: [80, 120], POST_SHORT: [25, 50], COMMENT: [10, 30] };
 
 const FORMAT_RULES: Record<ContentFormat, string> = {
   EMAIL: "MAIL. title là tiêu đề thư (subject) ≤ 70 ký tự, cụ thể, không giật tít. body là thư 120–200 chữ mỗi ngôn ngữ (tiếng Nhật 250–400 ký tự): lời chào, 2–4 đoạn ngắn nội dung chính, lời kêu gọi hành động rõ ràng, ký tên dạng [Tên người gửi].",
@@ -104,8 +108,9 @@ export const generatedBatchJsonSchema = {
 
 const TOKENS_PER_ITEM: Record<ContentFormat, number> = { EMAIL: 900, POST_LONG: 1000, POST_MEDIUM: 500, POST_SHORT: 300, COMMENT: 200 };
 
-export function maxOutputTokens(format: ContentFormat, language: ContentLanguage, count: number) {
-  return Math.min(24_000, 400 + TOKENS_PER_ITEM[format] * languageParts(language).length * count);
+export function maxOutputTokens(format: ContentFormat, language: ContentLanguage, count: number, wordMax?: number | null) {
+  const perItem = (TOKENS_PER_ITEM[format] as number | undefined) ?? Math.max(300, (wordMax ?? 200) * 4);
+  return Math.min(24_000, 400 + perItem * languageParts(language).length * count);
 }
 
 function presetLabel(options: readonly { value: string; label: string }[], value: string) {
@@ -117,11 +122,41 @@ export function briefTitlePrefix(brief: ContentBrief) {
   return brief.contentFormat === "COMMENT" ? null : titlePrefixFor(brief.department, brief.location);
 }
 
-/** The brief plus the name of its "Phân loại" (resolved on the server). */
-export type ContentBriefWithCategory = ContentBrief & { categoryName?: string | null };
+/** The brief plus what "Cài đặt Kho content" says about its choices (resolved on the server). */
+export type ContentBriefWithCategory = ContentBrief & {
+  categoryName?: string | null; categoryGuide?: string | null;
+  departmentLabel?: string | null; departmentGuide?: string | null;
+  formatLabel?: string | null; formatGuide?: string | null;
+  /** Words per language from the settings (overrides the built-in range when it differs). */
+  wordRange?: [number, number] | null;
+  languageNames?: Record<string, string>;
+  styleLabel?: string | null;
+};
 
 function categoryRule(brief: ContentBriefWithCategory) {
-  return brief.categoryName ? `PHÂN LOẠI BÀI: "${brief.categoryName}" — viết đúng dạng bài này (ví dụ "Dạng share": bài để người khác chia sẻ lại, tự nhiên, không quá bán hàng; "Giới thiệu": giới thiệu dịch vụ / ứng viên / công ty).` : "";
+  if (!brief.categoryName) return "";
+  return `PHÂN LOẠI BÀI: "${brief.categoryName}" — viết đúng dạng bài này${brief.categoryGuide ? `: ${brief.categoryGuide}` : ' (ví dụ "Dạng share": bài để người khác chia sẻ lại, tự nhiên, không quá bán hàng; "Giới thiệu": giới thiệu dịch vụ / ứng viên / công ty)'}.`;
+}
+
+/** Built-in rules of the department, or ones made from its settings (a department added in Cài đặt). */
+function departmentRule(brief: ContentBriefWithCategory): DepartmentRule {
+  const builtIn = DEPARTMENT_RULES[brief.department] as DepartmentRule | undefined;
+  if (builtIn) return builtIn;
+  const name = brief.departmentLabel ?? brief.department;
+  return { reader: `người đọc mục tiêu của bộ phận ${name}`, goal: `content cho bộ phận ${name}`, voice: "tự nhiên, rõ ràng, như người thật của công ty viết", cta: "hành động phù hợp với nội dung (nhắn tin, đăng ký, gửi thông tin…)" };
+}
+function departmentNote(brief: ContentBriefWithCategory) {
+  return brief.departmentGuide ? `GHI CHÚ BỘ PHẬN ${brief.departmentLabel ?? brief.department}: ${brief.departmentGuide}` : "";
+}
+
+/** Built-in format rule, or one made from its settings; a changed word range is stated last so it wins. */
+export function formatRule(brief: ContentBriefWithCategory) {
+  const builtIn = FORMAT_RULES[brief.contentFormat] as string | undefined;
+  const [min, max] = brief.wordRange ?? [null, null];
+  const base = builtIn ?? `${(brief.formatLabel ?? brief.contentFormat).toLocaleUpperCase("vi")}. title là dòng tiêu đề; body ${min ?? 80}–${max ?? 200} chữ mỗi ngôn ngữ.`;
+  const defaults = BUILTIN_WORD_RANGES[brief.contentFormat];
+  const override = builtIn && min && max && (!defaults || defaults[0] !== min || defaults[1] !== max) ? ` ĐỘ DÀI BẮT BUỘC: body ${min}–${max} chữ mỗi ngôn ngữ (thay cho số ở trên).` : "";
+  return `${base}${override}${brief.formatGuide ? ` ${brief.formatGuide}` : ""}`;
 }
 
 export interface ContentRoundInput {
@@ -138,10 +173,10 @@ export interface ContentRoundInput {
 export function buildContentRequest({ brief, count, round, avoid, templates = [] }: ContentRoundInput) {
   const parts = languageParts(brief.contentLanguage);
   const languageRule = parts.length === 1
-    ? `Viết toàn bộ bằng ${LANGUAGE_NAMES[parts[0]]}.`
-    : `Song ngữ: body ghi ${LANGUAGE_TAGS[parts[0]]} rồi bản ${LANGUAGE_NAMES[parts[0]]}, sau đó một dòng "---", rồi ${LANGUAGE_TAGS[parts[1]]} và bản ${LANGUAGE_NAMES[parts[1]]} cùng fact. Mỗi bản viết tự nhiên theo ngôn ngữ đó, không dịch máy từng câu; CTA bản Anh/Nhật dùng cách nói tự nhiên, không dịch "IB em". title viết bằng ${LANGUAGE_NAMES[parts[0]]}.`;
-  const department = DEPARTMENT_RULES[brief.department];
-  const style = presetLabel(CONTENT_STYLES, brief.style);
+    ? `Viết toàn bộ bằng ${languageName(parts[0], brief.languageNames)}.`
+    : `Song ngữ: body ghi ${languageTag(parts[0])} rồi bản ${languageName(parts[0], brief.languageNames)}, sau đó một dòng "---", rồi ${languageTag(parts[1])} và bản ${languageName(parts[1], brief.languageNames)} cùng fact. Mỗi bản viết tự nhiên theo ngôn ngữ đó, không dịch máy từng câu; CTA bản Anh/Nhật dùng cách nói tự nhiên, không dịch "IB em". title viết bằng ${languageName(parts[0], brief.languageNames)}.`;
+  const department = departmentRule(brief);
+  const style = brief.styleLabel ?? presetLabel(CONTENT_STYLES, brief.style);
   const prefix = briefTitlePrefix(brief);
   const angleOffset = round * count;
 
@@ -155,7 +190,8 @@ export function buildContentRequest({ brief, count, round, avoid, templates = []
     `Bạn là Senior Content Writer của HireX (tuyển dụng IT, thị trường Nhật). Viết ${department.goal}.`,
     `Người đọc: ${department.reader}. Giọng: ${department.voice}. Phong cách chọn: ${style}.${brief.styleNote ? " Ghi chú phong cách trong input.styleNote." : ""}`,
     `Tạo đúng ${count} content khác nhau, trả JSON {"items":[{"title","body"}]} đúng schema, theo thứ tự kế hoạch: ${plan.join(" | ")}.`,
-    FORMAT_RULES[brief.contentFormat],
+    formatRule(brief),
+    departmentNote(brief),
     categoryRule(brief),
     languageRule,
     prefix
@@ -183,7 +219,7 @@ export function buildContentRequest({ brief, count, round, avoid, templates = []
     instructions,
     input,
     titlePrefix: prefix,
-    maxOutputTokens: maxOutputTokens(brief.contentFormat, brief.contentLanguage, count),
+    maxOutputTokens: maxOutputTokens(brief.contentFormat, brief.contentLanguage, count, brief.wordRange?.[1]),
     schema: generatedBatchJsonSchema,
   };
 }
@@ -224,21 +260,22 @@ function describeProfile(template: TemplateSample, language: ContentLanguage) {
  */
 export function buildTemplateItemRequest({ brief, template, round, avoid }: { brief: ContentBriefWithCategory; template: TemplateSample; round: number; avoid: string[] }) {
   const parts = languageParts(brief.contentLanguage);
-  const department = DEPARTMENT_RULES[brief.department];
+  const department = departmentRule(brief);
   const prefix = briefTitlePrefix(brief);
   const sameLanguage = template.language === brief.contentLanguage;
   const languageRule = parts.length === 1
-    ? `Viết bằng ${LANGUAGE_NAMES[parts[0]]}${sameLanguage ? "" : " (mẫu viết bằng ngôn ngữ khác: giữ bố cục và giọng, diễn đạt tự nhiên bằng ngôn ngữ đích)"}.`
-    : `Song ngữ: body ghi ${LANGUAGE_TAGS[parts[0]]} rồi bản ${LANGUAGE_NAMES[parts[0]]} theo sát bố cục mẫu, sau đó một dòng "---", rồi ${LANGUAGE_TAGS[parts[1]]} và bản ${LANGUAGE_NAMES[parts[1]]} cùng fact, cùng bố cục, viết tự nhiên (không dịch máy, không dịch "IB em"). title bằng ${LANGUAGE_NAMES[parts[0]]}.`;
-  const formatRule = brief.contentFormat === "POST_LONG" && (!template.format || template.format === "POST_LONG")
+    ? `Viết bằng ${languageName(parts[0], brief.languageNames)}${sameLanguage ? "" : " (mẫu viết bằng ngôn ngữ khác: giữ bố cục và giọng, diễn đạt tự nhiên bằng ngôn ngữ đích)"}.`
+    : `Song ngữ: body ghi ${languageTag(parts[0])} rồi bản ${languageName(parts[0], brief.languageNames)} theo sát bố cục mẫu, sau đó một dòng "---", rồi ${languageTag(parts[1])} và bản ${languageName(parts[1], brief.languageNames)} cùng fact, cùng bố cục, viết tự nhiên (không dịch máy, không dịch "IB em"). title bằng ${languageName(parts[0], brief.languageNames)}.`;
+  const shapeRule = brief.contentFormat === "POST_LONG" && (!template.format || template.format === "POST_LONG")
     ? `HÌNH THỨC THEO MẪU: ${describeProfile(template, brief.contentLanguage)}.`
-    : `${FORMAT_RULES[brief.contentFormat]} Giữ giọng văn, cách mở bài, kiểu CTA và nhịp câu của mẫu; độ dài theo định dạng này.`;
+    : `${formatRule(brief)} Giữ giọng văn, cách mở bài, kiểu CTA và nhịp câu của mẫu; độ dài theo định dạng này.`;
 
   const instructions = [
     `Bạn là copywriter của HireX (tuyển dụng IT, thị trường Nhật). Nhiệm vụ: VIẾT LẠI bài mẫu input.sample cho brief mới trong input.job, sao cho người đọc thấy đúng "chất" của bài mẫu: cùng người viết, cùng cách nói, nhưng là bài mới.`,
     `Người đọc: ${department.reader}. Mục tiêu: ${department.goal}.`,
     "GIỮ THEO MẪU: kiểu tiêu đề, câu mở bài (cùng dạng: hỏi, kể, nêu lương, nêu tình huống…), thứ tự ý, cách chia đoạn và gạch đầu dòng, nhịp câu, cách xưng hô (em / mình / anh em / sếp…), từ lóng nghề (gross, offer, process, IB, rank…), mức viết hoa, emoji và kiểu CTA.",
-    formatRule,
+    shapeRule,
+    departmentNote(brief),
     categoryRule(brief),
     languageRule,
     prefix ? `title bắt đầu CHÍNH XÁC bằng "${prefix}", phần sau theo kiểu tiêu đề của mẫu. Không đặt thêm [địa điểm] khác.` : "title theo kiểu tiêu đề của mẫu.",
@@ -264,7 +301,7 @@ export function buildTemplateItemRequest({ brief, template, round, avoid }: { br
     instructions,
     input,
     titlePrefix: prefix,
-    maxOutputTokens: maxOutputTokens(brief.contentFormat, brief.contentLanguage, 1) + Math.ceil(template.body.length / 2),
+    maxOutputTokens: maxOutputTokens(brief.contentFormat, brief.contentLanguage, 1, brief.wordRange?.[1]) + Math.ceil(template.body.length / 2),
     schema: generatedBatchJsonSchema,
   };
 }

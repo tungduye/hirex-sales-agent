@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createContentBatch } from "@/modules/content/server/content-actions";
 import { initialCreateContentState } from "@/modules/content/core/content-state";
-import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, CONTENT_STYLES, MAX_CONTENT_QUANTITY, MAX_TEMPLATES_PER_BATCH, OTHER_OPTION, languageLabel, type ContentDepartment } from "@/modules/content/core/content-options";
+import { MAX_CONTENT_QUANTITY, MAX_TEMPLATES_PER_BATCH, OTHER_OPTION, type ContentDepartment } from "@/modules/content/core/content-options";
+import { useContentLists } from "@/modules/content/components/content-settings-context";
 import type { ContentTemplate } from "@/modules/content/server/template-row";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
 
 const inputClass = "block w-full rounded-lg border bg-slate-50 px-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-60";
 
-const TOPIC_LABEL: Record<ContentDepartment, { title: string; placeholder: string }> = {
+const TOPIC_LABEL: Record<string, { title: string; placeholder: string }> = {
   REC: { title: "Tên job", placeholder: "VD: BrSE Senior (Java)" },
   HR: { title: "Vị trí tuyển nội bộ", placeholder: "VD: Thực tập sinh Recruiter" },
   SALE: { title: "Chủ đề / ứng viên / dịch vụ", placeholder: "VD: Share UV PM người Nhật 15 năm" },
@@ -24,8 +25,9 @@ const TOPIC_LABEL: Record<ContentDepartment, { title: string; placeholder: strin
 export function CreateContentDialog({ templates, categories, onClose, onCreated }: { templates: ContentTemplate[]; categories: ContentCategory[]; onClose: () => void; onCreated: (message: string) => void }) {
   const [state, formAction] = useActionState(createContentBatch, initialCreateContentState);
   const [pending, startTransition] = useTransition();
-  const [department, setDepartment] = useState<ContentDepartment>("REC");
-  const [style, setStyle] = useState<string>(CONTENT_STYLES[0].value);
+  const lists = useContentLists();
+  const [department, setDepartment] = useState<ContentDepartment>(lists.departments.some((item) => item.value === "REC") ? "REC" : lists.departments[0]?.value ?? "REC");
+  const [style, setStyle] = useState<string>(lists.styles[0]?.value ?? OTHER_OPTION);
   const [selected, setSelected] = useState<string[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const departmentCategories = categoriesOf(categories, department);
@@ -51,7 +53,7 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
   }
 
   const error = (name: string) => state.fieldErrors?.[name]?.[0];
-  const topic = TOPIC_LABEL[department];
+  const topic = TOPIC_LABEL[department] ?? { title: "Tên job / chủ đề", placeholder: `VD: nội dung cho ${lists.departmentLabel(department)}` };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="create-content-title">
@@ -65,7 +67,7 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
           <div className="space-y-2" role="radiogroup" aria-label="Bộ phận">
             <p className="text-sm font-semibold text-slate-700">Bộ phận<span className="ml-1 text-rose-500">*</span></p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {CONTENT_DEPARTMENTS.map((item) => (
+              {lists.departments.map((item) => (
                 <label key={item.value} className="cursor-pointer">
                   <input type="radio" name="department" value={item.value} checked={department === item.value} onChange={() => changeDepartment(item.value)} disabled={pending} className="peer sr-only" />
                   <span className="flex h-10 items-center justify-center rounded-lg border bg-white px-3 text-sm text-slate-700 transition-colors hover:bg-slate-50 peer-checked:border-blue-600 peer-checked:bg-blue-50 peer-checked:font-semibold peer-checked:text-blue-700 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-500">{item.label}</span>
@@ -113,7 +115,7 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Phong cách" required hint="Dùng khi không có mẫu; có mẫu thì giọng văn theo mẫu." error={error("style")}>
                 <select name="style" value={style} onChange={(event) => setStyle(event.target.value)} disabled={pending} className={cn(inputClass, "h-11")}>
-                  {CONTENT_STYLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  {lists.styles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   <option value={OTHER_OPTION}>Khác…</option>
                 </select>
                 {style === OTHER_OPTION && <input name="styleOther" required maxLength={100} disabled={pending} placeholder="Nhập phong cách" className={cn(inputClass, "mt-2 h-10")} />}
@@ -123,8 +125,8 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
           </Section>
 
           <Section title="Đầu ra">
-            <ChoiceGroup label="Ngôn ngữ content" name="contentLanguage" options={CONTENT_LANGUAGES} disabled={pending} error={error("contentLanguage")} />
-            <ChoiceGroup label="Định dạng content" name="contentFormat" options={CONTENT_FORMATS} defaultValue="POST_LONG" disabled={pending} error={error("contentFormat")} />
+            <ChoiceGroup label="Ngôn ngữ content" name="contentLanguage" options={lists.languages} disabled={pending} error={error("contentLanguage")} />
+            <ChoiceGroup label="Định dạng content" name="contentFormat" options={lists.formats.map((item) => ({ ...item, label: item.hint ? `${item.label} · ${item.hint}` : item.label }))} defaultValue="POST_LONG" disabled={pending} error={error("contentFormat")} />
             <Field label={`Số lượng (1–${MAX_CONTENT_QUANTITY})`} required error={error("quantity")}><input name="quantity" type="number" min={1} max={MAX_CONTENT_QUANTITY} defaultValue={3} required disabled={pending} className={cn(inputClass, "h-11 sm:w-40")} /></Field>
           </Section>
 
@@ -142,6 +144,7 @@ export function CreateContentDialog({ templates, categories, onClose, onCreated 
 
 function TemplatePicker({ templates, selected, onChange, disabled }: { templates: ContentTemplate[]; selected: string[]; onChange: (ids: string[]) => void; disabled: boolean }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const { languageLabel } = useContentLists();
   const full = selected.length >= MAX_TEMPLATES_PER_BATCH;
 
   function toggle(id: string) {

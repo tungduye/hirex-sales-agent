@@ -2,15 +2,16 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Copy, Eye, EyeOff, LoaderCircle, Pencil, Plus, Search, Tags, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, LoaderCircle, Plus, Search, Tags, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContentTabs } from "@/modules/content/components/content-tabs";
 import { copyText } from "@/modules/content/components/copy-text";
-import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, TEMPLATE_LANGUAGES, departmentLabel, formatLabel, languageLabel, type ContentDepartment } from "@/modules/content/core/content-options";
+import Link from "next/link";
+import type { ContentDepartment } from "@/modules/content/core/content-options";
+import { useContentLists } from "@/modules/content/components/content-settings-context";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
-import { addCategory, deleteCategory, renameCategory, setCategoryActive } from "@/modules/content/server/category-actions";
 import { initialTemplateFormState } from "@/modules/content/core/content-state";
 import { deleteTemplate, saveTemplate, setTemplateActive } from "@/modules/content/server/template-actions";
 import type { ContentTemplate } from "@/modules/content/server/template-row";
@@ -21,11 +22,11 @@ type Editing = { mode: "new" } | { mode: "edit"; template: ContentTemplate } | {
 
 export function TemplateLibraryView({ templates, categories, loadError, canManage }: { templates: ContentTemplate[]; categories: ContentCategory[]; loadError: string | null; canManage: boolean }) {
   const router = useRouter();
+  const { allDepartments, allFormats, allLanguages, departmentLabel, formatLabel, languageLabel } = useContentLists();
   const [department, setDepartmentState] = useState<ContentDepartment | "ALL">("ALL");
   const [format, setFormat] = useState<string>("ALL");
   const [category, setCategory] = useState<string>("ALL");
   const [language, setLanguage] = useState<string>("ALL");
-  const [managingCategories, setManagingCategories] = useState(false);
   const setDepartment = (value: ContentDepartment | "ALL") => { setDepartmentState(value); setCategory("ALL"); };
   const categoryName = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories]);
   const categoryChoices = department === "ALL" ? categories : categoriesOf(categories, department, { includeInactive: true });
@@ -34,7 +35,7 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const counts = useMemo(() => Object.fromEntries(CONTENT_DEPARTMENTS.map((item) => [item.value, templates.filter((template) => template.department === item.value && template.active).length])), [templates]);
+  const counts = useMemo(() => Object.fromEntries(allDepartments.map((item) => [item.value, templates.filter((template) => template.department === item.value && template.active).length])), [templates, allDepartments]);
   const visible = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("vi");
     return templates.filter((template) =>
@@ -52,7 +53,7 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
     router.refresh();
   }, [router]);
 
-  const addButton = canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setManagingCategories(true)}><Tags className="size-4" />Phân loại</Button><Button onClick={() => { setNotice(null); setEditing({ mode: "new" }); }}><Plus className="size-4" />Thêm mẫu</Button></div> : undefined;
+  const addButton = canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" asChild><Link href="/content/settings"><Tags className="size-4" />Bộ phận & Phân loại</Link></Button><Button onClick={() => { setNotice(null); setEditing({ mode: "new" }); }}><Plus className="size-4" />Thêm mẫu</Button></div> : undefined;
   const selectClass = "h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none";
 
   return (
@@ -66,7 +67,7 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
         <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4">
             <div className="flex flex-wrap gap-2" role="tablist" aria-label="Bộ phận">
-              {[{ value: "ALL" as const, label: "Tất cả" }, ...CONTENT_DEPARTMENTS].map((item) => (
+              {[{ value: "ALL", label: "Tất cả" }, ...allDepartments].map((item) => (
                 <button key={item.value} type="button" role="tab" aria-selected={department === item.value} onClick={() => setDepartment(item.value)}
                   className={cn("rounded-full border px-3 py-1.5 text-sm transition-colors", department === item.value ? "border-blue-600 bg-blue-50 font-semibold text-blue-700" : "bg-white text-slate-600 hover:bg-slate-50")}>
                   {item.label}{item.value !== "ALL" && <span className="ml-1.5 text-xs text-slate-400">{counts[item.value]}</span>}
@@ -75,14 +76,14 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <select aria-label="Định dạng" value={format} onChange={(event) => setFormat(event.target.value)} className={selectClass}>
-                <option value="ALL">Mọi định dạng</option>{CONTENT_FORMATS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                <option value="ALL">Mọi định dạng</option>{allFormats.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
               <select aria-label="Phân loại" value={category} onChange={(event) => setCategory(event.target.value)} className={selectClass}>
                 <option value="ALL">Mọi phân loại</option><option value="NONE">Chưa phân loại</option>
                 {categoryChoices.map((item) => <option key={item.id} value={item.id}>{department === "ALL" ? `${departmentLabel(item.department)} · ` : ""}{item.name}{item.active ? "" : " (đã ẩn)"}</option>)}
               </select>
               <select aria-label="Ngôn ngữ" value={language} onChange={(event) => setLanguage(event.target.value)} className={selectClass}>
-                <option value="ALL">Mọi ngôn ngữ</option>{TEMPLATE_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                <option value="ALL">Mọi ngôn ngữ</option>{allLanguages.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -117,7 +118,6 @@ export function TemplateLibraryView({ templates, categories, loadError, canManag
           )}
         </div>
       )}
-      {managingCategories && <CategoryManager categories={categories} onClose={() => setManagingCategories(false)} onChanged={() => router.refresh()} />}
       {editing?.mode === "view" && <TemplateDetail template={editing.template} categoryName={editing.template.categoryId ? categoryName.get(editing.template.categoryId) ?? null : null} canManage={canManage} onClose={() => setEditing(null)} onEdit={() => setEditing({ mode: "edit", template: editing.template })} onDone={done} />}
       {(editing?.mode === "new" || editing?.mode === "edit") && <TemplateForm template={editing.mode === "edit" ? editing.template : null} categories={categories} onClose={() => setEditing(null)} onSaved={done} />}
     </>
@@ -145,6 +145,7 @@ function TemplateDetail({ template, categoryName, canManage, onClose, onEdit, on
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { departmentLabel, formatLabel, languageLabel } = useContentLists();
 
   function run(action: () => Promise<{ ok: boolean; message: string }>) {
     startAction(async () => { const result = await action(); if (result.ok) onDone(result.message); else setError(result.message); });
@@ -175,7 +176,14 @@ function TemplateDetail({ template, categoryName, canManage, onClose, onEdit, on
 
 function TemplateForm({ template, categories, onClose, onSaved }: { template: ContentTemplate | null; categories: ContentCategory[]; onClose: () => void; onSaved: (message: string) => void }) {
   const [state, formAction] = useActionState(saveTemplate, initialTemplateFormState);
-  const [formDepartment, setFormDepartment] = useState<string>(template?.department ?? "SALE");
+  const lists = useContentLists();
+  // Entries switched off in Cài đặt are not offered, except the value this template already has.
+  const keep = (choices: { value: string; label: string }[], value: string | null | undefined, label: (value: string) => string) =>
+    value && !choices.some((item) => item.value === value) ? [...choices, { value, label: `${label(value)} (đã ẩn)` }] : choices;
+  const formatChoices = keep(lists.formats, template?.format, lists.formatLabel);
+  const departmentChoices = keep(lists.departments, template?.department, lists.departmentLabel);
+  const languageChoices = keep(lists.languages, template?.language, lists.languageLabel);
+  const [formDepartment, setFormDepartment] = useState<string>(template?.department ?? departmentChoices[0]?.value ?? "SALE");
   const [formCategory, setFormCategory] = useState<string>(template?.categoryId ?? "");
   const departmentCategories = categoriesOf(categories, formDepartment).concat(categories.filter((item) => item.id === template?.categoryId && !item.active && item.department === formDepartment));
   const [pending, startTransition] = useTransition();
@@ -194,10 +202,10 @@ function TemplateForm({ template, categories, onClose, onSaved }: { template: Co
       <form id="template-form" onSubmit={submit} className="space-y-4">
         {template && <input type="hidden" name="templateId" value={template.id} />}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Định dạng" required error={error("contentFormat")}><select name="contentFormat" defaultValue={template?.format ?? "POST_LONG"} disabled={pending} className={cn(inputClass, "h-11")}>{CONTENT_FORMATS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
-          <Field label="Bộ phận" required error={error("department")}><select name="department" value={formDepartment} onChange={(event) => { setFormDepartment(event.target.value); setFormCategory(""); }} disabled={pending} className={cn(inputClass, "h-11")}>{CONTENT_DEPARTMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
-          <Field label="Phân loại" hint={departmentCategories.length ? undefined : "Bộ phận này chưa có phân loại (thêm ở nút Phân loại)."} error={error("categoryId")}><select name="categoryId" value={formCategory} onChange={(event) => setFormCategory(event.target.value)} disabled={pending || departmentCategories.length === 0} className={cn(inputClass, "h-11")}><option value="">Không phân loại</option>{departmentCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-          <Field label="Ngôn ngữ" required error={error("language")}><select name="language" defaultValue={template?.language ?? "VI"} disabled={pending} className={cn(inputClass, "h-11")}>{TEMPLATE_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
+          <Field label="Định dạng" required error={error("contentFormat")}><select name="contentFormat" defaultValue={template?.format ?? "POST_LONG"} disabled={pending} className={cn(inputClass, "h-11")}>{formatChoices.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
+          <Field label="Bộ phận" required error={error("department")}><select name="department" value={formDepartment} onChange={(event) => { setFormDepartment(event.target.value); setFormCategory(""); }} disabled={pending} className={cn(inputClass, "h-11")}>{departmentChoices.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
+          <Field label="Phân loại" hint={departmentCategories.length ? undefined : "Bộ phận này chưa có phân loại (thêm ở tab Cài đặt)."} error={error("categoryId")}><select name="categoryId" value={formCategory} onChange={(event) => setFormCategory(event.target.value)} disabled={pending || departmentCategories.length === 0} className={cn(inputClass, "h-11")}><option value="">Không phân loại</option>{departmentCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field label="Ngôn ngữ" required error={error("language")}><select name="language" defaultValue={template?.language ?? "VI"} disabled={pending} className={cn(inputClass, "h-11")}>{languageChoices.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
           <Field label="Nhóm mẫu" error={error("groupName")}><input name="groupName" defaultValue={template?.groupName ?? ""} maxLength={100} disabled={pending} placeholder="VD: SHORT_TEASER, BENEFIT_FIRST" className={cn(inputClass, "h-11")} /></Field>
           <Field label="Trọng số (1–10)" hint="Mẫu trọng số cao được ưu tiên khi tự chọn." error={error("weight")}><input name="weight" type="number" min={1} max={10} defaultValue={template?.weight ?? 3} disabled={pending} className={cn(inputClass, "h-11 sm:w-32")} /></Field>
           <Field label="Tone" error={error("tone")}><input name="tone" defaultValue={template?.tone ?? ""} maxLength={200} disabled={pending} placeholder="Recruiter gần gũi, trực tiếp" className={cn(inputClass, "h-11")} /></Field>
@@ -229,67 +237,3 @@ function Field({ label, required, hint, error, children }: { label: string; requ
 }
 
 /** "Phân loại" per department: add, rename, hide (kept on existing content) or delete. */
-function CategoryManager({ categories, onClose, onChanged }: { categories: ContentCategory[]; onClose: () => void; onChanged: () => void }) {
-  const [busy, startAction] = useTransition();
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  function run(action: () => Promise<{ ok: boolean; message: string }>, after?: () => void) {
-    startAction(async () => {
-      const result = await action();
-      setMessage({ ok: result.ok, text: result.message });
-      if (result.ok) { after?.(); onChanged(); }
-    });
-  }
-
-  return (
-    <Modal title="Phân loại content" subtitle={<p className="mt-1 text-sm text-slate-500">Mỗi bộ phận có danh sách phân loại riêng. Phân loại bị ẩn vẫn giữ trên content cũ nhưng không hiện khi tạo mới.</p>} onClose={onClose} busy={busy}>
-      <div className="space-y-5">
-        {CONTENT_DEPARTMENTS.map((department) => {
-          const list = categoriesOf(categories, department.value, { includeInactive: true });
-          const draft = drafts[department.value] ?? "";
-          return (
-            <section key={department.value} className="rounded-xl border p-3">
-              <h3 className="text-sm font-bold text-slate-800">{department.label}</h3>
-              <ul className="mt-2 space-y-1">
-                {list.length === 0 && <li className="text-xs text-slate-500">Chưa có phân loại.</li>}
-                {list.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
-                    {editingId === item.id ? (
-                      <form className="flex flex-1 items-center gap-2" onSubmit={(event) => { event.preventDefault(); run(() => renameCategory(item.id, editName), () => setEditingId(null)); }}>
-                        <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} maxLength={60} className={cn(inputClass, "h-8")} />
-                        <Button type="submit" size="sm" disabled={busy}>Lưu</Button>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setEditingId(null)} disabled={busy}>Hủy</Button>
-                      </form>
-                    ) : confirmDelete === item.id ? (
-                      <>
-                        <span className="flex-1 text-rose-700">Xóa “{item.name}”? Mẫu và content đang gắn sẽ thành “chưa phân loại”.</span>
-                        <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)} disabled={busy}>Không</Button>
-                        <Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={() => run(() => deleteCategory(item.id), () => setConfirmDelete(null))} disabled={busy}>Xóa</Button>
-                      </>
-                    ) : (
-                      <>
-                        <span className={cn("flex-1", !item.active && "text-slate-400 line-through")}>{item.name}</span>
-                        <button type="button" title="Đổi tên" aria-label={`Đổi tên ${item.name}`} onClick={() => { setEditingId(item.id); setEditName(item.name); }} disabled={busy} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="size-3.5" /></button>
-                        <button type="button" title={item.active ? "Ẩn" : "Bật lại"} aria-label={`${item.active ? "Ẩn" : "Bật lại"} ${item.name}`} onClick={() => run(() => setCategoryActive(item.id, !item.active))} disabled={busy} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">{item.active ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}</button>
-                        <button type="button" title="Xóa" aria-label={`Xóa ${item.name}`} onClick={() => setConfirmDelete(item.id)} disabled={busy} className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="size-3.5" /></button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); run(() => addCategory(department.value, draft), () => setDrafts((current) => ({ ...current, [department.value]: "" }))); }}>
-                <input value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [department.value]: event.target.value }))} maxLength={60} placeholder={`Thêm phân loại cho ${department.label}`} className={cn(inputClass, "h-9")} />
-                <Button type="submit" size="sm" variant="outline" disabled={busy || !draft.trim()}><Plus className="size-4" />Thêm</Button>
-              </form>
-            </section>
-          );
-        })}
-        {message && <p className={cn("text-sm", message.ok ? "text-emerald-700" : "text-rose-700")} role="status">{message.text}</p>}
-      </div>
-    </Modal>
-  );
-}

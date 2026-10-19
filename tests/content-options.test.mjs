@@ -20,13 +20,14 @@ test('valid brief with presets', () => {
   assert.equal(result.data.quantity, 3);
 });
 
-test('"Khác" style uses the typed text; departments are the six fixed ones', () => {
+test('"Khác" style uses the typed text; departments are codes (the list itself lives in Cài đặt Kho content)', () => {
   const result = form({ style: OTHER_OPTION, styleOther: 'Hài hước', department: 'CTV' });
   assert.equal(result.success, true);
   assert.equal(result.data.style, 'Hài hước');
   assert.equal(result.data.department, 'CTV');
   for (const department of ['REC', 'HR', 'SALE', 'CTV', 'MEDIA', 'NOTICE']) assert.equal(form({ department }).success, true, department);
-  for (const department of ['RECRUITING', 'OTHER', '']) assert.equal(form({ department }).success, false, department);
+  assert.equal(form({ department: 'AM' }).success, true, 'a department added in settings');
+  for (const department of ['rec', '1REC', 'R E C', '']) assert.equal(form({ department }).success, false, department);
 });
 
 test('template ids: valid uuids, de-duplicated, at most 5', () => {
@@ -50,7 +51,7 @@ test('template form', () => {
 });
 
 test('rejects bad input', () => {
-  for (const values of [{ jobTitle: ' ' }, { contentLanguage: 'FR' }, { contentFormat: 'TWEET' }, { jdText: 'x'.repeat(8001) }, { quantity: '0' }, { quantity: '11' }, { quantity: '2.5' }, { style: 'HACK' }, { sampleContent: 'x'.repeat(6001) }]) {
+  for (const values of [{ jobTitle: ' ' }, { contentLanguage: 'fr' }, { contentFormat: 'tweet!' }, { jdText: 'x'.repeat(8001) }, { quantity: '0' }, { quantity: '11' }, { quantity: '2.5' }, { style: 'hack me' }, { sampleContent: 'x'.repeat(6001) }]) {
     assert.equal(form(values).success, false, JSON.stringify(values).slice(0, 60));
   }
 });

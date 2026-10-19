@@ -5,6 +5,10 @@ export interface ContentCategory {
   name: string;
   active: boolean;
   sort: number;
+  /** Short code used in content codes ("GT"); old categories may have none. */
+  abbr?: string | null;
+  /** Note for the AI on how to write this kind of post. */
+  guide?: string | null;
 }
 
 /** Active categories of a department, in display order. */

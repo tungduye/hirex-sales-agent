@@ -50,15 +50,16 @@ export const OTHER_OPTION = "OTHER";
 export const MAX_CONTENT_QUANTITY = 10;
 export const MAX_TEMPLATES_PER_BATCH = 5;
 
-export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number]["value"];
-export type TemplateLanguage = (typeof TEMPLATE_LANGUAGES)[number]["value"];
-export type ContentFormat = (typeof CONTENT_FORMATS)[number]["value"];
-export type ContentDepartment = (typeof CONTENT_DEPARTMENTS)[number]["value"];
+/** Codes: the built-in ones above, or ones added in "Cài đặt Kho content" (checked on the server). */
+export type ContentLanguage = string;
+export type TemplateLanguage = string;
+export type ContentFormat = string;
+export type ContentDepartment = string;
+export type BuiltinFormat = (typeof CONTENT_FORMATS)[number]["value"];
+export type BuiltinDepartment = (typeof CONTENT_DEPARTMENTS)[number]["value"];
 
-const languageValues = CONTENT_LANGUAGES.map((item) => item.value) as [ContentLanguage, ...ContentLanguage[]];
-const templateLanguageValues = languageValues as [TemplateLanguage, ...TemplateLanguage[]];
-const formatValues = CONTENT_FORMATS.map((item) => item.value) as [ContentFormat, ...ContentFormat[]];
-const departmentValues = CONTENT_DEPARTMENTS.map((item) => item.value) as [ContentDepartment, ...ContentDepartment[]];
+const OPTION_CODE = /^[A-Z][A-Z0-9_]{0,19}$/u;
+const codeSchema = (message: string) => z.string().trim().regex(OPTION_CODE, message);
 
 function labelOf(options: readonly { value: string; label: string }[], value: string) {
   return options.find((item) => item.value === value)?.label ?? value;
@@ -71,7 +72,7 @@ export const styleLabel = (value: string) => labelOf(CONTENT_STYLES, value);
 
 /** "Phân loại": optional; empty means none. */
 const categoryIdSchema = z.string().optional().transform((value) => value?.trim() || null).pipe(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Phân loại không hợp lệ").nullable());
-const formatSchema = z.preprocess((value) => typeof value === "string" ? LEGACY_FORMAT_CODES[value] ?? value : value, z.enum(formatValues, { message: "Chọn định dạng" }));
+const formatSchema = z.preprocess((value) => typeof value === "string" ? LEGACY_FORMAT_CODES[value] ?? value : value, codeSchema("Chọn định dạng"));
 
 const optionalText = (max: number) => z.string().trim().max(max, `Tối đa ${max} ký tự`).transform((value) => value || null);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,14 +92,14 @@ export const contentBriefSchema = z.object({
       if (!value.other) { context.addIssue({ code: "custom", message: "Nhập phong cách" }); return z.NEVER; }
       return value.other;
     }
-    if (!CONTENT_STYLES.some((item) => item.value === value.choice)) { context.addIssue({ code: "custom", message: "Chọn phong cách" }); return z.NEVER; }
+    if (!OPTION_CODE.test(value.choice)) { context.addIssue({ code: "custom", message: "Chọn phong cách" }); return z.NEVER; }
     return value.choice;
   }),
   styleNote: optionalText(500),
   sampleContent: optionalText(6000),
-  contentLanguage: z.enum(languageValues, { message: "Chọn ngôn ngữ" }),
+  contentLanguage: codeSchema("Chọn ngôn ngữ"),
   contentFormat: formatSchema,
-  department: z.enum(departmentValues, { message: "Chọn bộ phận" }),
+  department: codeSchema("Chọn bộ phận"),
   categoryId: categoryIdSchema,
   templateIds: z.array(z.string().regex(UUID, "Mẫu không hợp lệ")).transform((ids) => [...new Set(ids)])
     .pipe(z.array(z.string()).max(MAX_TEMPLATES_PER_BATCH, `Chọn tối đa ${MAX_TEMPLATES_PER_BATCH} mẫu`)),
@@ -132,10 +133,10 @@ export function briefInputFromFormData(formData: FormData) {
 }
 
 export const contentTemplateSchema = z.object({
-  department: z.enum(departmentValues, { message: "Chọn bộ phận" }),
+  department: codeSchema("Chọn bộ phận"),
   contentFormat: formatSchema,
   categoryId: categoryIdSchema,
-  language: z.enum(templateLanguageValues, { message: "Chọn ngôn ngữ" }),
+  language: codeSchema("Chọn ngôn ngữ"),
   groupName: optionalText(100),
   tone: optionalText(200),
   cta: optionalText(200),

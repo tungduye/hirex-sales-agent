@@ -28,7 +28,7 @@ select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000721',true);
 insert into public.content_templates(id,workspace_id,department,language,body,created_by)
   values('00000000-0000-4000-8000-0000000007e2','00000000-0000-4000-8000-0000000007a7','CTV','VI','Mẫu CTV mới','00000000-0000-4000-8000-000000000721');
-select pg_temp.assert_true((select code ~ '^MAU-[0-9]{4,}$' from public.content_templates where id='00000000-0000-4000-8000-0000000007e2'),'new template gets MAU-0001 style code');
+select pg_temp.assert_true((select code ~ '^M_[A-Z0-9]+_[A-Z0-9]+_[A-Z0-9]+_[A-Z0-9]+_[0-9]{2,}$' from public.content_templates where id='00000000-0000-4000-8000-0000000007e2'),'new template gets an M_REC_DCT_CHUNG_VI_01 style code');
 update public.content_templates set active=false, weight=7 where id='00000000-0000-4000-8000-0000000007e1';
 select pg_temp.assert_true((select not active and weight=7 from public.content_templates where id='00000000-0000-4000-8000-0000000007e1'),'editor updates template');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_templates(workspace_id,department,body,created_by) values('00000000-0000-4000-8000-0000000007a7','MARKETING','x','00000000-0000-4000-8000-000000000721')$$),'unknown department refused');

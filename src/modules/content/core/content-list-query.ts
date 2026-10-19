@@ -1,5 +1,8 @@
 // URL state for the content library: ?q=&lang=&format=&dept=&cat=&page=. Pure, so it can be unit-tested.
-import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, LEGACY_FORMAT_CODES, type ContentDepartment, type ContentFormat, type ContentLanguage } from "./content-options.ts";
+import { LEGACY_FORMAT_CODES, type ContentDepartment, type ContentFormat, type ContentLanguage } from "./content-options.ts";
+
+/** Codes come from "Cài đặt Kho content"; anything code-shaped is accepted (an unknown code just matches nothing). */
+const CODE = /^[A-Z][A-Z0-9_]{0,19}$/;
 
 export const CONTENT_PAGE_SIZE = 30;
 
@@ -28,9 +31,9 @@ export function normalizeContentListQuery(raw: Record<string, string | string[] 
   const pageNumber = Number.parseInt(first(raw.page) ?? "1", 10);
   return {
     q,
-    language: CONTENT_LANGUAGES.some((item) => item.value === lang) ? (lang as ContentLanguage) : "ALL",
-    format: CONTENT_FORMATS.some((item) => item.value === format) ? (format as ContentFormat) : "ALL",
-    department: CONTENT_DEPARTMENTS.some((item) => item.value === department) ? (department as ContentDepartment) : "ALL",
+    language: CODE.test(lang) && lang !== "ALL" ? (lang as ContentLanguage) : "ALL",
+    format: CODE.test(format) && format !== "ALL" ? (format as ContentFormat) : "ALL",
+    department: CODE.test(department) && department !== "ALL" ? (department as ContentDepartment) : "ALL",
     category: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(category) ? category : "ALL",
     page: Number.isFinite(pageNumber) && pageNumber >= 1 ? Math.min(pageNumber, 10_000) : 1,
     pageSize: CONTENT_PAGE_SIZE,

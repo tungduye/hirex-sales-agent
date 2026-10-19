@@ -45,7 +45,7 @@ insert into public.content_items(id,workspace_id,batch_id,title,body,job_title,c
 insert into public.content_items(id,workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,max_similarity,most_similar_item_id,created_by)
   values('00000000-0000-4000-8000-0000000007d2','00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','Tiêu đề 2','Nội dung 2','Java Developer','VI_JA','EMAIL','REC','PROFESSIONAL',0.5,'00000000-0000-4000-8000-0000000007d1','00000000-0000-4000-8000-000000000711');
 select pg_temp.assert_true((select count(*) from public.content_items where batch_id='00000000-0000-4000-8000-0000000007c1')=2,'writer sees own items');
-select pg_temp.assert_true((select bool_and(code ~ '^CT-[0-9]{6,}$') from public.content_items),'codes have CT-000001 shape');
+select pg_temp.assert_true((select bool_and(code ~ '^[0-9]{6}_[A-Z0-9]+_[A-Z0-9]+_[A-Z0-9]+_[A-Z0-9]+_[0-9]{2,}$') from public.content_items),'codes have the 261019_REC_DCT_GT_VI_01 shape');
 select pg_temp.assert_true((select count(distinct code) from public.content_items)=2,'each item has its own code');
 select pg_temp.assert_true(pg_temp.fails($$insert into public.content_items(workspace_id,batch_id,title,body,job_title,content_language,content_format,department,style,max_similarity,created_by)
   values('00000000-0000-4000-8000-0000000007a1','00000000-0000-4000-8000-0000000007c1','x','y','Java','VI','EMAIL','REC','PROFESSIONAL',0.51,'00000000-0000-4000-8000-000000000711')$$),'more than 50% similar is rejected by the database');

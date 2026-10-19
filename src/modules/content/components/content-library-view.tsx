@@ -10,7 +10,8 @@ import { ContentTabs } from "@/modules/content/components/content-tabs";
 import { copyText, postText } from "@/modules/content/components/copy-text";
 import type { ContentTemplate } from "@/modules/content/server/template-row";
 import { deleteContentItem } from "@/modules/content/server/content-actions";
-import { CONTENT_DEPARTMENTS, CONTENT_FORMATS, CONTENT_LANGUAGES, departmentLabel, formatLabel, languageLabel, styleLabel, type ContentDepartment, type ContentFormat, type ContentLanguage } from "@/modules/content/core/content-options";
+import type { ContentDepartment, ContentFormat, ContentLanguage } from "@/modules/content/core/content-options";
+import { useContentLists } from "@/modules/content/components/content-settings-context";
 import { contentListHref, type ContentListQuery } from "@/modules/content/core/content-list-query";
 import type { ContentListItem } from "@/modules/content/server/list-content";
 import { categoriesOf, type ContentCategory } from "@/modules/content/core/content-category";
@@ -35,6 +36,7 @@ interface ContentLibraryViewProps {
 
 export function ContentLibraryView({ items, templates, categories, batches, total, libraryTotal, query, loadError, canCreate, canDelete }: ContentLibraryViewProps) {
   const router = useRouter();
+  const { allDepartments, allFormats, allLanguages, departmentLabel, formatLabel, languageLabel } = useContentLists();
   const [search, setSearch] = useState(query.q);
   const [isNavigating, startNavigation] = useTransition();
   const lastSubmitted = useRef(query.q);
@@ -105,9 +107,9 @@ export function ContentLibraryView({ items, templates, categories, batches, tota
           <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center">
             <div className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none" placeholder="Tìm theo mã, tiêu đề, job, nội dung…" /></div>
             <div className="grid grid-cols-2 gap-3 sm:flex">
-              <select aria-label="Bộ phận" value={query.department} onChange={(event) => go({ department: event.target.value as ContentDepartment | "ALL", category: "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi bộ phận</option>{CONTENT_DEPARTMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-              <select aria-label="Ngôn ngữ" value={query.language} onChange={(event) => go({ language: event.target.value as ContentLanguage | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi ngôn ngữ</option>{CONTENT_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-              <select aria-label="Định dạng" value={query.format} onChange={(event) => go({ format: event.target.value as ContentFormat | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi định dạng</option>{CONTENT_FORMATS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select aria-label="Bộ phận" value={query.department} onChange={(event) => go({ department: event.target.value as ContentDepartment | "ALL", category: "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi bộ phận</option>{allDepartments.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select aria-label="Ngôn ngữ" value={query.language} onChange={(event) => go({ language: event.target.value as ContentLanguage | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi ngôn ngữ</option>{allLanguages.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select aria-label="Định dạng" value={query.format} onChange={(event) => go({ format: event.target.value as ContentFormat | "ALL" })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi định dạng</option>{allFormats.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <select aria-label="Phân loại" value={query.category} onChange={(event) => go({ category: event.target.value })} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"><option value="ALL">Mọi phân loại</option>{categoryChoices.map((item) => <option key={item.id} value={item.id}>{query.department === "ALL" ? `${departmentLabel(item.department)} · ` : ""}{item.name}</option>)}</select>
             </div>
             <span className="text-xs font-medium text-slate-500 lg:ml-auto">{isNavigating ? "Đang tải…" : `${total.toLocaleString("vi-VN")} / ${libraryTotal.toLocaleString("vi-VN")} content`}</span>
@@ -176,6 +178,7 @@ function RecentBatches({ batches, now }: { batches: ContentBatchSummary[]; now: 
 
 function ContentDetailDialog({ item, categoryName, canDelete, onClose, onDeleted }: { item: ContentListItem; categoryName: string | null; canDelete: boolean; onClose: () => void; onDeleted: (message: string) => void }) {
   const [copied, setCopied] = useState(false);
+  const { departmentLabel, formatLabel, languageLabel, styleLabel } = useContentLists();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, startDelete] = useTransition();
