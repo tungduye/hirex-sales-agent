@@ -114,6 +114,9 @@ async function main() {
     atomicJson(path.join(stateRoot, "deplao-zalo-accounts.json"), accounts);
   }
   policies();
+  // After a self-restart the old runtime was just stopped; give its ports a few seconds to close.
+  for (let attempt = 0; attempt < 15 && (await Promise.all(ports.map(portOpen))).some(Boolean); attempt++)
+    await new Promise(resolve => setTimeout(resolve, 1000));
   if ((await Promise.all(ports.map(portOpen))).some(Boolean)) throw Error("EXISTING_RUNTIME_REQUIRES_CONTROLLED_HANDOFF");
   let adapter, deplao, startedAt, lastRestart = 0;
   const jobs = new Map();
@@ -147,8 +150,19 @@ async function main() {
   };
   process.on("SIGINT", cleanup); process.on("SIGTERM", cleanup);
   let lastSync = 0, lastHealth = 0, currentHealth = [];
+  const selfPath = fileURLToPath(import.meta.url), selfLoadedAt = statSync(selfPath).mtimeMs;
   for (;;) {
     const now = Date.now();
+    // This file changed (a deploy): stop everything and start a fresh copy of the supervisor, which loads the
+    // new schedule. The fresh copy restarts the adapter and Deplao too.
+    if (shouldRestartForBuild(newestBuildTime([selfPath]), selfLoadedAt, now)) {
+      log("SUPERVISOR_RESTART_NEW_CODE");
+      for (const { child } of jobs.values()) stopChild(child);
+      stopChild(deplao); stopChild(adapter);
+      if (existsSync(lockPath)) unlinkSync(lockPath);
+      spawn(process.execPath, process.argv.slice(1), { env: process.env, detached: true, stdio: "ignore", windowsHide: true }).unref();
+      process.exit(0);
+    }
     const listening = await Promise.all(ports.map(portOpen));
     if (now - lastRestart > 30000 && shouldRestartForBuild(newestBuildTime(), startedAt, now)) {
       log("RUNTIME_RESTART_NEW_BUILD", { adapterPid: adapter.pid, deplaoPid: deplao.pid });
@@ -173,6 +187,9 @@ async function main() {
         schedule("recent-message-sync", "sync-zalo-recent-messages.mjs", ["--once", `--since=${since}`]);
       if (existsSync(path.join(root, "scripts/sync-zalo-group-members.mjs")))
         schedule("group-member-sync", "sync-zalo-group-members.mjs", ["--once"], 300000);
+      // Frees nicks locked by a "delivery unknown" send and tells HireX which nicks are still locked.
+      if (existsSync(path.join(root, "scripts/reconcile-zalo-send-locks.mjs")))
+        schedule("send-lock-reconcile", "reconcile-zalo-send-locks.mjs", ["--once"], 120000);
       if (existsSync(path.join(stateRoot, "zalo-media-sync-authorized")))
         schedule("attachment-sync", "sync-zalo-live-attachments.mjs");
     }

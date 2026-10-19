@@ -1,3 +1,4 @@
+import type { ZaloSendLock } from "@/modules/channels/core/send-locks";
 import type { ChannelAccountStatus, ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { ConversationStatus, TakeoverMode } from "@/modules/channels/core/conversation-policy";
 
@@ -127,6 +128,8 @@ export interface OmnichannelConversationDetail {
   sendAs: Array<{ conversationId: string; accountDisplayName: string }>;
   /** Facebook Page: this chat in Meta Business Suite (no 24-hour limit there); null for other channels. */
   businessSuiteUrl: string | null;
+  /** Set when this Zalo nick cannot send right now (an earlier send is still being settled). */
+  sendLock: ZaloSendLock | null;
   /** The opened nick's own Zalo id (to recognise mentions of it). */
   accountExternalId: string | null;
   /** Zalo group: who is who (sender id -> name/avatar), our own nicks included; empty for other chats. */

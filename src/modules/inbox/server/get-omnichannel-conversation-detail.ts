@@ -12,6 +12,7 @@ import { isFacebookProfileSystemPlaceholder } from "../core/facebook-profile-sys
 import type { OmnichannelConversationDetail, OmnichannelConversationDetailResult, OmnichannelInboxMessage } from "../types/omnichannel-inbox";
 import { canAccessChannelAccount } from "@/modules/access/server/access-control";
 import { normalizeGroupName, oneCopyPerNick } from "../core/group-merge";
+import type { ZaloSendLock } from "@/modules/channels/core/send-locks";
 
 // Loading hundreds of messages and action rows on every realtime refresh makes
 // active inboxes feel sluggish. Older history remains available through the
@@ -260,6 +261,15 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
         messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : []))])
     : [[], {}];
+  // A nick locked by an unsettled send cannot send; the composer says so (see reconcile-zalo-send-locks.mjs).
+  const lockRow = channelType === "ZALO"
+    ? (await accountClient.from("zalo_account_send_locks").select("reason,locked_since,auto_release_at,conversation_id")
+      .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).maybeSingle()).data
+    : null;
+  const sendLock: ZaloSendLock | null = lockRow && (lockRow.reason === "DELIVERY_UNKNOWN" || lockRow.reason === "SENDING") && typeof lockRow.locked_since === "string"
+    ? { channelAccountId: row.channel_account_id, accountName: text(channelAccount.display_name) ?? "Nick Zalo", reason: lockRow.reason,
+      lockedSince: lockRow.locked_since, autoReleaseAt: text(lockRow.auto_release_at), conversationId: text(lockRow.conversation_id) }
+    : null;
   return {
     status: "ready",
     conversation: {
@@ -289,6 +299,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       accountExternalId: text(channelAccount.external_account_id),
       participants,
       businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id)) : null,
+      sendLock,
     },
   };
 }
