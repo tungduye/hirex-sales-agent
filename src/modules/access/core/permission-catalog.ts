@@ -8,6 +8,7 @@ export const permissionGroups = [
   { key:"content", label:"Kho content", actions:[["view","Xem"],["create","Tạo"],["delete","Xóa"],["templates","Quản lý kho mẫu"]] },
   { key:"tasks", label:"Công việc", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"]] },
   { key:"analytics", label:"Phân tích", actions:[["view","Xem"]] },
+  { key:"jobs", label:"Job", actions:[["view","Xem"],["manage","Quản lý"]] },
   { key:"accounts", label:"Tài khoản", actions:[["view","Xem"]] },
   { key:"settings", label:"Cài đặt", actions:[["view","Xem"]] },
   { key:"channels", label:"Tài khoản kết nối", actions:[["view","Xem"],["manage","Quản lý"]] },
