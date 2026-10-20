@@ -261,7 +261,9 @@
     ".next-content-de-dung/types/**/*.ts",
     ".next-content-de-dung/dev/types/**/*.ts",
     ".next-content-dot4/types/**/*.ts",
-    ".next-content-dot4/dev/types/**/*.ts"
+    ".next-content-dot4/dev/types/**/*.ts",
+    ".next-suoi-nguon-pham-vi/types/**/*.ts",
+    ".next-suoi-nguon-pham-vi/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
