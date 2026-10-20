@@ -1,26 +1,36 @@
 import "server-only";
-import { classifyHardBounce,isStrongCampaignReply } from "@/modules/campaigns/domain/campaign-signals";
+import { classifyHardBounce } from "@/modules/campaigns/domain/campaign-signals";
 import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/server/privileged-supabase";
 
-export async function processPersistedCampaignReplies(limit=50,campaignId?:string){
+/**
+ * Replies: every sent campaign thread is checked for an inbound mail from that recipient after we sent
+ * (find_email_campaign_reply_candidates). Only unhandled recipients come back, so nothing is missed when
+ * many other mails arrive between runs. `limit` caps how many are applied in one run.
+ */
+export async function processPersistedCampaignReplies(limit=200,campaignId?:string){
   const db=createPrivilegedSupabaseClient();
-  const {data:messages,error}=await db.from("email_messages").select("id,workspace_id,email_account_id,email_thread_id,from_email,direction,received_at,auto_submitted,email_threads(provider_thread_id)").eq("direction","INBOUND").order("received_at",{ascending:false}).limit(Math.min(Math.max(limit,1),100));
-  if(error)return{repliedStopped:0,error:true};let stopped=0;
-  for(const message of messages??[]){const thread=message.email_threads as unknown as {provider_thread_id:string}|null;if(!thread?.provider_thread_id||!message.from_email||!message.received_at)continue;
-    let candidateQuery=db.from("email_campaign_recipient_steps").select("recipient_id,workspace_id,sender_email_account_id,provider_thread_id,sent_at,email_campaign_recipients!inner(normalized_email,engagement_status)").eq("workspace_id",message.workspace_id).eq("sender_email_account_id",message.email_account_id).eq("provider_thread_id",thread.provider_thread_id).eq("status","SENT");if(campaignId)candidateQuery=candidateQuery.eq("campaign_id",campaignId);const {data:candidates}=await candidateQuery.order("sent_at",{ascending:false}).limit(5);
-    for(const candidate of candidates??[]){const recipient=candidate.email_campaign_recipients as unknown as {normalized_email:string;engagement_status:string};if(!["ACTIVE","COMPLETED"].includes(recipient.engagement_status)||!candidate.sent_at)continue;
-      if(!isStrongCampaignReply({workspaceId:message.workspace_id,emailAccountId:message.email_account_id,providerThreadId:thread.provider_thread_id,direction:message.direction,fromEmail:message.from_email,receivedAt:message.received_at,autoSubmitted:message.auto_submitted},{workspaceId:candidate.workspace_id,emailAccountId:candidate.sender_email_account_id!,providerThreadId:candidate.provider_thread_id!,recipientEmail:recipient.normalized_email,sentAt:candidate.sent_at}))continue;
-      const {data}=await db.rpc("apply_email_campaign_signal",{p_workspace_id:message.workspace_id,p_recipient_id:candidate.recipient_id,p_signal_type:"REPLY",p_source_key:`message:${message.id}`,p_email_message_id:message.id,p_diagnostic:null});if(data===true)stopped+=1;break;
-    }
+  const {data,error}=await db.rpc("find_email_campaign_reply_candidates",{p_limit:Math.min(Math.max(limit,1),2000),p_campaign_id:campaignId??null});
+  if(error)return{repliedStopped:0,error:true};
+  let stopped=0;
+  for(const row of (data??[]) as Array<{workspace_id:string;recipient_id:string;email_message_id:string}>){
+    const {data:applied}=await db.rpc("apply_email_campaign_signal",{p_workspace_id:row.workspace_id,p_recipient_id:row.recipient_id,p_signal_type:"REPLY",p_source_key:`message:${row.email_message_id}`,p_email_message_id:row.email_message_id,p_diagnostic:null});
+    if(applied===true)stopped+=1;
   }
   return{repliedStopped:stopped,error:false};
 }
 
-export async function processPersistedCampaignBounces(limit=50){
-  const db=createPrivilegedSupabaseClient();const {data:messages,error}=await db.from("email_messages").select("id,workspace_id,email_account_id,received_at,auto_submitted,dsn_report_type,failed_recipients,dsn_final_recipient,dsn_original_recipient,dsn_action,dsn_status,dsn_diagnostic_code,is_mailer_daemon").eq("direction","INBOUND").order("received_at",{ascending:false}).limit(Math.min(Math.max(limit,1),100));if(error)return{bouncedStopped:0,error:true};let stopped=0;
-  for(const message of messages??[]){const recipients=[message.dsn_final_recipient,message.dsn_original_recipient,...(Array.isArray(message.failed_recipients)?message.failed_recipients:[])].filter((value):value is string=>typeof value==="string");for(const email of new Set(recipients)){
-      if(!classifyHardBounce({contentType:message.dsn_report_type==="delivery-status"?"message/delivery-status":null,status:message.dsn_status,action:message.dsn_action,finalRecipient:message.dsn_final_recipient??message.dsn_original_recipient,failedRecipients:Array.isArray(message.failed_recipients)?message.failed_recipients:[],diagnosticCode:message.dsn_diagnostic_code},email))continue;
-      const {data:candidates}=await db.from("email_campaign_recipient_steps").select("recipient_id,email_campaign_recipients!inner(normalized_email,engagement_status)").eq("workspace_id",message.workspace_id).eq("sender_email_account_id",message.email_account_id).eq("status","SENT").lt("sent_at",message.received_at??new Date().toISOString()).limit(20);
-      for(const candidate of candidates??[]){const recipient=candidate.email_campaign_recipients as unknown as {normalized_email:string;engagement_status:string};if(recipient.engagement_status!=="ACTIVE"||recipient.normalized_email!==email.trim().toLowerCase())continue;const {data}=await db.rpc("apply_email_campaign_signal",{p_workspace_id:message.workspace_id,p_recipient_id:candidate.recipient_id,p_signal_type:"HARD_BOUNCE",p_source_key:`message:${message.id}`,p_email_message_id:message.id,p_diagnostic:"PERMANENT_DSN"});if(data===true)stopped+=1;break;}
-    }}return{bouncedStopped:stopped,error:false};
+/** Hard bounces: delivery-failure reports naming a recipient we sent to from that mailbox (last 60 days). */
+export async function processPersistedCampaignBounces(limit=200){
+  const db=createPrivilegedSupabaseClient();
+  const {data,error}=await db.rpc("find_email_campaign_bounce_candidates",{p_limit:Math.min(Math.max(limit,1),2000),p_days:60});
+  if(error)return{bouncedStopped:0,error:true};
+  let stopped=0;const done=new Set<string>();
+  for(const row of (data??[]) as Array<{workspace_id:string;recipient_id:string;normalized_email:string;email_message_id:string;dsn_report_type:string|null;dsn_status:string|null;dsn_action:string|null;dsn_final_recipient:string|null;dsn_original_recipient:string|null;failed_recipients:string[]|null;dsn_diagnostic_code:string|null}>){
+    if(done.has(row.recipient_id))continue;
+    const failed=Array.isArray(row.failed_recipients)?row.failed_recipients:[];
+    if(!classifyHardBounce({contentType:row.dsn_report_type==="delivery-status"?"message/delivery-status":null,status:row.dsn_status,action:row.dsn_action,finalRecipient:row.dsn_final_recipient??row.dsn_original_recipient,failedRecipients:failed,diagnosticCode:row.dsn_diagnostic_code},row.normalized_email))continue;
+    const {data:applied}=await db.rpc("apply_email_campaign_signal",{p_workspace_id:row.workspace_id,p_recipient_id:row.recipient_id,p_signal_type:"HARD_BOUNCE",p_source_key:`message:${row.email_message_id}`,p_email_message_id:row.email_message_id,p_diagnostic:"PERMANENT_DSN"});
+    if(applied===true){stopped+=1;done.add(row.recipient_id);}
+  }
+  return{bouncedStopped:stopped,error:false};
 }

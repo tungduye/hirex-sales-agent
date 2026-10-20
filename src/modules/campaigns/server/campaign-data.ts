@@ -1,4 +1,5 @@
 import "server-only";
+import { campaignHealth, type CampaignHealth } from "@/modules/campaigns/domain/campaign-health";
 import { countCampaignReplies } from "@/modules/campaigns/domain/count-campaign-replies";
 
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
@@ -7,7 +8,14 @@ import { createPrivilegedSupabaseClient } from "@/modules/integrations/gmail/ser
 export interface CampaignSummary {
   id: string; name: string; status: string; scheduledAt: string | null; startedAt: string | null;
   campaignType:string;campaignTypeColor:string;comboUv:string|null;placement:string|null;channelRank:string|null;ownerName:string|null;senderEmails:string[];
-  archivedAt:string|null;updatedAt:string;recipients: number; sent: number;followUps:number;replies:number;hardBounces:number; pending: number; failed: number; suppressed: number; deliveryUnknown: number; senders: number;
+  archivedAt:string|null;updatedAt:string;
+  /** Enabled sender mailboxes that need reconnecting (sending and reply tracking stop for them). */
+  senderIssues:string[];
+  /** At least one enabled sender can send right now. */
+  canSend:boolean;
+  lastSentAt:string|null;
+  health:CampaignHealth;
+  recipients: number; sent: number;followUps:number;replies:number;hardBounces:number; pending: number; failed: number; suppressed: number; deliveryUnknown: number; senders: number;
 }
 
 export async function listCampaigns(): Promise<{ campaigns: CampaignSummary[]; error: string | null }> {
@@ -15,7 +23,7 @@ export async function listCampaigns(): Promise<{ campaigns: CampaignSummary[]; e
   if (!account?.workspaceId || !account.configurationComplete) return { campaigns: [], error: "Campaigns could not be loaded." };
   const db = createPrivilegedSupabaseClient();
   const { data, error } = await db.from("email_campaigns")
-    .select("id,name,status,scheduled_at,started_at,updated_at,archived_at,campaign_type,campaign_type_color,combo_uv,placement,channel_rank,owner_name,email_campaign_recipients(status,engagement_status),email_campaign_recipient_steps(status,step_order),email_campaign_senders(id,email_accounts(email_address))")
+    .select("id,name,status,scheduled_at,started_at,updated_at,archived_at,campaign_type,campaign_type_color,combo_uv,placement,channel_rank,owner_name,email_campaign_recipients(status,engagement_status),email_campaign_recipient_steps(status,step_order,sent_at),email_campaign_senders(id,enabled,email_accounts(email_address,status))")
     .eq("workspace_id", account.workspaceId).order("created_at", { ascending: false });
   if (error) return { campaigns: [], error: "Campaigns could not be loaded." };
   let replyCounts: Map<string, number>;
@@ -30,11 +38,12 @@ export async function listCampaigns(): Promise<{ campaigns: CampaignSummary[]; e
       return page.data ?? [];
     });
   } catch { return { campaigns: [], error: "Campaign reply counts could not be loaded." }; }
+  const now = Date.now();
   return { campaigns: (data ?? []).map((raw) => {
-    const row = raw as unknown as { id:string;name:string;status:string;scheduled_at:string|null;started_at:string|null;updated_at:string;archived_at:string|null;campaign_type:string;campaign_type_color:string;combo_uv:string|null;placement:string|null;channel_rank:string|null;owner_name:string|null;email_campaign_recipients:{status:string;engagement_status:string}[];email_campaign_recipient_steps:{status:string;step_order:number}[];email_campaign_senders:{id:string;email_accounts:{email_address:string}|null}[] };
+    const row = raw as unknown as { id:string;name:string;status:string;scheduled_at:string|null;started_at:string|null;updated_at:string;archived_at:string|null;campaign_type:string;campaign_type_color:string;combo_uv:string|null;placement:string|null;channel_rank:string|null;owner_name:string|null;email_campaign_recipients:{status:string;engagement_status:string}[];email_campaign_recipient_steps:{status:string;step_order:number;sent_at:string|null}[];email_campaign_senders:{id:string;enabled:boolean;email_accounts:{email_address:string;status:string}|null}[] };
     const count = (status: string) => row.email_campaign_recipients.filter((item) => item.status === status).length;
-    const sequenceSent=row.email_campaign_recipient_steps.filter(item=>item.status==="SENT");return { id:row.id,name:row.name,status:row.status,scheduledAt:row.scheduled_at,startedAt:row.started_at,campaignType:row.campaign_type,campaignTypeColor:row.campaign_type_color,comboUv:row.combo_uv,placement:row.placement,channelRank:row.channel_rank,ownerName:row.owner_name,senderEmails:row.email_campaign_senders.map(s=>s.email_accounts?.email_address).filter((x):x is string=>Boolean(x)),archivedAt:row.archived_at,updatedAt:row.updated_at,recipients:row.email_campaign_recipients.length,sent:sequenceSent.length||count("SENT"),followUps:sequenceSent.filter(item=>item.step_order>0).length,replies:row.email_campaign_recipients.filter(item=>item.engagement_status==="REPLIED").length,hardBounces:row.email_campaign_recipients.filter(item=>item.engagement_status==="HARD_BOUNCED").length,pending:count("PENDING"),failed:count("FAILED"),suppressed:count("SUPPRESSED"),deliveryUnknown:count("DELIVERY_UNKNOWN"),senders:row.email_campaign_senders.length };
-  }).map(row => ({ ...row, replies: replyCounts.get(row.id) ?? 0 })), error: null };
+    const sequenceSent=row.email_campaign_recipient_steps.filter(item=>item.status==="SENT");return { id:row.id,name:row.name,status:row.status,scheduledAt:row.scheduled_at,startedAt:row.started_at,campaignType:row.campaign_type,campaignTypeColor:row.campaign_type_color,comboUv:row.combo_uv,placement:row.placement,channelRank:row.channel_rank,ownerName:row.owner_name,senderEmails:row.email_campaign_senders.map(s=>s.email_accounts?.email_address).filter((x):x is string=>Boolean(x)),archivedAt:row.archived_at,updatedAt:row.updated_at,senderIssues:row.email_campaign_senders.filter(s=>s.enabled&&s.email_accounts&&s.email_accounts.status!=="CONNECTED").map(s=>s.email_accounts!.email_address),canSend:row.email_campaign_senders.some(s=>s.enabled&&s.email_accounts?.status==="CONNECTED"),lastSentAt:sequenceSent.reduce<string|null>((latest,item)=>item.sent_at&&(!latest||item.sent_at>latest)?item.sent_at:latest,null),recipients:row.email_campaign_recipients.length,sent:sequenceSent.length||count("SENT"),followUps:sequenceSent.filter(item=>item.step_order>0).length,replies:row.email_campaign_recipients.filter(item=>item.engagement_status==="REPLIED").length,hardBounces:row.email_campaign_recipients.filter(item=>item.engagement_status==="HARD_BOUNCED").length,pending:count("PENDING"),failed:count("FAILED"),suppressed:count("SUPPRESSED"),deliveryUnknown:count("DELIVERY_UNKNOWN"),senders:row.email_campaign_senders.length };
+  }).map(row => ({ ...row, replies: replyCounts.get(row.id) ?? 0 })).map(row => ({ ...row, health: campaignHealth(row, now) })), error: null };
 }
 
 export async function getCampaign(id: string) {

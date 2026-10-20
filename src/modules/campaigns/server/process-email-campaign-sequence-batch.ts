@@ -16,9 +16,11 @@ export async function processEmailCampaignSequenceBatch(limit=10,campaignId?:str
   const loadCampaignDeliveryAttachments=createCampaignAttachmentLoader();
   const db=createPrivilegedSupabaseClient();
   const result={campaignsConsidered:0,deliveriesProcessed:0,sent:0,failed:0,deliveryUnknown:0,suppressed:0,repliedStopped:0,bouncedStopped:0,unsubscribedStopped:0};
-  let query=db.from("email_campaigns").select("id,workspace_id").eq("status","RUNNING").eq("sequence_enabled",true);
-  if(campaignId)query=query.eq("id",campaignId);
-  const {data:campaigns,error}=await query.order("started_at").limit(campaignId?1:25);
+  // Only campaigns that are due and can actually send (a connected sender), longest-waiting first, so a
+  // campaign whose mailbox needs reconnecting no longer takes a turn from the others.
+  const {data:campaigns,error}=campaignId
+    ? await db.from("email_campaigns").select("id,workspace_id").eq("status","RUNNING").eq("sequence_enabled",true).eq("id",campaignId).limit(1)
+    : await db.rpc("list_due_email_sequence_campaigns",{p_limit:25});
   if(error)return {...result,success:false,code:"DATABASE_UNAVAILABLE" as const};
   result.campaignsConsidered=campaigns?.length??0;let remaining=Math.min(Math.max(limit,1),25);
   for(const campaign of campaigns??[]){
