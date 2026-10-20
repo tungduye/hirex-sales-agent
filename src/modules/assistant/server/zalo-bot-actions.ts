@@ -9,7 +9,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
 
 export interface ZaloAssistantState {
-  bot: { accountId: string; name: string; status: string } | null;
+  bot: { accountId: string; name: string; status: string; callNames: string[] } | null;
   links: Array<{ id: string; zaloName: string | null; createdAt: string }>;
   canManage: boolean;
   zaloAccounts: Array<{ id: string; name: string; status: string }>;
@@ -42,7 +42,7 @@ export async function getZaloAssistantState(): Promise<ZaloAssistantState | null
   let status = "UNKNOWN";
   if (settings) status = String((await db.from("channel_accounts").select("status").eq("id", settings.channelAccountId).maybeSingle()).data?.status ?? "UNKNOWN");
   return {
-    bot: settings ? { accountId: settings.channelAccountId, name: settings.name, status } : null,
+    bot: settings ? { accountId: settings.channelAccountId, name: settings.name, status, callNames: settings.callNames } : null,
     links: (links ?? []).map((row) => ({ id: row.id as string, zaloName: (row.zalo_name as string | null) ?? null, createdAt: row.created_at as string })),
     canManage,
     recent,
@@ -64,6 +64,17 @@ export async function unlinkMyZalo(linkId: string): Promise<boolean> {
   if (!account?.workspaceId || !z.uuid().safeParse(linkId).success) return false;
   const { error } = await createPrivilegedClient().from("assistant_zalo_links").delete().eq("id", linkId).eq("workspace_id", account.workspaceId).eq("profile_id", account.userId);
   return !error;
+}
+
+/** Admins list the names staff tag to call the Trợ lý in groups (e.g. after renaming the Zalo profile). */
+export async function setZaloAssistantCallNames(raw: string): Promise<{ ok: boolean; message: string }> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId || !await hasPermission("roles.manage")) return { ok: false, message: "Chỉ quản trị viên được đổi tên gọi." };
+  const names = [...new Set(raw.split(/[,\n]/u).map((item) => item.trim().replace(/^@+/u, "")).filter((item) => item.length >= 2 && item.length <= 60))].slice(0, 10);
+  const { error } = await createPrivilegedClient().from("assistant_bot_settings").update({ call_names: names, updated_by: account.userId, updated_at: new Date().toISOString() }).eq("workspace_id", account.workspaceId);
+  if (error) return { ok: false, message: "Chưa lưu được, thử lại sau." };
+  forgetBotSettings(account.workspaceId);
+  return { ok: true, message: names.length ? `Đã lưu: gọi bằng ${names.map((name) => `@${name}`).join(", ")} hoặc /tl.` : "Đã lưu." };
 }
 
 /** Admins pick (or switch off, with null) the Zalo nick that answers as Trợ lý. */

@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { LoaderCircle, MessageCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getZaloAssistantState, requestZaloLinkCode, setZaloAssistantAccount, unlinkMyZalo, type ZaloAssistantState } from "@/modules/assistant/server/zalo-bot-actions";
+import { getZaloAssistantState, requestZaloLinkCode, setZaloAssistantAccount, setZaloAssistantCallNames, unlinkMyZalo, type ZaloAssistantState } from "@/modules/assistant/server/zalo-bot-actions";
 
 const STATUS: Record<string, string> = { DONE: "Đã trả lời", FAILED: "Lỗi", SKIPPED: "Bỏ qua", PENDING: "Đang chờ", RUNNING: "Đang xử lý" };
 const ERRORS: Record<string, string> = { NOT_LINKED: "người gửi chưa liên kết", SEND_FAILED: "gửi Zalo không được", NOT_A_QUESTION: "không phải câu hỏi", BOT_DISABLED: "Trợ lý đang tắt", MEMBER_SESSION_UNAVAILABLE: "không mở được phiên của người hỏi", TOO_MANY_ATTEMPTS: "thử quá 3 lần" };
@@ -15,14 +15,16 @@ export function ZaloAssistantBox() {
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
+  const [names, setNames] = useState("");
   const [pending, start] = useTransition();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { if (!code) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [code]);
 
-  function reload() { start(async () => { const next = await getZaloAssistantState(); setState(next); setPicked(next?.bot?.accountId ?? next?.zaloAccounts[0]?.id ?? ""); }); }
+  function reload() { start(async () => { const next = await getZaloAssistantState(); setState(next); setPicked(next?.bot?.accountId ?? next?.zaloAccounts[0]?.id ?? ""); setNames((next?.bot?.callNames ?? []).join(", ")); }); }
   function toggle() { if (!open) { setMessage(null); reload(); } setOpen((value) => !value); }
   function getCode() { setMessage(null); start(async () => { const result = await requestZaloLinkCode(); if (result.ok) { setCode({ code: result.code, expiresAt: result.expiresAt }); setNow(Date.now()); } else setMessage(result.message); }); }
   function unlink(id: string) { start(async () => { await unlinkMyZalo(id); reload(); }); }
+  function saveNames() { start(async () => { const result = await setZaloAssistantCallNames(names); setMessage(result.message); if (result.ok) reload(); }); }
   function choose(accountId: string | null) { start(async () => { const result = await setZaloAssistantAccount(accountId); setMessage(result.message); if (result.ok) reload(); }); }
   const left = code ? Math.max(0, Math.round((Date.parse(code.expiresAt) - now) / 1000)) : 0;
 
@@ -31,7 +33,7 @@ export function ZaloAssistantBox() {
     {open ? <div className="absolute bottom-full left-0 z-50 mb-2 w-80 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-xl">
       <div className="mb-2 flex items-center justify-between"><p className="font-bold text-slate-900">Trợ lý trên Zalo</p><button type="button" onClick={() => setOpen(false)} aria-label="Đóng" className="rounded p-1 text-slate-400 hover:bg-slate-100"><X className="size-4" /></button></div>
       {!state ? <p className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle className="size-3.5 animate-spin" />Đang tải…</p> : <div className="space-y-3">
-        {state.bot ? <p className="text-xs leading-5 text-slate-600">Nick Trợ lý: <b className="text-slate-900">{state.bot.name}</b>{state.bot.status !== "CONNECTED" ? <span className="ml-1 font-semibold text-rose-600">(đang mất kết nối)</span> : null}. Nhắn riêng cho nick này, hoặc trong nhóm gọi <b>@{state.bot.name}</b> / bắt đầu tin bằng <b>/tl</b>. Trợ lý trả lời theo quyền tài khoản HireX của bạn.</p>
+        {state.bot ? <p className="text-xs leading-5 text-slate-600">Nick Trợ lý: <b className="text-slate-900">{state.bot.name}</b>{state.bot.status !== "CONNECTED" ? <span className="ml-1 font-semibold text-rose-600">(đang mất kết nối)</span> : null}. Nhắn riêng cho nick này, hoặc trong nhóm gọi <b>{state.bot.callNames.map((name) => `@${name}`).join(" / ") || `@${state.bot.name}`}</b> / bắt đầu tin bằng <b>/tl</b>. Trợ lý trả lời theo quyền tài khoản HireX của bạn.</p>
           : <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Chưa bật Trợ lý trên Zalo.{state.canManage ? " Chọn nick ở dưới để bật." : " Nhờ quản trị viên bật."}</p>}
 
         {state.bot ? <div>
@@ -49,6 +51,9 @@ export function ZaloAssistantBox() {
           <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">Quản trị: nick làm Trợ lý</p>
           <div className="flex gap-1.5"><select value={picked} onChange={(event) => setPicked(event.target.value)} className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs">{state.zaloAccounts.map((nick) => <option key={nick.id} value={nick.id}>{nick.name}{nick.status !== "CONNECTED" ? " (mất kết nối)" : ""}</option>)}</select>
             <button type="button" disabled={pending || !picked || picked === state.bot?.accountId} onClick={() => choose(picked)} className="h-8 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40">{state.bot ? "Đổi" : "Bật"}</button></div>
+          {state.bot ? <div className="mt-2"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Tên gọi trong nhóm</p>
+            <div className="mt-1 flex gap-1.5"><input value={names} onChange={(event) => setNames(event.target.value)} placeholder="Ví dụ: Soda, Trợ lý" aria-label="Tên gọi trong nhóm, cách nhau bằng dấu phẩy" className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-400" /><button type="button" disabled={pending} onClick={saveNames} className="h-8 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40">Lưu</button></div>
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">Đổi tên Zalo của nick thì thêm tên mới vào đây (cách nhau bằng dấu phẩy) để nhóm gọi “@tên mới” vẫn được trả lời.</p></div> : null}
           {state.bot ? <button type="button" disabled={pending} onClick={() => choose(null)} className="mt-1.5 text-xs font-semibold text-rose-600 hover:underline">Tắt Trợ lý trên Zalo</button> : null}
           {state.bot ? <div className="mt-2">
             <div className="flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Tin gần đây</p><button type="button" onClick={reload} disabled={pending} className="text-[11px] font-semibold text-blue-700 hover:underline">Làm mới</button></div>

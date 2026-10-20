@@ -7,6 +7,8 @@ test("called in a group by /tl or @name", () => {
   assert.equal(isBotCall("@Kiều Trang chiến dịch thế nào", "Kiều Trang"), true);
   assert.equal(isBotCall("@kieu trang chien dich", "Kiều Trang"), true);
   assert.equal(isBotCall("mọi người ơi họp lúc 3h", "Kiều Trang"), false);
+  assert.equal(isBotCall("@Soda nay anh có lịch gì", ["Kiều Trang", "Soda"]), true);
+  assert.equal(stripBotCall("@Soda nay anh có lịch gì", ["Kiều Trang", "Soda"]), "nay anh có lịch gì");
 });
 test("question without the call", () => {
   assert.equal(stripBotCall("/tl hôm nay có gì?", "Kiều Trang"), "hôm nay có gì?");

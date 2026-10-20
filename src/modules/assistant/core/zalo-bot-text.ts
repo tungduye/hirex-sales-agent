@@ -2,24 +2,25 @@
 
 const fold = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase();
 
-/** In a group the Trợ lý answers only when called: "/tl …" or "@<nick name> …". */
-export function isBotCall(text: string, botName: string): boolean {
+/** In a group the Trợ lý answers only when called: "/tl …" or "@<one of its names> …". */
+export function isBotCall(text: string, botNames: string | string[]): boolean {
   const clean = fold(text.trim());
   if (/^\/tl(\s|$)/u.test(clean)) return true;
-  const name = fold(botName.trim());
-  return name.length > 0 && clean.includes(`@${name}`);
+  return (Array.isArray(botNames) ? botNames : [botNames]).some((botName) => { const name = fold(botName.trim()); return name.length > 0 && clean.includes(`@${name}`); });
 }
 
-/** The question without "/tl" or "@<nick name>". */
-export function stripBotCall(text: string, botName: string): string {
+/** The question without "/tl" or "@<one of its names>". */
+export function stripBotCall(text: string, botNames: string | string[]): string {
   let out = text.trim().replace(/^\/tl\b\s*/iu, "");
-  const name = botName.trim();
+  for (const raw of Array.isArray(botNames) ? botNames : [botNames]) {
+  const name = raw.trim();
   if (name) {
     const pattern = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "giu");
     out = out.replace(pattern, " ");
     // Zalo may send the name without accents in some clients.
     const folded = fold(name);
     if (folded !== name.toLowerCase()) out = out.split(/\s+/u).join(" ").replace(new RegExp(`@${folded.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "giu"), " ");
+  }
   }
   return out.replace(/\s+/gu, " ").replace(/^[,:\s]+/u, "").trim();
 }

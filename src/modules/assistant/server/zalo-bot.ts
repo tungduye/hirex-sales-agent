@@ -11,16 +11,16 @@ import { executeChannelOutboundAction } from "@/modules/channels/server/execute-
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
 
 type Db = ReturnType<typeof createPrivilegedClient>;
-interface BotSettings { channelAccountId: string; name: string; enabledAt: string }
+interface BotSettings { channelAccountId: string; name: string; callNames: string[]; enabledAt: string }
 
 const settingsCache = new Map<string, { value: BotSettings | null; at: number }>();
 /** The workspace's Zalo Trợ lý nick, if one is switched on (cached 30 s; changes clear it). */
 export async function botSettings(db: Db, workspaceId: string): Promise<BotSettings | null> {
   const cached = settingsCache.get(workspaceId);
   if (cached && Date.now() - cached.at < 30_000) return cached.value;
-  const { data } = await db.from("assistant_bot_settings").select("channel_account_id,enabled,enabled_at,channel_accounts(display_name)").eq("workspace_id", workspaceId).maybeSingle();
+  const { data } = await db.from("assistant_bot_settings").select("channel_account_id,enabled,enabled_at,call_names,channel_accounts(display_name)").eq("workspace_id", workspaceId).maybeSingle();
   const account = data?.channel_accounts as unknown as { display_name: string | null } | null;
-  const value = data?.enabled && data.channel_account_id ? { channelAccountId: data.channel_account_id as string, name: account?.display_name?.trim() || "Trợ lý", enabledAt: (data.enabled_at as string) ?? new Date(0).toISOString() } : null;
+  const value = data?.enabled && data.channel_account_id ? { channelAccountId: data.channel_account_id as string, name: account?.display_name?.trim() || "Trợ lý", callNames: [...new Set([account?.display_name?.trim() || "", ...((data.call_names as string[] | null) ?? [])].map((item) => item.trim()).filter(Boolean))], enabledAt: (data.enabled_at as string) ?? new Date(0).toISOString() } : null;
   settingsCache.set(workspaceId, { value, at: Date.now() });
   return value;
 }
@@ -35,7 +35,7 @@ export async function enqueueAssistantBotInbound(input: { workspaceId: string; c
     if (!settings || settings.channelAccountId !== input.channelAccountId) return;
     const group = isGroupConversation(input.conversationMetadata) || isZaloGroupThread("ZALO", input.providerConversationId, input.senderExternalId);
     // In a group, only messages that call the Trợ lý; in a private chat, everything (unlinked senders are ignored later).
-    if (group && !isBotCall(input.text, settings.name)) return;
+    if (group && !isBotCall(input.text, settings.callNames)) return;
     await db.from("assistant_bot_jobs").upsert({ workspace_id: input.workspaceId, channel_account_id: input.channelAccountId, conversation_id: input.conversationId, message_id: input.messageId }, { onConflict: "message_id", ignoreDuplicates: true });
   } catch { /* The Trợ lý queue must never fail channel ingestion. */ }
 }
@@ -100,7 +100,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const { data: link } = await db.from("assistant_zalo_links").select("profile_id").eq("workspace_id", workspaceId).eq("zalo_user_id", sender).maybeSingle();
     if (!link) { await finish(db, jobId, "SKIPPED", { safe_error_code: "NOT_LINKED" }); return { processed: true, status: "SKIPPED" }; }
     const profileId = link.profile_id as string;
-    const question = (group ? stripBotCall(text, settings.name) : text).slice(0, 1000);
+    const question = (group ? stripBotCall(text, settings.callNames) : text).slice(0, 1000);
     if (!question) {
       const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, "Dạ, sếp cần em tra cứu gì ạ?");
       await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId });
