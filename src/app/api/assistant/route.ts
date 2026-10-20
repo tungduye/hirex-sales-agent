@@ -8,6 +8,8 @@ const bodySchema = z.object({
   pagePath: z.string().max(300).nullable().default(null),
   allowDocuments: z.boolean().default(false),
   uploadId: z.string().uuid().nullable().default(null),
+  save: z.boolean().default(false),
+  conversationId: z.string().uuid().nullable().default(null),
 });
 
 export async function POST(request: Request) {

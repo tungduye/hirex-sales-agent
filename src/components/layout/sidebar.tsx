@@ -4,17 +4,19 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bot, BriefcaseBusiness, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Workflow } from "lucide-react";
+import { BarChart3, Bot, BriefcaseBusiness, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
 import type { AccountContext } from "@/types/account";
 
-type NavItem = { label: string; href: string; icon: typeof LayoutDashboard; permission: string; adminOnly?: boolean };
+/** permission null: every member (e.g. Trợ lý, which answers within each member's own rights). */
+type NavItem = { label: string; href: string; icon: typeof LayoutDashboard; permission: string | null; adminOnly?: boolean };
 
 /** Main menu. */
 const navigation: NavItem[] = [
   { label: "Tổng quan", href: "/", icon: LayoutDashboard, permission:"dashboard.view" },
+  { label: "Trợ lý", href: "/assistant", icon: Sparkles, permission:null },
   { label: "Suối Nguồn", href: "/inbox", icon: Inbox, permission:"inbox.view" },
   { label: "Scan", href: "/scan", icon: FileScan, permission:"scan.view" },
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
@@ -38,7 +40,7 @@ const settingsNavigation: NavItem[] = [
 /** collapsed: icon-only column (desktop); onToggleCollapsed shows the "Thu gọn / Mở rộng menu" button. */
 export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false, onToggleCollapsed }: { account: AccountContext; workspaceAdmin: boolean; onNavigate?: () => void; collapsed?: boolean; onToggleCollapsed?: () => void }) {
   const pathname = usePathname();
-  const allowed = (item: NavItem) => account.permissions.includes(item.permission) && (!item.adminOnly || workspaceAdmin);
+  const allowed = (item: NavItem) => (item.permission === null || account.permissions.includes(item.permission)) && (!item.adminOnly || workspaceAdmin);
   const visible = navigation.filter(allowed);
   const settingsItems = settingsNavigation.filter(allowed);
   const activeHref = activeNavigationHref(pathname, [...visible, ...settingsItems].map(item => item.href));
