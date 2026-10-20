@@ -263,7 +263,9 @@
     ".next-content-dot4/types/**/*.ts",
     ".next-content-dot4/dev/types/**/*.ts",
     ".next-suoi-nguon-pham-vi/types/**/*.ts",
-    ".next-suoi-nguon-pham-vi/dev/types/**/*.ts"
+    ".next-suoi-nguon-pham-vi/dev/types/**/*.ts",
+    ".next-suoi-nguon-pham-vi-2/types/**/*.ts",
+    ".next-suoi-nguon-pham-vi-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -56,7 +56,7 @@ export default async function RolesPage() {
         const reports = reportsOf.get(profile.id) ?? [];
         const blocked = below(profile.id);
         const managerName = profile.manager_id ? nameOf.get(profile.manager_id) : null;
-        const pickerAccounts = data.accounts.map((item) => ({ id: item.id, channel: item.channel_type, name: item.display_name || item.external_account_id, owner: item.primary_profile_id && item.primary_profile_id !== profile.id ? nameOf.get(item.primary_profile_id) ?? null : null }));
+        const pickerAccounts = data.accounts.map((item) => ({ id: item.id, channel: item.channel_type, name: item.display_name || item.external_account_id, owner: item.primary_profile_id && item.primary_profile_id !== profile.id ? nameOf.get(item.primary_profile_id) ?? null : null, free: !item.primary_profile_id }));
         const primaryIds = data.accounts.filter((item) => item.primary_profile_id === profile.id).map((item) => item.id);
         return <details key={profile.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-4 sm:p-5 marker:content-none">
