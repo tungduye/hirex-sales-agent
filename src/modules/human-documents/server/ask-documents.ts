@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
-import { requireWorkspaceAdmin } from "@/modules/access/server/access-control";
+import { requireDocumentReader } from "@/modules/access/server/access-control";
 import { loadHumanSnapshot } from "./snapshot";
 import { retrieveEvidence, validateCitations } from "../core/retrieval";
 import { localDocumentQuery } from "../core/local-query";
@@ -12,7 +12,7 @@ import { buildFolderSummaryBatches } from "../core/summary-batches";
 const requests = new Map<string, { started: number; count: number; busy: boolean }>();
 const resultSchema = z.object({ answer: z.string().max(12000), supported: z.boolean(), citations: z.array(z.object({ id: z.number().int(), quote: z.string().min(12).max(700) })).max(8) });
 export async function askDocuments(input: { question: string; selectedId?: number; consent: boolean }) {
-  const account = await requireWorkspaceAdmin();
+  const account = await requireDocumentReader();
   const parsed = z.object({ question: z.string().trim().min(3).max(1200), selectedId: z.number().int().positive().optional(), consent: z.boolean() }).safeParse(input);
   if (!parsed.success) return { answer: "Nhập câu hỏi và xác nhận gửi các đoạn liên quan tới OpenAI.", sources: [], error: true };
   const key = `${account.workspaceId}:${account.userId}`;

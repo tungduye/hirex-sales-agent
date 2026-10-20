@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { hasPermission, isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { BookOpen, FileText, FolderOpen, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { DocumentTree } from "@/modules/human-documents/components/document-tree";
 import { readHumanDocuments } from "@/modules/human-documents/server/snapshot";
@@ -6,13 +8,16 @@ import { DocumentChat } from "@/modules/human-documents/components/document-chat
 import { HumanRefreshButton } from "@/modules/human-documents/components/api-controls";
 
 export default async function DocumentsPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; id?: string; group?: string }> }) {
+  // Members granted "Tài liệu · Xem" read the library; updating it from Human stays with administrators.
+  const admin = await isWorkspaceAdmin();
+  if (!admin && !await hasPermission("documents.view")) redirect("/");
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q.slice(0, 200) : "";
   const group = typeof params.group === "string" ? params.group.slice(0, 300) : "";
   const page = Number(params.page);
   const result = await readHumanDocuments(query, Number.isSafeInteger(page) ? page : 1, Number(params.id), group);
   return <div className="space-y-6">
-    <HumanRefreshButton />
+    {admin ? <HumanRefreshButton /> : null}
     <header className="relative overflow-hidden rounded-2xl bg-slate-950 px-6 py-7 text-white"><div className="pointer-events-none absolute -right-12 -top-24 size-80 rounded-full bg-indigo-500/15 blur-3xl"/><div className="relative flex flex-wrap items-start justify-between gap-4"><div><div className="mb-3 flex items-center gap-2 text-[10px] font-semibold tracking-[0.2em] text-indigo-300"><BookOpen size={14}/>HIREX KNOWLEDGE</div><h1 className="text-3xl font-semibold tracking-tight">Thư viện tài liệu</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">Tìm đúng thông tin. Đọc rõ ngữ cảnh. Hỏi AI và kiểm tra nguồn ngay tại đây.</p></div><span className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs text-slate-300"><ShieldCheck size={14}/>Chỉ quản trị viên</span></div><div className="relative mt-6 flex flex-wrap gap-6 border-t border-white/10 pt-4"><div><span className="text-2xl font-semibold">{result?.total.toLocaleString("vi-VN") ?? "0"}</span><span className="ml-2 text-xs text-slate-400">tài liệu</span></div><div><span className="text-2xl font-semibold">{result?.groups.length ?? 0}</span><span className="ml-2 text-xs text-slate-400">nhóm tài liệu</span></div><div className="flex items-center gap-2 text-xs text-indigo-200"><Sparkles size={15}/>Trợ lý AI · Có dẫn nguồn</div></div></header>
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><p>Bản dữ liệu nhập {result ? new Date(result.importedAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) : "—"} · Không tự cập nhật từ Human</p><Link href="/settings/human" className="text-indigo-600 hover:underline">Cấu hình kết nối →</Link></div>
     {!result ? <div className="rounded-2xl border bg-white p-10 text-center text-slate-500">Chưa có dữ liệu tài liệu.</div> : <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">

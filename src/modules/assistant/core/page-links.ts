@@ -18,7 +18,7 @@ export const PAGES = {
   KHO_MAU: { path: "/content/templates", label: "Kho mẫu", permission: "content.view" },
   CONG_VIEC: { path: "/tasks", label: "Công việc", permission: "tasks.view" },
   PHAN_TICH: { path: "/analytics", label: "Phân tích", permission: "analytics.view" },
-  TAI_LIEU: { path: "/documents", label: "Thư viện tài liệu", permission: "workspace.admin" },
+  TAI_LIEU: { path: "/documents", label: "Thư viện tài liệu", permission: "documents.view" },
   SCAN_CV: { path: "/scan/cv", label: "Scan CV", permission: "scan.cv" },
   SCAN_WEBSITE: { path: "/scan/website", label: "Scan Website", permission: "scan.website" },
   QUY_TAC: { path: "/assistant/rules", label: "Quy tắc tự động của trợ lý", permission: "dashboard.view" },
@@ -45,7 +45,8 @@ export interface PageFilters { tu_khoa?: string | null; trang_thai?: string | nu
 
 export function canOpenPage(page: PageKey, access: PageAccess) {
   const permission = PAGES[page].permission;
-  return permission === "workspace.admin" ? access.isAdmin : access.permissions.includes(permission);
+  // Administrators always have the document library.
+  return permission === "workspace.admin" ? access.isAdmin : access.permissions.includes(permission) || (access.isAdmin && permission === "documents.view");
 }
 
 /** Pages this member can open (for the tool description and error messages). */

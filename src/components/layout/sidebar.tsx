@@ -22,7 +22,7 @@ const navigation: NavItem[] = [
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
   { label: "Kho content", href: "/content", icon: FileText, permission:"content.view" },
   { label: "Job", href: "/jobs", icon: BriefcaseBusiness, permission:"jobs.view" },
-  { label: "Tài liệu", href: "/documents", icon: FileScan, permission:"roles.manage", adminOnly: true },
+  { label: "Tài liệu", href: "/documents", icon: FileScan, permission:"documents.view" },
   { label: "Tài khoản", href: "/accounts", icon: KeyRound, permission:"accounts.view" },
 ];
 

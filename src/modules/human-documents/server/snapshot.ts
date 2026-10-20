@@ -2,7 +2,7 @@ import "server-only";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import sanitizeHtml from "sanitize-html";
-import { requireWorkspaceAdmin } from "@/modules/access/server/access-control";
+import { requireDocumentReader } from "@/modules/access/server/access-control";
 import { decryptCredential } from "@/modules/integrations/gmail/server/credential-encryption";
 import { normalize, documentIndex } from "../core/retrieval";
 import { VersionCache } from "../core/version-cache";
@@ -12,7 +12,7 @@ type Snapshot = { importedAt: string; documents: Document[]; folderPaths?: strin
 const snapshots = new VersionCache<Snapshot>();
 
 export async function loadHumanSnapshot() {
-  const account = await requireWorkspaceAdmin();
+  const account = await requireDocumentReader();
   if (!/^[a-zA-Z0-9-]+$/.test(account.workspaceId)) throw new Error("INVALID_WORKSPACE");
   try {
     const file = join(process.cwd(), "runtime", "human-documents", `${account.workspaceId}.enc`);

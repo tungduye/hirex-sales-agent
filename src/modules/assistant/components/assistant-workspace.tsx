@@ -15,7 +15,8 @@ const idFromPath = (path: string) => /^\/assistant\/c\/([0-9a-f-]{36})$/iu.exec(
 /** The full Trợ lý page: saved conversations on the left, one conversation in the middle (like a chat app). */
 export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }: { conversationId: string | null; workspaceAdmin: boolean }) {
   const account = useAccount();
-  const [documentsOn, toggleDocuments] = useDocumentsSwitch(workspaceAdmin);
+  const canReadDocuments = workspaceAdmin || account.permissions.includes("documents.view");
+  const [documentsOn, toggleDocuments] = useDocumentsSwitch(canReadDocuments);
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   const [query, setQuery] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -97,7 +98,7 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
         className="block w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-slate-900 placeholder:text-slate-400 focus:outline-none disabled:opacity-60" />
       <div className="mt-2 flex items-center gap-1.5">
         <AttachButton disabled={busy || uploading} uploading={uploading} allowed={account.permissions.includes("campaigns.create")} onFile={(file) => void attach(file).then(() => inputRef.current?.focus())} />
-        {workspaceAdmin && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
+        {canReadDocuments && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
           title={documentsOn ? "Đang cho trợ lý đọc Thư viện tài liệu (gửi các đoạn liên quan tới OpenAI). Bấm để tắt." : "Cho trợ lý đọc Thư viện tài liệu: các đoạn liên quan sẽ được gửi tới OpenAI để trả lời."}
           className={cn("flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors", documentsOn ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>
           <BookOpen className="size-3.5" />Tài liệu<span className={cn("size-1.5 rounded-full", documentsOn ? "bg-indigo-600" : "bg-slate-300")} />

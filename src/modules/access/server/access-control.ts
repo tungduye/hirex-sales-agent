@@ -36,6 +36,13 @@ export const isWorkspaceAdmin = cache(async () => {
   return !roleError && role?.is_system === true && role.name === "Quản trị viên";
 });
 
+/** Thư viện tài liệu: members granted "Tài liệu · Xem" (administrators always). Managing it stays admin-only. */
+export async function requireDocumentReader() {
+  const account = await getAccountContext();
+  if (!account?.workspaceId || (!account.permissions.includes("documents.view") && !await isWorkspaceAdmin())) throw new Error("FORBIDDEN");
+  return { ...account, workspaceId: account.workspaceId };
+}
+
 export async function requireWorkspaceAdmin() {
   const account = await getAccountContext();
   if (!account?.workspaceId || !await isWorkspaceAdmin()) throw new Error("FORBIDDEN");

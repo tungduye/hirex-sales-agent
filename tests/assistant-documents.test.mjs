@@ -13,14 +13,16 @@ const docs = [
   { id: 5, name: 'Trống', group: 'Sale', status: '' },
 ];
 
-test('document tools: admins only, and only when "Tài liệu" is switched on', () => {
+test('document tools: "Tài liệu · Xem" (admins always), and only when "Tài liệu" is switched on', () => {
   const names = (perms, admin, documents) => toolsFor(perms, admin, { documents }).map((tool) => tool.name).filter((name) => /tai_lieu/.test(name));
   assert.deepEqual(names(['roles.manage', 'settings.view'], false, true), []);
   assert.deepEqual(names([], true, false), []);
   assert.deepEqual(names([], true, undefined), []);
   assert.deepEqual(names([], true, true), ['tim_tai_lieu', 'doc_tai_lieu', 'hoi_tai_lieu']);
+  assert.deepEqual(names(['documents.view'], false, true), ['tim_tai_lieu', 'doc_tai_lieu', 'hoi_tai_lieu']);
+  assert.deepEqual(names(['documents.view'], false, false), []);
   for (const tool of ASSISTANT_TOOLS.filter((item) => item.documents)) {
-    assert.equal(tool.permission, 'workspace.admin');
+    assert.equal(tool.permission, 'documents.view');
     assert.ok(!tool.proposal, 'document tools only read');
   }
   // No tool deletes anything.
@@ -79,7 +81,7 @@ test('instructions explain the document switch', () => {
   const base = { fullName: 'An', now: new Date('2026-10-15T08:00:00Z'), toolLabels: [], context: null };
   assert.match(assistantInstructions({ ...base, documents: 'on' }), /tim_tai_lieu/);
   assert.match(assistantInstructions({ ...base, documents: 'off' }), /chưa bật nút "Tài liệu"/);
-  assert.match(assistantInstructions(base), /chỉ dành cho quản trị viên/);
+  assert.match(assistantInstructions(base), /chỉ dành cho người được cấp quyền/);
 });
 
 test('document tools may return longer output', async () => {

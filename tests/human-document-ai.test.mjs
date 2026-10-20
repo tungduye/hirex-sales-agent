@@ -19,7 +19,7 @@ function load({ denied = false, fetcher, snapshot, folderResolver } = {}) {
   const source = ts.transpileModule(fs.readFileSync('src/modules/human-documents/server/ask-documents.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports: output.exports, require: name => {
     if (name === 'zod') return zod;
-    if (name.includes('access-control')) return { requireWorkspaceAdmin: async () => { if (denied) throw Error('FORBIDDEN'); return { workspaceId: 'test', userId: 'test' }; } };
+    if (name.includes('access-control')) return { requireDocumentReader: async () => { if (denied) throw Error('FORBIDDEN'); return { workspaceId: 'test', userId: 'test' }; } };
     if (name === './snapshot') return { loadHumanSnapshot: async () => snapshot ?? ({ importedAt: '2026-10-12', documents: [] }) };
     if (name === '../core/local-query') return { localDocumentQuery: () => null };
     if (name === '../core/hierarchy') return { documentsForFolderQuery: folderResolver ?? (() => null) };

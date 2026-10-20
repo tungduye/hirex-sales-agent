@@ -66,7 +66,8 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
   }
 
   const isAdmin = await isWorkspaceAdmin();
-  const documents = !isAdmin ? "none" : request.allowDocuments ? "on" : "off";
+  const canReadDocuments = isAdmin || account.permissions.includes("documents.view");
+  const documents = !canReadDocuments ? "none" : request.allowDocuments ? "on" : "off";
   const tools = toolsFor(account.permissions, isAdmin, { documents: documents === "on" });
   const proposals: PendingAction[] = [];
   const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };

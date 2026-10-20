@@ -406,7 +406,7 @@ const runners: Record<string, Runner> = {
     };
   },
 
-  // Thư viện tài liệu (admins only; loadHumanSnapshot and askDocuments check it again).
+  // Thư viện tài liệu ("Tài liệu · Xem"; loadHumanSnapshot and askDocuments check it again).
   async tim_tai_lieu(args) {
     const snapshot = await loadHumanSnapshot();
     if (!snapshot) return { loi: "Chưa có dữ liệu tài liệu (cấu hình ở trang Kết nối Human).", link: "/settings/human" };

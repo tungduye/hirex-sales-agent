@@ -114,7 +114,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const { data: past } = conversationId ? await db.from("assistant_messages").select("role,content,is_error").eq("conversation_id", conversationId).order("created_at", { ascending: false }).limit(20) : { data: [] as Array<{ role: string; content: string; is_error: boolean }> };
     const history = (past ?? []).filter((row) => !row.is_error).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: String(row.content).slice(0, 8000) }));
 
-    const result = await runAsMember(profileId, () => runAssistantRequest({ question, history, pagePath: null, allowDocuments: false, uploadId: null, save: true, conversationId, source: { channel: "ZALO", sourceConversationId: conversation.id as string } }));
+    const result = await runAsMember(profileId, () => runAssistantRequest({ question, history, pagePath: null, allowDocuments: true, uploadId: null, save: true, conversationId, source: { channel: "ZALO", sourceConversationId: conversation.id as string } }));
     const base = process.env.APP_BASE_URL?.trim() || "https://app.hirexmkt.online";
     let reply = result.ok ? toZaloText(result.answer, base) : result.message;
     if (result.ok && result.pendingActions.length && result.conversationId) reply += `\n\nEm đã chuẩn bị ${result.pendingActions.length} thao tác, anh/chị mở link để xem và bấm Xác nhận: ${base}/assistant/c/${result.conversationId}`;

@@ -399,7 +399,7 @@ function DOCUMENT_TOOLS(): AssistantToolDefinition[] {
   return [
     {
       name: "tim_tai_lieu",
-      permission: "workspace.admin",
+      permission: "documents.view",
       documents: true,
       label: "Tìm tài liệu",
       description: "Tìm trong Thư viện tài liệu theo tên, nhóm/thư mục và nội dung; trả về tối đa 15 tài liệu khớp nhất (id, tên, nhóm, thư mục, đoạn khớp, link) và tổng số khớp. Không có từ khóa = tổng quan thư viện (số tài liệu, các nhóm và số tài liệu mỗi nhóm).",
@@ -415,7 +415,7 @@ function DOCUMENT_TOOLS(): AssistantToolDefinition[] {
     },
     {
       name: "doc_tai_lieu",
-      permission: "workspace.admin",
+      permission: "documents.view",
       documents: true,
       label: "Đọc tài liệu",
       description: "Đọc nội dung một tài liệu theo id (lấy từ tim_tai_lieu). Có tu_khoa: trả về tối đa 4 đoạn liên quan nhất trong tài liệu. Không có tu_khoa: đọc theo phần, mỗi phần 6.000 ký tự (phan = 1, 2, …).",
@@ -432,7 +432,7 @@ function DOCUMENT_TOOLS(): AssistantToolDefinition[] {
     },
     {
       name: "hoi_tai_lieu",
-      permission: "workspace.admin",
+      permission: "documents.view",
       documents: true,
       label: "Hỏi tài liệu (có kiểm tra trích dẫn)",
       description: "Hỏi đáp/tổng hợp trên Thư viện tài liệu bằng bộ hỏi đáp riêng có kiểm tra trích dẫn nguyên văn (chậm hơn, 10–90 giây). Dùng cho câu cần tổng hợp nhiều tài liệu, \"tổng hợp/tóm tắt <thư mục hoặc nhóm>\", hoặc khi cần câu trả lời có trích dẫn đã kiểm tra. Có thể giới hạn trong một tài liệu bằng document_id.",
@@ -671,7 +671,7 @@ export const ASSISTANT_TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name);
 /** Tools this member may use. Document tools also need the panel's "Tài liệu" switch. */
 export function toolsFor(permissions: readonly string[], isAdmin: boolean, options: { documents?: boolean } = {}): AssistantToolDefinition[] {
   return ASSISTANT_TOOLS.filter((tool) => (!tool.documents || options.documents === true)
-    && (tool.permission === "*" || (tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission))));
+    && (tool.permission === "*" || (tool.permission === "workspace.admin" ? isAdmin : permissions.includes(tool.permission) || (isAdmin && tool.permission === "documents.view"))));
 }
 
 /** Tool list in OpenAI Responses API format. */

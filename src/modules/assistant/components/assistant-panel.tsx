@@ -13,7 +13,8 @@ import type { AccountContext } from "@/types/account";
 export function AssistantPanel({ account, workspaceAdmin = false }: { account: AccountContext; workspaceAdmin?: boolean }) {
   const pathname = usePathname();
   const onAssistantPage = pathname === "/assistant" || pathname.startsWith("/assistant/c/");
-  const [documentsOn, toggleDocuments] = useDocumentsSwitch(workspaceAdmin);
+  const canReadDocuments = workspaceAdmin || account.permissions.includes("documents.view");
+  const [documentsOn, toggleDocuments] = useDocumentsSwitch(canReadDocuments);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const chat = useAssistantChat({ pagePath: pathname, allowDocuments: documentsOn });
@@ -87,7 +88,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
               <h2 id="assistant-title" className="text-sm font-bold">Trợ lý HireX</h2>
               <p className="text-xs text-slate-500">Tra cứu theo quyền tài khoản · mọi thao tác cần anh/chị bấm Xác nhận</p>
             </div>
-            {workspaceAdmin && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
+            {canReadDocuments && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
               title={documentsOn ? "Đang cho trợ lý đọc Thư viện tài liệu (gửi các đoạn liên quan tới OpenAI). Bấm để tắt." : "Cho trợ lý đọc Thư viện tài liệu: các đoạn liên quan sẽ được gửi tới OpenAI để trả lời."}
               className={cn("mt-0.5 flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs font-semibold transition-colors", documentsOn ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>
               <BookOpen className="size-3.5" />Tài liệu<span className={cn("size-1.5 rounded-full", documentsOn ? "bg-indigo-600" : "bg-slate-300")} />
@@ -101,7 +102,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
             {messages.length === 0 && (
               <div className="space-y-3">
                 <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chi tiết liên hệ, công ty, chiến dịch, công việc, Kho content…, mở nhanh trang anh/chị cần, và đề xuất thao tác (soạn tin trả lời ứng viên, tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
-                {workspaceAdmin && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-900">{documentsOn ? "Đang bật Tài liệu: em có thể tìm, đọc và trả lời từ Thư viện tài liệu, kèm nguồn." : "Bật nút “Tài liệu” ở trên để em tìm và trả lời từ Thư viện tài liệu (các đoạn liên quan sẽ được gửi tới OpenAI)."}</p>}
+                {canReadDocuments && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-900">{documentsOn ? "Đang bật Tài liệu: em có thể tìm, đọc và trả lời từ Thư viện tài liệu, kèm nguồn." : "Bật nút “Tài liệu” ở trên để em tìm và trả lời từ Thư viện tài liệu (các đoạn liên quan sẽ được gửi tới OpenAI)."}</p>}
                 <div className="flex flex-col gap-2">
                   {prompts.map((prompt) => (
                     <button key={prompt} type="button" onClick={() => send(prompt)} className="rounded-lg border px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50">{prompt}</button>

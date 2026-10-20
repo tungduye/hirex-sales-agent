@@ -13,7 +13,7 @@ test('snapshot authorizes every cache hit and invalidates updated/deleted files'
     if (name === 'server-only') return {};
     if (name === 'node:path') return path;
     if (name === 'node:fs/promises') return { stat: async () => { if (deleted) throw Object.assign(Error(), { code: 'ENOENT' }); return { ino: 1, size: 100, mtimeMs: version, ctimeMs: version }; }, readFile: async () => { reads++; return JSON.stringify({ importedAt: String(version), documents: [] }); } };
-    if (name.includes('access-control')) return { requireWorkspaceAdmin: async () => { if (denied) throw Error('FORBIDDEN'); return { workspaceId }; } };
+    if (name.includes('access-control')) return { requireDocumentReader: async () => { if (denied) throw Error('FORBIDDEN'); return { workspaceId }; } };
     if (name.includes('credential-encryption')) return { decryptCredential: text => text };
     if (name.includes('version-cache')) return { VersionCache };
     return {};
