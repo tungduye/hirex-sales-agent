@@ -305,7 +305,9 @@
     ".next-tai-lieu-word-2/types/**/*.ts",
     ".next-tai-lieu-word-2/dev/types/**/*.ts",
     ".next-gui-nhom-zalo/types/**/*.ts",
-    ".next-gui-nhom-zalo/dev/types/**/*.ts"
+    ".next-gui-nhom-zalo/dev/types/**/*.ts",
+    ".next-gui-nhom-zalo-2/types/**/*.ts",
+    ".next-gui-nhom-zalo-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

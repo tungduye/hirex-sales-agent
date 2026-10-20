@@ -126,7 +126,14 @@ export async function currentZaloGroup(context: BroadcastContext, conversationId
   if (!conversation || !bot?.enabled || bot.channel_account_id !== conversation.channel_account_id || typeof conversation.provider_conversation_id !== "string") return null;
   const { data: isGroup } = await db.rpc("is_zalo_group_conversation", { p_conversation_id: conversation.id });
   if (isGroup !== true) return null;
-  return { accountId: String(conversation.channel_account_id), conversationId: String(conversation.id), groupId: conversation.provider_conversation_id, name: metadataName(conversation.metadata) || "Nhóm Zalo" };
+  // The Trợ lý nick's copy of a group may lack its name; another nick in the same group usually has it.
+  let name = metadataName(conversation.metadata);
+  if (!name) {
+    const { data: others } = await db.from("omnichannel_conversations").select("metadata").eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO")
+      .eq("provider_conversation_id", conversation.provider_conversation_id).neq("id", conversation.id).limit(10);
+    name = ((others ?? []) as Row[]).map((row) => metadataName(row.metadata)).find(Boolean) ?? null;
+  }
+  return { accountId: String(conversation.channel_account_id), conversationId: String(conversation.id), groupId: conversation.provider_conversation_id, name: name || "Nhóm Zalo" };
 }
 
 /** A draft: nothing is sent until the member starts it. Each group goes to one of the chosen nicks in it. */
@@ -148,7 +155,9 @@ export async function createBroadcast(context: BroadcastContext, input: Broadcas
   const db = createPrivilegedClient();
   const cap = Math.min(100, Math.max(1, Math.round(input.dailyCapPerNick ?? BROADCAST_DEFAULTS.dailyCapPerNick)));
   const { data, error } = await db.from("zalo_broadcasts").insert({ workspace_id: context.workspaceId, name, text_content: text, send_message: input.sendMessage, pin_note: input.pinNote,
-    daily_cap_per_nick: cap, created_by: context.userId, source: input.source ?? "WEB" }).select("id").single();
+    daily_cap_per_nick: cap, created_by: context.userId, source: input.source ?? "WEB",
+    // Asked for right now in the group itself: no 8:00–21:00 window and no wait.
+    ...(current ? { window_start_hour: 0, window_end_hour: 24, min_gap_seconds: 30, max_gap_seconds: 30 } : {}) }).select("id").single();
   if (error || !data) return { ok: false as const, error: "Chưa lưu được." };
   const rows = groups.flatMap((group, position) => {
     const accountId = plan.get(group.groupId);
