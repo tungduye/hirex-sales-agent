@@ -32,6 +32,23 @@ async function enqueueAiRecruiter(account, message, persisted) {
   if (!response.ok) throw new Error("RECENT_AI_ENQUEUE_FAILED");
 }
 
+// Zalo Trợ lý: messages to the Trợ lý nick (group chats come only through this sync) are handed to the
+// web app, which decides whether they call the Trợ lý. Never fails the sync.
+async function enqueueAssistantBot(botAccountIds, account, message, persisted) {
+  if (message.direction !== "INBOUND" || !botAccountIds.has(account.id) || !persisted?.messageId || !persisted?.conversationId) return;
+  const secret = process.env.AUTOMATION_CRON_SECRET?.trim();
+  const endpoint = process.env.HIREX_INTERNAL_BASE_URL?.trim() || "http://127.0.0.1:3000";
+  if (!secret) return;
+  try {
+    await fetch(`${endpoint}/api/internal/assistant/zalo/enqueue`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId: account.workspace_id, channelAccountId: account.id, conversationId: persisted.conversationId, messageId: persisted.messageId }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch { /* the next question still works; this one is skipped */ }
+}
+
 async function main() {
   // Dry-run neither creates a state/lock file nor mutates remote data.
   const release = dryRun ? () => {} : acquireRecentLock(`${statePath}.lock`);
@@ -49,6 +66,8 @@ async function main() {
     const result = await client.from("channel_accounts").select("id,workspace_id,external_account_id,channel_type,provider,status,operator_enabled,deleted_at")
       .eq("channel_type", "ZALO").eq("provider", "ZALO_BRIDGE").eq("status", "CONNECTED").eq("operator_enabled", true).is("deleted_at", null);
     if (result.error) throw new Error("RECENT_ACCOUNT_QUERY_FAILED");
+    const bot = await client.from("assistant_bot_settings").select("channel_account_id").eq("enabled", true);
+    const botAccountIds = new Set((bot.data ?? []).map((row) => row.channel_account_id).filter(Boolean));
     database = new DatabaseSync(databasePath, { readOnly: true });
     database.exec("pragma busy_timeout=5000");
     const accounts = selectRecentAccounts(database, result.data);
@@ -65,6 +84,7 @@ async function main() {
           { workspaceId: account.workspace_id, accounts: new Map([[account.external_account_id, account.id]]) }, message,
           { reconcile: true, skipMedia: true });
         await enqueueAiRecruiter(account, message, persisted);
+        await enqueueAssistantBot(botAccountIds, account, message, persisted);
         return persisted;
       },
     });
