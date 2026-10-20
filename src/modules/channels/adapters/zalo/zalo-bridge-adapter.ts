@@ -257,11 +257,16 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     return result.status === "REACTED";
   }
 
-  /** A pinned note ("Ghi chú", pinned) at the top of a group this nick is in, for an approved group broadcast. */
-  async pinGroupNote(input: { groupId: string; text: string }, idempotencyKey: string) {
-    if (!isString(input.groupId, 512) || !input.text.trim() || input.text.length > 2000 || !/^group-broadcast:[0-9a-f-]{36}:pin:[1-3]$/u.test(idempotencyKey))
+  /**
+   * Top of a group this nick is in, for an approved group broadcast: a pinned note ("Ghi chú", kind NOTE) or
+   * the broadcast message this nick sent, pinned ("Tin ghim", kind MESSAGE with its Zalo msg id).
+   */
+  async pinGroupNote(input: { groupId: string; kind: "NOTE" | "MESSAGE"; text: string; messageId: string | null }, idempotencyKey: string) {
+    if (!isString(input.groupId, 512) || !input.text.trim() || input.text.length > (input.kind === "NOTE" ? 2000 : 4000) ||
+        (input.kind === "MESSAGE" ? !/^[1-9][0-9]{0,39}$/u.test(input.messageId ?? "") : input.messageId !== null) ||
+        !/^group-broadcast:[0-9a-f-]{36}:(?:pin|note):[1-3]$/u.test(idempotencyKey))
       throw new ChannelError("DELIVERY_REJECTED", false);
-    const result = await this.contactRequest(GROUP_NOTE_PATH, { groupId: input.groupId, text: input.text }, idempotencyKey, "AI_AUTOMATION");
+    const result = await this.contactRequest(GROUP_NOTE_PATH, { groupId: input.groupId, kind: input.kind, text: input.text, messageId: input.messageId }, idempotencyKey, "AI_AUTOMATION");
     return result.status === "PINNED";
   }
 

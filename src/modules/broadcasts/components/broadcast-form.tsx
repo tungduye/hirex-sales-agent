@@ -15,6 +15,7 @@ export function BroadcastForm({ nicks }: { nicks: NickOption[] }) {
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [sendMessage, setSendMessage] = useState(true);
+  const [pinMessage, setPinMessage] = useState(false);
   const [pinNote, setPinNote] = useState(false);
   const [cap, setCap] = useState(30);
   const [chosenNicks, setChosenNicks] = useState<Set<string>>(new Set());
@@ -34,7 +35,7 @@ export function BroadcastForm({ nicks }: { nicks: NickOption[] }) {
     if (!name.trim() || !text.trim()) { setError("Cần tên và nội dung."); return; }
     if (!chosenGroups.size) { setError("Chưa chọn nhóm nào."); return; }
     startSaving(async () => {
-      const result = await createBroadcastAction({ name, text, sendMessage, pinNote, accountIds: [...chosenNicks], groupIds: [...chosenGroups], dailyCapPerNick: cap });
+      const result = await createBroadcastAction({ name, text, sendMessage, pinMessage, pinNote, accountIds: [...chosenNicks], groupIds: [...chosenGroups], dailyCapPerNick: cap });
       if (result.ok) router.push(`/broadcasts/${result.id}`); else setError(result.error);
     });
   };
@@ -47,8 +48,9 @@ export function BroadcastForm({ nicks }: { nicks: NickOption[] }) {
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Tên đợt gửi *</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} className={inputClass} placeholder="Job BrSE HCM tuần 43"/></label>
         <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Nội dung * <span className={text.length > limit ? "text-rose-600" : "text-slate-400"}>({text.length}/{limit})</span></span><textarea value={text} onChange={(event) => setText(event.target.value)} rows={10} className={inputClass} placeholder="[TUYỂN DỤNG] BrSE N2 – HCM – 60–70M…"/></label>
         <div className="flex flex-wrap gap-4 text-sm text-slate-700">
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={sendMessage} onChange={(event) => setSendMessage(event.target.checked)} className="size-4"/>Gửi tin vào nhóm</label>
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={pinNote} onChange={(event) => setPinNote(event.target.checked)} className="size-4"/>Ghim lên đầu nhóm (ghi chú ghim)</label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={sendMessage} onChange={(event) => { setSendMessage(event.target.checked); if (!event.target.checked) setPinMessage(false); }} className="size-4"/>Gửi tin vào nhóm</label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={pinMessage} disabled={!sendMessage} onChange={(event) => setPinMessage(event.target.checked)} className="size-4"/>Ghim tin vừa gửi lên đầu nhóm</label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={pinNote} onChange={(event) => setPinNote(event.target.checked)} className="size-4"/>Thêm ghi chú (ghim ở bảng tin nhóm)</label>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-700">Mỗi nick tối đa<input type="number" min={1} max={100} value={cap} onChange={(event) => setCap(Math.min(100, Math.max(1, Number(event.target.value) || 1)))} className="h-8 w-20 rounded-lg border border-slate-200 px-2"/>nhóm/ngày</label>
         <p className="text-xs text-slate-500">Mỗi nick gửi lần lượt từng nhóm, cách nhau ngẫu nhiên 90–180 giây, chỉ từ 8:00 đến 21:00. Nên thử ít nhóm trước rồi tăng dần.</p>

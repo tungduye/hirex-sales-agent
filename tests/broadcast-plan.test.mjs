@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { assignNicks, gapSeconds, nextSteps, pendingAction, windowOpen } from "../src/modules/broadcasts/core/broadcast-plan.ts";
 
 const at = (iso) => Date.parse(iso);
-const B = { id: "b1", sendMessage: true, pinNote: false, dailyCapPerNick: 2, minGapSeconds: 90, maxGapSeconds: 180, windowStartHour: 8, windowEndHour: 21 };
-const T = (id, accountId, position, extra = {}) => ({ id, broadcastId: "b1", accountId, position, status: "PENDING", pinStatus: "NONE", attempts: 0, pinAttempts: 0, doneAt: null, updatedAt: "2026-10-21T01:00:00Z", ...extra });
+const B = { id: "b1", sendMessage: true, pinMessage: false, pinNote: false, dailyCapPerNick: 2, minGapSeconds: 90, maxGapSeconds: 180, windowStartHour: 8, windowEndHour: 21 };
+const T = (id, accountId, position, extra = {}) => ({ id, broadcastId: "b1", accountId, position, status: "PENDING", pinStatus: "NONE", messagePinStatus: "NONE", attempts: 0, pinAttempts: 0, messagePinAttempts: 0, doneAt: null, updatedAt: "2026-10-21T01:00:00Z", ...extra });
 
 test("only between 8:00 and 21:00 Vietnam time", () => {
   assert.equal(windowOpen(at("2026-10-21T00:59:00Z"), 8, 21), false); // 7:59
@@ -27,12 +27,14 @@ test("one group per nick per step, in order, respecting gap and cap", () => {
   assert.deepEqual(nextSteps([B], targets, new Map(), at("2026-10-21T15:00:00Z")), [], "22:00: nothing");
 });
 
-test("pin after the message, or pin only", () => {
-  assert.equal(pendingAction({ sendMessage: true, pinNote: true }, { status: "PENDING", pinStatus: "PENDING" }), "SEND");
-  assert.equal(pendingAction({ sendMessage: true, pinNote: true }, { status: "SENT", pinStatus: "PENDING" }), "PIN");
-  assert.equal(pendingAction({ sendMessage: false, pinNote: true }, { status: "PENDING", pinStatus: "PENDING" }), "PIN");
-  assert.equal(pendingAction({ sendMessage: true, pinNote: true }, { status: "SENT", pinStatus: "PINNED" }), null);
-  assert.equal(pendingAction({ sendMessage: true, pinNote: false }, { status: "FAILED", pinStatus: "NONE" }), null);
+test("message, then its pin, then the note", () => {
+  const all = { sendMessage: true, pinMessage: true, pinNote: true };
+  assert.equal(pendingAction(all, { status: "PENDING", pinStatus: "PENDING", messagePinStatus: "PENDING" }), "SEND");
+  assert.equal(pendingAction(all, { status: "SENT", pinStatus: "PENDING", messagePinStatus: "PENDING" }), "PIN_MESSAGE");
+  assert.equal(pendingAction(all, { status: "SENT", pinStatus: "PENDING", messagePinStatus: "PINNED" }), "NOTE");
+  assert.equal(pendingAction(all, { status: "SENT", pinStatus: "PINNED", messagePinStatus: "FAILED" }), null);
+  assert.equal(pendingAction({ sendMessage: false, pinMessage: false, pinNote: true }, { status: "PENDING", pinStatus: "PENDING", messagePinStatus: "NONE" }), "NOTE");
+  assert.equal(pendingAction({ sendMessage: true, pinMessage: false, pinNote: false }, { status: "FAILED", pinStatus: "NONE", messagePinStatus: "NONE" }), null);
 });
 
 test("each group goes to one chosen nick, spreading the load", () => {

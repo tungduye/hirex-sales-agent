@@ -8,8 +8,8 @@ export const BROADCAST_DEFAULTS = { dailyCapPerNick: 30, minGapSeconds: 90, maxG
 export const MAX_TARGETS_PER_BROADCAST = 500;
 export const MAX_ATTEMPTS = 3;
 
-export interface PlanBroadcast { id: string; sendMessage: boolean; pinNote: boolean; dailyCapPerNick: number; minGapSeconds: number; maxGapSeconds: number; windowStartHour: number; windowEndHour: number }
-export interface PlanTarget { id: string; broadcastId: string; accountId: string; position: number; status: string; pinStatus: string; attempts: number; pinAttempts: number; doneAt: string | null; updatedAt: string }
+export interface PlanBroadcast { id: string; sendMessage: boolean; pinMessage: boolean; pinNote: boolean; dailyCapPerNick: number; minGapSeconds: number; maxGapSeconds: number; windowStartHour: number; windowEndHour: number }
+export interface PlanTarget { id: string; broadcastId: string; accountId: string; position: number; status: string; pinStatus: string; messagePinStatus: string; attempts: number; pinAttempts: number; messagePinAttempts: number; doneAt: string | null; updatedAt: string }
 /** What the nick did today and last, over every broadcast (so two broadcasts never double a nick's pace). */
 export interface NickActivity { doneToday: number; lastAt: number | null; lastKey: string | null }
 
@@ -25,12 +25,16 @@ export function gapSeconds(lastKey: string | null, min: number, max: number) {
   return min + (hash % (max - min + 1));
 }
 
-export type Step = { targetId: string; broadcastId: string; accountId: string; action: "SEND" | "PIN" };
+/** SEND: the message (then its pin and the note, if asked); PIN_MESSAGE: pin the sent message; NOTE: the pinned note. */
+export type StepAction = "SEND" | "PIN_MESSAGE" | "NOTE";
+export type Step = { targetId: string; broadcastId: string; accountId: string; action: StepAction };
 
-/** What a target still needs: its message (then the pin, if asked), or only the pin. */
-export function pendingAction(broadcast: Pick<PlanBroadcast, "sendMessage" | "pinNote">, target: Pick<PlanTarget, "status" | "pinStatus">): "SEND" | "PIN" | null {
-  if (target.status === "PENDING") return broadcast.sendMessage ? "SEND" : "PIN";
-  if (target.status === "SENT" && broadcast.pinNote && target.pinStatus === "PENDING") return "PIN";
+/** What a target still needs, in order: its message, then pinning that message, then the note. */
+export function pendingAction(broadcast: Pick<PlanBroadcast, "sendMessage" | "pinMessage" | "pinNote">, target: Pick<PlanTarget, "status" | "pinStatus" | "messagePinStatus">): StepAction | null {
+  if (target.status === "PENDING") return broadcast.sendMessage ? "SEND" : "NOTE";
+  if (target.status !== "SENT") return null;
+  if (broadcast.pinMessage && target.messagePinStatus === "PENDING") return "PIN_MESSAGE";
+  if (broadcast.pinNote && target.pinStatus === "PENDING") return "NOTE";
   return null;
 }
 
@@ -56,8 +60,8 @@ export function nextSteps(broadcasts: PlanBroadcast[], targets: PlanTarget[], ac
     decided.add(target.accountId);
     const nick = activity.get(target.accountId) ?? { doneToday: 0, lastAt: null, lastKey: null };
     // The cap counts groups finished today; a pin after an earlier send is not a new group.
-    if (action === "SEND" || target.status === "PENDING") { if (nick.doneToday >= broadcast.dailyCapPerNick) continue; }
-    const lastTry = target.attempts + target.pinAttempts > 0 ? Date.parse(target.updatedAt) : 0;
+    if (target.status === "PENDING" && nick.doneToday >= broadcast.dailyCapPerNick) continue;
+    const lastTry = target.attempts + target.pinAttempts + target.messagePinAttempts > 0 ? Date.parse(target.updatedAt) : 0;
     const last = Math.max(nick.lastAt ?? 0, lastTry);
     if (last && now - last < gapSeconds(nick.lastKey ?? target.id, broadcast.minGapSeconds, broadcast.maxGapSeconds) * 1000) continue;
     steps.push({ targetId: target.id, broadcastId: broadcast.id, accountId: target.accountId, action });

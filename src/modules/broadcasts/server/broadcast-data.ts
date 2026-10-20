@@ -57,8 +57,8 @@ export async function broadcastGroups(context: BroadcastContext, accountIds: str
 }
 
 export interface BroadcastSummary {
-  id: string; name: string; status: string; sendMessage: boolean; pinNote: boolean; createdAt: string; createdBy: string; approvedAt: string | null;
-  total: number; sent: number; failed: number; waiting: number; pinned: number; canManage: boolean; textContent: string; dailyCapPerNick: number;
+  id: string; name: string; status: string; sendMessage: boolean; pinMessage: boolean; pinNote: boolean; createdAt: string; createdBy: string; approvedAt: string | null;
+  total: number; sent: number; failed: number; waiting: number; pinned: number; pinnedMessages: number; canManage: boolean; textContent: string; dailyCapPerNick: number;
 }
 
 async function visibleBroadcastIds(db: Db, context: BroadcastContext): Promise<string[] | null> {
@@ -76,24 +76,24 @@ export async function listBroadcasts(context: BroadcastContext, onlyId?: string)
   if (!can(context, "view")) return [];
   const db = createPrivilegedClient();
   const visible = await visibleBroadcastIds(db, context);
-  let query = db.from("zalo_broadcasts").select("id,name,status,send_message,pin_note,created_at,created_by,approved_at,text_content,daily_cap_per_nick").eq("workspace_id", context.workspaceId).order("created_at", { ascending: false }).limit(100);
+  let query = db.from("zalo_broadcasts").select("id,name,status,send_message,pin_message,pin_note,created_at,created_by,approved_at,text_content,daily_cap_per_nick").eq("workspace_id", context.workspaceId).order("created_at", { ascending: false }).limit(100);
   if (onlyId) query = query.eq("id", onlyId);
   if (visible) query = query.in("id", visible.length ? visible : ["00000000-0000-0000-0000-000000000000"]);
   const { data } = await query;
   const rows = (data ?? []) as Row[];
   if (!rows.length) return [];
   const [{ data: targets }, { data: people }] = await Promise.all([
-    db.from("zalo_broadcast_targets").select("broadcast_id,status,pin_status").eq("workspace_id", context.workspaceId).in("broadcast_id", rows.map((row) => String(row.id))).limit(50_000),
+    db.from("zalo_broadcast_targets").select("broadcast_id,status,pin_status,message_pin_status").eq("workspace_id", context.workspaceId).in("broadcast_id", rows.map((row) => String(row.id))).limit(50_000),
     db.from("profiles").select("id,full_name").eq("workspace_id", context.workspaceId).in("id", [...new Set(rows.map((row) => String(row.created_by)))]),
   ]);
   const names = new Map(((people ?? []) as Row[]).map((row) => [String(row.id), String(row.full_name ?? "")]));
   return rows.map((row) => {
     const mine = ((targets ?? []) as Row[]).filter((target) => target.broadcast_id === row.id);
     return {
-      id: String(row.id), name: String(row.name), status: String(row.status), sendMessage: row.send_message === true, pinNote: row.pin_note === true,
+      id: String(row.id), name: String(row.name), status: String(row.status), sendMessage: row.send_message === true, pinMessage: row.pin_message === true, pinNote: row.pin_note === true,
       createdAt: String(row.created_at), createdBy: names.get(String(row.created_by)) ?? "", approvedAt: typeof row.approved_at === "string" ? row.approved_at : null,
       total: mine.length, sent: mine.filter((target) => target.status === "SENT").length, failed: mine.filter((target) => ["FAILED", "UNKNOWN"].includes(String(target.status))).length,
-      waiting: mine.filter((target) => target.status === "PENDING").length, pinned: mine.filter((target) => target.pin_status === "PINNED").length,
+      waiting: mine.filter((target) => target.status === "PENDING").length, pinned: mine.filter((target) => target.pin_status === "PINNED").length, pinnedMessages: mine.filter((target) => target.message_pin_status === "PINNED").length,
       canManage: can(context, "manage") && (row.created_by === context.userId || context.isAdmin), textContent: String(row.text_content), dailyCapPerNick: Number(row.daily_cap_per_nick),
     };
   });
@@ -102,16 +102,16 @@ export async function listBroadcasts(context: BroadcastContext, onlyId?: string)
 export async function broadcastTargets(context: BroadcastContext, broadcastId: string) {
   if (!(await listBroadcasts(context, broadcastId)).length) return [];
   const db = createPrivilegedClient();
-  const { data } = await db.from("zalo_broadcast_targets").select("id,group_name,group_id,channel_account_id,status,pin_status,attempts,done_at,error_code,position,channel_accounts(display_name)")
+  const { data } = await db.from("zalo_broadcast_targets").select("id,group_name,group_id,channel_account_id,status,pin_status,message_pin_status,attempts,done_at,error_code,position,channel_accounts(display_name)")
     .eq("workspace_id", context.workspaceId).eq("broadcast_id", broadcastId).order("position").limit(MAX_TARGETS_PER_BROADCAST);
   return ((data ?? []) as Row[]).map((row) => ({
     id: String(row.id), groupName: String(row.group_name ?? row.group_id), nick: String((row.channel_accounts as Row | null)?.display_name ?? ""), status: String(row.status),
-    pinStatus: String(row.pin_status), attempts: Number(row.attempts), doneAt: typeof row.done_at === "string" ? row.done_at : null, error: typeof row.error_code === "string" ? row.error_code : null,
+    pinStatus: String(row.pin_status), messagePinStatus: String(row.message_pin_status), attempts: Number(row.attempts), doneAt: typeof row.done_at === "string" ? row.done_at : null, error: typeof row.error_code === "string" ? row.error_code : null,
   }));
 }
 
 export interface BroadcastInput {
-  name: string; text: string; sendMessage: boolean; pinNote: boolean; accountIds: string[]; groupIds: string[]; dailyCapPerNick?: number; source?: "WEB" | "ASSISTANT";
+  name: string; text: string; sendMessage: boolean; pinMessage?: boolean; pinNote: boolean; accountIds: string[]; groupIds: string[]; dailyCapPerNick?: number; source?: "WEB" | "ASSISTANT";
   /** Only the Zalo group where the member asked the Trợ lý: sent from the Trợ lý nick, which is in that group. */
   currentGroup?: { accountId: string; conversationId: string; groupId: string; name: string };
 }
@@ -142,7 +142,8 @@ export async function createBroadcast(context: BroadcastContext, input: Broadcas
   const name = input.name.trim().slice(0, 200), text = input.text.trim();
   if (!name || !text) return { ok: false as const, error: "Cần tên và nội dung." };
   if (text.length > (input.pinNote ? 2000 : 4000)) return { ok: false as const, error: input.pinNote ? "Nội dung ghim tối đa 2.000 ký tự." : "Nội dung tối đa 4.000 ký tự." };
-  if (!input.sendMessage && !input.pinNote) return { ok: false as const, error: "Chọn gửi tin, ghim, hoặc cả hai." };
+  if (!input.sendMessage && !input.pinNote) return { ok: false as const, error: "Chọn gửi tin hoặc thêm ghi chú." };
+  if (input.pinMessage && !input.sendMessage) return { ok: false as const, error: "Muốn ghim tin thì phải gửi tin." };
   const wanted = new Set(input.groupIds);
   if (!wanted.size && !input.currentGroup) return { ok: false as const, error: "Chưa chọn nhóm nào." };
   if (wanted.size > MAX_TARGETS_PER_BROADCAST) return { ok: false as const, error: `Tối đa ${MAX_TARGETS_PER_BROADCAST} nhóm mỗi lần gửi.` };
@@ -154,7 +155,7 @@ export async function createBroadcast(context: BroadcastContext, input: Broadcas
   const plan = current ? new Map([[current.groupId, current.accountId]]) : assignNicks(groups.map((group) => ({ groupId: group.groupId, accounts: group.accounts.map((item) => item.accountId) })), input.accountIds);
   const db = createPrivilegedClient();
   const cap = Math.min(100, Math.max(1, Math.round(input.dailyCapPerNick ?? BROADCAST_DEFAULTS.dailyCapPerNick)));
-  const { data, error } = await db.from("zalo_broadcasts").insert({ workspace_id: context.workspaceId, name, text_content: text, send_message: input.sendMessage, pin_note: input.pinNote,
+  const { data, error } = await db.from("zalo_broadcasts").insert({ workspace_id: context.workspaceId, name, text_content: text, send_message: input.sendMessage, pin_message: input.pinMessage === true, pin_note: input.pinNote,
     daily_cap_per_nick: cap, created_by: context.userId, source: input.source ?? "WEB",
     // Asked for right now in the group itself: no 8:00–21:00 window and no wait.
     ...(current ? { window_start_hour: 0, window_end_hour: 24, min_gap_seconds: 30, max_gap_seconds: 30 } : {}) }).select("id").single();
@@ -163,7 +164,7 @@ export async function createBroadcast(context: BroadcastContext, input: Broadcas
     const accountId = plan.get(group.groupId);
     const conversation = group.accounts.find((item) => item.accountId === accountId);
     return accountId && conversation ? [{ workspace_id: context.workspaceId, broadcast_id: data.id, conversation_id: conversation.conversationId, channel_account_id: accountId,
-      group_id: group.groupId, group_name: group.name.slice(0, 300), position, pin_status: input.pinNote ? "PENDING" : "NONE" }] : [];
+      group_id: group.groupId, group_name: group.name.slice(0, 300), position, pin_status: input.pinNote ? "PENDING" : "NONE", message_pin_status: input.pinMessage ? "PENDING" : "NONE" }] : [];
   });
   const inserted = await db.from("zalo_broadcast_targets").insert(rows);
   if (inserted.error) { await db.from("zalo_broadcasts").delete().eq("id", data.id); return { ok: false as const, error: "Chưa lưu được danh sách nhóm." }; }
@@ -191,6 +192,6 @@ export async function changeBroadcast(context: BroadcastContext, id: string, act
   }
   if (["DONE", "CANCELLED"].includes(String(row.status))) return { ok: false as const, error: "Đợt gửi đã kết thúc." };
   await db.from("zalo_broadcasts").update({ status: "CANCELLED", finished_at: now }).eq("id", id);
-  await db.from("zalo_broadcast_targets").update({ status: "CANCELLED", pin_status: "NONE" }).eq("broadcast_id", id).eq("status", "PENDING");
+  await db.from("zalo_broadcast_targets").update({ status: "CANCELLED", pin_status: "NONE", message_pin_status: "NONE" }).eq("broadcast_id", id).eq("status", "PENDING");
   return { ok: true as const };
 }

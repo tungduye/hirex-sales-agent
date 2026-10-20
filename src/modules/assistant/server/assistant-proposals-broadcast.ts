@@ -12,20 +12,23 @@ const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/gu, "").
 
 export async function proposeBroadcast(args: Record<string, unknown>, context: ActionContext): Promise<Built> {
   const text = String(args.noi_dung ?? "").trim();
-  const sendMessage = args.gui_tin !== false, pinNote = args.ghim === true;
-  if (!text) return { ok: false, error: "Cần nội dung tin." };
-  if (!sendMessage && !pinNote) return { ok: false, error: "Chọn gửi tin, ghim, hoặc cả hai." };
-  if (text.length > (pinNote ? 2000 : 4000)) return { ok: false, error: pinNote ? "Nội dung ghim tối đa 2.000 ký tự." : "Nội dung tối đa 4.000 ký tự." };
+  const pinMessage = args.ghim === true, pinNote = args.ghi_chu === true;
+  // Pinning a message means sending it first; a note alone sends nothing.
+  const sendMessage = pinMessage || args.gui_tin !== false && !(pinNote && args.gui_tin == null);
+  if (!text) return { ok: false, error: "Cần nội dung." };
+  if (!sendMessage && !pinNote) return { ok: false, error: "Chọn gửi tin, ghim tin hoặc ghi chú." };
+  if (text.length > (pinNote ? 2000 : 4000)) return { ok: false, error: pinNote ? "Ghi chú tối đa 2.000 ký tự." : "Nội dung tối đa 4.000 ký tự." };
+  const what = [sendMessage ? "gửi tin" : "", pinMessage ? "ghim tin đó lên đầu nhóm" : "", pinNote ? "thêm ghi chú" : ""].filter(Boolean).join(" + ");
   if (args.nhom_hien_tai === true) {
     const current = context.zaloConversationId ? await currentZaloGroup(context, context.zaloConversationId) : null;
     if (!current) return { ok: false, error: "Chỉ dùng được khi sếp hỏi Soda ngay trong nhóm Zalo đó." };
-    const name = String(args.ten ?? "").trim() || `${pinNote ? "Ghim" : "Gửi"} vào ${current.name}`;
+    const name = String(args.ten ?? "").trim() || `${pinMessage ? "Ghim tin" : pinNote && !sendMessage ? "Ghi chú" : "Gửi"} vào ${current.name}`;
     return {
       ok: true, kind: "CREATE_BROADCAST",
-      params: { name: name.slice(0, 200), text, sendMessage, pinNote, accountIds: [current.accountId], groupIds: [current.groupId], currentGroup: current },
+      params: { name: name.slice(0, 200), text, sendMessage, pinMessage, pinNote, accountIds: [current.accountId], groupIds: [current.groupId], currentGroup: current },
       preview: {
-        title: pinNote && !sendMessage ? "Ghim lên đầu nhóm này" : pinNote ? "Gửi và ghim vào nhóm này" : "Gửi vào nhóm này",
-        lines: [`Nhóm: ${current.name}`, `${sendMessage ? "Gửi tin" : ""}${sendMessage && pinNote ? " + " : ""}${pinNote ? "ghim ghi chú lên đầu nhóm" : ""} từ nick Soda`, "Xác nhận là thực hiện ngay (trong khoảng 20 giây)."],
+        title: pinMessage ? "Gửi và ghim tin vào nhóm này" : pinNote && !sendMessage ? "Thêm ghi chú vào nhóm này" : "Gửi vào nhóm này",
+        lines: [`Nhóm: ${current.name}`, `Soda sẽ ${what}`, "Xác nhận là thực hiện ngay (trong khoảng 20 giây)."],
         editableText: text, editableKind: "message", link: "/broadcasts",
       },
     };
@@ -41,11 +44,11 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
   const name = String(args.ten ?? "").trim() || text.split("\n")[0].slice(0, 80);
   return {
     ok: true, kind: "CREATE_BROADCAST",
-    params: { name, text, sendMessage, pinNote, accountIds: chosen.map((nick) => nick.id), groupIds: groups.map((group) => group.groupId) },
+    params: { name, text, sendMessage, pinMessage, pinNote, accountIds: chosen.map((nick) => nick.id), groupIds: groups.map((group) => group.groupId) },
     preview: {
       title: "Chuẩn bị gửi nhóm Zalo (nháp)",
       lines: [
-        `Tên: ${name}`, `${sendMessage ? "Gửi tin" : ""}${sendMessage && pinNote ? " + " : ""}${pinNote ? "ghim ghi chú" : ""} vào ${groups.length} nhóm`,
+        `Tên: ${name}`, `${what[0].toUpperCase()}${what.slice(1)} vào ${groups.length} nhóm`,
         `Nick: ${chosen.map((nick) => nick.name).join(", ")}`,
         `Ví dụ nhóm: ${groups.slice(0, 5).map((group) => group.name).join("; ")}${groups.length > 5 ? "…" : ""}`,
         "Chỉ tạo nháp. Sếp mở trang Gửi nhóm Zalo kiểm tra rồi bấm Bắt đầu gửi; mỗi nick tối đa 30 nhóm/ngày, cách 90–180 giây, 8:00–21:00.",
@@ -58,13 +61,14 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
 export async function executeBroadcast(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
   const currentGroup = params.currentGroup as { accountId: string; conversationId: string; groupId: string; name: string } | undefined;
   const result = await createBroadcast(context, {
-    name: String(params.name), text: String(params.text), sendMessage: params.sendMessage !== false, pinNote: params.pinNote === true,
+    name: String(params.name), text: String(params.text), sendMessage: params.sendMessage !== false, pinMessage: params.pinMessage === true, pinNote: params.pinNote === true,
     accountIds: (params.accountIds as string[]) ?? [], groupIds: (params.groupIds as string[]) ?? [], source: "ASSISTANT", currentGroup,
   });
   // Only the group the member is talking in: their confirmation of the card is the start.
   if (result.ok && currentGroup) {
     const started = await changeBroadcast(context, result.id, "START");
-    return started.ok ? { ok: true, message: params.pinNote === true ? "Em đang ghim vào nhóm này, khoảng 20 giây nữa sẽ hiện ở đầu nhóm." : "Em đang gửi vào nhóm này.", link: `/broadcasts/${result.id}` } : { ok: false, message: started.error };
+    const done = params.pinMessage === true ? "Em đang gửi và ghim tin vào nhóm này, khoảng 20 giây nữa tin ghim sẽ hiện ở đầu nhóm." : params.sendMessage === false ? "Em đang thêm ghi chú vào nhóm này." : "Em đang gửi vào nhóm này.";
+    return started.ok ? { ok: true, message: done, link: `/broadcasts/${result.id}` } : { ok: false, message: started.error };
   }
   return result.ok
     ? { ok: true, message: `Đã tạo nháp gửi ${result.groups} nhóm từ ${result.nicks} nick. Sếp mở trang để kiểm tra và bấm Bắt đầu gửi.`, link: `/broadcasts/${result.id}` }

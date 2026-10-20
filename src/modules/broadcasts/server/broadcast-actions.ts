@@ -22,7 +22,7 @@ export async function loadBroadcastGroupsAction(accountIds: string[]): Promise<G
 }
 
 const createSchema = z.object({
-  name: z.string().trim().min(1).max(200), text: z.string().trim().min(1).max(4000), sendMessage: z.boolean(), pinNote: z.boolean(),
+  name: z.string().trim().min(1).max(200), text: z.string().trim().min(1).max(4000), sendMessage: z.boolean(), pinMessage: z.boolean(), pinNote: z.boolean(),
   accountIds: ids.min(1), groupIds: z.array(z.string().min(1).max(512)).min(1).max(500), dailyCapPerNick: z.number().int().min(1).max(100),
 }).strict();
 
