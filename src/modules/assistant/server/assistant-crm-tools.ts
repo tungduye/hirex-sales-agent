@@ -43,7 +43,9 @@ function jobBrief(job: Job) {
 /** One member by (part of) their name, among those the asker may see. */
 export function pickPerson(profiles: Row[], name: string | null, visible: (id: string) => boolean): { id: string; name: string } | { loi: string } | { nhieu_nguoi_trung_ten: unknown[]; goi_y: string } {
   if (!name) return { loi: "Cần tên người cần xem." };
-  const wanted = fold(name);
+  // "team Hải" / "nhóm của Hải" → "hải": the model sometimes passes the whole phrase.
+  const wanted = fold(name).replace(/^(?:team|nhom|doi|phong|ban)\s+(?:cua\s+)?/u, "").replace(/^(?:anh|chi|em|sep)\s+/u, "").trim();
+  if (!wanted) return { loi: "Cần tên người cần xem." };
   const found = profiles.filter((row) => fold(String(row.full_name ?? "")).includes(wanted));
   const exact = found.filter((row) => fold(String(row.full_name ?? "")) === wanted);
   const allowed = (exact.length === 1 ? exact : found).filter((row) => visible(String(row.id)));

@@ -500,7 +500,7 @@ function CRM_READ_TOOLS(): AssistantToolDefinition[] {
         type: "object", additionalProperties: false, required: ["pham_vi", "ten_nguoi", "ky", "tu_ngay", "den_ngay"],
         properties: {
           pham_vi: { type: ["string", "null"], enum: [...KPI_SCOPES, null], description: "TOI, TEAM, CONG_TY hoặc NGUOI; null = TOI." },
-          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc trưởng nhóm khi pham_vi = TEAM (\"team Hải\"); null nếu không có."),
+          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc trưởng nhóm khi pham_vi = TEAM; chỉ ghi tên (\"team Hải\" → \"Hải\"); null nếu không có."),
           ky: { type: ["string", "null"], enum: [...KPI_PERIODS, null], description: "Kỳ có sẵn; null = 7_NGAY (trừ khi có tu_ngay)." },
           tu_ngay: nullableString("Từ ngày YYYY-MM-DD (giờ Việt Nam), hoặc null."),
           den_ngay: nullableString("Đến hết ngày YYYY-MM-DD, hoặc null = hôm nay."),
