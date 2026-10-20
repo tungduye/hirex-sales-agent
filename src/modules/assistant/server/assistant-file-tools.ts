@@ -44,8 +44,9 @@ export const fileTools: Record<string, (args: Record<string, unknown>, scope: Fi
     files.push(file);
     scope.files = files;
     return {
-      da_tao_file: true, ten_file: file.filename, link: file.link, trang_tai_lieu: "/assistant/files",
-      ghi_chu: source === "ZALO" ? "Soda sẽ gửi file này vào chat ngay sau câu trả lời; chỉ cần nói ngắn là đã gửi file." : "Đưa link tải cho người dùng.",
+      // On Zalo the file itself follows the answer, so no link to repeat.
+      da_tao_file: true, ten_file: file.filename, ...(source === "ZALO" ? {} : { link: file.link, trang_tai_lieu: "/assistant/files" }),
+      ghi_chu: source === "ZALO" ? "Soda gửi file này vào chat ngay sau câu trả lời; chỉ nói ngắn là em gửi file ngay bên dưới, không đưa link." : "Đưa link tải cho người dùng.",
     };
   },
 };

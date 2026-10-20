@@ -19,10 +19,10 @@ export function jdMarkdown(job: JdJob, options: { hideCompany: boolean; contact:
   ];
   const cell = (value: string) => value.replace(/\|/gu, "/").replace(/\s*\n\s*/gu, "; ");
   return [
-    `# ${job.title}${options.hideCompany ? "" : ` – ${job.companyName}`}`,
+    `# ${job.title}${options.hideCompany || job.title.toLowerCase().includes(job.companyName.toLowerCase()) ? "" : ` – ${job.companyName}`}`,
     "## Thông tin chung",
-    "| Mục | Chi tiết |", "|---|---|",
-    ...rows.filter(([, value]) => value && value.trim()).map(([label, value]) => `| ${label} | ${cell(value!)} |`),
+    // One table: its rows stay on consecutive lines.
+    ["| Mục | Chi tiết |", "|---|---|", ...rows.filter(([, value]) => value && value.trim()).map(([label, value]) => `| ${label} | ${cell(value!)} |`)].join("\n"),
     ...(job.summary ? ["## Mô tả công việc", asList(job.summary)] : []),
     ...(job.requirements ? ["## Yêu cầu", asList(job.requirements)] : []),
     ...(job.sellingPoints ? ["## Điểm hấp dẫn", asList(job.sellingPoints)] : []),

@@ -56,4 +56,9 @@ test("JD from the job board", async () => {
   assert.doesNotMatch(hidden, /Yêu cầu|Hình thức/u, "empty fields are left out");
   assert.match(jdMarkdown(job, { hideCompany: false, contact: "Mai – 0900" }), /# BrSE\/PM – Namitech[\s\S]*## Liên hệ/u);
   assert.equal(cleanWrittenMarkdown("```markdown\n# A\n```"), "# A");
+  const { markdownToBlocks } = await import("../src/modules/documents-out/core/docx.ts");
+  const tables = markdownToBlocks(hidden).filter((block) => block.type === "table");
+  assert.equal(tables.length, 1, "the job facts are one table");
+  assert.ok(tables[0].rows.length >= 5);
+  assert.match(jdMarkdown({ ...job, title: "BrSE/PM tại Namitech" }, { hideCompany: false, contact: null }), /^# BrSE\/PM tại Namitech\n/u, "company not repeated in the title");
 });

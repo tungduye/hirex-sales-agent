@@ -191,6 +191,8 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     // Word files made for this question: sent into the same chat (parts 6–8), else their download links (part 10).
     const files = result.ok ? result.files.slice(0, 3) : [];
     if (sent && files.length) {
+      // The send check matches the file's creator with the job's member, so record the member first.
+      await db.from("assistant_bot_jobs").update({ profile_id: profileId }).eq("id", jobId);
       const failed: typeof files = [];
       for (const [index, file] of files.entries()) if (!await sendFile(db, workspaceId, jobId, settings.channelAccountId, file.attachmentId, 6 + index).catch(() => false)) failed.push(file);
       if (failed.length) await sendReply(db, workspaceId, jobId, settings.channelAccountId, `Dạ, em chưa gửi được file qua Zalo, sếp tải tại đây ạ:\n${failed.map((file) => `${file.filename}: ${base}${file.link}`).join("\n")}`, 10).catch(() => false);
