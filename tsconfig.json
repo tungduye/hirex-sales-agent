@@ -295,7 +295,9 @@
     ".next-soda-kpi-chuan/types/**/*.ts",
     ".next-soda-kpi-chuan/dev/types/**/*.ts",
     ".next-lich-hen/types/**/*.ts",
-    ".next-lich-hen/dev/types/**/*.ts"
+    ".next-lich-hen/dev/types/**/*.ts",
+    ".next-lich-hen-2/types/**/*.ts",
+    ".next-lich-hen-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -133,7 +133,10 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     if (confirmation) {
       const { data: last } = await db.from("assistant_bot_jobs").select("pending_action_ids").eq("workspace_id", workspaceId).eq("conversation_id", conversation.id).eq("profile_id", profileId)
         .gt("created_at", new Date(Date.now() - 30 * 60_000).toISOString()).neq("pending_action_ids", "{}").order("created_at", { ascending: false }).limit(1).maybeSingle();
-      const ids = ((last?.pending_action_ids ?? []) as string[]);
+      const listed = ((last?.pending_action_ids ?? []) as string[]);
+      // Cards already confirmed or cancelled (e.g. "ok" then "@Soda ok") need no second answer.
+      const { data: open } = listed.length ? await db.from("assistant_actions").select("id").in("id", listed).eq("status", "PROPOSED") : { data: [] };
+      const ids = (open ?? []).length ? listed : [];
       // Nothing waiting for this member here: a plain "ok" needs no answer.
       if (!ids.length) { await finish(db, jobId, "SKIPPED", { profile_id: profileId, safe_error_code: "NO_PENDING" }); return { processed: true, status: "SKIPPED" }; }
       {

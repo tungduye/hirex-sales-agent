@@ -14,6 +14,23 @@ type Row = Record<string, unknown>;
 const HOUR = 3_600_000;
 const MAX_PER_RUN = 40;
 
+/**
+ * The private chat with the Zalo the member last used to talk to the Trợ lý (a member may link several
+ * Zalo accounts; the reminder goes to the one they actually use), else any private chat with them.
+ */
+async function privateChat(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, botAccount: string, zaloIds: string[]) {
+  if (!zaloIds.length) return null;
+  const { data: chats } = await db.from("omnichannel_conversations").select("id,provider_conversation_id").eq("workspace_id", workspaceId).eq("channel_account_id", botAccount).in("provider_conversation_id", zaloIds);
+  const byZalo = new Map(((chats ?? []) as Row[]).map((row) => [String(row.provider_conversation_id), { id: String(row.id) }]));
+  if (zaloIds.length > 1) {
+    const { data: last } = await db.from("omnichannel_messages").select("sender_external_id").eq("workspace_id", workspaceId).eq("channel_account_id", botAccount)
+      .eq("direction", "INBOUND").in("sender_external_id", zaloIds).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const preferred = last ? byZalo.get(String(last.sender_external_id)) : undefined;
+    if (preferred) return preferred;
+  }
+  return zaloIds.map((id) => byZalo.get(id)).find(Boolean) ?? null;
+}
+
 export async function sendDueCalendarReminders(now = Date.now()) {
   const db = createPrivilegedClient();
   const { data: bots } = await db.from("assistant_bot_settings").select("workspace_id,channel_account_id").eq("enabled", true).not("channel_account_id", "is", null);
@@ -49,10 +66,7 @@ export async function sendDueCalendarReminders(now = Date.now()) {
       if (!event) continue;
       const occurrence = new Date(item.occurrence).toISOString();
       const mark = async (status: "SENT" | "FAILED" | "SKIPPED") => (await db.from("calendar_reminders_sent").insert({ event_id: item.eventId, workspace_id: workspaceId, profile_id: item.profileId, occurrence_start: occurrence, status })).error === null;
-      const zaloIds = zaloOf.get(item.profileId) ?? [];
-      const { data: conversation } = zaloIds.length
-        ? await db.from("omnichannel_conversations").select("id").eq("workspace_id", workspaceId).eq("channel_account_id", botAccount).in("provider_conversation_id", zaloIds).order("last_message_at", { ascending: false }).limit(1).maybeSingle()
-        : { data: null };
+      const conversation = await privateChat(db, workspaceId, botAccount, zaloOf.get(item.profileId) ?? []);
       if (!conversation) { await mark("SKIPPED"); skipped += 1; continue; }
       // Claim first, so two workers never remind twice.
       if (!await mark("SENT")) continue;
