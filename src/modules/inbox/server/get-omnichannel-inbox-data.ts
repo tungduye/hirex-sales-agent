@@ -301,9 +301,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   if (listAccountIds.length === 0) query = query.eq("channel_account_id", "00000000-0000-0000-0000-000000000000");
   else query = query.in("channel_account_id", listAccountIds);
   // Unread conversations per account, for the account picker (runs alongside the list query).
-  const unreadPromise = Promise.resolve(supabase.from("omnichannel_conversations").select("channel_account_id").eq("workspace_id", accountContext.workspaceId)
-    .gt("unread_count", 0).or("metadata->>hidden.is.null,metadata->>hidden.neq.true").in("channel_account_id", activeAccountIds).limit(5000))
-    .then(({ data }) => { const counts = new Map<string, number>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown }>) if (typeof row.channel_account_id === "string") counts.set(row.channel_account_id, (counts.get(row.channel_account_id) ?? 0) + 1); return counts; }, () => new Map<string, number>());
+  const unreadPromise = Promise.resolve(supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds }))
+    .then(({ data }) => { const counts = new Map<string, number>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown }>) if (typeof row.channel_account_id === "string") counts.set(row.channel_account_id, Number(row.unread) || 0); return counts; }, () => new Map<string, number>());
   const { data: conversationData, error: conversationError } = await query;
   if (conversationError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Conversations could not be loaded." });
   const pageRows = conversationData as ConversationRow[];

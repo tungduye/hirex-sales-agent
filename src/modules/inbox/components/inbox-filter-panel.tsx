@@ -54,7 +54,7 @@ export function InboxFilterPanel(props: {
     <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label="Bộ lọc: tài khoản, nhãn, người phụ trách" title="Bộ lọc: tài khoản, nhãn, người phụ trách" className={`relative flex size-9 items-center justify-center rounded-lg border ${active || open ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
       <SlidersHorizontal className="size-4"/>{active ? <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{active}</span> : null}
     </button>
-    {open ? <div className="absolute inset-x-2 top-[52px] z-40 flex max-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+    {open ? <div className="absolute inset-x-2 top-[52px] z-40 flex max-h-[calc(100dvh-14rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-2.5"><p className="text-sm font-bold text-slate-900">Bộ lọc</p><button type="button" onClick={() => setOpen(false)} aria-label="Đóng bộ lọc" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4"/></button></div>
       <form action="/inbox/all" className="flex min-h-0 flex-1 flex-col">
         {props.channel ? <input type="hidden" name="channel" value={props.channel}/> : null}

@@ -40,13 +40,13 @@ export function InboxAccountFilter({ accounts, selected, currentUserId }: { acco
           <label className="sticky top-0 z-10 flex cursor-pointer items-center gap-2 border-b border-slate-100 bg-slate-50 px-2 py-1.5">
             <input type="checkbox" checked={picked === ids.length} ref={(element) => { if (element) element.indeterminate = picked > 0 && picked < ids.length; }} onChange={(event) => toggle(ids, event.target.checked)} className="size-3.5 accent-blue-600"/>
             <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-700">{group.label} <span className="font-normal text-slate-400">· {ids.length}</span></span>
-            {unread ? <span className="rounded-full bg-rose-50 px-1.5 text-[10px] font-bold text-rose-600" title="Hội thoại chưa đọc">{unread}</span> : null}
+            {unread ? <span className="rounded-full bg-rose-50 px-1.5 text-[10px] font-bold text-rose-600" title={`${unread} hội thoại chưa đọc`}>{unread > 999 ? "999+" : unread}</span> : null}
           </label>
           {group.accounts.map((account) => <label key={account.id} className="flex cursor-pointer items-center gap-2 border-b border-slate-50 py-1.5 pl-6 pr-2 last:border-b-0 hover:bg-slate-50">
             <input type="checkbox" checked={chosen.has(account.id)} onChange={(event) => toggle([account.id], event.target.checked)} className="size-3.5 shrink-0 accent-blue-600"/>
             <ChannelLogo channel={account.channelType} size={14}/>
             <span className="min-w-0 flex-1 truncate text-[13px] text-slate-800">{account.displayName}</span>
-            {account.unreadCount ? <span className="shrink-0 rounded-full bg-blue-600 px-1.5 text-[10px] font-bold leading-4 text-white">{account.unreadCount}</span> : null}
+            {account.unreadCount ? <span className="shrink-0 rounded-full bg-blue-600 px-1.5 text-[10px] font-bold leading-4 text-white" title={`${account.unreadCount} hội thoại chưa đọc`}>{account.unreadCount > 99 ? "99+" : account.unreadCount}</span> : null}
           </label>)}
         </div>;
       })}
