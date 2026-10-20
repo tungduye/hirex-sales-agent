@@ -25,8 +25,13 @@ export function InboxShell({ children }: { children: ReactNode }) {
 
   const load = useCallback(async (nextQuery: string) => {
     const requestId = ++latestRequest.current;
+    // No ?view= in the address: open the tab this member used last (remembered in this browser).
+    let fetchQuery = nextQuery;
+    if (!new URLSearchParams(nextQuery).has("view")) {
+      try { const saved = window.localStorage.getItem("hirex.inbox.view"); if (saved && ["waiting", "mine", "groups", "other"].includes(saved)) fetchQuery = `${nextQuery ? `${nextQuery}&` : ""}view=${saved}`; } catch { /* storage unavailable */ }
+    }
     try {
-      const response = await fetch(`/api/inbox/view${nextQuery ? `?${nextQuery}` : ""}`, { cache: "no-store" });
+      const response = await fetch(`/api/inbox/view${fetchQuery ? `?${fetchQuery}` : ""}`, { cache: "no-store" });
       if (!response.ok) throw new Error("LOAD_FAILED");
       const payload = await response.json() as OmnichannelInboxData;
       if (requestId !== latestRequest.current) return; // a newer filter won

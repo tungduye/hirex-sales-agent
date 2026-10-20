@@ -84,10 +84,21 @@ export interface OmnichannelInboxData {
   tagMatchMode: "all" | "any";
   firstMessageFrom: string | null;
   firstMessageTo: string | null;
+  /** Quick tab (Tất cả, Chưa trả lời, Giao cho tôi, Nhóm, Khác) and search, both applied in the database. */
+  view?: "all" | "waiting" | "mine" | "groups" | "other";
+  search?: string;
+  /** Tab badges (newest 3,000 conversations of the last 30 days); capped = there were more. */
+  viewCounts?: { all: number; waiting: number; mine: number; groups: number; other: number; capped: boolean };
+  /** Where the next page starts; null at the end. */
+  nextCursor?: string | null;
+  /** Database time for the list, in milliseconds (shown in Server-Timing). */
+  listMs?: number;
   selectedPage: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
   profiles: OmnichannelInboxProfile[];
+  /** Người phụ trách filter: main users of the nicks in reach (plus me), with how many nicks each. */
+  owners?: Array<{ id: string; fullName: string; accountCount: number }>;
   tags: OmnichannelInboxTag[];
   /** Phạm vi in use and how many accounts each one covers (TEAM only when I manage someone). */
   scope?: "MINE" | "TEAM" | "ALL";

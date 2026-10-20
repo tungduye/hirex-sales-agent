@@ -182,9 +182,23 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   ]);
   if (accountError || messageError || !channelAccount) return { status: "error", conversation: null };
   const ownerId = text((channelAccount as Record<string, unknown>).primary_profile_id);
-  const accountOwnerName = ownerId && ownerId !== accountContext.userId
-    ? text((await accountClient.from("profiles").select("full_name").eq("id", ownerId).eq("workspace_id", accountContext.workspaceId).maybeSingle()).data?.full_name)
-    : null;
+  // The lookups below do not depend on each other: they start together and are awaited once (fewer round trips).
+  const ownerNamePromise = ownerId && ownerId !== accountContext.userId
+    ? Promise.resolve(accountClient.from("profiles").select("full_name").eq("id", ownerId).eq("workspace_id", accountContext.workspaceId).maybeSingle()).then((result) => text(result.data?.full_name))
+    : Promise.resolve(null);
+  const legacyEmailAccountId = text(channelAccount.legacy_email_account_id);
+  const legacyThreadPromise = channelType === "EMAIL" && legacyEmailAccountId
+    ? Promise.resolve(accountClient.from("email_threads").select("id").eq("workspace_id", accountContext.workspaceId).eq("email_account_id", legacyEmailAccountId)
+      .eq("provider_thread_id", row.provider_conversation_id).maybeSingle())
+    : Promise.resolve({ data: null, error: null });
+  const lockPromise = channelType === "ZALO"
+    ? Promise.resolve(accountClient.from("zalo_account_send_locks").select("reason,locked_since,auto_release_at,conversation_id")
+      .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).maybeSingle()).then((result) => result.data)
+    : Promise.resolve(null);
+  const sendAsPromise = channelType === "ZALO"
+    ? zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject),
+      row.metadata && typeof row.metadata === "object" && typeof (row.metadata as Record<string, unknown>).zaloGroupKey === "string" ? (row.metadata as Record<string, unknown>).zaloGroupKey as string : null)
+    : Promise.resolve([]);
   const rawMessages = (messageRows ?? []).slice(0, MAX_MESSAGES).reverse();
   const messages: OmnichannelInboxMessage[] = [];
   let lastInboundAt: string | null = null;
@@ -203,22 +217,23 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     messages.push({ id: message.id, conversationId, channelType, direction: message.direction, senderExternalId: message.sender_external_id, text: channelType === "ZALO" ? zaloProviderDisplayText(rawText) : rawText, timestamp, providerMessageId: message.provider_message_id, attachmentCount: message.attachment_count, attachments, deliveryStatus: message.direction === "OUTBOUND" ? "SENT" : "RECEIVED" });
   }
   const messageIds = messages.filter((message) => !message.id.startsWith("action:")).map((message) => message.id);
+  const attachmentsPromise = (async (): Promise<boolean> => {
   if (messageIds.length > 0) {
     const { data: links, error: linkError } = await accountClient.from("channel_message_attachments")
       .select("message_id,attachment_id,position").eq("workspace_id", accountContext.workspaceId)
       .in("message_id", messageIds).order("position", { ascending: true });
-    if (linkError) return { status: "error", conversation: null };
+    if (linkError) return false;
     const attachmentIds = [...new Set((links ?? []).flatMap((link) => typeof link.attachment_id === "string" ? [link.attachment_id] : []))];
     const attachmentById = new Map<string, { id: string; filename: string; contentType: string; sizeBytes: number; downloadUrl: string }>();
     const shaById = new Map<string, string>();
     if (attachmentIds.length > 0) {
       const { data: stored, error: storedError } = await accountClient.from("channel_attachments")
         .select("id,filename,content_type,size_bytes,sha256").eq("workspace_id", accountContext.workspaceId).in("id", attachmentIds);
-      if (storedError) return { status: "error", conversation: null };
+      if (storedError) return false;
       for (const item of stored ?? []) if (typeof item.id === "string" && typeof item.sha256 === "string") shaById.set(item.id, item.sha256);
       for (const item of stored ?? []) {
         if (typeof item.id !== "string" || typeof item.filename !== "string" || typeof item.content_type !== "string" || !Number.isSafeInteger(item.size_bytes))
-          return { status: "error", conversation: null };
+          return false;
         attachmentById.set(item.id, { id: item.id, filename: item.filename, contentType: item.content_type,
           sizeBytes: item.size_bytes, downloadUrl: `/api/inbox/attachments/${item.id}` });
       }
@@ -226,9 +241,9 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
     const storedByMessage = new Map<string, OmnichannelInboxMessage["attachments"]>();
     for (const link of links ?? []) {
       if (typeof link.message_id !== "string" || typeof link.attachment_id !== "string" || !Number.isSafeInteger(link.position))
-        return { status: "error", conversation: null };
+        return false;
       const attachment = attachmentById.get(link.attachment_id);
-      if (!attachment) return { status: "error", conversation: null };
+      if (!attachment) return false;
       const current = storedByMessage.get(link.message_id) ?? [];
       const sha = shaById.get(link.attachment_id);
       if (sha && current.some((item) => item.id && shaById.get(item.id) === sha)) continue;
@@ -240,6 +255,8 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       if (stored) message.attachments = stored;
     }
   }
+  return true;
+  })();
   const proposedActions = (actionRows ?? []).flatMap((action) => action.status === "PROPOSED" && typeof action.id === "string" && typeof action.proposed_by === "string" ? [{ id: action.id, text: text(action.text_content), proposedBy: action.proposed_by }] : []);
   const pendingActions = (actionRows ?? []).flatMap((action) => action.status === "APPROVED" && action.attempt_count === 0 && typeof action.id === "string" ? [{ id: action.id, text: text(action.text_content) }] : []).slice(-1);
   const persistedProviderIds = new Set(messages.map(message => message.providerMessageId));
@@ -252,9 +269,14 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   const actionFileIds = [...new Set((actionRows ?? []).flatMap((action) => ["APPROVED", "EXECUTING", "FAILED", "DELIVERY_UNKNOWN"].includes(String(action.status)) && Array.isArray(action.attachment_ids)
     ? action.attachment_ids.filter((id: unknown): id is string => typeof id === "string") : []))];
   const actionFiles = new Map<string, OmnichannelInboxMessage["attachments"][number]>();
-  if (actionFileIds.length > 0) {
-    const { data: stored } = await accountClient.from("channel_attachments").select("id,filename,content_type,size_bytes")
-      .eq("workspace_id", accountContext.workspaceId).in("id", actionFileIds);
+  const [attachmentsOk, { data: stored }, { data: legacyThread, error: legacyThreadError }, lockRow, accountOwnerName, sendAs] = await Promise.all([
+    attachmentsPromise,
+    actionFileIds.length > 0 ? Promise.resolve(accountClient.from("channel_attachments").select("id,filename,content_type,size_bytes")
+      .eq("workspace_id", accountContext.workspaceId).in("id", actionFileIds)) : Promise.resolve({ data: [] as Array<{ id: unknown; filename: unknown; content_type: unknown; size_bytes: unknown }> }),
+    legacyThreadPromise, lockPromise, ownerNamePromise, sendAsPromise,
+  ]);
+  if (!attachmentsOk || legacyThreadError) return { status: "error", conversation: null };
+  {
     for (const item of stored ?? []) if (typeof item.id === "string" && typeof item.filename === "string" && typeof item.content_type === "string" && Number.isSafeInteger(item.size_bytes))
       actionFiles.set(item.id, { id: item.id, filename: item.filename, contentType: item.content_type, sizeBytes: item.size_bytes, downloadUrl: `/api/inbox/attachments/${item.id}` });
   }
@@ -273,43 +295,29 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       reconciliationStatus: ["NONE","NEEDS_REVIEW","ACKNOWLEDGED_NO_RETRY"].includes(String(action.reconciliation_status)) ? action.reconciliation_status as OmnichannelInboxMessage["reconciliationStatus"] : undefined });
   }
   messages.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  let legacyEmailThreadId: string | null = null;
-  const legacyEmailAccountId = text(channelAccount.legacy_email_account_id);
-  if (channelType === "EMAIL" && legacyEmailAccountId) {
-    const { data: legacyThread, error: legacyThreadError } = await accountClient.from("email_threads").select("id")
-      .eq("workspace_id", accountContext.workspaceId).eq("email_account_id", legacyEmailAccountId)
-      .eq("provider_thread_id", row.provider_conversation_id).maybeSingle();
-    if (legacyThreadError) return { status: "error", conversation: null };
-    legacyEmailThreadId = text(legacyThread?.id);
-  }
+  const legacyEmailThreadId = text(legacyThread?.id);
   const tagIds = (tagRows ?? []).flatMap((tag) => typeof tag.tag_id === "string" ? [tag.tag_id] : []);
-  const [sendAs, participants] = channelType === "ZALO"
-    ? await Promise.all([zaloGroupSendAs(accountClient, accountContext.workspaceId, row.id, text(row.subject),
-      row.metadata && typeof row.metadata === "object" && typeof (row.metadata as Record<string, unknown>).zaloGroupKey === "string" ? (row.metadata as Record<string, unknown>).zaloGroupKey as string : null),
-      zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
-        messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : []))])
-    : [[], {}];
-  // Reactions (❤️ 👍 ...) this nick sees on these messages (synced from Deplao by sync-zalo-reactions.mjs).
-  if (channelType === "ZALO") {
-    const ids = [...new Set(messages.map((message) => message.providerMessageId).filter((id) => /^[0-9]{1,40}$/u.test(id)))];
-    if (ids.length > 0) {
-      const { data: reactionRows } = await accountClient.from("zalo_message_reactions").select("provider_message_id,summary,mine")
-        .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", ids.slice(0, 500));
+  // Group members, reactions (❤️ 👍 ...) and quoted replies, together (reactions are synced from Deplao by sync-zalo-reactions.mjs).
+  const zaloIds = channelType === "ZALO" ? [...new Set(messages.map((message) => message.providerMessageId).filter((id) => /^[0-9]{1,40}$/u.test(id)))].slice(0, 500) : [];
+  const [participants, { data: reactionRows }, { data: quoteRows }] = await Promise.all([
+    channelType === "ZALO" ? zaloGroupParticipants(supabase, accountClient, accountContext.workspaceId, row.channel_account_id, row.provider_conversation_id,
+      messages.flatMap((message) => message.direction === "INBOUND" ? [message.senderExternalId] : [])) : Promise.resolve({}),
+    zaloIds.length ? Promise.resolve(accountClient.from("zalo_message_reactions").select("provider_message_id,summary,mine")
+      .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", zaloIds)) : Promise.resolve({ data: [] as Array<{ provider_message_id: unknown; summary: unknown; mine: unknown }> }),
+    zaloIds.length ? Promise.resolve(accountClient.from("zalo_message_quotes").select("provider_message_id,quoted_message_id,quoted_text,quoted_sender")
+      .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", zaloIds)) : Promise.resolve({ data: [] as Array<{ provider_message_id: unknown; quoted_message_id: unknown; quoted_text: unknown; quoted_sender: unknown }> }),
+  ]);
+  if (zaloIds.length > 0) {
+    {
       const byId = new Map<string, MessageReaction[]>((reactionRows ?? []).map((reaction): [string, MessageReaction[]] => [String(reaction.provider_message_id), toMessageReactions(reaction.summary, reaction.mine)]));
       for (const message of messages) { const reactions = byId.get(message.providerMessageId); if (reactions?.length) message.reactions = reactions; }
       // Which earlier message each reply quoted (shown above the reply, like Zalo).
-      const { data: quoteRows } = await accountClient.from("zalo_message_quotes").select("provider_message_id,quoted_message_id,quoted_text,quoted_sender")
-        .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).in("provider_message_id", ids.slice(0, 500));
       const quoteById = new Map<string, NonNullable<OmnichannelInboxMessage["quote"]>>((quoteRows ?? []).map((quote): [string, NonNullable<OmnichannelInboxMessage["quote"]>] => [String(quote.provider_message_id),
         { text: String(quote.quoted_text ?? ""), sender: text(quote.quoted_sender), messageId: text(quote.quoted_message_id) }]));
       for (const message of messages) { const quote = quoteById.get(message.providerMessageId); if (quote?.text) message.quote = quote; }
     }
   }
   // A nick locked by an unsettled send cannot send; the composer says so (see reconcile-zalo-send-locks.mjs).
-  const lockRow = channelType === "ZALO"
-    ? (await accountClient.from("zalo_account_send_locks").select("reason,locked_since,auto_release_at,conversation_id")
-      .eq("workspace_id", accountContext.workspaceId).eq("channel_account_id", row.channel_account_id).maybeSingle()).data
-    : null;
   const sendLock: ZaloSendLock | null = lockRow && (lockRow.reason === "DELIVERY_UNKNOWN" || lockRow.reason === "SENDING") && typeof lockRow.locked_since === "string"
     ? { channelAccountId: row.channel_account_id, accountName: text(channelAccount.display_name) ?? "Nick Zalo", reason: lockRow.reason,
       lockedSince: lockRow.locked_since, autoReleaseAt: text(lockRow.auto_release_at), conversationId: text(lockRow.conversation_id) }
@@ -320,7 +328,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       id: row.id,
       channelAccountId: row.channel_account_id,
       channelType,
-      accountDisplayName: text(channelAccount.display_name) ?? "Unnamed account",
+      accountDisplayName: text(channelAccount.display_name) ?? "Tài khoản chưa đặt tên",
       accountHealthLabel: accountHealth(channelAccount as Record<string, unknown>, channelType),
       contactName: text(contactResult.data?.full_name),
       participantName: metadataName(row.metadata),

@@ -4,7 +4,7 @@ import { Check, Search, SlidersHorizontal, X } from "lucide-react";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createConversationTag } from "@/modules/channels/server/channel-actions";
 import { InboxAccountFilter } from "./inbox-account-filter";
-import type { OmnichannelInboxAccount, OmnichannelInboxProfile, OmnichannelInboxTag } from "../types/omnichannel-inbox";
+import type { OmnichannelInboxAccount, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 
 const initialTagState = { status: "idle" as const, message: null };
 
@@ -14,8 +14,11 @@ const initialTagState = { status: "idle" as const, message: null };
  */
 export function InboxFilterPanel(props: {
   accounts: OmnichannelInboxAccount[];
-  profiles: OmnichannelInboxProfile[];
+  /** Người phụ trách = người dùng chính of the nicks, with how many nicks each. */
+  owners: Array<{ id: string; fullName: string; accountCount: number }>;
   tags: OmnichannelInboxTag[];
+  view: string;
+  search: string;
   channel: string | null;
   selectedAccountIds: string[];
   currentUserId: string | null;
@@ -44,7 +47,7 @@ export function InboxFilterPanel(props: {
   }, [open]);
 
   const needle = fold(ownerQuery);
-  const owners = useMemo(() => needle ? props.profiles.filter((profile) => fold(profile.fullName).includes(needle)) : props.profiles, [needle, props.profiles]);
+  const owners = useMemo(() => needle ? props.owners.filter((profile) => fold(profile.fullName).includes(needle)) : props.owners, [needle, props.owners]);
   const selectedOwners = new Set(props.selectedOwnerIds);
   const selectedTags = new Set(props.selectedTagIds);
   // Owners already picked stay on top so they are easy to untick.
@@ -60,6 +63,8 @@ export function InboxFilterPanel(props: {
         {props.channel ? <input type="hidden" name="channel" value={props.channel}/> : null}
         {props.firstMessageFrom ? <input type="hidden" name="firstFrom" value={props.firstMessageFrom}/> : null}
         {props.firstMessageTo ? <input type="hidden" name="firstTo" value={props.firstMessageTo}/> : null}
+        {props.view && props.view !== "all" ? <input type="hidden" name="view" value={props.view}/> : null}
+        {props.search ? <input type="hidden" name="q" value={props.search}/> : null}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
           <InboxAccountFilter accounts={props.accounts} selected={props.selectedAccountIds} currentUserId={props.currentUserId}/>
 
@@ -73,15 +78,15 @@ export function InboxFilterPanel(props: {
           </section>
 
           <section>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">Người phụ trách</p>
-            {props.profiles.length > 6 ? <label className="relative mb-1.5 block"><Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-slate-400"/><input value={ownerQuery} onChange={(event) => setOwnerQuery(event.target.value)} placeholder="Tìm người…" className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-blue-400 focus:bg-white"/></label> : null}
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500" title="Người dùng chính của nick">Người phụ trách (chủ nick)</p>
+            {props.owners.length > 6 ? <label className="relative mb-1.5 block"><Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-slate-400"/><input value={ownerQuery} onChange={(event) => setOwnerQuery(event.target.value)} placeholder="Tìm người…" className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-blue-400 focus:bg-white"/></label> : null}
             <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-100">
               {sortedOwners.length ? sortedOwners.map((profile) => <label key={profile.id} className="flex cursor-pointer items-center gap-2.5 border-b border-slate-50 px-2 py-1.5 last:border-b-0 hover:bg-slate-50">
                 <input type="checkbox" name="owner" value={profile.id} defaultChecked={selectedOwners.has(profile.id)} className="peer sr-only"/>
                 <span className="flex size-4 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-transparent peer-checked:border-blue-600 peer-checked:bg-blue-600 peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-blue-300"><Check className="size-3"/></span>
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-white">{initialsOf(profile.fullName)}</span>
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800">{profile.fullName}</span>
-                <span className="shrink-0 text-[11px] text-slate-500">{profile.allChannelAccounts ? "tất cả" : `${profile.channelAccountIds.length} tk`}</span>
+                <span className="shrink-0 text-[11px] text-slate-500">{profile.accountCount ? `${profile.accountCount} nick` : "chưa có nick"}</span>
               </label>) : <p className="px-3 py-4 text-center text-xs text-slate-500">Không tìm thấy người phù hợp.</p>}
             </div>
           </section>

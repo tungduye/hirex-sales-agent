@@ -41,7 +41,6 @@ interface ProfileRow { id: unknown; full_name: unknown; all_channel_accounts: un
 interface ProfileChannelAccessRow { profile_id: unknown; channel_account_id: unknown }
 interface TagRow { id: unknown; name: unknown; color: unknown }
 interface TagLinkRow { conversation_id: unknown; tag_id: unknown }
-interface FirstMessageRow { conversation_id: unknown; first_message_at: unknown }
 interface ActionRow { id: unknown; conversation_id: unknown; text_content: unknown; proposed_by: unknown }
 
 const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
@@ -238,7 +237,18 @@ function emptyData(input: {
   return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedChannelTypes: input.selectedChannelType ? [input.selectedChannelType] : [], channelParam: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
-export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
+export const INBOX_VIEWS = ["all", "waiting", "mine", "groups", "other"] as const;
+export type InboxView = (typeof INBOX_VIEWS)[number];
+export function inboxView(value: string | null | undefined): InboxView { return INBOX_VIEWS.find((item) => item === value) ?? "all"; }
+
+/** Where the next page starts: sort time and id of the last row looked at ("<time>_<id>"). */
+function parseCursor(value: string | null | undefined): { at: string; id: string } | null {
+  const match = /^(-infinity|\d{4}-\d{2}-\d{2}[T ][0-9:.+-]{8,40}Z?)_([0-9a-f-]{36})$/iu.exec(value ?? "");
+  if (!match || !isUuid(match[2])) return null;
+  return match[1] === "-infinity" || Number.isFinite(Date.parse(match[1].replace(" ", "T"))) ? { at: match[1], id: match[2] } : null;
+}
+
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; cursor?: string; mode?: "list" | "counts" }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -250,8 +260,12 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const tagMatchMode = filters.tagMatchMode === "any" ? "any" : "all";
   const firstMessageFrom = validDate(filters.firstMessageFrom) ? filters.firstMessageFrom! : null;
   const firstMessageTo = validDate(filters.firstMessageTo) ? filters.firstMessageTo! : null;
+  const view = inboxView(filters.view);
+  const search = (filters.search ?? "").replace(/\s+/gu, " ").trim().slice(0, 100);
+  const cursor = parseCursor(filters.cursor);
   const accountContext = await getAccountContext();
-  if (!accountContext?.workspaceId) return emptyData({ selectedChannelType, selectedPage, error: "Inbox could not be loaded." });
+  if (!accountContext?.workspaceId) return emptyData({ selectedChannelType, selectedPage, error: "Chưa tải được Suối Nguồn. Vui lòng thử lại." });
+  if (!accountContext.permissions.includes("inbox.view")) return emptyData({ selectedChannelType, selectedPage, error: "Bạn chưa có quyền xem Suối Nguồn." });
   const supabase = await createClient();
   const accountClient = createPrivilegedClient();
   const [accessibleAccountIds, stableMetadata] = await Promise.all([getAccessibleChannelAccountIds(), loadStableInboxMetadata(accountContext.workspaceId)]);
@@ -262,12 +276,12 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const { profiles, tags } = peopleAndTags(stableMetadata, accountContext, accessibleAccountIds);
   const availableTagIds = new Set(tags.map((tag) => tag.id));
   const selectedTagIds = requestedTagIds.filter((id) => availableTagIds.has(id));
-  if (accountError) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Omnichannel Inbox is not available yet." });
+  if (accountError) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Suối Nguồn chưa sẵn sàng. Vui lòng thử lại sau." });
   const accountRows = (accountData ?? []) as AccountRow[];
   // Provider checks are best-effort background work. Never hold up the inbox UI on an external bridge.
   void refreshStaleBridgeHealth(accountRows, accountContext.workspaceId).catch(() => undefined);
   const mappedAccounts = accountRows.map(mapAccount);
-  if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Inbox account data is unavailable." });
+  if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Chưa đọc được danh sách tài khoản kênh." });
   const accounts = (mappedAccounts as OmnichannelInboxAccount[]).filter((account) => account.id !== stableMetadata.botAccountId);
   // Phạm vi: Của tôi / Team / Tất cả (what is shown by default; access is unchanged).
   const managers = ((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" ? [{ id: row.id, managerId: typeof row.manager_id === "string" ? row.manager_id : null }] : []);
@@ -284,36 +298,65 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const requestedAccountIds = new Set((Array.isArray(filters.accountId) ? filters.accountId : [filters.accountId ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter(isUuid).slice(0, 200));
   const selectedAccountIds = accounts.filter((account) => requestedAccountIds.has(account.id) && scopedIds.has(account.id) && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(account.channelType))).map((account) => account.id);
   const selectedAccountId = selectedAccountIds.length ? selectedAccountIds.join(",") : null;
-  const availableOwnerIds = new Set(profiles.map((profile) => profile.id));
-  const selectedOwnerIds = requestedOwnerIds.filter((id) => availableOwnerIds.has(id));
-  const selectedOwnerProfiles = profiles.filter((profile) => selectedOwnerIds.includes(profile.id));
-  const ownerAccountIds = selectedOwnerIds.length === 0 || selectedOwnerProfiles.some((profile) => profile.allChannelAccounts)
-    ? activeAccountIds
-    : activeAccountIds.filter((id) => selectedOwnerProfiles.some((profile) => profile.channelAccountIds.includes(id)));
+  // Người phụ trách = người dùng chính of the nick: the owner filter keeps the nicks whose main user is picked.
+  // Options: main users of the nicks this member may see, plus the member.
+  const nameOfProfile = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
+  const accountsByOwner = new Map<string, number>();
+  for (const account of accounts) if (account.primaryProfileId && scopedIds.has(account.id)) accountsByOwner.set(account.primaryProfileId, (accountsByOwner.get(account.primaryProfileId) ?? 0) + 1);
+  const owners = [...new Set([accountContext.userId, ...accountsByOwner.keys()])].flatMap((id) => nameOfProfile.has(id) ? [{ id, fullName: nameOfProfile.get(id)!, accountCount: accountsByOwner.get(id) ?? 0 }] : [])
+    .sort((a, b) => Number(b.id === accountContext.userId) - Number(a.id === accountContext.userId) || a.fullName.localeCompare(b.fullName, "vi"));
+  const selectedOwnerIds = requestedOwnerIds.filter((id) => owners.some((owner) => owner.id === id));
+  const ownerAccountIds = selectedOwnerIds.length === 0 ? activeAccountIds
+    : activeAccountIds.filter((id) => { const owner = accounts.find((account) => account.id === id)?.primaryProfileId; return Boolean(owner && selectedOwnerIds.includes(owner)); });
 
-  let query = supabase.from("omnichannel_conversations")
-    .select("id,channel_account_id,channel_type,contact_id,subject,provider_conversation_id,status,takeover_mode,assigned_to,last_message_at,unread_count,metadata")
-    .eq("workspace_id", accountContext.workspaceId)
-    .or("metadata->>hidden.is.null,metadata->>hidden.neq.true")
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    // Tie-breaker: rows with the same time (copies of one group) must not shift between pages.
-    .order("id", { ascending: false })
-    .range((selectedPage - 1) * PAGE_SIZE, selectedPage * PAGE_SIZE);
-  if (selectedChannelTypes.length) query = query.in("channel_type", selectedChannelTypes);
   const listAccountIds = selectedAccountIds.length ? selectedAccountIds.filter((id) => ownerAccountIds.includes(id)) : ownerAccountIds;
-  if (listAccountIds.length === 0) query = query.eq("channel_account_id", "00000000-0000-0000-0000-000000000000");
-  else query = query.in("channel_account_id", listAccountIds);
+  if (filters.mode === "counts") {
+    // Tab badges, asked for separately so they never hold up the list.
+    const { data: countData, error: countError } = listAccountIds.length ? await supabase.rpc("inbox_view_counts", {
+      p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
+      p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
+      p_search: search || null, p_user_id: accountContext.userId,
+    }) : { data: [], error: null };
+    if (countError) return emptyData({ selectedChannelType, selectedPage, error: "Chưa đếm được hội thoại." });
+    const viewCounts: Record<string, number> = { all: 0, waiting: 0, mine: 0, groups: 0, other: 0 };
+    let capped = false;
+    for (const row of (countData ?? []) as Array<{ view?: unknown; total?: unknown; capped?: unknown }>) { if (typeof row.view === "string" && row.view in viewCounts) viewCounts[row.view] = Number(row.total) || 0; if (row.capped === true) capped = true; }
+    return { ...emptyData({ selectedChannelType, selectedPage, error: "" }), error: null, viewCounts: { ...viewCounts, capped } as NonNullable<OmnichannelInboxData["viewCounts"]> };
+  }
   // Unread conversations per account, for the account picker (runs alongside the list query).
   const unreadPromise = Promise.resolve(supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds }))
     // People only: e-mail from robots and the "Khác" folder are counted apart.
     .then(({ data }) => { const counts = new Map<string, { people: number; automated: number }>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown; unread_people?: unknown }>) if (typeof row.channel_account_id === "string") { const all = Number(row.unread) || 0; const people = row.unread_people === undefined ? all : Number(row.unread_people) || 0; counts.set(row.channel_account_id, { people, automated: all - people }); } return counts; }, () => new Map<string, { people: number; automated: number }>());
-  const { data: conversationData, error: conversationError } = await query;
-  if (conversationError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Conversations could not be loaded." });
-  const pageRows = conversationData as ConversationRow[];
+  // Tags, first-message dates, the tab and search are decided in the database over every conversation
+  // (migration 114), then this page's rows are loaded by id.
+  const listStartedAt = performance.now();
+  const { data: listData, error: listError } = listAccountIds.length ? await supabase.rpc("inbox_list_conversations", {
+    p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
+    p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
+    p_view: view, p_search: search || null, p_user_id: accountContext.userId, p_limit: PAGE_SIZE + 1,
+    p_before_at: cursor?.at ?? null, p_before_id: cursor?.id ?? null,
+  }) : { data: [], error: null };
+  if (listError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Chưa tải được danh sách hội thoại. Vui lòng thử lại." });
+  const listMs = Math.round(performance.now() - listStartedAt);
+  if (listMs > 500) console.warn("[slow-query] inbox list", { durationMs: listMs, view, search: Boolean(search) });
+  const listed = ((listData ?? []) as Array<{ id?: unknown; sort_at?: unknown; matched?: unknown }>).flatMap((row) => typeof row.id === "string" && typeof row.sort_at === "string" ? [{ id: row.id, sortAt: row.sort_at, matched: row.matched !== false }] : []);
+  const matchedRows = listed.filter((row) => row.matched);
+  const last = listed.at(-1);
+  // More pages: the page came back full, or the database stopped looking (a marker row) before the end.
+  const cursorRow = matchedRows.length > PAGE_SIZE ? matchedRows[PAGE_SIZE - 1] : last && !last.matched ? last : null;
+  const nextCursor = cursorRow ? `${cursorRow.sortAt}_${cursorRow.id}` : null;
+  const hasNextPage = nextCursor !== null;
+  const pageIds = matchedRows.slice(0, PAGE_SIZE).map((row) => row.id);
+  const { data: conversationData, error: conversationError } = pageIds.length
+    ? await supabase.from("omnichannel_conversations")
+      .select("id,channel_account_id,channel_type,contact_id,subject,provider_conversation_id,status,takeover_mode,assigned_to,last_message_at,unread_count,metadata")
+      .eq("workspace_id", accountContext.workspaceId).in("id", pageIds)
+    : { data: [], error: null };
+  if (conversationError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Chưa tải được danh sách hội thoại. Vui lòng thử lại." });
+  const position = new Map(pageIds.map((id, index) => [id, index]));
+  const rows = ((conversationData ?? []) as ConversationRow[]).sort((a, b) => (position.get(String(a.id)) ?? 0) - (position.get(String(b.id)) ?? 0));
   // Name enrichment may call Meta. Refresh it asynchronously so a slow provider cannot block rendering.
-  void refreshMissingFacebookNames(pageRows.slice(0, PAGE_SIZE)).catch(() => undefined);
-  const hasNextPage = pageRows.length > PAGE_SIZE;
-  const rows = pageRows.slice(0, PAGE_SIZE);
+  void refreshMissingFacebookNames(rows).catch(() => undefined);
   const ids = rows.flatMap((row) => typeof row.id === "string" ? [row.id] : []);
   const facebookProfileConversationIds = new Set(rows.flatMap((row) => row.channel_type === "FACEBOOK_PROFILE" && typeof row.id === "string" ? [row.id] : []));
   const contactIds = [...new Set(rows.flatMap((row) => typeof row.contact_id === "string" ? [row.contact_id] : []))];
@@ -322,18 +365,14 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const zaloGroupIds = new Set<string>();
   const contactNames = new Map<string, string>();
   const tagIdsByConversation = new Map<string, string[]>();
-  const firstMessageAtByConversation = new Map<string, string>();
   const proposedByConversation = new Map<string, Array<{ id: string; text: string | null; proposedBy: string }>>();
   if (ids.length > 0) {
     const previewStartedAt = performance.now();
-    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: firstMessageData }, { data: zaloGroupData }] = await Promise.all([
+    const [{ data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, contactResult, { data: zaloGroupData }] = await Promise.all([
       supabase.rpc("get_inbox_conversation_previews", { p_conversation_ids: ids }),
       loadTagLinks(supabase, ids),
       supabase.from("channel_outbound_actions").select("id,conversation_id,text_content,proposed_by").in("conversation_id", ids).eq("status", "PROPOSED").order("created_at", { ascending: false }),
       contactIds.length ? supabase.from("contacts").select("id,full_name").eq("workspace_id", accountContext.workspaceId).in("id", contactIds) : Promise.resolve({ data: [] as ContactRow[] }),
-      firstMessageFrom || firstMessageTo
-        ? supabase.rpc("get_conversation_first_message_times", { p_conversation_ids: ids })
-        : Promise.resolve({ data: [] as FirstMessageRow[] }),
       // Zalo groups (someone other than the thread wrote to us), in the same round trip as the previews.
       rows.some((row) => row.channel_type === "ZALO") ? supabase.rpc("get_inbox_zalo_group_ids", { p_conversation_ids: ids }) : Promise.resolve({ data: [] as string[] }),
     ]);
@@ -348,29 +387,14 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     }
     for (const contact of (contactResult.data ?? []) as ContactRow[]) if (typeof contact.id === "string" && typeof contact.full_name === "string") contactNames.set(contact.id, contact.full_name);
     for (const link of (tagLinkData ?? []) as TagLinkRow[]) if (typeof link.conversation_id === "string" && typeof link.tag_id === "string") tagIdsByConversation.set(link.conversation_id, [...(tagIdsByConversation.get(link.conversation_id) ?? []), link.tag_id]);
-    for (const item of (firstMessageData ?? []) as FirstMessageRow[]) if (typeof item.conversation_id === "string" && typeof item.first_message_at === "string") firstMessageAtByConversation.set(item.conversation_id, item.first_message_at);
     for (const action of (actionData ?? []) as ActionRow[]) if (typeof action.id === "string" && typeof action.conversation_id === "string" && typeof action.proposed_by === "string") proposedByConversation.set(action.conversation_id, [...(proposedByConversation.get(action.conversation_id) ?? []), { id: action.id, text: typeof action.text_content === "string" ? action.text_content : null, proposedBy: action.proposed_by }]);
   }
   const accountNames = new Map(accounts.map((account) => [account.id, account.displayName]));
   const conversations: OmnichannelInboxConversation[] = [];
   for (const row of rows) {
-    if (typeof row.id !== "string" || typeof row.channel_account_id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CONVERSATION_STATUSES.includes(row.status as never) || typeof row.takeover_mode !== "string" || !TAKEOVER_MODES.includes(row.takeover_mode as never) || !Number.isSafeInteger(row.unread_count)) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Conversation data is unavailable." });
+    if (typeof row.id !== "string" || typeof row.channel_account_id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CONVERSATION_STATUSES.includes(row.status as never) || typeof row.takeover_mode !== "string" || !TAKEOVER_MODES.includes(row.takeover_mode as never) || !Number.isSafeInteger(row.unread_count)) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Dữ liệu hội thoại chưa đọc được. Vui lòng thử lại." });
     const message = latest.get(row.id);
     const conversationTagIds = tagIdsByConversation.get(row.id) ?? [];
-    if (selectedTagIds.length > 0) {
-      const matches = tagMatchMode === "all"
-        ? selectedTagIds.every((id) => conversationTagIds.includes(id))
-        : selectedTagIds.some((id) => conversationTagIds.includes(id));
-      if (!matches) continue;
-    }
-    if (firstMessageFrom || firstMessageTo) {
-      const firstAt = firstMessageAtByConversation.get(row.id);
-      if (!firstAt) continue;
-      const timestamp = Date.parse(firstAt);
-      if (!Number.isFinite(timestamp)) continue;
-      if (firstMessageFrom && timestamp < startOfDate(firstMessageFrom)) continue;
-      if (firstMessageTo && timestamp >= startOfNextDate(firstMessageTo)) continue;
-    }
     conversations.push({
       id: row.id, channelAccountId: row.channel_account_id, channelType: row.channel_type as ChannelType,
       subject: safeInboxPreview(typeof row.subject === "string" ? row.subject : null), status: row.status as OmnichannelInboxConversation["status"],
@@ -382,7 +406,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       senderExternalId: typeof message?.sender_external_id === "string" ? message.sender_external_id : null,
       contactName: typeof row.contact_id === "string" ? contactNames.get(row.contact_id) ?? null : null,
       zaloGroupKey: row.channel_type === "ZALO" ? zaloGroupKey(row.metadata) : null,
-      participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Unknown account",
+      participantName: participantName(row.metadata), avatarUrl: avatarUrl(row.metadata), accountDisplayName: accountNames.get(row.channel_account_id) ?? "Tài khoản chưa rõ",
       lastInboundAt: latestInbound.get(row.id) ?? null, tagIds: conversationTagIds, proposedActions: proposedByConversation.get(row.id) ?? [],
       // Zalo one-to-one threads are keyed by the other person's id; a message from someone else means a group.
       automated: row.channel_type === "EMAIL" && isAutomatedSender(typeof message?.sender_external_id === "string" ? message.sender_external_id : null),
@@ -410,11 +434,10 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       : ambiguousGroupKeys(((sameNameData ?? []) as Array<{ subject: unknown; channel_account_id: unknown }>).flatMap((item) =>
         typeof item.channel_account_id === "string" ? [{ subject: typeof item.subject === "string" ? item.subject : null, channelAccountId: item.channel_account_id }] : []));
   }
-  const listed = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
+  const merged = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   const unread = await unreadPromise;
-  const nameOf = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
-  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id)?.people ?? 0, unreadAutomated: unread.get(account.id)?.automated ?? 0, primaryName: account.primaryProfileId ? nameOf.get(account.primaryProfileId) ?? null : null }));
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id)?.people ?? 0, unreadAutomated: unread.get(account.id)?.automated ?? 0, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, nextCursor, listMs, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {
@@ -424,5 +447,3 @@ function isUuid(value: string): boolean {
 function validDate(value: string | undefined): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00+07:00`));
 }
-function startOfDate(value: string): number { return Date.parse(`${value}T00:00:00+07:00`); }
-function startOfNextDate(value: string): number { return startOfDate(value) + 24 * 60 * 60 * 1000; }

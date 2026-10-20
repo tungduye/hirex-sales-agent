@@ -4,29 +4,72 @@ import Image from "next/image";
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import Link from "next/link";
 import { BellOff, CheckCheck, LoaderCircle, MoreVertical, Pin, Search, Trash2, Undo2, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow } from "./inbox-live-events";
 import { appendPage, rowIndexFor } from "../core/group-merge";
 import { DRAFT_EVENT, draftStore, listDrafts } from "@/modules/channels/core/composer-drafts";
+import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
 
-interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null }
+interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null; view?: ViewMode; q?: string }
 
 type ViewMode = "all" | "waiting" | "mine" | "groups" | "other";
 const VIEW_KEY = "hirex.inbox.view";
+type ViewCounts = Record<ViewMode, number> & { capped: boolean };
 
-export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode }) {
+/** The list filters as a query string (no conversation, no cursor). */
+function filterQuery(filters: Filters) {
+  const query = new URLSearchParams();
+  if (filters.channel) query.set("channel", filters.channel);
+  if (filters.account) query.set("account", filters.account);
+  for (const owner of filters.ownerIds) query.append("owner", owner);
+  for (const tag of filters.tagIds) query.append("tag", tag);
+  if (filters.tagIds.length) query.set("tagMode", filters.tagMatchMode);
+  if (filters.firstMessageFrom) query.set("firstFrom", filters.firstMessageFrom);
+  if (filters.firstMessageTo) query.set("firstTo", filters.firstMessageTo);
+  if (filters.view && filters.view !== "all") query.set("view", filters.view);
+  if (filters.q) query.set("q", filters.q);
+  return query;
+}
+
+// Tab badges per filter set, kept a minute so switching back and forth does not count again.
+const countCache = new Map<string, { at: number; counts: ViewCounts }>();
+
+export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [conversations, setConversations] = useState(props.initialConversations);
-  const [page, setPage] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(props.initialNextCursor);
   const [hasNextPage, setHasNextPage] = useState(props.initialHasNextPage);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [viewMode, setViewModeState] = useState<ViewMode>("all");
-  // Remember the member's tab between pages (per browser).
-  useEffect(() => { try { const saved = window.localStorage.getItem(VIEW_KEY); if (saved && ["all", "waiting", "mine", "groups", "other"].includes(saved)) setViewModeState(saved as ViewMode); } catch { /* storage unavailable */ } }, []);
-  const [search, setSearch] = useState("");
-  const setViewMode = (mode: ViewMode) => { setViewModeState(mode); try { window.localStorage.setItem(VIEW_KEY, mode); } catch { /* storage unavailable */ } };
+  // Tab and search are decided by the server over every conversation; they travel in the URL (?view=&q=).
+  const viewMode: ViewMode = props.filters.view ?? "all";
+  const [search, setSearch] = useState(props.filters.q ?? "");
+  // The address changed the search (a chip ✕, back button): show it in the box.
+  const [shownQ, setShownQ] = useState(props.filters.q ?? "");
+  if (shownQ !== (props.filters.q ?? "")) { setShownQ(props.filters.q ?? ""); setSearch(props.filters.q ?? ""); }
+  const [loadedCounts, setLoadedCounts] = useState<{ key: string; counts: ViewCounts } | null>(null);
+  const navigate = useCallback((change: (query: URLSearchParams) => void) => {
+    const query = new URLSearchParams(searchParams.toString());
+    change(query);
+    const next = query.toString();
+    router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+  const setViewMode = (mode: ViewMode) => {
+    try { window.localStorage.setItem(VIEW_KEY, mode); } catch { /* storage unavailable */ }
+    navigate((query) => query.set("view", mode));
+  };
+  // Search runs on the server a moment after typing stops.
+  useEffect(() => {
+    const value = search.replace(/\s+/gu, " ").trim();
+    if (value === (props.filters.q ?? "")) return;
+    const timer = window.setTimeout(() => navigate((query) => { if (value) query.set("q", value); else query.delete("q"); }), 400);
+    return () => window.clearTimeout(timer);
+  }, [search, props.filters.q, navigate]);
   // Waiting times stay current without reloading.
   const [now, setNow] = useState(() => Date.now());
   // Unsent drafts kept in this browser: the row shows "Nháp: ..." like Zalo.
@@ -45,7 +88,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   useEffect(() => {
     if (previousFilterKeyRef.current !== filterKey) {
       previousFilterKeyRef.current = filterKey;
-      setConversations(props.initialConversations); setPage(1); setHasNextPage(props.initialHasNextPage); setLoading(false); setFailed(false);
+      setConversations(props.initialConversations); setCursor(props.initialNextCursor); setHasNextPage(props.initialHasNextPage); setLoading(false); setFailed(false);
       return;
     }
     setConversations((current) => {
@@ -53,7 +96,23 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       const refreshedGroups = new Set(props.initialConversations.flatMap((item) => item.groupKey ? [item.groupKey] : []));
       return [...props.initialConversations, ...current.filter((item) => !item.copyIds.some((id) => refreshedIds.has(id)) && !(item.groupKey && refreshedGroups.has(item.groupKey)))];
     });
-  }, [props.initialConversations, props.initialHasNextPage, filterKey]);
+  }, [props.initialConversations, props.initialHasNextPage, props.initialNextCursor, filterKey]);
+
+  // Tab badges load after the list, so they never slow it down.
+  const countKey = (() => { const query = filterQuery({ ...props.filters, view: "all" }); return query.toString(); })();
+  const counts = loadedCounts?.key === countKey ? loadedCounts.counts : null;
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const cached = countCache.get(countKey);
+      if (cached && Date.now() - cached.at < 60_000) { setLoadedCounts({ key: countKey, counts: cached.counts }); return; }
+      fetch(`/api/inbox/view-counts${countKey ? `?${countKey}` : ""}`, { signal: controller.signal })
+        .then((response) => response.ok ? response.json() as Promise<ViewCounts> : null)
+        .then((value) => { if (value) { countCache.set(countKey, { at: Date.now(), counts: value }); setLoadedCounts({ key: countKey, counts: value }); } })
+        .catch(() => undefined);
+    }, 150);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [countKey]);
 
   useEffect(() => {
     const onMessage = (event: Event) => {
@@ -84,25 +143,18 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   }, [props.selectedConversationId]);
 
   const loadMore = useCallback(async () => {
-    if (loading || !hasNextPage) return;
+    if (loading || !hasNextPage || !cursor) return;
     setLoading(true); setFailed(false);
-    const nextPage = page + 1;
-    const query = new URLSearchParams({ page: String(nextPage) });
-    if (props.filters.channel) query.set("channel", props.filters.channel);
-    if (props.filters.account) query.set("account", props.filters.account);
-    for (const owner of props.filters.ownerIds) query.append("owner", owner);
-    for (const tag of props.filters.tagIds) query.append("tag", tag);
-    if (props.filters.tagIds.length) query.set("tagMode", props.filters.tagMatchMode);
-    if (props.filters.firstMessageFrom) query.set("firstFrom", props.filters.firstMessageFrom);
-    if (props.filters.firstMessageTo) query.set("firstTo", props.filters.firstMessageTo);
+    const query = filterQuery(props.filters);
+    query.set("cursor", cursor);
     try {
       const response = await fetch(`/api/inbox/conversations?${query.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("LOAD_FAILED");
-      const payload = await response.json() as { conversations: OmnichannelInboxConversation[]; hasNextPage: boolean; page: number };
+      const payload = await response.json() as { conversations: OmnichannelInboxConversation[]; hasNextPage: boolean; nextCursor: string | null };
       setConversations((current) => appendPage(current, payload.conversations));
-      setPage(payload.page); setHasNextPage(payload.hasNextPage);
+      setCursor(payload.nextCursor); setHasNextPage(payload.hasNextPage && Boolean(payload.nextCursor));
     } catch { setFailed(true); } finally { setLoading(false); }
-  }, [hasNextPage, loading, page, props.filters]);
+  }, [cursor, hasNextPage, loading, props.filters]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -114,32 +166,39 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
 
   // "Khác": the OTHER folder plus e-mails from robots (no-reply, notifications…) that nobody needs to answer.
   const isOther = (item: OmnichannelInboxConversation) => item.folder === "OTHER" || item.automated;
-  const people = conversations.filter((item) => !item.isGroup && !isOther(item));
-  const counts: Record<ViewMode, number> = {
-    all: people.length,
-    waiting: people.filter((item) => item.latestDirection === "INBOUND").length,
-    mine: people.filter((item) => props.currentUserId !== null && item.assignedTo === props.currentUserId).length,
-    groups: conversations.filter((item) => item.isGroup).length,
-    other: conversations.filter((item) => !item.isGroup && isOther(item)).length,
-  };
+  // The server already picked the tab's rows; this second look keeps rows changed live (a reply, a
+  // folder move) in the right tab until the next load.
   const matches = (item: OmnichannelInboxConversation) => viewMode === "groups" ? item.isGroup
     : viewMode === "other" ? !item.isGroup && isOther(item)
     : !item.isGroup && !isOther(item) && (viewMode === "all" || (viewMode === "waiting" ? item.latestDirection === "INBOUND" : props.currentUserId !== null && item.assignedTo === props.currentUserId));
   // "Chưa trả lời": longest wait first. Elsewhere: pinned first, then newest.
-  // Search covers the conversations already loaded: name, e-mail/phone id, account and last message.
-  const needle = normalize(search);
-  const found = (item: OmnichannelInboxConversation) => !needle || normalize([conversationDisplayName(item), item.senderExternalId, item.accountDisplayName, item.latestText].filter(Boolean).join(" ")).includes(needle);
-  const visible = conversations.filter((item) => matches(item) && found(item)).sort((a, b) => viewMode === "waiting"
+  const needle = normalize(props.filters.q ?? "");
+  const visible = conversations.filter(matches).sort((a, b) => viewMode === "waiting"
     ? (Date.parse(a.lastInboundAt ?? a.lastMessageAt ?? "") || 0) - (Date.parse(b.lastInboundAt ?? b.lastMessageAt ?? "") || 0)
     : Number(b.isPinned) - Number(a.isPinned));
+  // A page may hold no row for this tab (the server stops looking after a while): keep loading until a few show.
+  useEffect(() => {
+    if (loading || failed || !hasNextPage || visible.length >= 15) return;
+    const timer = window.setTimeout(() => void loadMore(), 0);
+    return () => window.clearTimeout(timer);
+  }, [failed, hasNextPage, loadMore, loading, visible.length]);
+  // Menu actions change the row here at once; the list reloads quietly in the background.
+  const applyLocal = useCallback((conversation: OmnichannelInboxConversation, action: string) => {
+    setConversations((current) => action === "SOFT_DELETE" ? current.filter((item) => item.id !== conversation.id) : current.map((item) => item.id !== conversation.id ? item
+      : action === "MARK_READ" ? { ...item, unreadCount: 0 } : action === "MARK_UNREAD" ? { ...item, unreadCount: Math.max(1, item.unreadCount) }
+      : action === "TOGGLE_MUTE" ? { ...item, isMuted: !item.isMuted } : action === "TOGGLE_PIN" ? { ...item, isPinned: !item.isPinned }
+      : action === "TOGGLE_OTHER" ? { ...item, folder: item.folder === "OTHER" ? "PRIMARY" : "OTHER" } : item));
+    countCache.clear();
+    window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
+  }, []);
   const tabs: Array<[ViewMode, string]> = [["all", "Tất cả"], ["waiting", "Chưa trả lời"], ["mine", "Giao cho tôi"], ["groups", "Nhóm"], ["other", "Khác"]];
   return <div className="min-h-0 flex flex-1 flex-col">
     <div className="relative flex shrink-0 flex-col gap-2.5 border-b border-slate-100 px-3.5 pb-2.5 pt-2.5">
-      <div className="flex gap-2"><label className="relative block min-w-0 flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Tìm theo tên, số điện thoại, nội dung" placeholder="Tìm tên, SĐT, nội dung…" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[13px] outline-none focus:border-blue-400 focus:bg-white"/>{search ? <button type="button" onClick={() => setSearch("")} aria-label="Xóa tìm kiếm" className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4"/></button> : null}</label>{props.filterControl}</div>
-      <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex flex-wrap gap-0.5">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}<span className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{hasNextPage ? "+" : ""}</span></button>)}</div>
+      <div className="flex gap-2"><label className="relative block min-w-0 flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Tìm theo tên, số điện thoại, email, tên nhóm" placeholder="Tìm tên, SĐT, email, nhóm…" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[13px] outline-none focus:border-blue-400 focus:bg-white"/>{search ? <button type="button" onClick={() => setSearch("")} aria-label="Xóa tìm kiếm" className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4"/></button> : null}</label>{props.filterControl}</div>
+      <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex flex-wrap gap-0.5">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{counts.capped ? "+" : ""}</span> : null}</button>)}</div>
       {props.channelChips}
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null}/>)}{visible.length === 0 && !loading ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời trong danh sách đã tải." : needle || conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null} onChanged={applyLocal}/>)}{visible.length === 0 && !loading && !hasNextPage ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời." : needle ? `Không tìm thấy hội thoại nào với “${props.filters.q}”.` : conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
 }
@@ -163,7 +222,7 @@ export function waitBadge(lastInboundAt: string | null, now: number): { text: st
 
 const LOGO_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] as const;
 
-function ConversationRow({ conversation, selected, tags, filters, now, draft = null }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null }) {
+function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string) => void }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
   const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
@@ -175,17 +234,21 @@ function ConversationRow({ conversation, selected, tags, filters, now, draft = n
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
       <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{draft && !selected ? <><span className="font-semibold text-rose-600">Nháp: </span>{draft}</> : <>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</>}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
       {conversationTags.length ? <div className="mt-1 flex gap-1 overflow-hidden">{conversationTags.slice(0, 3).map((tag) => <span key={tag.id} className="max-w-24 truncate rounded-full border px-1.5 py-0.5 text-[9px]" style={{ borderColor: tag.color ?? "#94a3b8" }}>{tag.name}</span>)}</div> : null}
-    </div></div></Link><ConversationMenu conversation={conversation}/></div>;
+    </div></div></Link><ConversationMenu conversation={conversation} onChanged={onChanged}/></div>;
 }
 
-function ConversationMenu({conversation}:{conversation:OmnichannelInboxConversation}){
+function ConversationMenu({conversation,onChanged}:{conversation:OmnichannelInboxConversation;onChanged:(conversation:OmnichannelInboxConversation,action:string)=>void}){
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState<string|null>(null);
+  const menuRef=useRef<HTMLDetailsElement>(null);
   // A merged Zalo group row stands for every nick's copy, so read/unread, mute, pin, folder and delete apply to all of them.
-  const mutate=async(action:string)=>{const responses=await Promise.all(conversation.copyIds.map((id)=>fetch(`/api/inbox/conversations/${id}/preferences`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action})}).catch(()=>null)));if(responses.some((response)=>response?.ok))window.location.reload()};
+  // The row changes at once; no page reload.
+  const mutate=async(action:string)=>{if(busy)return;if(action==="SOFT_DELETE"&&!window.confirm("Xóa hội thoại này khỏi Suối Nguồn?"))return;setBusy(true);setError(null);const responses=await Promise.all(conversation.copyIds.map((id)=>fetch(`/api/inbox/conversations/${id}/preferences`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action})}).catch(()=>null)));setBusy(false);if(responses.some((response)=>response?.ok)){menuRef.current?.removeAttribute("open");onChanged(conversation,action)}else setError("Chưa làm được, vui lòng thử lại.")};
   const item="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium hover:bg-slate-50";
-  return <details className="absolute right-1.5 top-1.5 z-20 opacity-0 focus-within:opacity-100 group-hover:opacity-100 [&[open]]:opacity-100" onClick={event=>event.stopPropagation()}><summary aria-label="Tùy chọn hội thoại" className="flex size-7 cursor-pointer list-none items-center justify-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"><MoreVertical className="size-4"/></summary><div className="absolute right-0 top-9 w-48 overflow-hidden rounded-xl border bg-white py-1 shadow-xl"><button className={item} onClick={()=>void mutate(conversation.unreadCount?"MARK_READ":"MARK_UNREAD")}><CheckCheck className="size-4"/>{conversation.unreadCount?"Đánh dấu đã đọc":"Đánh dấu chưa đọc"}</button><button className={item} onClick={()=>void mutate("TOGGLE_MUTE")}><BellOff className="size-4"/>{conversation.isMuted?"Bật thông báo":"Tắt thông báo"}</button><button className={item} onClick={()=>void mutate("TOGGLE_PIN")}><Pin className="size-4"/>{conversation.isPinned?"Bỏ ghim":"Ghim trong HireX"}</button><button className={item} onClick={()=>void mutate("TOGGLE_OTHER")}><Undo2 className="size-4"/>{conversation.folder==="OTHER"?"Chuyển về Chính":"Chuyển vào Khác"}</button><button className={`${item} text-rose-600`} onClick={()=>void mutate("SOFT_DELETE")}><Trash2 className="size-4"/>Xóa hội thoại</button></div></details>;
+  return <details ref={menuRef} className="absolute right-1.5 top-1.5 z-20 opacity-0 focus-within:opacity-100 group-hover:opacity-100 [&[open]]:opacity-100" onClick={event=>event.stopPropagation()}><summary aria-label="Tùy chọn hội thoại" className="flex size-7 cursor-pointer list-none items-center justify-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"><MoreVertical className="size-4"/></summary><div className="absolute right-0 top-9 w-48 overflow-hidden rounded-xl border bg-white py-1 shadow-xl"><button className={item} onClick={()=>void mutate(conversation.unreadCount?"MARK_READ":"MARK_UNREAD")}><CheckCheck className="size-4"/>{conversation.unreadCount?"Đánh dấu đã đọc":"Đánh dấu chưa đọc"}</button><button className={item} onClick={()=>void mutate("TOGGLE_MUTE")}><BellOff className="size-4"/>{conversation.isMuted?"Bật thông báo":"Tắt thông báo"}</button><button className={item} onClick={()=>void mutate("TOGGLE_PIN")}><Pin className="size-4"/>{conversation.isPinned?"Bỏ ghim":"Ghim trong HireX"}</button><button className={item} onClick={()=>void mutate("TOGGLE_OTHER")}><Undo2 className="size-4"/>{conversation.folder==="OTHER"?"Chuyển về Chính":"Chuyển vào Khác"}</button><button className={`${item} text-rose-600`} onClick={()=>void mutate("SOFT_DELETE")}><Trash2 className="size-4"/>Xóa hội thoại</button>{busy?<p className="px-3 py-1.5 text-[11px] text-slate-500">Đang lưu…</p>:null}{error?<p role="alert" className="px-3 py-1.5 text-[11px] text-rose-600">{error}</p>:null}</div></details>;
 }
 
-function inboxHref(conversationId: string, filters: Filters) { const query = new URLSearchParams(); if (filters.channel) query.set("channel", filters.channel); if (filters.account) query.set("account", filters.account); for (const owner of filters.ownerIds) query.append("owner", owner); for (const tag of filters.tagIds) query.append("tag", tag); if (filters.tagIds.length) query.set("tagMode", filters.tagMatchMode); if (filters.firstMessageFrom) query.set("firstFrom", filters.firstMessageFrom); if (filters.firstMessageTo) query.set("firstTo", filters.firstMessageTo); return `/inbox/all/${conversationId}${query.size ? `?${query}` : ""}`; }
+function inboxHref(conversationId: string, filters: Filters) { const query = filterQuery(filters); return `/inbox/all/${conversationId}${query.size ? `?${query}` : ""}`; }
 const AVATAR_COLORS = ["#7c3aed", "#0891b2", "#ea580c", "#059669", "#2563eb", "#db2777", "#4f46e5", "#0d9488"];
 function avatarColor(name: string) { let hash = 0; for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return AVATAR_COLORS[hash % AVATAR_COLORS.length]; }
 export function initials(name: string) { const words = name.replace(/@.*$/u, "").split(/[\s._-]+/u).filter((word) => /\p{L}|\d/u.test(word)); if (words.length === 0) return "?"; const pick = words.length === 1 ? [words[0]] : [words[words.length - 2], words[words.length - 1]]; return pick.map((word) => Array.from(word)[0] ?? "").join("").toUpperCase(); }

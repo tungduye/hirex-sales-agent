@@ -44,115 +44,115 @@ async function authenticatedClient() {
 export async function updateConversationControls(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = conversationControlSchema.safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Conversation update is unavailable." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa cập nhật được hội thoại. Vui lòng thử lại." };
   if (!await hasPermission("inbox.update")) return { status: "error", message: "Bạn không có quyền cập nhật hội thoại." };
   const { data: conversation, error: lookupError } = await supabase.from("omnichannel_conversations")
     .select("id,channel_account_id").eq("id", parsed.data.conversationId).maybeSingle();
   if (lookupError || !conversation || !await canAccessChannelAccount(conversation.channel_account_id)) return { status: "error", message: "Bạn không có quyền truy cập hội thoại này." };
   const { data, error } = await supabase.rpc("set_omnichannel_conversation_controls", { p_conversation_id: parsed.data.conversationId, p_status: parsed.data.status, p_takeover_mode: parsed.data.takeoverMode, p_assigned_to: parsed.data.assignedTo || null });
-  if (error || data !== true) return { status: "error", message: "Conversation could not be updated." };
+  if (error || data !== true) return { status: "error", message: "Chưa cập nhật được hội thoại." };
   revalidatePath("/inbox/all");
-  return { status: "success", message: "Conversation updated." };
+  return { status: "success", message: "Đã cập nhật hội thoại." };
 }
 
 export async function createConversationTag(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = tagSchema.safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Tag could not be created." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa tạo được nhãn (có thể tên nhãn đã tồn tại)." };
   if (!await hasPermission("inbox.update")) return { status: "error", message: "Bạn không có quyền cập nhật hội thoại." };
   const { data, error } = await supabase.rpc("create_conversation_tag", { p_name: parsed.data.name, p_color: parsed.data.color || null });
-  if (error || typeof data !== "string") return { status: "error", message: "Tag could not be created." };
+  if (error || typeof data !== "string") return { status: "error", message: "Chưa tạo được nhãn (có thể tên nhãn đã tồn tại)." };
   revalidatePath("/inbox/all");
-  return { status: "success", message: "Tag created." };
+  return { status: "success", message: "Đã tạo nhãn." };
 }
 
 export async function setConversationTag(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = tagLinkSchema.safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Tag could not be changed." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa đổi được nhãn." };
   if (!await hasPermission("inbox.update")) return { status: "error", message: "Bạn không có quyền cập nhật hội thoại." };
   const { data: conversation, error: lookupError } = await supabase.from("omnichannel_conversations")
     .select("id,channel_account_id").eq("id", parsed.data.conversationId).maybeSingle();
   if (lookupError || !conversation || !await canAccessChannelAccount(conversation.channel_account_id)) return { status: "error", message: "Bạn không có quyền truy cập hội thoại này." };
   const { data, error } = await supabase.rpc("set_conversation_tag", { p_conversation_id: parsed.data.conversationId, p_tag_id: parsed.data.tagId, p_enabled: parsed.data.enabled === "true" });
-  if (error || data !== true) return { status: "error", message: "Tag could not be changed." };
+  if (error || data !== true) return { status: "error", message: "Chưa đổi được nhãn." };
   revalidatePath("/inbox/all");
-  return { status: "success", message: "Tag updated." };
+  return { status: "success", message: "Đã cập nhật nhãn." };
 }
 
 export async function saveQuickReply(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = quickReplySchema.safeParse({ ...Object.fromEntries(formData), channelTypes: formData.getAll("channelTypes") });
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Quick reply could not be saved." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa lưu được câu trả lời nhanh." };
   if (!await hasPermission("channels.manage")) return { status: "error", message: "Bạn không có quyền quản lý kênh kết nối." };
   const { data, error } = await supabase.rpc("save_quick_reply_template", { p_id: parsed.data.id || null, p_name: parsed.data.name, p_shortcut: parsed.data.shortcut, p_text_content: parsed.data.textContent, p_channel_types: parsed.data.channelTypes });
-  if (error || typeof data !== "string") return { status: "error", message: "Quick reply could not be saved." };
+  if (error || typeof data !== "string") return { status: "error", message: "Chưa lưu được câu trả lời nhanh." };
   revalidatePath("/settings/channels");
-  return { status: "success", message: "Quick reply saved." };
+  return { status: "success", message: "Đã lưu câu trả lời nhanh." };
 }
 
 export async function deleteQuickReply(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = uuid.safeParse(formData.get("id"));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Quick reply could not be deleted." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa xóa được câu trả lời nhanh." };
   if (!await hasPermission("channels.manage")) return { status: "error", message: "Bạn không có quyền quản lý kênh kết nối." };
   const { data, error } = await supabase.rpc("delete_quick_reply_template", { p_id: parsed.data });
-  if (error || data !== true) return { status: "error", message: "Quick reply could not be deleted." };
+  if (error || data !== true) return { status: "error", message: "Chưa xóa được câu trả lời nhanh." };
   revalidatePath("/settings/channels");
-  return { status: "success", message: "Quick reply deleted." };
+  return { status: "success", message: "Đã xóa câu trả lời nhanh." };
 }
 
 export async function saveChannelAutomation(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = automationSchema.safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Automation could not be saved." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa lưu được tự động hóa." };
   if (!await hasPermission("channels.manage")) return { status: "error", message: "Bạn không có quyền quản lý kênh kết nối." };
   let configuration: unknown;
-  try { configuration = JSON.parse(parsed.data.actionConfiguration || "{}"); } catch { return { status: "error", message: "Action configuration must be valid JSON." }; }
-  if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return { status: "error", message: "Action configuration must be an object." };
+  try { configuration = JSON.parse(parsed.data.actionConfiguration || "{}"); } catch { return { status: "error", message: "Cấu hình hành động phải là JSON hợp lệ." }; }
+  if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return { status: "error", message: "Cấu hình hành động phải là một đối tượng JSON." };
   const keywords = [...new Set(parsed.data.keywords.split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))];
-  if (parsed.data.triggerType === "KEYWORD_MATCHED" && keywords.length === 0) return { status: "error", message: "At least one keyword is required." };
+  if (parsed.data.triggerType === "KEYWORD_MATCHED" && keywords.length === 0) return { status: "error", message: "Cần ít nhất một từ khóa." };
   const triggerConfig = parsed.data.triggerType === "KEYWORD_MATCHED" ? { keywords } : {};
   const { data, error } = await supabase.rpc("save_channel_automation", { p_id: parsed.data.id || null, p_name: parsed.data.name, p_enabled: parsed.data.enabled === "true", p_trigger_type: parsed.data.triggerType, p_trigger_config: triggerConfig, p_actions: [{ type: parsed.data.actionType, configuration }] });
-  if (error || typeof data !== "string") return { status: "error", message: "Automation could not be saved." };
+  if (error || typeof data !== "string") return { status: "error", message: "Chưa lưu được tự động hóa." };
   revalidatePath("/settings/channels/automations");
-  return { status: "success", message: "Automation saved." };
+  return { status: "success", message: "Đã lưu tự động hóa." };
 }
 
 export async function createManualChannelSuppression(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = suppressionSchema.safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Suppression could not be created." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa chặn được người nhận." };
   if (!await hasPermission("channels.manage")) return { status: "error", message: "Bạn không có quyền quản lý kênh kết nối." };
   const { data, error } = await supabase.rpc("save_manual_channel_suppression", { p_channel_type: parsed.data.channelType, p_normalized_recipient: parsed.data.recipient.toLowerCase() });
-  if (error || typeof data !== "string") return { status: "error", message: "Recipient is already suppressed or unavailable." };
+  if (error || typeof data !== "string") return { status: "error", message: "Người nhận đã bị chặn trước đó hoặc không còn." };
   revalidatePath("/settings/channels/suppressions");
-  return { status: "success", message: "Recipient suppressed." };
+  return { status: "success", message: "Đã chặn người nhận." };
 }
 
 export async function deleteManualChannelSuppression(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = uuid.safeParse(formData.get("id"));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Suppression could not be removed." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa bỏ chặn được người nhận." };
   if (!await hasPermission("channels.manage")) return { status: "error", message: "Bạn không có quyền quản lý kênh kết nối." };
   const { data, error } = await supabase.rpc("delete_manual_channel_suppression", { p_id: parsed.data });
-  if (error || data !== true) return { status: "error", message: "Only operator-created manual suppressions can be removed." };
+  if (error || data !== true) return { status: "error", message: "Chỉ bỏ chặn được người nhận do nhân viên chặn tay." };
   revalidatePath("/settings/channels/suppressions");
-  return { status: "success", message: "Manual suppression removed." };
+  return { status: "success", message: "Đã bỏ chặn người nhận." };
 }
 
 export async function proposeChannelMessage(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = z.object({ conversationId: uuid, text: z.string().trim().min(1).max(100000).refine((value) => !value.includes("\u0000")), proposedBy: z.enum(["HUMAN","AI_ASSIST"]).default("HUMAN") }).safeParse(Object.fromEntries(formData));
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase) return { status: "error", message: "Message could not be proposed." };
+  if (!parsed.success || !supabase) return { status: "error", message: "Chưa tạo được bản nháp." };
   if (!await hasPermission("inbox.reply")) return { status: "error", message: "Bạn không có quyền trả lời hội thoại." };
   const { data: conversation, error: lookupError } = await supabase.from("omnichannel_conversations")
     .select("id,channel_account_id").eq("id", parsed.data.conversationId).maybeSingle();
   if (lookupError || !conversation || !await canAccessChannelAccount(conversation.channel_account_id)) return { status: "error", message: "Bạn không có quyền truy cập hội thoại này." };
   const { data, error } = await supabase.rpc("propose_channel_message", { p_conversation_id: parsed.data.conversationId, p_text_content: parsed.data.text, p_idempotency_key: randomUUID(), p_proposed_by: parsed.data.proposedBy });
-  if (error || typeof data !== "string") return { status: "error", message: "Policy blocked this message or the channel is unavailable." };
+  if (error || typeof data !== "string") return { status: "error", message: "Chính sách gửi đã chặn tin này hoặc kênh đang không khả dụng (ví dụ người nhận đã từ chối nhận tin). Tin chưa được gửi." };
   revalidatePath("/inbox/all");
-  return { status: "success", message: "Draft proposed. Review and approve it before delivery." };
+  return { status: "success", message: "Đã tạo bản nháp. Hãy xem và duyệt trước khi gửi." };
 }
 
 export async function sendManualChannelMessage(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
@@ -171,10 +171,10 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
   const { data: existingRequest, error: existingRequestError } = await supabase.from("channel_outbound_actions")
     .select("id,status,attempt_count").eq("workspace_id", account.workspaceId)
     .eq("conversation_id", parsed.data.conversationId).eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle();
-  if (existingRequestError) return { status: "error", message: "Delivery idempotency could not be checked. No new action was created." };
+  if (existingRequestError) return { status: "error", message: "Chưa kiểm tra được tin trùng. Chưa tạo lệnh gửi mới." };
   if (existingRequest) return existingRequest.status === "SENT"
-    ? { status: "success", message: "This message was already sent once." }
-    : { status: "error", message: "This send request already exists. Its current action state must be inspected; no duplicate was created." };
+    ? { status: "success", message: "Tin này đã được gửi trước đó, không gửi lại." }
+    : { status: "error", message: "Yêu cầu gửi này đã có. Hãy kiểm tra trạng thái; không tạo tin trùng." };
   const { data: actionId, error: proposalError } = await supabase.rpc("propose_channel_message", {
     p_conversation_id: parsed.data.conversationId,
     p_text_content: parsed.data.text,
@@ -186,9 +186,9 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
       .eq("workspace_id", account.workspaceId).eq("conversation_id", parsed.data.conversationId)
       .eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle();
     if (racedRequest) return racedRequest.status === "SENT"
-      ? { status: "success", message: "This message was already sent once." }
-      : { status: "error", message: "This send request already exists. No duplicate was created." };
-    return { status: "error", message: "Policy blocked this message or the channel is unavailable." };
+      ? { status: "success", message: "Tin này đã được gửi trước đó, không gửi lại." }
+      : { status: "error", message: "Yêu cầu gửi này đã có. Không tạo tin trùng." };
+    return { status: "error", message: "Chính sách gửi đã chặn tin này hoặc kênh đang không khả dụng (ví dụ người nhận đã từ chối nhận tin). Tin chưa được gửi." };
   }
   // "@Name" tags picked in a Zalo group go out as real Zalo mentions; anywhere else they stay plain text.
   const rawMentions = formData.get("mentions");
@@ -219,10 +219,10 @@ export async function sendManualChannelMessage(_state: ChannelActionState, formD
     if (quoteError) return { status: "error", message: "Chưa gắn được tin trả lời nên tin chưa được gửi. Hãy thử lại." };
   }
   const { data: approved, error: approvalError } = await supabase.rpc("approve_channel_outbound_action", { p_action_id: actionId });
-  if (approvalError || approved !== true) return { status: "error", message: "The message failed its final policy check and was not sent." };
+  if (approvalError || approved !== true) return { status: "error", message: "Tin không qua bước kiểm tra cuối nên chưa được gửi." };
   const { data: action, error: actionError } = await supabase.from("channel_outbound_actions")
     .select("channel_type").eq("id", actionId).eq("workspace_id", account.workspaceId).maybeSingle();
-  if (actionError || !action) return { status: "error", message: "The approved message is unavailable. Do not resend until its state is inspected." };
+  if (actionError || !action) return { status: "error", message: "Không tìm thấy tin đã duyệt. Đừng gửi lại khi chưa kiểm tra trạng thái." };
   const result = action.channel_type === "FACEBOOK"
     ? await dispatchManualFacebookAction(actionId)
     : action.channel_type === "FACEBOOK_PROFILE" ? await dispatchManualFacebookProfileAction(actionId)
@@ -283,19 +283,19 @@ export async function dispatchPendingManualChannelMessage(_state: ChannelActionS
   const parsed = uuid.safeParse(formData.get("actionId"));
   const account = await getAccountContext();
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase || !account?.workspaceId) return { status: "error", message: "Pending delivery is unavailable." };
+  if (!parsed.success || !supabase || !account?.workspaceId) return { status: "error", message: "Không tìm thấy tin đang chờ gửi." };
   if (!await hasPermission("inbox.reply")) return { status: "error", message: "Bạn không có quyền trả lời hội thoại." };
   const { data: action, error } = await supabase.from("channel_outbound_actions").select("channel_type,status,attempt_count,conversation_id")
     .eq("id", parsed.data).eq("workspace_id", account.workspaceId).maybeSingle();
   if (error || !action || action.status !== "APPROVED" || action.attempt_count !== 0 || action.channel_type !== "ZALO")
-    return { status: "error", message: "This pending action is no longer eligible. Refresh the inbox." };
+    return { status: "error", message: "Tin đang chờ này không còn hợp lệ. Hãy tải lại Suối Nguồn." };
   const result = await dispatchManualZaloAction(parsed.data, { reauthorizeExpiredHumanPolicy: true });
   revalidatePath("/inbox/all");
-  if (result === "SENT") return { status: "success", message: "Zalo message sent once." };
-  if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not send again." };
-  if (result === "BLOCKED") return { status: "error", message: "The Zalo account is busy. This action was not resent." };
-  if (result === "FAILED") return { status: "error", message: "Zalo rejected this action before confirmed delivery." };
-  return { status: "error", message: "Pending delivery remains unavailable. No new action was created." };
+  if (result === "SENT") return { status: "success", message: "Đã gửi tin Zalo." };
+  if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Chưa rõ tin đã tới chưa. Đừng gửi lại." };
+  if (result === "BLOCKED") return { status: "error", message: "Nick Zalo đang bận. Tin này chưa được gửi lại." };
+  if (result === "FAILED") return { status: "error", message: "Zalo từ chối tin này trước khi gửi được." };
+  return { status: "error", message: "Tin đang chờ gửi vẫn chưa sẵn sàng. Chưa tạo lệnh gửi mới." };
 }
 
 /**
@@ -322,59 +322,59 @@ export async function cancelPendingManualChannelMessage(_state: ChannelActionSta
 
 export async function acknowledgeZaloDeliveryUnknown(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = uuid.safeParse(formData.get("actionId"));
-  if (!parsed.success) return { status: "error", message: "Unknown delivery could not be acknowledged." };
+  if (!parsed.success) return { status: "error", message: "Chưa ghi nhận được tin chưa rõ trạng thái." };
   if (!await hasPermission("inbox.reply")) return { status: "error", message: "Bạn không có quyền trả lời hội thoại." };
   const supabase = await authenticatedClient();
-  if (!supabase) return { status: "error", message: "Unknown delivery could not be acknowledged." };
+  if (!supabase) return { status: "error", message: "Chưa ghi nhận được tin chưa rõ trạng thái." };
   const { data: action, error: lookupError } = await supabase.from("channel_outbound_actions")
     .select("id").eq("id", parsed.data).maybeSingle();
   if (lookupError || !action) return { status: "error", message: "Bạn không có quyền truy cập yêu cầu gửi này." };
   const result = await reconcileZaloDeliveryUnknown(parsed.data);
   revalidatePath("/inbox/all");
   return result === "ACKNOWLEDGED_NO_RETRY"
-    ? { status: "success", message: "No retry acknowledged. The original delivery remains unknown." }
-    : { status: "error", message: "Unknown delivery acknowledgement is unavailable." };
+    ? { status: "success", message: "Chưa ghi nhận lần gửi lại. Tin ban đầu vẫn chưa rõ đã tới chưa." }
+    : { status: "error", message: "Chưa ghi nhận được tin chưa rõ trạng thái." };
 }
 
 export async function approveChannelMessage(_state: ChannelActionState, formData: FormData): Promise<ChannelActionState> {
   const parsed = uuid.safeParse(formData.get("actionId"));
   const account = await getAccountContext();
   const supabase = await authenticatedClient();
-  if (!parsed.success || !supabase || !account?.workspaceId) return { status: "error", message: "Message could not be approved." };
+  if (!parsed.success || !supabase || !account?.workspaceId) return { status: "error", message: "Chưa duyệt được tin." };
   if (!await hasPermission("inbox.reply")) return { status: "error", message: "Bạn không có quyền trả lời hội thoại." };
   const { data: action, error: actionError } = await supabase.from("channel_outbound_actions")
     .select("id,channel_type,status,attempt_count,proposed_by,dispatch_source,idempotency_key,conversation_id")
     .eq("id", parsed.data).eq("workspace_id", account.workspaceId).maybeSingle();
-  if (actionError || !action || action.status !== "PROPOSED") return { status: "error", message: "This draft is no longer available for approval. Refresh the inbox." };
+  if (actionError || !action || action.status !== "PROPOSED") return { status: "error", message: "Bản nháp này không còn chờ duyệt. Hãy tải lại Suối Nguồn." };
   const isAiRecruiterDraft=action.proposed_by === "AI_ASSIST" && action.dispatch_source === "AI_AUTOMATION" && action.idempotency_key?.startsWith("ai-recruiter-draft:");
   if(isAiRecruiterDraft){
     const refreshed = await supabase.rpc("refresh_ai_recruiter_draft_policy", { p_action_id: parsed.data });
-    if(refreshed.error||refreshed.data!==true)return{status:"error",message:"AI Recruiter draft failed its current policy check."};
+    if(refreshed.error||refreshed.data!==true)return{status:"error",message:"Bản nháp của AI Recruiter không qua bước kiểm tra chính sách."};
   }
   const approval = await supabase.rpc("approve_channel_outbound_action", { p_action_id: parsed.data });
-  if (approval.error || approval.data !== true) return { status: "error", message: "Message approval failed its current policy check." };
+  if (approval.error || approval.data !== true) return { status: "error", message: "Tin không qua bước kiểm tra chính sách khi duyệt." };
   if (action.channel_type === "FACEBOOK") {
     const result = await dispatchManualFacebookAction(parsed.data);
     revalidatePath("/inbox/all");
-    if (result === "SENT") return { status: "success", message: "Facebook message sent once." };
-    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not approve or send this message again; inspect the action state." };
-    if (result === "RESPONSE_WINDOW_EXPIRED") return { status: "error", message: "The Facebook reply window has expired. No message was sent." };
-    if (result === "FAILED") return { status: "error", message: "Facebook rejected this message. Inspect the safe action error before creating a new draft." };
-    return { status: "error", message: "Draft approved, but no confirmed send occurred. Refresh and inspect the action state before retrying." };
+    if (result === "SENT") return { status: "success", message: "Đã gửi tin Facebook." };
+    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Chưa rõ tin đã tới chưa. Đừng duyệt hay gửi lại; hãy kiểm tra trạng thái tin trước." };
+    if (result === "RESPONSE_WINDOW_EXPIRED") return { status: "error", message: "Đã quá thời hạn trả lời của Facebook. Tin chưa được gửi." };
+    if (result === "FAILED") return { status: "error", message: "Facebook từ chối tin này. Xem lỗi của tin trước khi soạn bản mới." };
+    return { status: "error", message: "Đã duyệt bản nháp nhưng chưa xác nhận đã gửi. Tải lại và kiểm tra trạng thái trước khi thử lại." };
   }
   if (action.channel_type === "ZALO") {
     const result = await dispatchManualZaloAction(parsed.data);
     revalidatePath("/inbox/all");
-    if (result === "SENT") return { status: "success", message: "Zalo message accepted once by the provider." };
-    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Delivery is uncertain. Do not approve or send this message again; inspect the action state." };
-    if (result === "BLOCKED") return { status: "error", message: "Not sent: this Zalo account is busy with an earlier request. Do not resend this action." };
-    if (result === "FAILED") return { status: "error", message: "Zalo rejected this message. Inspect the safe action error before creating a new draft." };
-    return { status: "error", message: "Zalo QA delivery is unavailable. No additional send should be attempted." };
+    if (result === "SENT") return { status: "success", message: "Zalo đã nhận tin." };
+    if (result === "DELIVERY_UNKNOWN") return { status: "error", message: "Chưa rõ tin đã tới chưa. Đừng duyệt hay gửi lại; hãy kiểm tra trạng thái tin trước." };
+    if (result === "BLOCKED") return { status: "error", message: "Chưa gửi: nick Zalo đang bận với yêu cầu trước. Đừng gửi lại tin này." };
+    if (result === "FAILED") return { status: "error", message: "Zalo từ chối tin này. Xem lỗi của tin trước khi soạn bản mới." };
+    return { status: "error", message: "Gửi thử Zalo đang không khả dụng. Đừng thử gửi thêm." };
   }
   revalidatePath("/inbox/all");
-  return { status: "success", message: "Message approved and ready for the channel worker." };
+  return { status: "success", message: "Đã duyệt tin, đang chờ gửi qua kênh." };
 }
 
 export async function reviewAutomationProposal(_state:ChannelActionState,formData:FormData):Promise<ChannelActionState>{
-  const parsed=z.object({proposalId:uuid,approved:z.enum(["true","false"])}).safeParse(Object.fromEntries(formData));const supabase=await authenticatedClient();if(!parsed.success||!supabase)return{status:"error",message:"Automation proposal could not be reviewed."};if(!await hasPermission("channels.manage"))return{status:"error",message:"Bạn không có quyền quản lý kênh kết nối."};const{data,error}=await supabase.rpc("review_channel_automation_proposal",{p_proposal_id:parsed.data.proposalId,p_approved:parsed.data.approved==="true"});if(error||data!==true)return{status:"error",message:"Automation proposal failed its safety checks."};revalidatePath("/settings/channels/automations");revalidatePath("/inbox/all");revalidatePath("/tasks");return{status:"success",message:parsed.data.approved==="true"?"Automation proposal applied.":"Automation proposal rejected."}
+  const parsed=z.object({proposalId:uuid,approved:z.enum(["true","false"])}).safeParse(Object.fromEntries(formData));const supabase=await authenticatedClient();if(!parsed.success||!supabase)return{status:"error",message:"Chưa duyệt được đề xuất tự động hóa."};if(!await hasPermission("channels.manage"))return{status:"error",message:"Bạn không có quyền quản lý kênh kết nối."};const{data,error}=await supabase.rpc("review_channel_automation_proposal",{p_proposal_id:parsed.data.proposalId,p_approved:parsed.data.approved==="true"});if(error||data!==true)return{status:"error",message:"Đề xuất tự động hóa không qua bước kiểm tra an toàn."};revalidatePath("/settings/channels/automations");revalidatePath("/inbox/all");revalidatePath("/tasks");return{status:"success",message:parsed.data.approved==="true"?"Automation proposal applied.":"Automation proposal rejected."}
 }
