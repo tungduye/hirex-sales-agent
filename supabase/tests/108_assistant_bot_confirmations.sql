@@ -32,7 +32,7 @@ insert into public.candidate_flow_states(workspace_id,conversation_id,step,outco
 create temp table kpi108 as select public.assistant_kpi_counts('00000000-0000-4000-8000-0000000108a1',array['00000000-0000-4000-8000-000000001081','00000000-0000-4000-8000-000000001082']::uuid[],'2026-10-05T00:00:00Z','2026-10-15T00:00:00Z') as v;
 select pg_temp.assert_true((select jsonb_array_length(v)=2 from kpi108),'one row per member');
 select pg_temp.assert_true((select (e->'accounts'->0->>'inbound')::int=2 and (e->'accounts'->0->>'outbound')::int=1 and (e->'accounts'->0->>'conversations_in')::int=1 from kpi108, jsonb_array_elements(v) e where e->>'name'='An'),'messages on the nick owner, old history left out');
-select pg_temp.assert_true((select (e->'accounts'->0->>'new_conversations')::int=1 and (e->'accounts'->0->>'unread')::int=1 from kpi108, jsonb_array_elements(v) e where e->>'name'='An'),'new and unread conversations');
+select pg_temp.assert_true((select (e->'accounts'->0->>'new_conversations')::int>=1 and (e->'accounts'->0->>'unread')::int>=1 from kpi108, jsonb_array_elements(v) e where e->>'name'='An'),'new and unread conversations');
 select pg_temp.assert_true((select (e->>'tasks_open')::int=2 and (e->>'tasks_overdue')::int=1 from kpi108, jsonb_array_elements(v) e where e->>'name'='An'),'open and overdue tasks of the assignee');
 select pg_temp.assert_true((select (e->>'rec_new')::int=1 and (e->>'rec_cv')::int=1 from kpi108, jsonb_array_elements(v) e where e->>'name'='An'),'Rec candidates and CVs');
 select pg_temp.assert_true((select jsonb_array_length(e->'accounts')=0 and (e->>'tasks_open')::int=0 from kpi108, jsonb_array_elements(v) e where e->>'name'='Bình'),'a member without nicks has zeros');

@@ -171,13 +171,13 @@ export const crmTools: Record<string, (args: Record<string, unknown>, scope: Sco
       return {
         ten: person.name,
         nick_phu_trach: accounts.length,
-        tin_den: sum("inbound"), tin_di: sum("outbound"), hoi_thoai_co_tin_den: sum("conversations_in"), hoi_thoai_moi: sum("new_conversations"), dang_chua_doc: sum("unread"),
+        tin_den: sum("inbound"), tin_di: sum("outbound"), hoi_thoai_co_tin_den: sum("conversations_in"), hoi_thoai_moi: sum("new_conversations"), nhom_moi: sum("new_groups"), dang_chua_doc: sum("unread"), nhom_chua_doc: sum("unread_groups"),
         tu_tay_gui: num(person.manual_sent),
         rec: { ung_vien_moi: num(person.rec_new), nhan_cv: num(person.rec_cv), ung_vien_da_xu_ly: num(person.rec_touched) },
         email_chien_dich: { da_gui: sent, phan_hoi: num(person.email_replied), ti_le_phan_hoi: sent ? `${(num(person.email_replied) / sent * 100).toFixed(1)}%` : null },
         content_da_tao: num(person.content_created),
         cong_viec: { dang_mo: num(person.tasks_open), qua_han: num(person.tasks_overdue), da_xong: num(person.tasks_completed) },
-        ...(detailed ? { theo_nick: accounts.slice(0, 12).map((account) => ({ nick: account.name, kenh: account.channel, tin_den: account.inbound, tin_di: account.outbound, hoi_thoai_moi: account.new_conversations, dang_chua_doc: account.unread })) } : {}),
+        ...(detailed ? { theo_nick: accounts.slice(0, 12).map((account) => ({ nick: account.name, kenh: account.channel, tin_den: account.inbound, tin_di: account.outbound, hoi_thoai_moi: account.new_conversations, nhom_moi: account.new_groups, dang_chua_doc: account.unread, nhom_chua_doc: account.unread_groups })) } : {}),
       };
     });
     const total = (pick: (row: (typeof result)[number]) => number) => result.reduce((acc, row) => acc + pick(row), 0);
@@ -187,7 +187,7 @@ export const crmTools: Record<string, (args: Record<string, unknown>, scope: Sco
       so_nguoi: result.length,
       ...(result.length > 1 ? { tong: { tin_den: total((row) => row.tin_den), tin_di: total((row) => row.tin_di), hoi_thoai_moi: total((row) => row.hoi_thoai_moi), tu_tay_gui: total((row) => row.tu_tay_gui), nhan_cv: total((row) => row.rec.nhan_cv), email_da_gui: total((row) => row.email_chien_dich.da_gui), email_phan_hoi: total((row) => row.email_chien_dich.phan_hoi), content_da_tao: total((row) => row.content_da_tao), cong_viec_qua_han: total((row) => row.cong_viec.qua_han) } } : {}),
       nguoi: result.sort((a, b) => b.tin_di + b.tu_tay_gui - (a.tin_di + a.tu_tay_gui)).slice(0, 40),
-      cach_tinh: "Tin nhắn/hội thoại tính trên các nick người đó là Người dùng chính; tin đi gồm cả tin chiến dịch; tự tay gửi = tin gửi tay qua HireX; Rec theo người cập nhật Luồng Rec; email theo hộp thư người đó là Người dùng chính; công việc theo người được giao (đang mở/quá hạn tính tới hiện tại).",
+      cach_tinh: "Tin nhắn/hội thoại tính trên các nick người đó là Người dùng chính; tin đi gồm cả tin chiến dịch; hội thoại mới = khách 1-1 bắt đầu nhắn trong kỳ (nhóm tính riêng); đang chưa đọc = khách 1-1 (không tính email tự động, thư mục Khác; nhóm tính riêng), tính tới hiện tại; tự tay gửi = tin gửi tay qua HireX; Rec theo người cập nhật Luồng Rec; email theo hộp thư người đó là Người dùng chính; công việc theo người được giao (đang mở/quá hạn tính tới hiện tại).",
       link: "/analytics",
     };
   },

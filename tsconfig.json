@@ -289,7 +289,9 @@
     ".next-tro-ly-thua-sep/types/**/*.ts",
     ".next-tro-ly-thua-sep/dev/types/**/*.ts",
     ".next-tro-ly-ten-goi/types/**/*.ts",
-    ".next-tro-ly-ten-goi/dev/types/**/*.ts"
+    ".next-tro-ly-ten-goi/dev/types/**/*.ts",
+    ".next-soda-dot-a/types/**/*.ts",
+    ".next-soda-dot-a/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
