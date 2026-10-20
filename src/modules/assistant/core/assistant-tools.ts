@@ -495,12 +495,12 @@ function CRM_READ_TOOLS(): AssistantToolDefinition[] {
       name: "kpi",
       permission: "*",
       label: "Tổng hợp KPI",
-      description: "Tổng hợp KPI theo người trong một khoảng thời gian: tin nhắn đến/đi và hội thoại trên các nick người đó phụ trách, hội thoại mới, đang chưa đọc, tin tự tay gửi, ứng viên Rec mới và số CV nhận, email chiến dịch đã gửi/phản hồi, content đã tạo, công việc đang mở/quá hạn/đã xong. pham_vi: TOI (mặc định), TEAM (người hỏi và cấp dưới), CONG_TY (cả công ty, cần quyền xem vai trò), NGUOI (một người theo tên).",
+      description: "Tổng hợp KPI theo người trong một khoảng thời gian: tin nhắn đến/đi và hội thoại trên các nick người đó phụ trách, hội thoại mới, đang chưa đọc, tin tự tay gửi, ứng viên Rec mới và số CV nhận, email chiến dịch đã gửi/phản hồi, content đã tạo, công việc đang mở/quá hạn/đã xong. pham_vi: TOI (mặc định), TEAM (người hỏi và cấp dưới; có ten_nguoi = người đó và cấp dưới của họ, ví dụ \"team Hải\"), CONG_TY (cả công ty, cần quyền xem vai trò), NGUOI (một người theo tên).",
       parameters: {
         type: "object", additionalProperties: false, required: ["pham_vi", "ten_nguoi", "ky", "tu_ngay", "den_ngay"],
         properties: {
           pham_vi: { type: ["string", "null"], enum: [...KPI_SCOPES, null], description: "TOI, TEAM, CONG_TY hoặc NGUOI; null = TOI." },
-          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc null."),
+          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc trưởng nhóm khi pham_vi = TEAM (\"team Hải\"); null nếu không có."),
           ky: { type: ["string", "null"], enum: [...KPI_PERIODS, null], description: "Kỳ có sẵn; null = 7_NGAY (trừ khi có tu_ngay)." },
           tu_ngay: nullableString("Từ ngày YYYY-MM-DD (giờ Việt Nam), hoặc null."),
           den_ngay: nullableString("Đến hết ngày YYYY-MM-DD, hoặc null = hôm nay."),
@@ -508,6 +508,92 @@ function CRM_READ_TOOLS(): AssistantToolDefinition[] {
       },
       args: z.object({ pham_vi: z.enum(KPI_SCOPES).nullable(), ten_nguoi: text(120).nullable(), ky: z.enum(KPI_PERIODS).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable() }).strict(),
       maxOutputChars: 16_000,
+    },
+  ];
+}
+
+// Lịch hẹn (round B). Every member has a calendar; reading follows the KPI rule (own, team, all for
+// administrators), changes are cards the member confirms.
+const EVENT_KIND_ARGS = ["HOP", "PHONG_VAN", "GAP_KHACH", "CA_NHAN", "KHAC"] as const;
+const RECURRENCE_ARGS = ["NONE", "DAILY", "WEEKLY", "MONTHLY"] as const;
+const CALENDAR_PERIOD_ARGS = ["HOM_NAY", "NGAY_MAI", "TUAN_NAY", "TUAN_SAU", "7_NGAY_TOI"] as const;
+const nullableStringArray = (description: string) => ({ type: ["array", "null"], items: { type: "string" }, description });
+function CALENDAR_TOOLS(): AssistantToolDefinition[] {
+  return [
+    {
+      name: "lich_hen",
+      permission: "*",
+      label: "Xem lịch hẹn",
+      description: "Lịch hẹn trong HireX (họp, phỏng vấn, gặp khách, cá nhân) trong một khoảng ngày: id, tiêu đề, loại, thời gian, lặp lại, địa điểm, người tạo, người tham gia, người hỏi có tham gia không và được nhắc trước bao lâu. pham_vi: TOI (mặc định: lịch mình tạo hoặc được mời), TEAM (cả cấp dưới), CONG_TY (cần quyền xem vai trò), NGUOI (lịch của một người theo tên). Mặc định 7 ngày tới.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["pham_vi", "ten_nguoi", "ky", "tu_ngay", "den_ngay"],
+        properties: {
+          pham_vi: { type: ["string", "null"], enum: ["TOI", "TEAM", "CONG_TY", "NGUOI", null], description: "null = TOI." },
+          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc null."),
+          ky: { type: ["string", "null"], enum: [...CALENDAR_PERIOD_ARGS, null], description: "Kỳ có sẵn; null = 7 ngày tới (trừ khi có tu_ngay)." },
+          tu_ngay: nullableString("Từ ngày YYYY-MM-DD, hoặc null."),
+          den_ngay: nullableString("Đến hết ngày YYYY-MM-DD, hoặc null (= tu_ngay)."),
+        },
+      },
+      args: z.object({ pham_vi: z.enum(["TOI", "TEAM", "CONG_TY", "NGUOI"]).nullable(), ten_nguoi: text(120).nullable(), ky: z.enum(CALENDAR_PERIOD_ARGS).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable() }).strict(),
+      maxOutputChars: 14_000,
+    },
+    {
+      name: "de_xuat_tao_lich_hen",
+      permission: "*",
+      proposal: true,
+      label: "Đề xuất tạo lịch hẹn",
+      description: "Tạo thẻ xác nhận cho một lịch hẹn mới (một lần hoặc lặp lại). Người hỏi luôn là người tạo và có trong lịch; nguoi_tham_gia là tên thành viên khác (tên trong HireX hoặc tên Zalo đã liên kết, kể cả tên được @ trong nhóm). Phỏng vấn ứng viên: gắn conversation_id của hội thoại với ứng viên nếu có. Mỗi người tham gia được Soda nhắc qua Zalo riêng theo giờ nhắc của họ.",
+      parameters: {
+        type: "object", additionalProperties: false,
+        required: ["tieu_de", "loai", "bat_dau", "thoi_luong_phut", "nguoi_tham_gia", "dia_diem", "ghi_chu", "lap_lai", "thu_trong_tuan", "lap_den", "nhac_toi_truoc_phut", "conversation_id"],
+        properties: {
+          tieu_de: { type: "string", description: "Tiêu đề ngắn, ví dụ \"Họp team Rec\", \"Phỏng vấn Nguyễn An – BrSE\"." },
+          loai: { type: ["string", "null"], enum: [...EVENT_KIND_ARGS, null], description: "HOP, PHONG_VAN, GAP_KHACH, CA_NHAN, KHAC; null = HOP." },
+          bat_dau: { type: "string", description: "Lần đầu, giờ Việt Nam: \"YYYY-MM-DD HH:mm\". Lịch lặp hằng tuần thì là buổi gần nhất sắp tới." },
+          thoi_luong_phut: nullableInteger("Thời lượng (phút), mặc định 60."),
+          nguoi_tham_gia: nullableStringArray("Tên các thành viên khác được mời, hoặc null."),
+          dia_diem: nullableString("Địa điểm hoặc link họp, hoặc null."),
+          ghi_chu: nullableString("Ghi chú, hoặc null."),
+          lap_lai: { type: ["string", "null"], enum: [...RECURRENCE_ARGS, null], description: "NONE (mặc định), DAILY, WEEKLY, MONTHLY." },
+          thu_trong_tuan: { type: ["array", "null"], items: { type: "integer" }, description: "Với WEEKLY: các thứ 1 = Thứ Hai … 7 = Chủ nhật; null = theo ngày bắt đầu." },
+          lap_den: nullableString("Lặp đến hết ngày YYYY-MM-DD, hoặc null (không giới hạn)."),
+          nhac_toi_truoc_phut: nullableInteger("Chỉ khi người hỏi nói muốn được nhắc trước bao lâu cho lịch này; null = theo mặc định của họ."),
+          conversation_id: nullableString("Hội thoại liên quan (phỏng vấn/gặp khách), hoặc null."),
+        },
+      },
+      args: z.object({
+        tieu_de: text(200).min(1), loai: z.enum(EVENT_KIND_ARGS).nullable(), bat_dau: text(20).min(10), thoi_luong_phut: z.number().int().min(5).max(1440).nullable(),
+        nguoi_tham_gia: z.array(text(120)).max(30).nullable(), dia_diem: text(300).nullable(), ghi_chu: text(2000).nullable(), lap_lai: z.enum(RECURRENCE_ARGS).nullable(),
+        thu_trong_tuan: z.array(z.number().int().min(1).max(7)).max(7).nullable(), lap_den: isoDate.nullable(), nhac_toi_truoc_phut: z.number().int().min(0).max(10080).nullable(),
+        conversation_id: z.string().uuid().nullable(),
+      }).strict(),
+    },
+    {
+      name: "de_xuat_huy_lich_hen",
+      permission: "*",
+      proposal: true,
+      label: "Đề xuất huỷ lịch hẹn",
+      description: "Tạo thẻ xác nhận huỷ một lịch hẹn (cả chuỗi nếu là lịch lặp). Chỉ người tạo lịch hoặc quản trị viên. Lấy event_id từ lich_hen.",
+      parameters: { type: "object", additionalProperties: false, required: ["event_id"], properties: { event_id: uuidArg("Id lịch (từ lich_hen).") } },
+      args: z.object({ event_id: z.string().uuid() }).strict(),
+    },
+    {
+      name: "de_xuat_cai_nhac_lich",
+      permission: "*",
+      proposal: true,
+      label: "Đề xuất đổi giờ nhắc lịch",
+      description: "Tạo thẻ xác nhận đổi giờ Soda nhắc người hỏi qua Zalo: cho một lịch (event_id) hoặc mặc định cho mọi lịch (event_id null). Cũng dùng để báo không tham gia một lịch, hoặc tắt/bật nhắc qua Zalo.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["event_id", "nhac_truoc_phut", "nhan_qua_zalo", "khong_tham_gia"],
+        properties: {
+          event_id: nullableString("Id lịch (từ lich_hen), hoặc null = mặc định cho mọi lịch."),
+          nhac_truoc_phut: nullableInteger("Nhắc trước bao nhiêu phút (0 = đúng giờ); null = giữ nguyên."),
+          nhan_qua_zalo: { type: ["boolean", "null"], description: "Chỉ với mặc định: false = tắt nhắc qua Zalo, true = bật; null = giữ nguyên." },
+          khong_tham_gia: { type: ["boolean", "null"], description: "Chỉ với một lịch: true = báo không tham gia (không nhắc nữa), false = tham gia lại; null = giữ nguyên." },
+        },
+      },
+      args: z.object({ event_id: z.string().uuid().nullable(), nhac_truoc_phut: z.number().int().min(0).max(10080).nullable(), nhan_qua_zalo: z.boolean().nullable(), khong_tham_gia: z.boolean().nullable() }).strict(),
     },
   ];
 }
@@ -726,6 +812,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...READ_TOOLS_2(),
   ...DOCUMENT_TOOLS(),
   ...CRM_READ_TOOLS(),
+  ...CALENDAR_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

@@ -30,13 +30,13 @@ export async function getZaloAssistantState(): Promise<ZaloAssistantState | null
   ]);
   let recent: ZaloAssistantState["recent"] = [];
   if (canManage && settings) {
-    const { data: jobs } = await db.from("assistant_bot_jobs").select("created_at,status,safe_error_code,profile_id,omnichannel_conversations(provider_conversation_id,metadata),omnichannel_messages(sender_external_id,text_content)").eq("workspace_id", account.workspaceId).order("created_at", { ascending: false }).limit(10);
+    const { data: jobs } = await db.from("assistant_bot_jobs").select("created_at,status,safe_error_code,profile_id,kind,omnichannel_conversations(provider_conversation_id,metadata),omnichannel_messages(sender_external_id,text_content)").eq("workspace_id", account.workspaceId).order("created_at", { ascending: false }).limit(10);
     const ids = [...new Set((jobs ?? []).map((job) => job.profile_id).filter((id): id is string => typeof id === "string"))];
     const names = new Map(((ids.length ? (await db.from("profiles").select("id,full_name").in("id", ids)).data : []) ?? []).map((row) => [row.id as string, row.full_name as string]));
     recent = (jobs ?? []).map((job) => {
       const conversation = job.omnichannel_conversations as unknown as { provider_conversation_id: string; metadata: unknown } | null;
       const message = job.omnichannel_messages as unknown as { sender_external_id: string; text_content: string | null } | null;
-      return { at: job.created_at as string, status: job.status as string, error: (job.safe_error_code as string | null) ?? null, group: isGroupConversation(conversation?.metadata) || isZaloGroupThread("ZALO", conversation?.provider_conversation_id, message?.sender_external_id), who: job.profile_id ? names.get(job.profile_id as string) ?? null : null, text: (message?.text_content ?? "").slice(0, 80) };
+      return { at: job.created_at as string, status: job.status as string, error: (job.safe_error_code as string | null) ?? null, group: isGroupConversation(conversation?.metadata) || isZaloGroupThread("ZALO", conversation?.provider_conversation_id, message?.sender_external_id), who: job.profile_id ? names.get(job.profile_id as string) ?? null : null, text: job.kind === "REMINDER" ? "⏰ Nhắc lịch" : (message?.text_content ?? "").slice(0, 80) };
     });
   }
   let status = "UNKNOWN";

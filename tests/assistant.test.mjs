@@ -7,8 +7,8 @@ import { assistantInstructions, isInternalLink, pageContext, parseModelReply } f
 import { parseAnswer, parseInline } from '../src/modules/assistant/core/assistant-markdown.ts';
 
 test('tools follow the member permissions', () => {
-  assert.deepEqual(toolsFor([], false).map((tool) => tool.name), ['mo_trang', 'kpi']);
-  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai', 'mo_trang', 'ung_vien_rec', 'kpi']);
+  assert.deepEqual(toolsFor([], false).map((tool) => tool.name), ['mo_trang', 'kpi', 'lich_hen', 'de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich']);
+  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai', 'mo_trang', 'ung_vien_rec', 'kpi', 'lich_hen', 'de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich']);
   assert.ok(!toolsFor(['roles.manage', 'settings.view'], false).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   assert.ok(toolsFor([], true).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   const everything = [...new Set(ASSISTANT_TOOLS.map((tool) => tool.permission))];
@@ -146,7 +146,10 @@ test('answer rendering keeps only safe internal links', () => {
 });
 
 test('phase 2 proposals follow permissions and validate arguments', () => {
-  const names = (permissions, admin = false) => toolsFor(permissions, admin).filter((tool) => tool.proposal).map((tool) => tool.name);
+  const CALENDAR = ['de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich'];
+  // Lịch hẹn cards are every member's own calendar; the rest follow permissions.
+  const names = (permissions, admin = false) => toolsFor(permissions, admin).filter((tool) => tool.proposal && !CALENDAR.includes(tool.name)).map((tool) => tool.name);
+  assert.deepEqual(toolsFor([], false).filter((tool) => tool.proposal).map((tool) => tool.name), CALENDAR);
   assert.deepEqual(names(['tasks.view', 'contacts.view', 'campaigns.view']), [], 'view-only members get no proposals');
   assert.deepEqual(names(['tasks.create', 'contacts.update']), ['de_xuat_tao_cong_viec', 'de_xuat_doi_trang_thai_lead', 'de_xuat_sua_lien_he', 'de_xuat_ghi_chu_lien_he']);
   assert.deepEqual(names(['campaigns.launch']), ['de_xuat_dieu_khien_chien_dich']);
@@ -158,6 +161,9 @@ test('phase 2 proposals follow permissions and validate arguments', () => {
   assert.equal(parseToolCall('de_xuat_dieu_khien_chien_dich', JSON.stringify({ kenh: 'ZALO', campaign_id: id, hanh_dong: 'KHOI_CHAY' }), all).ok, false, 'no launch');
   assert.equal(parseToolCall('de_xuat_tao_content', JSON.stringify({ bo_phan: 'REC', ten_job: 'BrSE', vi_tri: null, dia_diem: 'HCM', ngoai_ngu: null, ky_nang: null, luong: null, diem_noi_bat: null, mo_ta_jd: null, tu_khoa_cam: null, ngon_ngu: 'VI', dinh_dang: 'POST', so_luong: 11, ma_mau: [] }), all).ok, false, 'max 10');
   assert.equal(parseToolCall('de_xuat_tao_cong_viec', JSON.stringify({ tieu_de: 'Gọi lại', han: '2026-10-15', giao_cho: null, conversation_id: null }), all).ok, true);
+  const event = { tieu_de: 'Họp', loai: 'HOP', bat_dau: '2026-10-26 13:45', thoi_luong_phut: null, nguoi_tham_gia: ['Lê Yến Trinh'], dia_diem: null, ghi_chu: null, lap_lai: 'WEEKLY', thu_trong_tuan: [1], lap_den: null, nhac_toi_truoc_phut: null, conversation_id: null };
+  assert.equal(parseToolCall('de_xuat_tao_lich_hen', JSON.stringify(event), all).ok, true);
+  assert.equal(parseToolCall('de_xuat_tao_lich_hen', JSON.stringify({ ...event, thu_trong_tuan: [8] }), all).ok, false, 'weekdays 1..7');
   assert.ok(!ASSISTANT_TOOL_NAMES.some((name) => /^de_xuat_(gui|xoa|khoi_chay|bat)/.test(name)), 'no bulk send/delete/launch/enable proposals exist');
 });
 

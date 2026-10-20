@@ -9,6 +9,8 @@ import type { ActionContext } from "@/modules/assistant/server/assistant-proposa
 import { teamOf } from "@/modules/inbox/core/inbox-scope";
 import { JOB_PRIORITY_LABEL, JOB_STATUS_LABEL, type Job } from "@/modules/jobs/core/job-fields";
 import { JOB_COLUMNS, mapJob } from "@/modules/jobs/server/jobs-data";
+import { calendarRange, EVENT_KIND_LABEL, formatOccurrence, remindLabel, vnDay, vnDayString, type CalendarPeriod } from "@/modules/calendar/core/calendar";
+import { getMyReminderDefaults, listOccurrences, loadMembers, viewerFor } from "@/modules/calendar/server/calendar-data";
 import { FACT_FIELDS, REC_OUTCOME_LABEL, REC_STEPS, normalizeFlow, type RecOutcome } from "@/modules/rec-flow/core/rec-flow";
 
 // Round A tools for Trợ lý (and Soda on Zalo): job board, Luồng Rec candidates, KPI. Read only.
@@ -36,6 +38,19 @@ function jobBrief(job: Job) {
     diem_manh: clip(job.sellingPoints, 160), trang_thai: JOB_STATUS_LABEL[job.status], uu_tien: JOB_PRIORITY_LABEL[job.priority],
     phu_trach: job.ownerName, jd: job.jdLink,
   };
+}
+
+/** One member by (part of) their name, among those the asker may see. */
+export function pickPerson(profiles: Row[], name: string | null, visible: (id: string) => boolean): { id: string; name: string } | { loi: string } | { nhieu_nguoi_trung_ten: unknown[]; goi_y: string } {
+  if (!name) return { loi: "Cần tên người cần xem." };
+  const wanted = fold(name);
+  const found = profiles.filter((row) => fold(String(row.full_name ?? "")).includes(wanted));
+  const exact = found.filter((row) => fold(String(row.full_name ?? "")) === wanted);
+  const allowed = (exact.length === 1 ? exact : found).filter((row) => visible(String(row.id)));
+  if (!found.length) return { loi: `Không có thành viên tên "${name}".` };
+  if (!allowed.length) return { loi: "Sếp chỉ xem được của mình và cấp dưới." };
+  if (allowed.length > 1) return { nhieu_nguoi_trung_ten: allowed.map((row) => row.full_name), goi_y: "Hỏi lại tên đầy đủ." };
+  return { id: String(allowed[0].id), name: String(allowed[0].full_name ?? "") };
 }
 
 export const crmTools: Record<string, (args: Record<string, unknown>, scope: Scope) => Promise<unknown>> = {
@@ -136,6 +151,36 @@ export const crmTools: Record<string, (args: Record<string, unknown>, scope: Sco
     };
   },
 
+  async lich_hen(args, scope) {
+    const range = calendarRange((args.ky as CalendarPeriod | null) ?? null, str(args.tu_ngay), str(args.den_ngay), Date.now());
+    if ("error" in range) return { loi: range.error };
+    const mode = str(args.pham_vi) ?? "TOI";
+    let personIds: string[] | undefined;
+    if (mode === "NGUOI") {
+      const db = createPrivilegedClient();
+      const [{ data: rows }, members] = await Promise.all([db.from("profiles").select("id,full_name,manager_id").eq("workspace_id", scope.workspaceId), loadMembers(db, scope.workspaceId)]);
+      const viewer = viewerFor(scope.context, members);
+      const person = pickPerson((rows ?? []) as Row[], str(args.ten_nguoi), (id) => viewer.seesAll || viewer.team.has(id));
+      if ("loi" in person || "nhieu_nguoi_trung_ten" in person) return person;
+      personIds = [person.id];
+    }
+    const result = await listOccurrences(scope.context, { from: range.from, to: range.to, scope: mode === "CONG_TY" ? "ALL" : mode === "TEAM" ? "TEAM" : "MINE", personIds });
+    if (mode === "CONG_TY" && result.scope !== "ALL") return { loi: "Xem lịch cả công ty cần quyền xem Vai trò; sếp xem được lịch của mình và cấp dưới (TEAM)." };
+    const { minutes } = await getMyReminderDefaults(scope.context);
+    return {
+      khoang: `${formatOccurrence(range.from, 0).split(",")[0]} – ${formatOccurrence(range.to - 1, 0).split(",")[0]}`,
+      tong: result.occurrences.length,
+      lich: result.occurrences.slice(0, 60).map((item) => ({
+        id: item.eventId, tieu_de: item.title, loai: EVENT_KIND_LABEL[item.kind], thoi_gian: formatOccurrence(item.start, item.durationMinutes), lap_lai: item.repeat,
+        dia_diem: item.location, ghi_chu: clip(item.note, 200), nguoi_tao: item.createdByName,
+        nguoi_tham_gia: item.attendees.map((person) => person.declined ? `${person.name} (không tham gia)` : person.name),
+        toi_tham_gia: item.isAttendee && !item.myDeclined, nhac_toi: item.isAttendee ? remindLabel(item.myRemindMinutes ?? minutes) : null,
+        ...(item.conversationId ? { hoi_thoai: `/inbox/all/${item.conversationId}` } : {}),
+      })),
+      link: `/calendar?tuan=${vnDayString(vnDay(range.from))}`,
+    };
+  },
+
   async kpi(args, scope) {
     const range = kpiRange((args.ky as KpiPeriod | null) ?? null, str(args.tu_ngay), str(args.den_ngay));
     if ("error" in range) return { loi: range.error };
@@ -143,22 +188,19 @@ export const crmTools: Record<string, (args: Record<string, unknown>, scope: Sco
     const { data: profileRows, error } = await db.from("profiles").select("id,full_name,manager_id").eq("workspace_id", scope.workspaceId);
     if (error) return { loi: "Không tải được danh sách thành viên." };
     const profiles = (profileRows ?? []) as Row[];
-    const team = teamOf(scope.userId, profiles.map((row) => ({ id: String(row.id), managerId: typeof row.manager_id === "string" ? row.manager_id : null })));
+    const managers = profiles.map((row) => ({ id: String(row.id), managerId: typeof row.manager_id === "string" ? row.manager_id : null }));
+    const team = teamOf(scope.userId, managers);
     const seesAll = scope.context.isAdmin || scope.context.permissions.includes("roles.view");
     const mode = str(args.pham_vi) ?? "TOI";
     let ids: string[];
     if (mode === "CONG_TY") {
       if (!seesAll) return { loi: "Sếp chỉ xem được KPI của mình và cấp dưới (pham_vi TEAM). KPI cả công ty cần quyền xem Vai trò." };
       ids = profiles.map((row) => String(row.id));
-    } else if (mode === "NGUOI") {
-      const name = str(args.ten_nguoi);
-      if (!name) return { loi: "Cần tên người cần xem." };
-      const found = profiles.filter((row) => fold(String(row.full_name ?? "")).includes(fold(name)));
-      const allowed = found.filter((row) => seesAll || team.has(String(row.id)));
-      if (!found.length) return { loi: `Không có thành viên tên "${name}".` };
-      if (!allowed.length) return { loi: "Sếp chỉ xem được KPI của mình và cấp dưới." };
-      if (allowed.length > 1) return { nhieu_nguoi_trung_ten: allowed.map((row) => row.full_name), goi_y: "Hỏi lại tên đầy đủ." };
-      ids = [String(allowed[0].id)];
+    } else if (mode === "NGUOI" || (mode === "TEAM" && str(args.ten_nguoi))) {
+      const person = pickPerson(profiles, str(args.ten_nguoi), (id) => seesAll || team.has(id));
+      if ("loi" in person || "nhieu_nguoi_trung_ten" in person) return person;
+      // "team Hải": Hải and everyone below Hải.
+      ids = mode === "TEAM" ? [...teamOf(person.id, managers)] : [person.id];
     } else ids = mode === "TEAM" ? [...team] : [scope.userId];
     const { data, error: rpcError } = await db.rpc("assistant_kpi_counts", { p_workspace_id: scope.workspaceId, p_profile_ids: ids, p_from: range.from.toISOString(), p_to: range.to.toISOString() });
     if (rpcError) return { loi: "Không tính được KPI." };

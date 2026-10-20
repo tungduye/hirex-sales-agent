@@ -58,7 +58,7 @@ async function waitForContent(profileId: string, batchId: string): Promise<strin
 }
 
 /** first: number of the first part, so a second answer to the same question gets its own keys. */
-async function sendReply(db: Db, workspaceId: string, jobId: string, channelAccountId: string, text: string, first = 1) {
+export async function sendReply(db: Db, workspaceId: string, jobId: string, channelAccountId: string, text: string, first = 1) {
   // Parts 1–5 answer the question, 6–10 deliver ordered content (the Zalo bridge accepts parts 1–10).
   const parts = splitZaloParts(text, 1800, 5).slice(0, 10 - first + 1);
   const loaded = await loadChannelAdapterByAccountId(channelAccountId);

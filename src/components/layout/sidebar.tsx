@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bot, BriefcaseBusiness, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Workflow } from "lucide-react";
+import { BarChart3, Bot, BriefcaseBusiness, CalendarDays, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -17,6 +17,7 @@ type NavItem = { label: string; href: string; icon: typeof LayoutDashboard; perm
 const navigation: NavItem[] = [
   { label: "Tổng quan", href: "/", icon: LayoutDashboard, permission:"dashboard.view" },
   { label: "Trợ lý", href: "/assistant", icon: Sparkles, permission:null },
+  { label: "Lịch hẹn", href: "/calendar", icon: CalendarDays, permission:null },
   { label: "Suối Nguồn", href: "/inbox", icon: Inbox, permission:"inbox.view" },
   { label: "Scan", href: "/scan", icon: FileScan, permission:"scan.view" },
   { label: "Chiến dịch", href: "/campaigns", icon: Megaphone, permission:"campaigns.view" },
