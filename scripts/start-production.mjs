@@ -11,5 +11,6 @@ const next=launch(process.execPath,[resolve("node_modules/next/dist/bin/next"),"
 launch(process.execPath,["--env-file=.env.local",resolve("scripts/facebook-page-reconciler.mjs")],"facebook-page-reconciler",true);
 launch(process.execPath,["--env-file=.env.local",resolve("scripts/ai-recruiter-worker.mjs")],"ai-recruiter-worker",true);
 launch(process.execPath,["--env-file=.env.local",resolve("scripts/assistant-alerts-worker.mjs")],"assistant-alerts-worker",true);
+launch(process.execPath,["--env-file=.env.local",resolve("scripts/assistant-zalo-worker.mjs")],"assistant-zalo-worker",true);
 function shutdown(){for(const child of children)child.kill();setTimeout(()=>process.exit(),1000).unref()}
 process.on("SIGINT",shutdown);process.on("SIGTERM",shutdown);next.on("exit",()=>shutdown());

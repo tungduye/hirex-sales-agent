@@ -3,10 +3,14 @@ import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getPublicSupabaseConfig } from "@/lib/supabase/config";
+import { actingCookieJar } from "@/lib/supabase/acting-session";
 
 export async function createClient() {
-  const cookieStore = await cookies();
   const { url, anonKey } = getPublicSupabaseConfig();
+  // Zalo Trợ lý worker: acting for the member who asked (see acting-session.ts), not a browser.
+  const jar = actingCookieJar();
+  if (jar) return createServerClient(url, anonKey, { cookies: { getAll: () => jar, setAll: () => undefined } });
+  const cookieStore = await cookies();
 
   return createServerClient(url, anonKey, {
     cookies: {

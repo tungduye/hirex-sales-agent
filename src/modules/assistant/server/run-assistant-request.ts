@@ -13,7 +13,7 @@ import { saveAssistantTurn } from "@/modules/assistant/server/assistant-conversa
 
 /** allowDocuments: the admin switched on "Tài liệu" in the panel (consent to send passages to OpenAI). */
 /** save: keep this turn in the member's saved conversations (conversationId continues one). */
-export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean; uploadId?: string | null; save?: boolean; conversationId?: string | null }
+export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean; uploadId?: string | null; save?: boolean; conversationId?: string | null; source?: { channel: "ZALO"; sourceConversationId: string } | null }
 export type AssistantResponse =
   | { ok: true; answer: string; toolsUsed: string[]; remainingToday: number; pendingActions: PendingAction[]; conversationId?: string; title?: string }
   | { ok: false; status: number; message: string; conversationId?: string; title?: string };
@@ -102,14 +102,14 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
       },
     });
     await log({ status: "ANSWERED", tools_used: result.toolsUsed, input_tokens: result.inputTokens, output_tokens: result.outputTokens, duration_ms: Date.now() - started });
-    const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: result.answer, toolsUsed: result.toolsUsed, actionIds: proposals.map((action) => action.id), isError: false }) : null;
+    const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: result.answer, toolsUsed: result.toolsUsed, actionIds: proposals.map((action) => action.id), isError: false, source: request.source ?? null }) : null;
     return { ok: true, answer: result.answer, toolsUsed: result.toolsUsed, remainingToday: Math.max(0, limit - usedToday - 1), pendingActions: proposals, ...(saved ?? {}) };
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 60) : "UNKNOWN";
     console.error("[assistant] request failed", code);
     await log({ status: "FAILED", error_code: code, duration_ms: Date.now() - started });
     const message = "Trợ lý đang không phản hồi. Vui lòng thử lại sau ít phút.";
-    const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: message, toolsUsed: [], actionIds: [], isError: true }) : null;
+    const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: message, toolsUsed: [], actionIds: [], isError: true, source: request.source ?? null }) : null;
     return { ok: false, status: 502, message, ...(saved ?? {}) };
   }
 }

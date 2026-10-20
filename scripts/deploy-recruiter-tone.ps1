@@ -13,7 +13,7 @@ if(-not(Test-Path -LiteralPath "$source\BUILD_ID")){throw 'BUILD_MISSING'}
 # running the OLD build in memory (pages then reference stylesheets that no longer exist), so the
 # whole set is stopped, with their child trees.
 $rootPattern = [regex]::Escape($root)
-$appPatterns = @('node_modules\\next\\dist\\bin\\next"?\s+start', 'node_modules\\next\\dist\\server\\', 'scripts[\\/]start-production\.mjs', 'scripts[\\/]ai-recruiter-worker\.mjs', 'scripts[\\/]facebook-page-reconciler\.mjs', 'scripts[\\/]assistant-alerts-worker\.mjs')
+$appPatterns = @('node_modules\\next\\dist\\bin\\next"?\s+start', 'node_modules\\next\\dist\\server\\', 'scripts[\\/]start-production\.mjs', 'scripts[\\/]ai-recruiter-worker\.mjs', 'scripts[\\/]facebook-page-reconciler\.mjs', 'scripts[\\/]assistant-alerts-worker\.mjs', 'scripts[\\/]assistant-zalo-worker\.mjs')
 function Get-WebProcesses {
   @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
     $line = [string]$_.CommandLine

@@ -1,0 +1,72 @@
+"use server";
+
+import { updateTag } from "next/cache";
+import { z } from "zod";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { hasPermission } from "@/modules/access/server/access-control";
+import { botSettings, createLinkCode, forgetBotSettings } from "@/modules/assistant/server/zalo-bot";
+import { getAccountContext } from "@/modules/identity/server/get-account-context";
+
+export interface ZaloAssistantState {
+  bot: { accountId: string; name: string; status: string } | null;
+  links: Array<{ id: string; zaloName: string | null; createdAt: string }>;
+  canManage: boolean;
+  zaloAccounts: Array<{ id: string; name: string; status: string }>;
+}
+
+/** What the "Trợ lý trên Zalo" box shows: the nick, my linked Zalo accounts, and (admins) the nicks to pick from. */
+export async function getZaloAssistantState(): Promise<ZaloAssistantState | null> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId) return null;
+  const db = createPrivilegedClient();
+  const canManage = await hasPermission("roles.manage");
+  const [settings, { data: links }, { data: zalo }] = await Promise.all([
+    botSettings(db, account.workspaceId),
+    db.from("assistant_zalo_links").select("id,zalo_name,created_at").eq("workspace_id", account.workspaceId).eq("profile_id", account.userId).order("created_at"),
+    canManage ? db.from("channel_accounts").select("id,display_name,status").eq("workspace_id", account.workspaceId).eq("channel_type", "ZALO").is("deleted_at", null).order("display_name") : Promise.resolve({ data: [] as Array<{ id: string; display_name: string | null; status: string }> }),
+  ]);
+  let status = "UNKNOWN";
+  if (settings) status = String((await db.from("channel_accounts").select("status").eq("id", settings.channelAccountId).maybeSingle()).data?.status ?? "UNKNOWN");
+  return {
+    bot: settings ? { accountId: settings.channelAccountId, name: settings.name, status } : null,
+    links: (links ?? []).map((row) => ({ id: row.id as string, zaloName: (row.zalo_name as string | null) ?? null, createdAt: row.created_at as string })),
+    canManage,
+    zaloAccounts: (zalo ?? []).map((row) => ({ id: row.id as string, name: (row.display_name as string | null) || "Nick Zalo", status: row.status as string })),
+  };
+}
+
+export async function requestZaloLinkCode(): Promise<{ ok: true; code: string; expiresAt: string } | { ok: false; message: string }> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId) return { ok: false, message: "Phiên đăng nhập đã hết hạn." };
+  const db = createPrivilegedClient();
+  if (!await botSettings(db, account.workspaceId)) return { ok: false, message: "Trợ lý trên Zalo chưa được bật." };
+  const code = await createLinkCode(db, account.workspaceId, account.userId);
+  return code ? { ok: true, ...code } : { ok: false, message: "Chưa tạo được mã, thử lại sau." };
+}
+
+export async function unlinkMyZalo(linkId: string): Promise<boolean> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId || !z.uuid().safeParse(linkId).success) return false;
+  const { error } = await createPrivilegedClient().from("assistant_zalo_links").delete().eq("id", linkId).eq("workspace_id", account.workspaceId).eq("profile_id", account.userId);
+  return !error;
+}
+
+/** Admins pick (or switch off, with null) the Zalo nick that answers as Trợ lý. */
+export async function setZaloAssistantAccount(channelAccountId: string | null): Promise<{ ok: boolean; message: string }> {
+  const account = await getAccountContext();
+  if (!account?.workspaceId || !await hasPermission("roles.manage")) return { ok: false, message: "Chỉ quản trị viên được đổi nick Trợ lý." };
+  const db = createPrivilegedClient();
+  if (channelAccountId !== null) {
+    if (!z.uuid().safeParse(channelAccountId).success) return { ok: false, message: "Nick không hợp lệ." };
+    const { data: nick } = await db.from("channel_accounts").select("id").eq("id", channelAccountId).eq("workspace_id", account.workspaceId).eq("channel_type", "ZALO").is("deleted_at", null).maybeSingle();
+    if (!nick) return { ok: false, message: "Không tìm thấy nick Zalo này." };
+    // Two bots on one nick would both answer.
+    const { count } = await db.from("ai_recruiter_channel_bindings").select("bot_id", { count: "exact", head: true }).eq("workspace_id", account.workspaceId).eq("channel_account_id", channelAccountId).eq("enabled", true);
+    if ((count ?? 0) > 0) return { ok: false, message: "Nick này đang gắn với AI Recruiter. Hãy gỡ AI Recruiter khỏi nick trước." };
+  }
+  const { error } = await db.from("assistant_bot_settings").upsert({ workspace_id: account.workspaceId, channel_account_id: channelAccountId, enabled: channelAccountId !== null, enabled_at: channelAccountId ? new Date().toISOString() : null, updated_by: account.userId, updated_at: new Date().toISOString() }, { onConflict: "workspace_id" });
+  if (error) return { ok: false, message: "Chưa lưu được, thử lại sau." };
+  forgetBotSettings(account.workspaceId);
+  try { updateTag("inbox-metadata"); } catch { /* the inbox cache expires within a minute */ }
+  return { ok: true, message: channelAccountId ? "Đã bật Trợ lý trên Zalo." : "Đã tắt Trợ lý trên Zalo." };
+}

@@ -7,6 +7,7 @@ import { zaloContactIdentity } from "../core/zalo-account-policy";
 import { mayUpgradeZaloAccountName, mayUpgradeZaloContactName, zaloContactDisplayName } from "../core/zalo-display-identity";
 import { runMessageReceivedAutomations } from "./run-channel-automations";
 import { enqueueAiRecruiterInbound } from "@/modules/ai-recruiter/server/enqueue-ai-recruiter";
+import { enqueueAssistantBotInbound } from "@/modules/assistant/server/zalo-bot";
 
 export async function resolveConnectedChannelAccount(channelType: ChannelType, provider: string, externalAccountId: string) {
   const client = createPrivilegedClient();
@@ -215,6 +216,7 @@ export async function ingestChannelWebhook(input: {
     if (direction === "INBOUND") {
       await runMessageReceivedAutomations({workspaceId:account.workspace_id,conversationId:conversation.id,channelType:input.channelType,messageId,providerMessageId:message.providerMessageId,senderExternalId:message.sender.externalId,text:message.text});
       try { await enqueueAiRecruiterInbound({workspaceId:account.workspace_id,channelAccountId:account.id,conversationId:conversation.id,messageId}); } catch { /* AI queue must never fail channel ingestion. */ }
+      if (input.channelType === "ZALO") await enqueueAssistantBotInbound({ workspaceId: account.workspace_id, channelAccountId: account.id, conversationId: conversation.id, messageId, text: message.text, senderExternalId: message.sender.externalId, providerConversationId: message.providerConversationId, conversationMetadata: (conversation as { metadata?: unknown }).metadata ?? metadata });
     }
     const completed = await client.from("channel_inbound_events").update({
       status: "PROCESSED", processed_at: new Date().toISOString(), processing_token: null,

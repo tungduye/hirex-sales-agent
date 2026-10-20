@@ -275,7 +275,9 @@
     ".next-suoi-nguon-bo-loc-luu/types/**/*.ts",
     ".next-suoi-nguon-bo-loc-luu/dev/types/**/*.ts",
     ".next-chien-dich-phan-hoi/types/**/*.ts",
-    ".next-chien-dich-phan-hoi/dev/types/**/*.ts"
+    ".next-chien-dich-phan-hoi/dev/types/**/*.ts",
+    ".next-tro-ly-toan-man-hinh/types/**/*.ts",
+    ".next-tro-ly-toan-man-hinh/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

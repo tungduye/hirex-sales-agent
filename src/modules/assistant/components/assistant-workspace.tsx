@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { ASSISTANT_SAVED_EVENT, assistantSuggestions, ChatMessages, useAssistantChat, useDocumentsSwitch } from "@/modules/assistant/components/assistant-chat";
 import { recencyGroup, type ConversationSummary } from "@/modules/assistant/core/assistant-conversation";
 import { useAccount } from "@/modules/identity/components/account-context";
+import { ZaloAssistantBox } from "@/modules/assistant/components/zalo-assistant-box";
 
 const fold = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase();
 const idFromPath = (path: string) => /^\/assistant\/c\/([0-9a-f-]{36})$/iu.exec(path)?.[1] ?? null;
@@ -115,7 +116,7 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
         <label className="relative block"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm cuộc trò chuyện…" aria-label="Tìm cuộc trò chuyện" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-sm outline-none focus:border-blue-400" /></label>
       </div>
       <HistoryList conversations={conversations} query={query} activeId={conversationId} onOpen={open} onRename={rename} onPin={togglePin} onDelete={remove} />
-      <div className="border-t border-slate-200 p-3"><Link href="/assistant/rules" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-blue-700"><Settings2 className="size-3.5" />Quy tắc tự động của Trợ lý</Link></div>
+      <div className="space-y-0.5 border-t border-slate-200 p-3"><ZaloAssistantBox /><Link href="/assistant/rules" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-blue-700"><Settings2 className="size-3.5" />Quy tắc tự động của Trợ lý</Link></div>
     </aside>
 
     <section className="flex min-w-0 flex-1 flex-col">

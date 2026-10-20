@@ -9,7 +9,7 @@ type Db = ReturnType<typeof createPrivilegedClient>;
  * Saves one question and its answer. A missing or foreign conversationId starts a new conversation named
  * after the question. Never throws: saving must not cost the member their answer.
  */
-export async function saveAssistantTurn(db: Db, input: { workspaceId: string; userId: string; conversationId: string | null; question: string; answer: string; toolsUsed: string[]; actionIds: string[]; isError: boolean }): Promise<{ conversationId: string; title: string } | null> {
+export async function saveAssistantTurn(db: Db, input: { workspaceId: string; userId: string; conversationId: string | null; question: string; answer: string; toolsUsed: string[]; actionIds: string[]; isError: boolean; source?: { channel: "ZALO"; sourceConversationId: string } | null }): Promise<{ conversationId: string; title: string } | null> {
   try {
     let conversation: { id: string; title: string } | null = null;
     if (input.conversationId) {
@@ -17,7 +17,7 @@ export async function saveAssistantTurn(db: Db, input: { workspaceId: string; us
       conversation = data ? { id: data.id as string, title: data.title as string } : null;
     }
     if (!conversation) {
-      const { data, error } = await db.from("assistant_conversations").insert({ workspace_id: input.workspaceId, user_id: input.userId, title: conversationTitle(input.question) }).select("id,title").single();
+      const { data, error } = await db.from("assistant_conversations").insert({ workspace_id: input.workspaceId, user_id: input.userId, title: conversationTitle(input.question), ...(input.source ? { channel: input.source.channel, source_conversation_id: input.source.sourceConversationId } : {}) }).select("id,title").single();
       if (error || !data) return null;
       conversation = { id: data.id as string, title: data.title as string };
     }

@@ -46,12 +46,15 @@ interface ActionRow { id: unknown; conversation_id: unknown; text_content: unkno
 
 const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
   const client = createPrivilegedClient();
-  const [{ data: profiles }, { data: tags }, { data: access }] = await Promise.all([
+  const [{ data: profiles }, { data: tags }, { data: access }, { data: bot }] = await Promise.all([
     client.from("profiles").select("id,full_name,all_channel_accounts,manager_id").eq("workspace_id", workspaceId).order("full_name"),
     client.from("conversation_tags").select("id,name,color").eq("workspace_id", workspaceId).order("name"),
     client.from("profile_channel_account_access").select("profile_id,channel_account_id").eq("workspace_id", workspaceId),
+    client.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", workspaceId).maybeSingle(),
   ]);
-  return { profiles: profiles ?? [], tags: tags ?? [], access: access ?? [] };
+  // The Zalo Trợ lý nick answers staff by itself: it is kept out of Suối Nguồn.
+  const botAccountId = bot?.enabled && typeof bot.channel_account_id === "string" ? bot.channel_account_id : null;
+  return { profiles: profiles ?? [], tags: tags ?? [], access: access ?? [], botAccountId };
 }, ["stable-inbox-metadata"], { revalidate: 60, tags: ["inbox-metadata"] });
 
 type StableMetadata = Awaited<ReturnType<typeof loadStableInboxMetadata>>;
@@ -265,7 +268,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   void refreshStaleBridgeHealth(accountRows, accountContext.workspaceId).catch(() => undefined);
   const mappedAccounts = accountRows.map(mapAccount);
   if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Inbox account data is unavailable." });
-  const accounts = mappedAccounts as OmnichannelInboxAccount[];
+  const accounts = (mappedAccounts as OmnichannelInboxAccount[]).filter((account) => account.id !== stableMetadata.botAccountId);
   // Phạm vi: Của tôi / Team / Tất cả (what is shown by default; access is unchanged).
   const managers = ((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" ? [{ id: row.id, managerId: typeof row.manager_id === "string" ? row.manager_id : null }] : []);
   const owned = accounts.map((account) => ({ id: account.id, primaryProfileId: account.primaryProfileId ?? null }));
