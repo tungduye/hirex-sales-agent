@@ -4,7 +4,11 @@ import { randomInt } from "node:crypto";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { runAsMember } from "@/lib/supabase/acting-session";
 import { isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
-import { isBotCall, parseLinkCode, splitZaloParts, stripBotCall, toZaloText } from "@/modules/assistant/core/zalo-bot-text";
+import { describeProposals, isBotCall, parseConfirmation, parseLinkCode, splitZaloParts, stripBotCall, toZaloText } from "@/modules/assistant/core/zalo-bot-text";
+import { decideAssistantAction } from "@/modules/assistant/server/assistant-proposals";
+import { isWorkspaceAdmin } from "@/modules/access/server/access-control";
+import { getAccountContext } from "@/modules/identity/server/get-account-context";
+import { getContentBatchResult } from "@/modules/content/server/content-batch-result";
 import { runAssistantRequest } from "@/modules/assistant/server/run-assistant-request";
 import { ChannelAdapterRegistry } from "@/modules/channels/core/channel-adapter-registry";
 import { executeChannelOutboundAction } from "@/modules/channels/server/execute-channel-outbound-action";
@@ -35,18 +39,33 @@ export async function enqueueAssistantBotInbound(input: { workspaceId: string; c
     if (!settings || settings.channelAccountId !== input.channelAccountId) return;
     const group = isGroupConversation(input.conversationMetadata) || isZaloGroupThread("ZALO", input.providerConversationId, input.senderExternalId);
     // In a group, only messages that call the Trợ lý; in a private chat, everything (unlinked senders are ignored later).
-    if (group && !isBotCall(input.text, settings.callNames)) return;
+    // Also "OK 1" / "Huỷ 1" without a tag: answering the Trợ lý's own proposal cards (ignored when none are pending).
+    if (group && !isBotCall(input.text, settings.callNames) && !parseConfirmation(input.text)) return;
     await db.from("assistant_bot_jobs").upsert({ workspace_id: input.workspaceId, channel_account_id: input.channelAccountId, conversation_id: input.conversationId, message_id: input.messageId }, { onConflict: "message_id", ignoreDuplicates: true });
   } catch { /* The Trợ lý queue must never fail channel ingestion. */ }
 }
 
-async function sendReply(db: Db, workspaceId: string, jobId: string, channelAccountId: string, text: string) {
-  const parts = splitZaloParts(text);
+/** The saved content of a batch, as Zalo text, once it is ready (null if it takes too long or failed). */
+async function waitForContent(profileId: string, batchId: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const result = await runAsMember(profileId, () => getContentBatchResult(batchId)).catch(() => null);
+    if (!result || result.status === "PENDING") continue;
+    if (!result.items.length) return "Dạ, em chưa tạo được content đạt yêu cầu ạ. Sếp xem lại trong Kho content giúp em.";
+    return [`Dạ, em gửi sếp ${result.items.length} content (đã lưu trong Kho content):`, ...result.items.map((item, index) => `${index + 1}. [${item.code}] ${item.title}\n\n${item.body}`)].join("\n\n");
+  }
+  return null;
+}
+
+/** first: number of the first part, so a second answer to the same question gets its own keys. */
+async function sendReply(db: Db, workspaceId: string, jobId: string, channelAccountId: string, text: string, first = 1) {
+  // Parts 1–5 answer the question, 6–10 deliver ordered content (the Zalo bridge accepts parts 1–10).
+  const parts = splitZaloParts(text, 1800, 5).slice(0, 10 - first + 1);
   const loaded = await loadChannelAdapterByAccountId(channelAccountId);
   const registry = new ChannelAdapterRegistry();
   registry.register(loaded.adapter);
   for (const [index, part] of parts.entries()) {
-    const { data: actionId, error } = await db.rpc("propose_assistant_bot_message_service", { p_workspace_id: workspaceId, p_job_id: jobId, p_text_content: part, p_part: index + 1 });
+    const { data: actionId, error } = await db.rpc("propose_assistant_bot_message_service", { p_workspace_id: workspaceId, p_job_id: jobId, p_text_content: part, p_part: index + first });
     if (error || typeof actionId !== "string") return false;
     const result = await executeChannelOutboundAction(actionId, registry);
     if (result.status !== "SENT") return false;
@@ -107,6 +126,42 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
       return { processed: true, status: "DONE" };
     }
 
+    const base = process.env.APP_BASE_URL?.trim() || "https://app.hirexmkt.online";
+
+    // "OK 1" / "Huỷ 1": the member answers the proposal cards of their latest answer in this chat (30 minutes).
+    const confirmation = parseConfirmation(question);
+    if (confirmation) {
+      const { data: last } = await db.from("assistant_bot_jobs").select("pending_action_ids").eq("workspace_id", workspaceId).eq("conversation_id", conversation.id).eq("profile_id", profileId)
+        .gt("created_at", new Date(Date.now() - 30 * 60_000).toISOString()).neq("pending_action_ids", "{}").order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const ids = ((last?.pending_action_ids ?? []) as string[]);
+      // Nothing waiting for this member here: a plain "ok" needs no answer.
+      if (!ids.length) { await finish(db, jobId, "SKIPPED", { profile_id: profileId, safe_error_code: "NO_PENDING" }); return { processed: true, status: "SKIPPED" }; }
+      {
+        let reply: string;
+        let batchId: string | undefined;
+        if (confirmation.index === null && ids.length > 1) reply = `Dạ, có ${ids.length} đề xuất ạ. Sếp trả lời kèm số giúp em, ví dụ OK 1 hoặc Huỷ 2.`;
+        else if (confirmation.index !== null && (confirmation.index < 1 || confirmation.index > ids.length)) reply = `Dạ, em chỉ có đề xuất số 1 đến ${ids.length} thôi ạ.`;
+        else {
+          const actionId = ids[(confirmation.index ?? 1) - 1];
+          const done = await runAsMember(profileId, async () => {
+            const member = await getAccountContext();
+            if (!member?.workspaceId) return { ok: false, message: "Không mở được phiên làm việc của sếp." };
+            return decideAssistantAction(actionId, confirmation.decision, { workspaceId: member.workspaceId, userId: member.userId, permissions: member.permissions, isAdmin: await isWorkspaceAdmin() });
+          });
+          batchId = "batchId" in done ? done.batchId : undefined;
+          reply = `Dạ, ${toZaloText(done.message, base)}${"link" in done && done.link && !batchId ? `\n${base}${done.link}` : ""}`;
+        }
+        let sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, reply);
+        // Content just ordered from Zalo: wait for it (up to ~2.5 minutes) and send it here.
+        if (sent && batchId) {
+          const ready = await waitForContent(profileId, batchId);
+          if (ready) sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, ready, 6);
+        }
+        await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId, ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
+        return { processed: true, status: sent ? "DONE" : "FAILED" };
+      }
+    }
+
     // One saved conversation per member and Zalo chat, continued while it is less than 12 hours old.
     const since = new Date(Date.now() - 12 * 3_600_000).toISOString();
     const { data: thread } = await db.from("assistant_conversations").select("id").eq("workspace_id", workspaceId).eq("user_id", profileId).eq("source_conversation_id", conversation.id).gte("updated_at", since).order("updated_at", { ascending: false }).limit(1).maybeSingle();
@@ -115,11 +170,11 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const history = (past ?? []).filter((row) => !row.is_error).reverse().map((row) => ({ role: row.role as "user" | "assistant", content: String(row.content).slice(0, 8000) }));
 
     const result = await runAsMember(profileId, () => runAssistantRequest({ question, history, pagePath: null, allowDocuments: true, uploadId: null, save: true, conversationId, source: { channel: "ZALO", sourceConversationId: conversation.id as string } }));
-    const base = process.env.APP_BASE_URL?.trim() || "https://app.hirexmkt.online";
     let reply = result.ok ? toZaloText(result.answer, base) : result.message;
-    if (result.ok && result.pendingActions.length && result.conversationId) reply += `\n\nDạ, em đã chuẩn bị ${result.pendingActions.length} thao tác, sếp mở link để xem và bấm Xác nhận ạ: ${base}/assistant/c/${result.conversationId}`;
+    const cards = result.ok ? result.pendingActions.slice(0, 10) : [];
+    if (cards.length) reply += `\n\n${describeProposals(cards.map((card) => ({ title: card.preview.title, lines: card.preview.editableText ? [...card.preview.lines, `Nội dung: ${card.preview.editableText.slice(0, 600)}`] : card.preview.lines, expiresAt: card.expiresAt })))}`;
     const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, reply);
-    await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId, ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
+    await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId, pending_action_ids: cards.map((card) => card.id), ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
     return { processed: true, status: sent ? "DONE" : "FAILED" };
   } catch (caught) {
     const code = caught instanceof Error && /^[A-Z_]{3,60}$/u.test(caught.message) ? caught.message : "BOT_FAILED";

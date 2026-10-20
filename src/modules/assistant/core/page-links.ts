@@ -18,6 +18,7 @@ export const PAGES = {
   KHO_MAU: { path: "/content/templates", label: "Kho mẫu", permission: "content.view" },
   CONG_VIEC: { path: "/tasks", label: "Công việc", permission: "tasks.view" },
   PHAN_TICH: { path: "/analytics", label: "Phân tích", permission: "analytics.view" },
+  BANG_JOB: { path: "/jobs", label: "Bảng job", permission: "jobs.view" },
   TAI_LIEU: { path: "/documents", label: "Thư viện tài liệu", permission: "documents.view" },
   SCAN_CV: { path: "/scan/cv", label: "Scan CV", permission: "scan.cv" },
   SCAN_WEBSITE: { path: "/scan/website", label: "Scan Website", permission: "scan.website" },

@@ -20,6 +20,7 @@ import { documentLink, readDocument, searchDocuments } from "@/modules/human-doc
 import { askDocuments } from "@/modules/human-documents/server/ask-documents";
 import { loadHumanSnapshot } from "@/modules/human-documents/server/snapshot";
 import { readTools2 } from "@/modules/assistant/server/assistant-read-tools";
+import { crmTools } from "@/modules/assistant/server/assistant-crm-tools";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
 // through the same server helpers the pages use, which apply the member's channel-account scope.
@@ -117,6 +118,8 @@ type Runner = (args: Record<string, unknown>, scope: ToolScope) => Promise<unkno
 const runners: Record<string, Runner> = {
   // Phase 2: details and page links (assistant-read-tools.ts).
   ...readTools2,
+  // Round A: job board, Luồng Rec candidates, KPI (assistant-crm-tools.ts).
+  ...crmTools,
   async tong_quan_crm() {
     const data = await getDashboardData();
     if (data.metricsHaveError) return { loi: "Không tải được số liệu tổng quan." };

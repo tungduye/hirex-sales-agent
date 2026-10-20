@@ -448,6 +448,70 @@ function DOCUMENT_TOOLS(): AssistantToolDefinition[] {
   ];
 }
 
+// Round A for Soda (Zalo): job board, Luồng Rec candidates and KPI. Read only.
+const KPI_SCOPES = ["TOI", "TEAM", "CONG_TY", "NGUOI"] as const;
+const KPI_PERIODS = ["HOM_NAY", "HOM_QUA", "TUAN_NAY", "TUAN_TRUOC", "THANG_NAY", "THANG_TRUOC", "7_NGAY", "30_NGAY"] as const;
+const JOB_STATUS_ARGS = ["OPEN", "PAUSED", "CLOSED", "TAT_CA"] as const;
+const REC_RESULTS = ["DANG_TU_VAN", "CV_RECEIVED", "NEED_OTHER_JOB", "NOT_INTERESTED"] as const;
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
+function CRM_READ_TOOLS(): AssistantToolDefinition[] {
+  return [
+    {
+      name: "bang_job",
+      permission: "jobs.view",
+      label: "Xem bảng job",
+      description: "Bảng job tuyển dụng: mã job, vị trí, hướng nghề, công ty (và có được nói tên công ty với ứng viên không), địa điểm, hình thức, tiếng Nhật, kinh nghiệm, lương, điểm mạnh, yêu cầu, quy trình phỏng vấn, link JD, ưu tiên, người phụ trách. Mặc định chỉ job đang mở. Có job_code: trả chi tiết đầy đủ một job.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["tu_khoa", "trang_thai", "job_code", "so_luong"],
+        properties: {
+          tu_khoa: nullableString("Từ khoá: vị trí, hướng nghề (BrSE, PM, Dev…), công ty, địa điểm (Hà Nội, HCM, Nhật…), tiếng Nhật (N2…); hoặc null."),
+          trang_thai: { type: ["string", "null"], enum: [...JOB_STATUS_ARGS, null], description: "OPEN (mặc định), PAUSED, CLOSED hoặc TAT_CA." },
+          job_code: nullableString("Mã job để xem chi tiết một job, hoặc null."),
+          so_luong: nullableInteger("Số job tối đa (mặc định 20, tối đa 50)."),
+        },
+      },
+      args: z.object({ tu_khoa: text(120).nullable(), trang_thai: z.enum(JOB_STATUS_ARGS).nullable(), job_code: text(40).nullable(), so_luong: z.number().int().min(1).max(50).nullable() }).strict(),
+      maxOutputChars: 14_000,
+    },
+    {
+      name: "ung_vien_rec",
+      permission: "inbox.view",
+      label: "Xem ứng viên Luồng Rec",
+      description: "Ứng viên đang đi theo Luồng Rec 8 bước (1 Chào … 7 Xin CV, 8 Nhận CV) trên các nick người dùng được xem: bước hiện tại, thông tin ứng viên đã nói (hướng nghề, khu vực, tiếng Nhật, kinh nghiệm, lương mong muốn…), job đã giới thiệu/từ chối, kết quả (Đã có CV / Cần job khác / Không quan tâm), người cập nhật, link hội thoại; kèm thống kê theo bước và kết quả.",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["tu_khoa", "buoc", "ket_qua", "so_ngay", "chi_cua_toi"],
+        properties: {
+          tu_khoa: nullableString("Tên ứng viên hoặc thông tin (BrSE, N2, Hà Nội…), hoặc null."),
+          buoc: nullableInteger("Chỉ ứng viên đang ở bước này (1–8), hoặc null."),
+          ket_qua: { type: ["string", "null"], enum: [...REC_RESULTS, null], description: "DANG_TU_VAN (chưa có kết quả), CV_RECEIVED, NEED_OTHER_JOB, NOT_INTERESTED, hoặc null = tất cả." },
+          so_ngay: nullableInteger("Cập nhật trong bao nhiêu ngày gần đây (mặc định 30, tối đa 180)."),
+          chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ ứng viên do chính người hỏi cập nhật." },
+        },
+      },
+      args: z.object({ tu_khoa: text(120).nullable(), buoc: z.number().int().min(1).max(8).nullable(), ket_qua: z.enum(REC_RESULTS).nullable(), so_ngay: z.number().int().min(1).max(180).nullable(), chi_cua_toi: z.boolean().nullable() }).strict(),
+      maxOutputChars: 14_000,
+    },
+    {
+      name: "kpi",
+      permission: "*",
+      label: "Tổng hợp KPI",
+      description: "Tổng hợp KPI theo người trong một khoảng thời gian: tin nhắn đến/đi và hội thoại trên các nick người đó phụ trách, hội thoại mới, đang chưa đọc, tin tự tay gửi, ứng viên Rec mới và số CV nhận, email chiến dịch đã gửi/phản hồi, content đã tạo, công việc đang mở/quá hạn/đã xong. pham_vi: TOI (mặc định), TEAM (người hỏi và cấp dưới), CONG_TY (cả công ty, cần quyền xem vai trò), NGUOI (một người theo tên).",
+      parameters: {
+        type: "object", additionalProperties: false, required: ["pham_vi", "ten_nguoi", "ky", "tu_ngay", "den_ngay"],
+        properties: {
+          pham_vi: { type: ["string", "null"], enum: [...KPI_SCOPES, null], description: "TOI, TEAM, CONG_TY hoặc NGUOI; null = TOI." },
+          ten_nguoi: nullableString("Tên người khi pham_vi = NGUOI, hoặc null."),
+          ky: { type: ["string", "null"], enum: [...KPI_PERIODS, null], description: "Kỳ có sẵn; null = 7_NGAY (trừ khi có tu_ngay)." },
+          tu_ngay: nullableString("Từ ngày YYYY-MM-DD (giờ Việt Nam), hoặc null."),
+          den_ngay: nullableString("Đến hết ngày YYYY-MM-DD, hoặc null = hôm nay."),
+        },
+      },
+      args: z.object({ pham_vi: z.enum(KPI_SCOPES).nullable(), ten_nguoi: text(120).nullable(), ky: z.enum(KPI_PERIODS).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable() }).strict(),
+      maxOutputChars: 16_000,
+    },
+  ];
+}
+
 /**
  * "2026-10-15" or "2026-10-15 17:30" in Vietnam time → ISO timestamp. A date alone means 17:30.
  * Null when the text is not a valid date.
@@ -661,6 +725,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   },
   ...READ_TOOLS_2(),
   ...DOCUMENT_TOOLS(),
+  ...CRM_READ_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

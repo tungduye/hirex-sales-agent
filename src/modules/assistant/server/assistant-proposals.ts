@@ -32,7 +32,8 @@ export interface ActionContext { workspaceId: string; userId: string; permission
 export interface PendingAction { id: string; kind: ActionKind; preview: ActionPreview; expiresAt: string }
 
 export type Built = { ok: true; kind: ActionKind; params: Record<string, unknown>; preview: ActionPreview } | { ok: false; error: string };
-export type Executed = { ok: boolean; message: string; link?: string | null };
+/** batchId: a content batch was started (the Zalo Trợ lý sends its result when it is ready). */
+export type Executed = { ok: boolean; message: string; link?: string | null; batchId?: string };
 
 const PERMISSION: Record<ActionKind, string> = {
   CREATE_TASK: "tasks.create",
@@ -410,7 +411,7 @@ async function executeContent(params: Record<string, unknown>, context: ActionCo
   if (!parsed.success) return { ok: false, message: "Thông tin tạo content không còn hợp lệ." };
   const started = await startContentBatch(context, parsed.data);
   if (!started.ok) return { ok: false, message: started.message };
-  return { ok: true, message: `Đang tạo ${parsed.data.quantity} content cho “${parsed.data.jobTitle}”. Kết quả hiện trong Kho content sau 1–2 phút.`, link: "/content" };
+  return { ok: true, message: `Đang tạo ${parsed.data.quantity} content cho “${parsed.data.jobTitle}”. Kết quả hiện trong Kho content sau 1–2 phút.`, link: "/content", batchId: started.batchId };
 }
 
 async function executeAiStop(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {

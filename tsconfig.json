@@ -287,7 +287,9 @@
     ".next-tro-ly-tai-lieu/types/**/*.ts",
     ".next-tro-ly-tai-lieu/dev/types/**/*.ts",
     ".next-tro-ly-thua-sep/types/**/*.ts",
-    ".next-tro-ly-thua-sep/dev/types/**/*.ts"
+    ".next-tro-ly-thua-sep/dev/types/**/*.ts",
+    ".next-tro-ly-ten-goi/types/**/*.ts",
+    ".next-tro-ly-ten-goi/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

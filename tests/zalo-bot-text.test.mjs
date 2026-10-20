@@ -29,3 +29,16 @@ test("long answers split at breaks", () => {
   const parts = splitZaloParts(text, 1800);
   assert.ok(parts.length >= 3 && parts.every((part) => part.length <= 1900));
 });
+
+test('confirmations from Zalo', async () => {
+  const { parseConfirmation, describeProposals } = await import('../src/modules/assistant/core/zalo-bot-text.ts');
+  assert.deepEqual(parseConfirmation('OK'), { decision: 'confirm', index: null });
+  assert.deepEqual(parseConfirmation('ok 2'), { decision: 'confirm', index: 2 });
+  assert.deepEqual(parseConfirmation('Xác nhận 1'), { decision: 'confirm', index: 1 });
+  assert.deepEqual(parseConfirmation('Huỷ 1'), { decision: 'cancel', index: 1 });
+  assert.deepEqual(parseConfirmation('hủy'), { decision: 'cancel', index: null });
+  assert.equal(parseConfirmation('ok em gửi lại báo cáo'), null);
+  const text = describeProposals([{ title: 'Tạo công việc', lines: ['Tiêu đề: Gọi lại'], expiresAt: '2026-10-20T08:15:00Z' }]);
+  assert.match(text, /1\) Tạo công việc/);
+  assert.match(text, /OK để em thực hiện/);
+});

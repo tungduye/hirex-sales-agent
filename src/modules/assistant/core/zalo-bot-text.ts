@@ -65,3 +65,20 @@ export function splitZaloParts(text: string, limit = 1800, maxParts = 5): string
   if (parts.length > maxParts) { const kept = parts.slice(0, maxParts); kept[maxParts - 1] = `${kept[maxParts - 1]}\n\n(Câu trả lời dài, xem đầy đủ trên trang Trợ lý.)`; return kept; }
   return parts;
 }
+
+/** "OK 2", "xác nhận", "Huỷ 1"… → which proposal (1-based, null = the only one) and what to do; null if not a confirmation. */
+export function parseConfirmation(text: string): { decision: "confirm" | "cancel"; index: number | null } | null {
+  const clean = fold(text.trim()).replace(/[.!]+$/u, "").trim();
+  const match = /^(ok|oke|okay|xac nhan|dong y|yes|y|huy|bo|khong|cancel)\s*(?:so\s*)?(\d{1,2})?$/u.exec(clean);
+  if (!match) return null;
+  return { decision: ["huy", "bo", "khong", "cancel"].includes(match[1]) ? "cancel" : "confirm", index: match[2] ? Number(match[2]) : null };
+}
+
+/** The proposal cards of an answer, numbered, with how to confirm them from Zalo. */
+export function describeProposals(cards: Array<{ title: string; lines: string[]; expiresAt: string }>): string {
+  if (!cards.length) return "";
+  const until = new Date(Math.min(...cards.map((card) => Date.parse(card.expiresAt)))).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" });
+  const blocks = cards.map((card, index) => `${index + 1}) ${card.title}${card.lines.length ? `\n${card.lines.slice(0, 6).map((line) => `   ${line}`).join("\n")}` : ""}`);
+  const how = cards.length === 1 ? "Sếp trả lời OK để em thực hiện, hoặc Huỷ để bỏ" : `Sếp trả lời OK kèm số (ví dụ OK 1) để em thực hiện, hoặc Huỷ kèm số để bỏ`;
+  return `Dạ, cần sếp xác nhận:\n${blocks.join("\n")}\n\n${how} (hết hạn lúc ${until}).`;
+}
