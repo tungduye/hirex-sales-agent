@@ -166,6 +166,11 @@ test('phase 2 proposals follow permissions and validate arguments', () => {
   assert.equal(parseToolCall('de_xuat_tao_lich_hen', JSON.stringify(event), all).ok, true);
   assert.equal(parseToolCall('de_xuat_tao_lich_hen', JSON.stringify({ ...event, thu_trong_tuan: [8] }), all).ok, false, 'weekdays 1..7');
   assert.ok(!ASSISTANT_TOOL_NAMES.some((name) => /^de_xuat_(gui|xoa|khoi_chay|bat)/.test(name)), 'no bulk send/delete/launch/enable proposals exist');
+  // Group broadcasts: the Trợ lý only prepares a draft; starting it stays a button on the page.
+  const broadcast = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals-broadcast.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(broadcast, /changeBroadcast|"START"|RUNNING/);
+  assert.ok(names(['broadcasts.manage']).includes('de_xuat_nhap_gui_nhom'));
+  assert.ok(!names(['broadcasts.view']).includes('de_xuat_nhap_gui_nhom'));
 });
 
 test('due dates are Vietnam time', () => {

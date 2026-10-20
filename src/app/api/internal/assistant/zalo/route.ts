@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { processNextAssistantBotJob } from "@/modules/assistant/server/zalo-bot";
 import { sendDueCalendarReminders } from "@/modules/calendar/server/calendar-reminders";
+import { runBroadcastTick } from "@/modules/broadcasts/server/broadcast-runner";
 
 // Called by scripts/assistant-zalo-worker.mjs: answers one queued Zalo question per call (one member per
 // request, so per-request caches never mix two members).
@@ -12,6 +13,14 @@ async function remindersOncePerMinute() {
   try { await sendDueCalendarReminders(); } catch (error) { console.error("[assistant-zalo] reminders failed", error instanceof Error ? error.message : error); }
 }
 
+// Group broadcasts (Gửi hàng loạt Zalo) also ride on this worker, one tick about every 20 s.
+let lastBroadcastTick = 0;
+async function broadcastsEvery20s() {
+  if (Date.now() - lastBroadcastTick < 20_000) return;
+  lastBroadcastTick = Date.now();
+  try { await runBroadcastTick(); } catch (error) { console.error("[assistant-zalo] broadcasts failed", error instanceof Error ? error.message : error); }
+}
+
 function equal(left: string, right: string) { const a = Buffer.from(left), b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); }
 
 export async function POST(request: Request) {
@@ -21,6 +30,7 @@ export async function POST(request: Request) {
   try {
     const result = await processNextAssistantBotJob();
     await remindersOncePerMinute();
+    await broadcastsEvery20s();
     return Response.json(result);
   } catch (error) {
     console.error("[assistant-zalo] job failed", error instanceof Error ? error.message : error);

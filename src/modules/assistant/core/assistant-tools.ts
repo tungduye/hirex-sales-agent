@@ -620,6 +620,30 @@ function FILE_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Gửi hàng loạt vào nhóm Zalo (round D): the Trợ lý only prepares a draft; the member starts it on the page.
+function BROADCAST_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "de_xuat_nhap_gui_nhom",
+    permission: "broadcasts.manage",
+    proposal: true,
+    label: "Đề xuất gửi nhóm Zalo (nháp)",
+    description: "Chuẩn bị một đợt gửi tin (và/hoặc ghim ghi chú lên đầu nhóm) vào nhiều nhóm Zalo từ các nick người dùng được dùng. Chỉ tạo NHÁP sau khi người dùng xác nhận thẻ; việc gửi chỉ bắt đầu khi họ bấm \"Bắt đầu gửi\" trên trang Gửi nhóm Zalo. Mỗi nick tối đa 30 nhóm/ngày, cách 90–180 giây, 8:00–21:00.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["ten", "noi_dung", "gui_tin", "ghim", "nick", "tu_khoa_nhom", "so_nhom_toi_da"],
+      properties: {
+        ten: nullableString("Tên đợt gửi, hoặc null (lấy dòng đầu nội dung)."),
+        noi_dung: { type: "string", description: "Nội dung tin/ghi chú đúng như người dùng đưa hoặc đã duyệt (tối đa 4.000 ký tự; nếu ghim thì 2.000)." },
+        gui_tin: { type: ["boolean", "null"], description: "Gửi tin vào nhóm (mặc định true)." },
+        ghim: { type: ["boolean", "null"], description: "Ghim nội dung thành ghi chú ở đầu nhóm (mặc định false)." },
+        nick: { type: ["array", "null"], items: { type: "string" }, description: "Tên các nick gửi; null = mọi nick người dùng được dùng đang kết nối." },
+        tu_khoa_nhom: nullableString("Chỉ các nhóm có tên chứa từ khoá này (ví dụ \"BrSE\", \"IT HCM\"), hoặc null = mọi nhóm của các nick đó."),
+        so_nhom_toi_da: nullableInteger("Giới hạn số nhóm (tối đa 500), hoặc null."),
+      },
+    },
+    args: z.object({ ten: text(200).nullable(), noi_dung: text(4000).min(1), gui_tin: z.boolean().nullable(), ghim: z.boolean().nullable(), nick: z.array(text(120)).max(30).nullable(), tu_khoa_nhom: text(120).nullable(), so_nhom_toi_da: z.number().int().min(1).max(500).nullable() }).strict(),
+  }];
+}
+
 /**
  * "2026-10-15" or "2026-10-15 17:30" in Vietnam time → ISO timestamp. A date alone means 17:30.
  * Null when the text is not a valid date.
@@ -836,6 +860,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...CRM_READ_TOOLS(),
   ...CALENDAR_TOOLS(),
   ...FILE_TOOLS(),
+  ...BROADCAST_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

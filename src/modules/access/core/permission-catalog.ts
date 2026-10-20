@@ -9,6 +9,7 @@ export const permissionGroups = [
   { key:"tasks", label:"Công việc", actions:[["view","Xem"],["create","Thêm"],["update","Sửa"],["delete","Xóa"]] },
   { key:"analytics", label:"Phân tích", actions:[["view","Xem"]] },
   { key:"jobs", label:"Job", actions:[["view","Xem"],["manage","Quản lý"]] },
+  { key:"broadcasts", label:"Gửi hàng loạt Zalo", actions:[["view","Xem"],["manage","Tạo và gửi vào nhóm"]] },
   { key:"documents", label:"Tài liệu", actions:[["view","Xem và hỏi Trợ lý về tài liệu"]] },
   { key:"accounts", label:"Tài khoản", actions:[["view","Xem"]] },
   { key:"settings", label:"Cài đặt", actions:[["view","Xem"]] },

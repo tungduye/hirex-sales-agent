@@ -21,6 +21,7 @@ const RECONCILE_PATH="/v1/deliveries/reconcile";
 const FIND_BY_PHONE_PATH="/v1/zalo/users/find-by-phone";
 const FRIEND_REQUEST_PATH="/v1/zalo/friend-requests/send";
 const REACT_PATH="/v1/messages/react";
+const GROUP_NOTE_PATH="/v1/groups/notes";
 const SEND_TIMEOUT_MS=20_000;
 // A file is downloaded by the bridge and uploaded to Zalo before it answers (the bridge itself gives up after 75 s).
 const FILE_SEND_TIMEOUT_MS=85_000;
@@ -155,7 +156,8 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     // answering a staff member who called it there (key made only by propose_assistant_bot_message_service).
     // Anything else (for example an old pending action addressed to one member) is refused before reaching Zalo.
     const group = command.threadKind === "GROUP";
-    const assistantReply = command.source === "AI_AUTOMATION" && command.idempotencyKey.startsWith("assistant-bot:");
+    // Also a group broadcast approved by a member (key made only by propose_zalo_broadcast_send_service).
+    const assistantReply = command.source === "AI_AUTOMATION" && (command.idempotencyKey.startsWith("assistant-bot:") || command.idempotencyKey.startsWith("group-broadcast:"));
     if (group && ((command.source !== "HUMAN_MANUAL" && !assistantReply) || !command.providerConversationId || command.recipientExternalId !== command.providerConversationId))
       throw new ChannelError("DELIVERY_REJECTED", false);
     // A person's reply, or a Word file the Trợ lý made, may be one stored file, sent on its own (no text, tags or quote).
@@ -213,8 +215,8 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       (response.body as { status?: unknown }).status === "ACKNOWLEDGED_NO_RETRY";
   }
 
-  private async contactRequest(path: string, payload: Record<string, unknown>, idempotencyKey: string) {
-    const body = JSON.stringify({ accountId: this.credential.bridgeAccountId, ...payload, idempotencyKey, source: "HUMAN_MANUAL" });
+  private async contactRequest(path: string, payload: Record<string, unknown>, idempotencyKey: string, source: "HUMAN_MANUAL" | "AI_AUTOMATION" = "HUMAN_MANUAL") {
+    const body = JSON.stringify({ accountId: this.credential.bridgeAccountId, ...payload, idempotencyKey, source });
     const timestamp = Math.floor(this.now() / 1000).toString();
     let response: ChannelHttpResponse;
     try {
@@ -253,6 +255,14 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     if (!isString(input.threadId, 512) || !/^[1-9][0-9]{0,39}$/u.test(input.messageId) || !isString(idempotencyKey)) throw new ChannelError("DELIVERY_REJECTED", false);
     const result = await this.contactRequest(REACT_PATH, { threadId: input.threadId, threadType: input.threadType, messageId: input.messageId, icon: input.icon }, idempotencyKey);
     return result.status === "REACTED";
+  }
+
+  /** A pinned note ("Ghi chú", pinned) at the top of a group this nick is in, for an approved group broadcast. */
+  async pinGroupNote(input: { groupId: string; text: string }, idempotencyKey: string) {
+    if (!isString(input.groupId, 512) || !input.text.trim() || input.text.length > 2000 || !/^group-broadcast:[0-9a-f-]{36}:pin:[1-3]$/u.test(idempotencyKey))
+      throw new ChannelError("DELIVERY_REJECTED", false);
+    const result = await this.contactRequest(GROUP_NOTE_PATH, { groupId: input.groupId, text: input.text }, idempotencyKey, "AI_AUTOMATION");
+    return result.status === "PINNED";
   }
 
   async sendFriendRequest(userId: string, message: string, idempotencyKey: string) {

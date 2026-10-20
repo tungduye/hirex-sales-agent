@@ -301,7 +301,9 @@
     ".next-lich-hen-3/types/**/*.ts",
     ".next-lich-hen-3/dev/types/**/*.ts",
     ".next-tai-lieu-word/types/**/*.ts",
-    ".next-tai-lieu-word/dev/types/**/*.ts"
+    ".next-tai-lieu-word/dev/types/**/*.ts",
+    ".next-tai-lieu-word-2/types/**/*.ts",
+    ".next-tai-lieu-word-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

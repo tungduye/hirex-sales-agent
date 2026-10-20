@@ -12,9 +12,9 @@ test('Zalo group replies go through the normal send path (no more temporary bloc
   assert.doesNotMatch(source, /isZaloGroupConversation|ZALO_GROUP_UNSUPPORTED/);
 });
 
-test('the bridge request marks a group and only for a manual reply (or the Zalo Trợ lý answer) addressed to the group', () => {
+test('the bridge request marks a group and only for a manual reply (or the Zalo Trợ lý answer, or an approved group broadcast) addressed to the group', () => {
   assert.match(adapter, /const group = command\.threadKind === "GROUP";/);
-  assert.match(adapter, /const assistantReply = command\.source === "AI_AUTOMATION" && command\.idempotencyKey\.startsWith\("assistant-bot:"\);/);
+  assert.match(adapter, /const assistantReply = command\.source === "AI_AUTOMATION" && \(command\.idempotencyKey\.startsWith\("assistant-bot:"\) \|\| command\.idempotencyKey\.startsWith\("group-broadcast:"\)\);/);
   assert.match(adapter, /\(command\.source !== "HUMAN_MANUAL" && !assistantReply\) \|\| !command\.providerConversationId \|\| command\.recipientExternalId !== command\.providerConversationId/);
   assert.match(adapter, /\.\.\.\(group \? \{ threadType: "GROUP", /);
 });
