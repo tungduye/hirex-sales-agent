@@ -269,7 +269,9 @@
     ".next-suoi-nguon-pham-vi-3/types/**/*.ts",
     ".next-suoi-nguon-pham-vi-3/dev/types/**/*.ts",
     ".next-suoi-nguon-loc-nhieu/types/**/*.ts",
-    ".next-suoi-nguon-loc-nhieu/dev/types/**/*.ts"
+    ".next-suoi-nguon-loc-nhieu/dev/types/**/*.ts",
+    ".next-suoi-nguon-loc-nhieu-2/types/**/*.ts",
+    ".next-suoi-nguon-loc-nhieu-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

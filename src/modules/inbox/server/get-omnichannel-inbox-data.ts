@@ -302,7 +302,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   else query = query.in("channel_account_id", listAccountIds);
   // Unread conversations per account, for the account picker (runs alongside the list query).
   const unreadPromise = Promise.resolve(supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds }))
-    .then(({ data }) => { const counts = new Map<string, number>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown }>) if (typeof row.channel_account_id === "string") counts.set(row.channel_account_id, Number(row.unread) || 0); return counts; }, () => new Map<string, number>());
+    // People only: e-mail from robots and the "Khác" folder are counted apart.
+    .then(({ data }) => { const counts = new Map<string, { people: number; automated: number }>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown; unread_people?: unknown }>) if (typeof row.channel_account_id === "string") { const all = Number(row.unread) || 0; const people = row.unread_people === undefined ? all : Number(row.unread_people) || 0; counts.set(row.channel_account_id, { people, automated: all - people }); } return counts; }, () => new Map<string, { people: number; automated: number }>());
   const { data: conversationData, error: conversationError } = await query;
   if (conversationError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Conversations could not be loaded." });
   const pageRows = conversationData as ConversationRow[];
@@ -409,7 +410,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const listed = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   const unread = await unreadPromise;
   const nameOf = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
-  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id) ?? 0, primaryName: account.primaryProfileId ? nameOf.get(account.primaryProfileId) ?? null : null }));
+  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id)?.people ?? 0, unreadAutomated: unread.get(account.id)?.automated ?? 0, primaryName: account.primaryProfileId ? nameOf.get(account.primaryProfileId) ?? null : null }));
   return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 

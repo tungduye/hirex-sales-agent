@@ -15,6 +15,8 @@ export interface OmnichannelInboxAccount {
   primaryName?: string | null;
   /** Conversations with unread messages on this account (within the current scope). */
   unreadCount?: number;
+  /** Unread e-mail from robots / the "Khác" folder, not counted in unreadCount. */
+  unreadAutomated?: number;
 }
 
 export interface OmnichannelInboxConversation {
@@ -150,6 +152,8 @@ export interface OmnichannelConversationDetail {
   sendLock: ZaloSendLock | null;
   /** The opened nick's own Zalo id (to recognise mentions of it). */
   accountExternalId: string | null;
+  /** Main user of the opened nick, when it is someone else (composer warns "Đang trả lời bằng nick của …"). */
+  accountOwnerName?: string | null;
   /** Zalo group: who is who (sender id -> name/avatar), our own nicks included; empty for other chats. */
   participants: Record<string, { name: string; avatarUrl: string | null; member?: boolean }>;
 }

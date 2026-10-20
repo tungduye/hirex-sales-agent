@@ -174,13 +174,17 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   }
   const channelType = row.channel_type as ChannelType;
   const [{ data: channelAccount, error: accountError }, { data: messageRows, error: messageError }, { data: tagRows }, { data: actionRows }, contactResult] = await Promise.all([
-    accountClient.from("channel_accounts").select("id,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,legacy_email_account_id,external_account_id").eq("id", row.channel_account_id).eq("workspace_id", accountContext.workspaceId).eq("channel_type", channelType).is("deleted_at", null).maybeSingle(),
+    accountClient.from("channel_accounts").select("id,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,legacy_email_account_id,external_account_id,primary_profile_id").eq("id", row.channel_account_id).eq("workspace_id", accountContext.workspaceId).eq("channel_type", channelType).is("deleted_at", null).maybeSingle(),
     accountClient.from("omnichannel_messages").select("id,conversation_id,channel_type,direction,sender_external_id,text_content,provider_message_id,attachment_count,received_at,sent_at,created_at,metadata").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId).order("created_at", { ascending: false }).limit(MAX_MESSAGES + 1),
     accountClient.from("conversation_tag_links").select("tag_id").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId),
     accountClient.from("channel_outbound_actions").select("id,text_content,proposed_by,status,attempt_count,created_at,updated_at,provider_message_id,attachment_ids,safe_error_code,reconciliation_status,idempotency_key").eq("workspace_id", accountContext.workspaceId).eq("conversation_id", conversationId).order("created_at", { ascending: false }).limit(MAX_MESSAGES),
     typeof row.contact_id === "string" ? accountClient.from("contacts").select("full_name").eq("workspace_id", accountContext.workspaceId).eq("id", row.contact_id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (accountError || messageError || !channelAccount) return { status: "error", conversation: null };
+  const ownerId = text((channelAccount as Record<string, unknown>).primary_profile_id);
+  const accountOwnerName = ownerId && ownerId !== accountContext.userId
+    ? text((await accountClient.from("profiles").select("full_name").eq("id", ownerId).eq("workspace_id", accountContext.workspaceId).maybeSingle()).data?.full_name)
+    : null;
   const rawMessages = (messageRows ?? []).slice(0, MAX_MESSAGES).reverse();
   const messages: OmnichannelInboxMessage[] = [];
   let lastInboundAt: string | null = null;
@@ -340,6 +344,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       participants,
       businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id)) : null,
       sendLock,
+      accountOwnerName,
     },
   };
 }
