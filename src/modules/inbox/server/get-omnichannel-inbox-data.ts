@@ -235,7 +235,7 @@ function emptyData(input: {
   return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedChannelTypes: input.selectedChannelType ? [input.selectedChannelType] : [], channelParam: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
-export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -277,8 +277,10 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const scopedIds = new Set(scope === "MINE" ? mineIds : scope === "TEAM" ? teamIds : accounts.map((account) => account.id));
   const activeAccountIds = accounts.map((account) => account.id).filter((id) => scopedIds.has(id));
   if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, scope, scopeCounts, error: null };
-  const requestedAccount = filters.accountId ? accounts.find((account) => account.id === filters.accountId) : undefined;
-  const selectedAccountId = requestedAccount && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(requestedAccount.channelType)) ? requestedAccount.id : null;
+  // Several accounts may be picked: ?account=a,b (repeated ?account= works too).
+  const requestedAccountIds = new Set((Array.isArray(filters.accountId) ? filters.accountId : [filters.accountId ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter(isUuid).slice(0, 200));
+  const selectedAccountIds = accounts.filter((account) => requestedAccountIds.has(account.id) && scopedIds.has(account.id) && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(account.channelType))).map((account) => account.id);
+  const selectedAccountId = selectedAccountIds.length ? selectedAccountIds.join(",") : null;
   const availableOwnerIds = new Set(profiles.map((profile) => profile.id));
   const selectedOwnerIds = requestedOwnerIds.filter((id) => availableOwnerIds.has(id));
   const selectedOwnerProfiles = profiles.filter((profile) => selectedOwnerIds.includes(profile.id));
@@ -295,9 +297,13 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     .order("id", { ascending: false })
     .range((selectedPage - 1) * PAGE_SIZE, selectedPage * PAGE_SIZE);
   if (selectedChannelTypes.length) query = query.in("channel_type", selectedChannelTypes);
-  if (selectedAccountId && ownerAccountIds.includes(selectedAccountId)) query = query.eq("channel_account_id", selectedAccountId);
-  else if (selectedAccountId || ownerAccountIds.length === 0) query = query.eq("channel_account_id", "00000000-0000-0000-0000-000000000000");
-  else query=query.in("channel_account_id",ownerAccountIds);
+  const listAccountIds = selectedAccountIds.length ? selectedAccountIds.filter((id) => ownerAccountIds.includes(id)) : ownerAccountIds;
+  if (listAccountIds.length === 0) query = query.eq("channel_account_id", "00000000-0000-0000-0000-000000000000");
+  else query = query.in("channel_account_id", listAccountIds);
+  // Unread conversations per account, for the account picker (runs alongside the list query).
+  const unreadPromise = Promise.resolve(supabase.from("omnichannel_conversations").select("channel_account_id").eq("workspace_id", accountContext.workspaceId)
+    .gt("unread_count", 0).or("metadata->>hidden.is.null,metadata->>hidden.neq.true").in("channel_account_id", activeAccountIds).limit(5000))
+    .then(({ data }) => { const counts = new Map<string, number>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown }>) if (typeof row.channel_account_id === "string") counts.set(row.channel_account_id, (counts.get(row.channel_account_id) ?? 0) + 1); return counts; }, () => new Map<string, number>());
   const { data: conversationData, error: conversationError } = await query;
   if (conversationError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Conversations could not be loaded." });
   const pageRows = conversationData as ConversationRow[];
@@ -402,7 +408,10 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
         typeof item.channel_account_id === "string" ? [{ subject: typeof item.subject === "string" ? item.subject : null, channelAccountId: item.channel_account_id }] : []));
   }
   const listed = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: accounts.filter((account) => scopedIds.has(account.id)), scope, scopeCounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  const unread = await unreadPromise;
+  const nameOf = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
+  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id) ?? 0, primaryName: account.primaryProfileId ? nameOf.get(account.primaryProfileId) ?? null : null }));
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

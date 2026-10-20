@@ -1,4 +1,4 @@
-import { MessagesSquare } from "lucide-react";
+import { MessagesSquare, X } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
@@ -24,18 +24,35 @@ export function OmnichannelInboxView(props: OmnichannelInboxData & { selectedCon
   // to the bottom) on the right. Filters live in one compact block above the list.
   const chips = tabs.filter((tab) => tab.value !== null);
   // Filters that are not quick tabs (account, tags, owners) sit behind one icon button next to the search box.
-  const filterControl = <InboxFilterPanel accounts={filteredAccounts} profiles={props.profiles} tags={props.tags} channel={channelParam} selectedAccountId={selectedAccountId} selectedTagIds={props.selectedTagIds} tagMatchMode={props.tagMatchMode} selectedOwnerIds={props.selectedOwnerIds} firstMessageFrom={props.firstMessageFrom} firstMessageTo={props.firstMessageTo} clearHref={inboxHref({ channel: channelParam, account: null, page: 1 })}/>;
+  const filterControl = <InboxFilterPanel accounts={filteredAccounts} profiles={props.profiles} tags={props.tags} channel={channelParam} selectedAccountIds={props.selectedAccountIds ?? []} currentUserId={props.currentUserId} selectedTagIds={props.selectedTagIds} tagMatchMode={props.tagMatchMode} selectedOwnerIds={props.selectedOwnerIds} firstMessageFrom={props.firstMessageFrom} firstMessageTo={props.firstMessageTo} clearHref={inboxHref({ channel: channelParam, account: null, page: 1 })}/>;
   // Channel chips: pick several at once; click a picked chip again to drop it. None picked = all channels.
   const channelChips = <nav className="flex flex-wrap items-center gap-1" aria-label="Lọc theo kênh (chọn được nhiều)">{chips.map((tab) => { const value = tab.value as ChannelType; const on = pickedChannels.includes(value); const next = on ? pickedChannels.filter((item) => item !== value) : [...pickedChannels, value]; return <Link prefetch={false} key={tab.label} href={inboxHref({ channel: next.length ? next.join(",") : null, account: null, ownerIds: props.selectedOwnerIds, page: 1, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode })} aria-pressed={on} title={on ? `Bỏ ${tab.label} khỏi bộ lọc` : `Thêm ${tab.label} vào bộ lọc`} className={`inline-flex min-h-7 items-center gap-1 whitespace-nowrap rounded-full border py-1 pl-1.5 pr-2 text-xs font-semibold transition ${on ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"}`}><ChannelLogo channel={value} size={15}/>{tab.short}</Link>; })}{pickedChannels.length ? <Link prefetch={false} href={inboxHref({ channel: null, account: null, ownerIds: props.selectedOwnerIds, page: 1, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode })} className="px-1 text-xs font-semibold text-slate-500 hover:text-blue-700">Bỏ chọn</Link> : null}</nav>;
+  const chipsBlock = <>{channelChips}<ActiveFilters {...props}/></>;
   // Full-height, two panes: conversations on the left, the open conversation (with its composer pinned
   // to the bottom) on the right.
   return <div className="flex h-[calc(100dvh-4rem)] min-h-[520px] overflow-hidden bg-white">
     <aside className={`${props.selectedConversationId ? "hidden lg:flex" : "flex"} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-white lg:w-[340px]`}>
       <div className="flex shrink-0 items-center justify-between px-3.5 pt-3.5"><h1 className="text-lg font-bold tracking-tight text-slate-950">Suối Nguồn</h1><InboxAutoRefresh workspaceId={props.workspaceId} compact/></div>
       {props.scope && props.scopeCounts ? <div className="shrink-0 px-3.5 pt-2.5"><InboxScopeSwitch scope={props.scope} counts={props.scopeCounts}/></div> : null}
-      <div className={`flex min-h-0 flex-1 flex-col transition-opacity ${props.listLoading ? "pointer-events-none opacity-60" : ""}`} aria-busy={props.listLoading || undefined}>{error ? <div className="m-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div> : <InfiniteConversationList key={props.scope ?? "ALL"} initialConversations={conversations} initialHasNextPage={props.hasNextPage} selectedConversationId={props.selectedConversationId} tags={props.tags} currentUserId={props.currentUserId} filterControl={filterControl} channelChips={channelChips} filters={{ channel: channelParam, account: selectedAccountId, ownerIds: props.selectedOwnerIds, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode, firstMessageFrom: props.firstMessageFrom, firstMessageTo: props.firstMessageTo }}/>}</div>
+      <div className={`flex min-h-0 flex-1 flex-col transition-opacity ${props.listLoading ? "pointer-events-none opacity-60" : ""}`} aria-busy={props.listLoading || undefined}>{error ? <div className="m-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div> : <InfiniteConversationList key={props.scope ?? "ALL"} initialConversations={conversations} initialHasNextPage={props.hasNextPage} selectedConversationId={props.selectedConversationId} tags={props.tags} currentUserId={props.currentUserId} filterControl={filterControl} channelChips={chipsBlock} filters={{ channel: channelParam, account: selectedAccountId, ownerIds: props.selectedOwnerIds, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode, firstMessageFrom: props.firstMessageFrom, firstMessageTo: props.firstMessageTo }}/>}</div>
     </aside>
     <main className={`${props.selectedConversationId ? "flex" : "hidden lg:flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50`}>{props.detail}</main>
+  </div>;
+}
+
+/** What is filtered right now, one chip each; ✕ drops just that filter. */
+function ActiveFilters(props: OmnichannelInboxData) {
+  const base = { channel: props.channelParam, account: props.selectedAccountId, ownerIds: props.selectedOwnerIds, page: 1, tagIds: props.selectedTagIds, tagMatchMode: props.tagMatchMode, firstMessageFrom: props.firstMessageFrom, firstMessageTo: props.firstMessageTo };
+  const chips: Array<{ key: string; label: string; title?: string; href: string; color?: string | null }> = [];
+  const pickedAccounts = props.accounts.filter((account) => (props.selectedAccountIds ?? []).includes(account.id));
+  if (pickedAccounts.length) chips.push({ key: "account", label: pickedAccounts.length === 1 ? pickedAccounts[0].displayName : `${pickedAccounts.length} tài khoản`, title: pickedAccounts.map((account) => account.displayName).join(", "), href: inboxHref({ ...base, account: null }) });
+  for (const id of props.selectedOwnerIds) { const owner = props.profiles.find((profile) => profile.id === id); chips.push({ key: `owner-${id}`, label: `Phụ trách: ${owner?.fullName ?? "?"}`, href: inboxHref({ ...base, ownerIds: props.selectedOwnerIds.filter((item) => item !== id) }) }); }
+  for (const id of props.selectedTagIds) { const tag = props.tags.find((item) => item.id === id); chips.push({ key: `tag-${id}`, label: tag?.name ?? "Nhãn", color: tag?.color ?? "#94a3b8", href: inboxHref({ ...base, tagIds: props.selectedTagIds.filter((item) => item !== id) }) }); }
+  if (props.firstMessageFrom || props.firstMessageTo) chips.push({ key: "date", label: `Tin đầu: ${props.firstMessageFrom ?? "…"} → ${props.firstMessageTo ?? "…"}`, href: inboxHref({ ...base, firstMessageFrom: null, firstMessageTo: null }) });
+  if (!chips.length) return null;
+  return <div className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Bộ lọc đang bật">
+    {chips.map((chip) => <Link prefetch={false} key={chip.key} href={chip.href} title={`Bỏ lọc: ${chip.title ?? chip.label}`} className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-600/10 py-0.5 pl-2 pr-1 text-[11px] font-semibold text-blue-800 hover:bg-rose-50 hover:text-rose-700">{chip.color ? <span className="size-2 shrink-0 rounded-full" style={{ background: chip.color }}/> : null}<span className="truncate">{chip.label}</span><X className="size-3 shrink-0"/></Link>)}
+    {chips.length > 1 ? <Link prefetch={false} href={inboxHref({ channel: props.channelParam, account: null, page: 1 })} className="px-1 text-[11px] font-semibold text-slate-500 hover:text-rose-600">Xóa tất cả</Link> : null}
   </div>;
 }
 

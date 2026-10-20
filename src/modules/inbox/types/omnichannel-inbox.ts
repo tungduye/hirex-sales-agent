@@ -11,6 +11,10 @@ export interface OmnichannelInboxAccount {
   healthLabel: string;
   /** Người dùng chính (main user) of the account. */
   primaryProfileId?: string | null;
+  /** Name of the main user, for grouping in the account picker. */
+  primaryName?: string | null;
+  /** Conversations with unread messages on this account (within the current scope). */
+  unreadCount?: number;
 }
 
 export interface OmnichannelInboxConversation {
@@ -70,7 +74,9 @@ export interface OmnichannelInboxData {
   selectedChannelTypes: ChannelType[];
   /** The same list as it travels in the URL: "ZALO,EMAIL". */
   channelParam: string | null;
+  /** Picked accounts as they travel in the URL: "id1,id2". */
   selectedAccountId: string | null;
+  selectedAccountIds?: string[];
   selectedOwnerIds: string[];
   selectedTagIds: string[];
   tagMatchMode: "all" | "any";

@@ -7,7 +7,7 @@ export async function GET(request: Request) {
     // Phạm vi (Của tôi / Team / Tất cả) is remembered per browser in a cookie.
     scope: scopeFromCookie(request.headers.get("cookie")),
     channelType: query.getAll("channel"),
-    accountId: query.get("account") ?? undefined,
+    accountId: query.getAll("account"),
     ownerIds: query.getAll("owner"),
     page: query.get("page") ?? undefined,
     tagIds: query.getAll("tag"),

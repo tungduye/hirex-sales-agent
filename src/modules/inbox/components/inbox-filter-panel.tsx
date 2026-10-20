@@ -3,7 +3,7 @@
 import { Check, Search, SlidersHorizontal, X } from "lucide-react";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createConversationTag } from "@/modules/channels/server/channel-actions";
-import type { ChannelType } from "@/modules/channels/core/channel-contracts";
+import { InboxAccountFilter } from "./inbox-account-filter";
 import type { OmnichannelInboxAccount, OmnichannelInboxProfile, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 
 const initialTagState = { status: "idle" as const, message: null };
@@ -17,7 +17,8 @@ export function InboxFilterPanel(props: {
   profiles: OmnichannelInboxProfile[];
   tags: OmnichannelInboxTag[];
   channel: string | null;
-  selectedAccountId: string | null;
+  selectedAccountIds: string[];
+  currentUserId: string | null;
   selectedTagIds: string[];
   tagMatchMode: "all" | "any";
   selectedOwnerIds: string[];
@@ -30,7 +31,7 @@ export function InboxFilterPanel(props: {
   const [creatingTag, setCreatingTag] = useState(false);
   const [tagState, createTag, tagPending] = useActionState(createConversationTag, initialTagState);
   const rootRef = useRef<HTMLDivElement>(null);
-  const active = (props.selectedAccountId ? 1 : 0) + props.selectedTagIds.length + props.selectedOwnerIds.length + (props.firstMessageFrom || props.firstMessageTo ? 1 : 0);
+  const active = (props.selectedAccountIds.length ? 1 : 0) + props.selectedTagIds.length + props.selectedOwnerIds.length + (props.firstMessageFrom || props.firstMessageTo ? 1 : 0);
 
   // Close on Escape or a click outside the panel.
   useEffect(() => {
@@ -60,13 +61,7 @@ export function InboxFilterPanel(props: {
         {props.firstMessageFrom ? <input type="hidden" name="firstFrom" value={props.firstMessageFrom}/> : null}
         {props.firstMessageTo ? <input type="hidden" name="firstTo" value={props.firstMessageTo}/> : null}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-          <section>
-            <label htmlFor="inbox-filter-account" className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Tài khoản</label>
-            <select id="inbox-filter-account" name="account" defaultValue={props.selectedAccountId ?? ""} className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-400">
-              <option value="">Tất cả tài khoản</option>
-              {props.accounts.map((account) => <option key={account.id} value={account.id}>{channelLabel(account.channelType)} — {account.displayName}</option>)}
-            </select>
-          </section>
+          <InboxAccountFilter accounts={props.accounts} selected={props.selectedAccountIds} currentUserId={props.currentUserId}/>
 
           <section>
             <div className="mb-1 flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Nhãn</p>{props.tags.length > 1 ? <select name="tagMode" defaultValue={props.tagMatchMode} aria-label="Cách khớp nhãn" className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-600"><option value="any">Có một trong các nhãn</option><option value="all">Có đủ các nhãn</option></select> : null}</div>
@@ -107,4 +102,3 @@ export function InboxFilterPanel(props: {
 
 function fold(value: string) { return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase().trim(); }
 function initialsOf(name: string) { const words = name.split(/\s+/u).filter(Boolean); const pick = words.length > 1 ? [words[words.length - 2], words[words.length - 1]] : words; return pick.map((word) => Array.from(word)[0] ?? "").join("").toUpperCase() || "?"; }
-function channelLabel(channel: ChannelType) { return channel === "EMAIL" ? "Email" : channel === "FACEBOOK" ? "Facebook Page" : channel === "FACEBOOK_PROFILE" ? "Facebook cá nhân" : channel === "ZALO" ? "Zalo" : channel; }
