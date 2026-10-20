@@ -9,13 +9,14 @@ import { assistantInstructions, pageContext, parseModelReply } from "@/modules/a
 import { openAiToolSpecs, toolsFor } from "@/modules/assistant/core/assistant-tools";
 import { runAssistantTool } from "@/modules/assistant/server/assistant-tool-runner";
 import type { PendingAction } from "@/modules/assistant/server/assistant-proposals";
+import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
 import { saveAssistantTurn } from "@/modules/assistant/server/assistant-conversations";
 
 /** allowDocuments: the admin switched on "Tài liệu" in the panel (consent to send passages to OpenAI). */
 /** save: keep this turn in the member's saved conversations (conversationId continues one). */
 export interface AssistantRequest { question: string; history: ChatTurn[]; pagePath: string | null; allowDocuments?: boolean; uploadId?: string | null; save?: boolean; conversationId?: string | null; source?: { channel: "ZALO"; sourceConversationId: string } | null }
 export type AssistantResponse =
-  | { ok: true; answer: string; toolsUsed: string[]; remainingToday: number; pendingActions: PendingAction[]; conversationId?: string; title?: string }
+  | { ok: true; answer: string; toolsUsed: string[]; remainingToday: number; pendingActions: PendingAction[]; files: GeneratedFile[]; conversationId?: string; title?: string }
   | { ok: false; status: number; message: string; conversationId?: string; title?: string };
 
 export function assistantModel() {
@@ -70,6 +71,8 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
   const documents = !canReadDocuments ? "none" : request.allowDocuments ? "on" : "off";
   const tools = toolsFor(account.permissions, isAdmin, { documents: documents === "on" });
   const proposals: PendingAction[] = [];
+  const files: GeneratedFile[] = [];
+  const channel = request.source?.channel === "ZALO" ? "ZALO" as const : "WEB" as const;
   const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };
   const attachment = request.uploadId ? await attachmentContext(db, workspaceId, account.userId, request.uploadId) : null;
   const context = [pageContext(request.pagePath), attachment].filter(Boolean).join(" ") || null;
@@ -99,12 +102,12 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
           if (!response.ok) throw new Error(`AI_HTTP_${response.status}`);
           return parseModelReply(await response.json());
         },
-        runTool: (tool, args) => runAssistantTool(tool, args, { workspaceId, userId: account.userId, context: actionContext, proposals }),
+        runTool: (tool, args) => runAssistantTool(tool, args, { workspaceId, userId: account.userId, context: actionContext, proposals, files, channel }),
       },
     });
     await log({ status: "ANSWERED", tools_used: result.toolsUsed, input_tokens: result.inputTokens, output_tokens: result.outputTokens, duration_ms: Date.now() - started });
     const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: result.answer, toolsUsed: result.toolsUsed, actionIds: proposals.map((action) => action.id), isError: false, source: request.source ?? null }) : null;
-    return { ok: true, answer: result.answer, toolsUsed: result.toolsUsed, remainingToday: Math.max(0, limit - usedToday - 1), pendingActions: proposals, ...(saved ?? {}) };
+    return { ok: true, answer: result.answer, toolsUsed: result.toolsUsed, remainingToday: Math.max(0, limit - usedToday - 1), pendingActions: proposals, files, ...(saved ?? {}) };
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 60) : "UNKNOWN";
     console.error("[assistant] request failed", code);

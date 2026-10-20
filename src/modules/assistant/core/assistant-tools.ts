@@ -598,6 +598,28 @@ function CALENDAR_TOOLS(): AssistantToolDefinition[] {
   ];
 }
 
+// Word files (round C): a free document written from the member's request, or a JD from the job board.
+function FILE_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "tao_file_word",
+    permission: "*",
+    label: "Tạo file Word",
+    description: "Tạo một file Word (.docx) có đầu trang Intalent Việt Nam và gửi cho người hỏi (trên Zalo: Soda gửi file vào chat; trên web: link tải). loai = JD: JD của một job trong bảng job (cần job_code, chỉ dùng thông tin job đã lưu). loai = TU_DO: tài liệu bất kỳ (quy trình, biên bản họp, kế hoạch, báo cáo, thư, đề xuất…) do bộ soạn thảo viết theo yeu_cau; số liệu cần đưa vào (KPI, danh sách job, lịch…) thì tra bằng công cụ khác trước rồi chép vào du_lieu. Tối đa 3 file mỗi câu hỏi.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["loai", "tieu_de", "yeu_cau", "du_lieu", "job_code", "an_ten_cong_ty"],
+      properties: {
+        loai: { type: "string", enum: ["TU_DO", "JD"], description: "TU_DO hoặc JD." },
+        tieu_de: { type: "string", description: "Tiêu đề tài liệu (cũng là tên file)." },
+        yeu_cau: { type: "string", description: "Với TU_DO: mô tả đầy đủ tài liệu cần viết (mục đích, người đọc, các mục, độ dài, giọng văn, ngôn ngữ). Với JD: ghi chú thêm hoặc \"\"." },
+        du_lieu: nullableString("Số liệu/thông tin đã tra được để đưa vào tài liệu (nguyên văn, ngắn gọn), hoặc null."),
+        job_code: nullableString("Mã job khi loai = JD, hoặc null."),
+        an_ten_cong_ty: { type: ["boolean", "null"], description: "JD: true = không ghi tên công ty, false = ghi; null = theo cài đặt của job." },
+      },
+    },
+    args: z.object({ loai: z.enum(["TU_DO", "JD"]), tieu_de: text(160).min(2), yeu_cau: text(4000), du_lieu: text(12000).nullable(), job_code: text(40).nullable(), an_ten_cong_ty: z.boolean().nullable() }).strict(),
+  }];
+}
+
 /**
  * "2026-10-15" or "2026-10-15 17:30" in Vietnam time → ISO timestamp. A date alone means 17:30.
  * Null when the text is not a valid date.
@@ -813,6 +835,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...DOCUMENT_TOOLS(),
   ...CRM_READ_TOOLS(),
   ...CALENDAR_TOOLS(),
+  ...FILE_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { ArrowUp, BookOpen, Check, FileSpreadsheet, History, LoaderCircle, MessageSquarePlus, Paperclip, Pencil, Pin, PinOff, Search, Settings2, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowUp, BookOpen, Check, FileSpreadsheet, FileText, History, LoaderCircle, MessageSquarePlus, Paperclip, Pencil, Pin, PinOff, Search, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ASSISTANT_SAVED_EVENT, assistantSuggestions, ChatMessages, useAssistantChat, useDocumentsSwitch } from "@/modules/assistant/components/assistant-chat";
 import { recencyGroup, type ConversationSummary } from "@/modules/assistant/core/assistant-conversation";
@@ -117,7 +117,7 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
         <label className="relative block"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm cuộc trò chuyện…" aria-label="Tìm cuộc trò chuyện" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-sm outline-none focus:border-blue-400" /></label>
       </div>
       <HistoryList conversations={conversations} query={query} activeId={conversationId} onOpen={open} onRename={rename} onPin={togglePin} onDelete={remove} />
-      <div className="space-y-0.5 border-t border-slate-200 p-3"><ZaloAssistantBox /><Link href="/assistant/rules" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-blue-700"><Settings2 className="size-3.5" />Quy tắc tự động của Trợ lý</Link></div>
+      <div className="space-y-0.5 border-t border-slate-200 p-3"><ZaloAssistantBox /><Link href="/assistant/rules" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-blue-700"><Settings2 className="size-3.5" />Quy tắc tự động của Trợ lý</Link><Link href="/assistant/files" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white hover:text-blue-700"><FileText className="size-3.5" />Tài liệu đã tạo</Link></div>
     </aside>
 
     <section className="flex min-w-0 flex-1 flex-col">

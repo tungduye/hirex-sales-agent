@@ -158,9 +158,9 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
     const assistantReply = command.source === "AI_AUTOMATION" && command.idempotencyKey.startsWith("assistant-bot:");
     if (group && ((command.source !== "HUMAN_MANUAL" && !assistantReply) || !command.providerConversationId || command.recipientExternalId !== command.providerConversationId))
       throw new ChannelError("DELIVERY_REJECTED", false);
-    // A person's reply may be one stored file, sent on its own (no text, tags or quote).
+    // A person's reply, or a Word file the Trợ lý made, may be one stored file, sent on its own (no text, tags or quote).
     const file = command.attachments[0];
-    if (command.attachments.length > 1 || (file && (command.source !== "HUMAN_MANUAL" || command.text !== null || command.mentions?.length ||
+    if (command.attachments.length > 1 || (file && ((command.source !== "HUMAN_MANUAL" && !assistantReply) || command.text !== null || command.mentions?.length ||
         command.quoteMessageId || typeof file.signedUrl !== "string")))
       throw new ChannelError("DELIVERY_REJECTED", false);
     const body = JSON.stringify({

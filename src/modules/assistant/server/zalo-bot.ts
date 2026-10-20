@@ -73,6 +73,17 @@ export async function sendReply(db: Db, workspaceId: string, jobId: string, chan
   return true;
 }
 
+/** One Word file the Trợ lý made, sent on its own into the job's chat. */
+export async function sendFile(db: Db, workspaceId: string, jobId: string, channelAccountId: string, attachmentId: string, part: number) {
+  const { data: actionId, error } = await db.rpc("propose_assistant_bot_file_service", { p_workspace_id: workspaceId, p_job_id: jobId, p_attachment_id: attachmentId, p_part: part });
+  if (error || typeof actionId !== "string") return false;
+  const loaded = await loadChannelAdapterByAccountId(channelAccountId);
+  const registry = new ChannelAdapterRegistry();
+  registry.register(loaded.adapter);
+  const result = await executeChannelOutboundAction(actionId, registry);
+  return result.status === "SENT";
+}
+
 async function finish(db: Db, jobId: string, status: "DONE" | "SKIPPED" | "FAILED", extra: Record<string, unknown> = {}) {
   await db.from("assistant_bot_jobs").update({ status, completed_at: new Date().toISOString(), ...extra }).eq("id", jobId);
 }
@@ -177,6 +188,13 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const cards = result.ok ? result.pendingActions.slice(0, 10) : [];
     if (cards.length) reply += `\n\n${describeProposals(cards.map((card) => ({ title: card.preview.title, lines: card.preview.editableText ? [...card.preview.lines, `Nội dung: ${card.preview.editableText.slice(0, 600)}`] : card.preview.lines, expiresAt: card.expiresAt })))}`;
     const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, reply);
+    // Word files made for this question: sent into the same chat (parts 6–8), else their download links (part 10).
+    const files = result.ok ? result.files.slice(0, 3) : [];
+    if (sent && files.length) {
+      const failed: typeof files = [];
+      for (const [index, file] of files.entries()) if (!await sendFile(db, workspaceId, jobId, settings.channelAccountId, file.attachmentId, 6 + index).catch(() => false)) failed.push(file);
+      if (failed.length) await sendReply(db, workspaceId, jobId, settings.channelAccountId, `Dạ, em chưa gửi được file qua Zalo, sếp tải tại đây ạ:\n${failed.map((file) => `${file.filename}: ${base}${file.link}`).join("\n")}`, 10).catch(() => false);
+    }
     await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId, pending_action_ids: cards.map((card) => card.id), ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
     return { processed: true, status: sent ? "DONE" : "FAILED" };
   } catch (caught) {

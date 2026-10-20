@@ -21,13 +21,15 @@ import { askDocuments } from "@/modules/human-documents/server/ask-documents";
 import { loadHumanSnapshot } from "@/modules/human-documents/server/snapshot";
 import { readTools2 } from "@/modules/assistant/server/assistant-read-tools";
 import { crmTools } from "@/modules/assistant/server/assistant-crm-tools";
+import { fileTools } from "@/modules/assistant/server/assistant-file-tools";
+import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
 // through the same server helpers the pages use, which apply the member's channel-account scope.
 // Free text written by outsiders (messages, names) is returned under keys marked "khach_viet" so
 // the model treats it as data.
 
-export interface ToolScope { workspaceId: string; userId: string; context: ActionContext; proposals: PendingAction[] }
+export interface ToolScope { workspaceId: string; userId: string; context: ActionContext; proposals: PendingAction[]; files?: GeneratedFile[]; channel?: "WEB" | "ZALO" }
 
 const HOUR = 3_600_000;
 const clip = (value: unknown, max = 300) => typeof value === "string" ? (value.length > max ? `${value.slice(0, max)}…` : value) : null;
@@ -120,6 +122,8 @@ const runners: Record<string, Runner> = {
   ...readTools2,
   // Round A: job board, Luồng Rec candidates, KPI (assistant-crm-tools.ts).
   ...crmTools,
+  // Round C: Word files (assistant-file-tools.ts).
+  ...fileTools,
   async tong_quan_crm() {
     const data = await getDashboardData();
     if (data.metricsHaveError) return { loi: "Không tải được số liệu tổng quan." };
