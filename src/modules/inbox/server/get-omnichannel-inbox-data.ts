@@ -16,6 +16,7 @@ import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-ch
 import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
 import { ambiguousGroupKeys, groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
+import { resolveScope, scopeAccounts, teamOf } from "@/modules/inbox/core/inbox-scope";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
 // updates still bring newly active threads to the top.
@@ -24,7 +25,7 @@ const ZALO_HEALTH_REFRESH_MS = 60 * 1000;
 
 interface AccountRow {
   id: unknown; channel_type: unknown; display_name: unknown; status: unknown;
-  operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown;
+  operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown; primary_profile_id?: unknown;
 }
 interface ConversationRow {
   id: unknown; channel_account_id: unknown; channel_type: unknown; contact_id: unknown; subject: unknown;
@@ -36,7 +37,7 @@ interface MessageRow {
 }
 interface PreviewRow extends MessageRow { last_inbound_at: unknown }
 interface ContactRow { id: unknown; full_name: unknown }
-interface ProfileRow { id: unknown; full_name: unknown; all_channel_accounts: unknown }
+interface ProfileRow { id: unknown; full_name: unknown; all_channel_accounts: unknown; manager_id?: unknown }
 interface ProfileChannelAccessRow { profile_id: unknown; channel_account_id: unknown }
 interface TagRow { id: unknown; name: unknown; color: unknown }
 interface TagLinkRow { conversation_id: unknown; tag_id: unknown }
@@ -46,7 +47,7 @@ interface ActionRow { id: unknown; conversation_id: unknown; text_content: unkno
 const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
   const client = createPrivilegedClient();
   const [{ data: profiles }, { data: tags }, { data: access }] = await Promise.all([
-    client.from("profiles").select("id,full_name,all_channel_accounts").eq("workspace_id", workspaceId).order("full_name"),
+    client.from("profiles").select("id,full_name,all_channel_accounts,manager_id").eq("workspace_id", workspaceId).order("full_name"),
     client.from("conversation_tags").select("id,name,color").eq("workspace_id", workspaceId).order("name"),
     client.from("profile_channel_account_access").select("profile_id,channel_account_id").eq("workspace_id", workspaceId),
   ]);
@@ -144,7 +145,7 @@ function healthLabel(row: AccountRow, channelType: ChannelType): string {
 function mapAccount(row: AccountRow): OmnichannelInboxAccount | null {
   if (typeof row.id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CHANNEL_ACCOUNT_STATUSES.includes(row.status as never)) return null;
   const channelType = row.channel_type as ChannelType;
-  return { id: row.id, channelType, displayName: typeof row.display_name === "string" && row.display_name.trim() ? row.display_name : `${channelType} account`, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType) };
+  return { id: row.id, channelType, displayName: typeof row.display_name === "string" && row.display_name.trim() ? row.display_name : `${channelType} account`, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType), primaryProfileId: typeof row.primary_profile_id === "string" ? row.primary_profile_id : null };
 }
 
 async function refreshStaleBridgeHealth(rows: AccountRow[], workspaceId: string): Promise<void> {
@@ -234,7 +235,7 @@ function emptyData(input: {
   return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedChannelTypes: input.selectedChannelType ? [input.selectedChannelType] : [], channelParam: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
-export async function getOmnichannelInboxData(filters: { channelType?: string | string[]; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -252,7 +253,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   const accountClient = createPrivilegedClient();
   const [accessibleAccountIds, stableMetadata] = await Promise.all([getAccessibleChannelAccountIds(), loadStableInboxMetadata(accountContext.workspaceId)]);
   if(accessibleAccountIds?.length===0)return emptyData({selectedChannelType,selectedPage,error:"Bạn chưa được cấp tài khoản Email, Facebook hoặc Zalo nào."});
-  let accountQuery=accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at").eq("workspace_id", accountContext.workspaceId).is("deleted_at", null).order("channel_type").order("display_name");
+  let accountQuery=accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,primary_profile_id").eq("workspace_id", accountContext.workspaceId).is("deleted_at", null).order("channel_type").order("display_name");
   if(accessibleAccountIds)accountQuery=accountQuery.in("id",accessibleAccountIds);
   const { data: accountData, error: accountError } = await accountQuery;
   const { profiles, tags } = peopleAndTags(stableMetadata, accountContext, accessibleAccountIds);
@@ -265,8 +266,17 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
   const mappedAccounts = accountRows.map(mapAccount);
   if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Inbox account data is unavailable." });
   const accounts = mappedAccounts as OmnichannelInboxAccount[];
-  const activeAccountIds = accounts.map((account) => account.id);
-  if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, error: null };
+  // Phạm vi: Của tôi / Team / Tất cả (what is shown by default; access is unchanged).
+  const managers = ((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" ? [{ id: row.id, managerId: typeof row.manager_id === "string" ? row.manager_id : null }] : []);
+  const owned = accounts.map((account) => ({ id: account.id, primaryProfileId: account.primaryProfileId ?? null }));
+  const mineIds = scopeAccounts("MINE", accountContext.userId, owned, managers);
+  const teamIds = scopeAccounts("TEAM", accountContext.userId, owned, managers);
+  const hasTeam = teamOf(accountContext.userId, managers).size > 1;
+  const scopeCounts = { mine: mineIds.length, team: teamIds.length, all: accounts.length, hasTeam };
+  const scope = resolveScope(filters.scope, scopeCounts);
+  const scopedIds = new Set(scope === "MINE" ? mineIds : scope === "TEAM" ? teamIds : accounts.map((account) => account.id));
+  const activeAccountIds = accounts.map((account) => account.id).filter((id) => scopedIds.has(id));
+  if (activeAccountIds.length === 0) return { ...emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "" }), workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, scope, scopeCounts, error: null };
   const requestedAccount = filters.accountId ? accounts.find((account) => account.id === filters.accountId) : undefined;
   const selectedAccountId = requestedAccount && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(requestedAccount.channelType)) ? requestedAccount.id : null;
   const availableOwnerIds = new Set(profiles.map((profile) => profile.id));
@@ -392,7 +402,7 @@ export async function getOmnichannelInboxData(filters: { channelType?: string | 
         typeof item.channel_account_id === "string" ? [{ subject: typeof item.subject === "string" ? item.subject : null, channelAccountId: item.channel_account_id }] : []));
   }
   const listed = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: accounts.filter((account) => scopedIds.has(account.id)), scope, scopeCounts, conversations: listed, profiles, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

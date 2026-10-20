@@ -259,7 +259,9 @@
     ".next-kho-mau-cay-2/types/**/*.ts",
     ".next-kho-mau-cay-2/dev/types/**/*.ts",
     ".next-content-de-dung/types/**/*.ts",
-    ".next-content-de-dung/dev/types/**/*.ts"
+    ".next-content-de-dung/dev/types/**/*.ts",
+    ".next-content-dot4/types/**/*.ts",
+    ".next-content-dot4/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

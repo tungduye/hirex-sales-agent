@@ -9,6 +9,8 @@ export interface OmnichannelInboxAccount {
   displayName: string;
   status: ChannelAccountStatus;
   healthLabel: string;
+  /** Người dùng chính (main user) of the account. */
+  primaryProfileId?: string | null;
 }
 
 export interface OmnichannelInboxConversation {
@@ -79,6 +81,9 @@ export interface OmnichannelInboxData {
   hasNextPage: boolean;
   profiles: OmnichannelInboxProfile[];
   tags: OmnichannelInboxTag[];
+  /** Phạm vi in use and how many accounts each one covers (TEAM only when I manage someone). */
+  scope?: "MINE" | "TEAM" | "ALL";
+  scopeCounts?: { mine: number; team: number; all: number; hasTeam: boolean };
   error: string | null;
 }
 

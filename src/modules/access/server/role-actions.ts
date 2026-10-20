@@ -1,5 +1,5 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { z } from "zod";
 import { allPermissionKeys } from "@/modules/access/core/permission-catalog";
 import { requirePermission } from "@/modules/access/server/access-control";
@@ -42,12 +42,29 @@ export async function assignProfileAccess(formData:FormData){
   const {data:profile}=await db.from("profiles").select("id").eq("id",parsed.data.profileId).eq("workspace_id",account.workspaceId).maybeSingle();
   if(!role||!profile)return;
   if(profile.id===account.userId){const {data:manage}=await db.from("workspace_role_permissions").select("permission_key").eq("workspace_id",account.workspaceId).eq("role_id",role.id).eq("permission_key","roles.manage").maybeSingle();if(!manage)return;}
-  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
+  // Quản lý trực tiếp: anyone in the workspace except the member and the people below them (no loops).
+  const managerRaw=String(formData.get("managerId")??"");
+  const managerId=uuid.safeParse(managerRaw).success?managerRaw:null;
+  const {data:people}=await db.from("profiles").select("id,manager_id").eq("workspace_id",account.workspaceId);
+  const bossOf=new Map((people??[]).map(item=>[item.id as string,item.manager_id as string|null]));
+  let safeManager:string|null=managerId&&managerId!==profile.id&&bossOf.has(managerId)?managerId:null;
+  for(let step=safeManager,hops=0;step&&hops<200;step=bossOf.get(step)??null,hops++){if(step===profile.id){safeManager=null;break;}}
+  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts,manager_id:safeManager}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
+  // Tài khoản chính: each account has one main user; ticking one here takes it over from whoever had it.
+  const primaryIds=formData.getAll("primaryAccountId").map(String).filter(value=>uuid.safeParse(value).success);
+  const {data:validPrimary}=primaryIds.length?await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).in("id",primaryIds):{data:[] as Array<{id:string}>};
+  const keepPrimary=(validPrimary??[]).map(item=>item.id as string);
+  const release=db.from("channel_accounts").update({primary_profile_id:null}).eq("workspace_id",account.workspaceId).eq("primary_profile_id",profile.id);
+  await (keepPrimary.length?release.not("id","in",`(${keepPrimary.join(",")})`):release);
+  if(keepPrimary.length)await db.from("channel_accounts").update({primary_profile_id:profile.id}).eq("workspace_id",account.workspaceId).in("id",keepPrimary);
   await db.from("profile_channel_account_access").delete().eq("workspace_id",account.workspaceId).eq("profile_id",profile.id);
-  if(!allAccounts&&accountIds.length){
-    const {data:valid}=await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).in("id",accountIds);
+  // A member can always use the accounts they are the main user of.
+  const grantIds=[...new Set([...accountIds,...keepPrimary])];
+  if(!allAccounts&&grantIds.length){
+    const {data:valid}=await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).in("id",grantIds);
     if(valid?.length)await db.from("profile_channel_account_access").insert(valid.map(item=>({workspace_id:account.workspaceId,profile_id:profile.id,channel_account_id:item.id})));
   }
+  try{updateTag("inbox-metadata");}catch{/* the inbox cache expires within a minute */}
   revalidatePath("/settings/roles");
 }
 
