@@ -83,7 +83,7 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
   }
 
   const prompts = useMemo(() => assistantSuggestions(account.permissions, "/assistant", documentsOn), [account.permissions, documentsOn]);
-  const firstName = (account.fullName ?? "").trim().split(/\s+/u).at(-1) || "anh/chị";
+  
   const title = conversations?.find((item) => item.id === conversationId)?.title ?? null;
   const empty = messages.length === 0 && !loading;
 
@@ -94,7 +94,7 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
     </div>}
     <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_2px_12px_rgba(15,23,42,0.06)] transition focus-within:border-blue-400 focus-within:shadow-[0_2px_16px_rgba(37,99,235,0.12)]">
       <textarea ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKey} rows={empty ? 3 : 1} maxLength={1000} disabled={busy} autoFocus
-        placeholder={empty ? "Hôm nay em có thể giúp gì cho anh/chị?" : "Trả lời Trợ lý… (Enter để gửi, Shift+Enter xuống dòng)"} aria-label="Câu hỏi cho trợ lý"
+        placeholder={empty ? "Dạ, sếp cần em giúp gì ạ?" : "Trả lời Trợ lý… (Enter để gửi, Shift+Enter xuống dòng)"} aria-label="Câu hỏi cho trợ lý"
         className="block w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-slate-900 placeholder:text-slate-400 focus:outline-none disabled:opacity-60" />
       <div className="mt-2 flex items-center gap-1.5">
         <AttachButton disabled={busy || uploading} uploading={uploading} allowed={account.permissions.includes("campaigns.create")} onFile={(file) => void attach(file).then(() => inputRef.current?.focus())} />
@@ -128,10 +128,10 @@ export function AssistantWorkspace({ conversationId: initialId, workspaceAdmin }
       </div>
       {empty ? <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-16">
         <div className="w-full max-w-2xl">
-          <h1 className="mb-6 flex items-center justify-center gap-3 text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl"><Sparkles className="size-7 shrink-0 text-blue-600" />Chào {firstName}, hôm nay cần em giúp gì?</h1>
+          <h1 className="mb-6 flex items-center justify-center gap-3 text-center text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl"><Sparkles className="size-7 shrink-0 text-blue-600" />Thưa sếp, hôm nay sếp cần em giúp gì ạ?</h1>
           {composer}
           <div className="mt-4 flex flex-wrap justify-center gap-2">{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => send(prompt)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800">{prompt}</button>)}</div>
-          <p className="mt-6 text-center text-xs text-slate-400">Trợ lý tra cứu theo quyền tài khoản của anh/chị và chỉ thao tác khi anh/chị bấm Xác nhận. Các cuộc trò chuyện được lưu riêng cho anh/chị ở cột bên trái.</p>
+          <p className="mt-6 text-center text-xs text-slate-400">Trợ lý tra cứu theo quyền tài khoản của sếp và chỉ thao tác khi sếp bấm Xác nhận. Các cuộc trò chuyện được lưu riêng ở cột bên trái.</p>
         </div>
       </div> : <>
         <div ref={listRef} className="flex-1 overflow-y-auto" aria-live="polite">

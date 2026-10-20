@@ -82,7 +82,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     if (code) {
       const { data: open } = await db.from("assistant_link_codes").select("id,profile_id,expires_at").eq("workspace_id", workspaceId).eq("code", code).is("used_at", null).maybeSingle();
       if (!open || Date.parse(open.expires_at as string) < Date.now()) {
-        const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, "Mã liên kết không đúng hoặc đã hết hạn (10 phút). Anh/chị lấy mã mới ở trang Trợ lý trên HireX rồi gửi lại cho em nhé.");
+        const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, "Dạ, mã liên kết không đúng hoặc đã hết hạn (10 phút). Sếp lấy mã mới ở trang Trợ lý trên HireX rồi gửi lại cho em ạ.");
         await finish(db, jobId, sent ? "DONE" : "FAILED", sent ? {} : { safe_error_code: "SEND_FAILED" });
         return { processed: true, status: "LINK_INVALID" };
       }
@@ -91,7 +91,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
       await db.from("assistant_zalo_links").delete().eq("workspace_id", workspaceId).eq("zalo_user_id", sender);
       await db.from("assistant_zalo_links").insert({ workspace_id: workspaceId, profile_id: open.profile_id, zalo_user_id: sender, zalo_name: name });
       const { data: profile } = await db.from("profiles").select("full_name").eq("id", open.profile_id).maybeSingle();
-      const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, `Đã liên kết Zalo này với tài khoản HireX của ${profile?.full_name ?? "anh/chị"}. Từ giờ anh/chị cứ nhắn câu hỏi cho em như trên trang Trợ lý. Trong nhóm, gọi em bằng @${settings.name} hoặc bắt đầu tin bằng /tl.`);
+      const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, `Dạ, em đã liên kết Zalo này với tài khoản HireX của ${profile?.full_name ?? "sếp"}. Từ giờ sếp cứ nhắn câu hỏi cho em như trên trang Trợ lý ạ. Trong nhóm, sếp gọi em bằng @${settings.name} hoặc bắt đầu tin bằng /tl.`);
       await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: open.profile_id, ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
       return { processed: true, status: "LINKED" };
     }
@@ -102,7 +102,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const profileId = link.profile_id as string;
     const question = (group ? stripBotCall(text, settings.name) : text).slice(0, 1000);
     if (!question) {
-      const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, "Dạ, anh/chị cần em tra cứu gì ạ?");
+      const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, "Dạ, sếp cần em tra cứu gì ạ?");
       await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId });
       return { processed: true, status: "DONE" };
     }
@@ -117,7 +117,7 @@ export async function processNextAssistantBotJob(): Promise<{ processed: boolean
     const result = await runAsMember(profileId, () => runAssistantRequest({ question, history, pagePath: null, allowDocuments: true, uploadId: null, save: true, conversationId, source: { channel: "ZALO", sourceConversationId: conversation.id as string } }));
     const base = process.env.APP_BASE_URL?.trim() || "https://app.hirexmkt.online";
     let reply = result.ok ? toZaloText(result.answer, base) : result.message;
-    if (result.ok && result.pendingActions.length && result.conversationId) reply += `\n\nEm đã chuẩn bị ${result.pendingActions.length} thao tác, anh/chị mở link để xem và bấm Xác nhận: ${base}/assistant/c/${result.conversationId}`;
+    if (result.ok && result.pendingActions.length && result.conversationId) reply += `\n\nDạ, em đã chuẩn bị ${result.pendingActions.length} thao tác, sếp mở link để xem và bấm Xác nhận ạ: ${base}/assistant/c/${result.conversationId}`;
     const sent = await sendReply(db, workspaceId, jobId, settings.channelAccountId, reply);
     await finish(db, jobId, sent ? "DONE" : "FAILED", { profile_id: profileId, ...(sent ? {} : { safe_error_code: "SEND_FAILED" }) });
     return { processed: true, status: sent ? "DONE" : "FAILED" };

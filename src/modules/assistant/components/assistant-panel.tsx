@@ -86,7 +86,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Sparkles className="size-5" /></div>
             <div className="min-w-0 flex-1">
               <h2 id="assistant-title" className="text-sm font-bold">Trợ lý HireX</h2>
-              <p className="text-xs text-slate-500">Tra cứu theo quyền tài khoản · mọi thao tác cần anh/chị bấm Xác nhận</p>
+              <p className="text-xs text-slate-500">Tra cứu theo quyền tài khoản · mọi thao tác cần sếp bấm Xác nhận</p>
             </div>
             {canReadDocuments && <button type="button" onClick={toggleDocuments} aria-pressed={documentsOn}
               title={documentsOn ? "Đang cho trợ lý đọc Thư viện tài liệu (gửi các đoạn liên quan tới OpenAI). Bấm để tắt." : "Cho trợ lý đọc Thư viện tài liệu: các đoạn liên quan sẽ được gửi tới OpenAI để trả lời."}
@@ -101,7 +101,7 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
           <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600">Chào {account.fullName ?? "anh/chị"}, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chi tiết liên hệ, công ty, chiến dịch, công việc, Kho content…, mở nhanh trang anh/chị cần, và đề xuất thao tác (soạn tin trả lời ứng viên, tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi anh/chị bấm Xác nhận.</p>
+                <p className="text-sm text-slate-600">Thưa sếp, em có thể tra cứu tình trạng kênh, tin nhắn chờ trả lời, chi tiết liên hệ, công ty, chiến dịch, công việc, Kho content…, mở nhanh trang sếp cần, và đề xuất thao tác (soạn tin trả lời ứng viên, tạo công việc, đổi trạng thái lead, tạm dừng/tiếp tục chiến dịch, tạo content). Thao tác chỉ chạy khi sếp bấm Xác nhận.</p>
                 {canReadDocuments && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-900">{documentsOn ? "Đang bật Tài liệu: em có thể tìm, đọc và trả lời từ Thư viện tài liệu, kèm nguồn." : "Bật nút “Tài liệu” ở trên để em tìm và trả lời từ Thư viện tài liệu (các đoạn liên quan sẽ được gửi tới OpenAI)."}</p>}
                 <div className="flex flex-col gap-2">
                   {prompts.map((prompt) => (
