@@ -5,6 +5,9 @@ import { LoaderCircle, MessageCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getZaloAssistantState, requestZaloLinkCode, setZaloAssistantAccount, unlinkMyZalo, type ZaloAssistantState } from "@/modules/assistant/server/zalo-bot-actions";
 
+const STATUS: Record<string, string> = { DONE: "Đã trả lời", FAILED: "Lỗi", SKIPPED: "Bỏ qua", PENDING: "Đang chờ", RUNNING: "Đang xử lý" };
+const ERRORS: Record<string, string> = { NOT_LINKED: "người gửi chưa liên kết", SEND_FAILED: "gửi Zalo không được", NOT_A_QUESTION: "không phải câu hỏi", BOT_DISABLED: "Trợ lý đang tắt", MEMBER_SESSION_UNAVAILABLE: "không mở được phiên của người hỏi", TOO_MANY_ATTEMPTS: "thử quá 3 lần" };
+
 /** "Trợ lý trên Zalo": link my Zalo with a 6-digit code; admins choose the nick. */
 export function ZaloAssistantBox() {
   const [open, setOpen] = useState(false);
@@ -47,6 +50,14 @@ export function ZaloAssistantBox() {
           <div className="flex gap-1.5"><select value={picked} onChange={(event) => setPicked(event.target.value)} className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs">{state.zaloAccounts.map((nick) => <option key={nick.id} value={nick.id}>{nick.name}{nick.status !== "CONNECTED" ? " (mất kết nối)" : ""}</option>)}</select>
             <button type="button" disabled={pending || !picked || picked === state.bot?.accountId} onClick={() => choose(picked)} className="h-8 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40">{state.bot ? "Đổi" : "Bật"}</button></div>
           {state.bot ? <button type="button" disabled={pending} onClick={() => choose(null)} className="mt-1.5 text-xs font-semibold text-rose-600 hover:underline">Tắt Trợ lý trên Zalo</button> : null}
+          {state.bot ? <div className="mt-2">
+            <div className="flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Tin gần đây</p><button type="button" onClick={reload} disabled={pending} className="text-[11px] font-semibold text-blue-700 hover:underline">Làm mới</button></div>
+            {state.recent.length ? <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">{state.recent.map((job, index) => <li key={index} className="rounded-md bg-slate-50 px-2 py-1 text-[11px] leading-4">
+              <span className={cn("font-semibold", job.status === "DONE" ? "text-emerald-700" : job.status === "FAILED" ? "text-rose-600" : "text-slate-500")}>{STATUS[job.status] ?? job.status}{job.error ? ` · ${ERRORS[job.error] ?? job.error}` : ""}</span>
+              <span className="text-slate-500"> · {job.group ? "nhóm" : "riêng"} · {new Date(job.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}{job.who ? ` · ${job.who}` : ""}</span>
+              <span className="block truncate text-slate-700">{job.text}</span>
+            </li>)}</ul> : <p className="mt-1 text-[11px] text-slate-500">Chưa nhận tin nào.</p>}
+          </div> : null}
           <p className="mt-1.5 text-[11px] leading-4 text-slate-500">Nick Trợ lý được ẩn khỏi Suối Nguồn. Người chưa liên kết (kể cả ứng viên) nhắn tới sẽ không được trả lời.</p>
         </div> : null}
         {message ? <p aria-live="polite" className="text-xs text-slate-600">{message}</p> : null}

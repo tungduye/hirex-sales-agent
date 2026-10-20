@@ -34,8 +34,10 @@ export function parseLinkCode(text: string): string | null {
 export function toZaloText(markdown: string, baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/u, "");
   return markdown
-    .replace(/\[([^\]]+)\]\((\/[^)\s]*)\)/gu, (_all, label: string, path: string) => `${label} (${base}${path})`)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gu, (_all, label: string, url: string) => `${label} (${url})`)
+    .replace(/\[([^\]]+)\]\(\s*(\/[^)\s]*)\s*\)/gu, (_all, label: string, path: string) => `${label}: ${base}${path}`)
+    .replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gu, (_all, label: string, url: string) => `${label}: ${url}`)
+    // Bare app paths the model wrote without a link ("( /inbox/all)") become full links too.
+    .replace(/\(\s*(\/(?:inbox|settings|campaigns|tasks|content|jobs|contacts|companies|assistant|scan|documents|accounts)[^)\s]*)\s*\)/gu, (_all, path: string) => `${base}${path}`)
     .replace(/\*\*([^*]+)\*\*/gu, "$1")
     .replace(/__([^_]+)__/gu, "$1")
     .replace(/^#{1,6}\s*/gmu, "")

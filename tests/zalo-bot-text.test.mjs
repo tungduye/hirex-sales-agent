@@ -19,7 +19,8 @@ test("link codes", () => {
   assert.equal(parseLinkCode("SĐT em 0912345678"), null);
 });
 test("plain Zalo text with full links", () => {
-  assert.equal(toZaloText("**Gấp**\n- [Mở Suối Nguồn](/inbox)", "https://app.hirexmkt.online/"), "Gấp\n• Mở Suối Nguồn (https://app.hirexmkt.online/inbox)");
+  assert.equal(toZaloText("**Gấp**\n- [Mở Suối Nguồn](/inbox)", "https://app.hirexmkt.online/"), "Gấp\n• Mở Suối Nguồn: https://app.hirexmkt.online/inbox");
+  assert.equal(toZaloText("• 31 hội thoại: [Suối Nguồn]( /inbox/all)", "https://app.hirexmkt.online"), "• 31 hội thoại: Suối Nguồn: https://app.hirexmkt.online/inbox/all");
 });
 test("long answers split at breaks", () => {
   const text = Array.from({ length: 10 }, (_, i) => `Đoạn ${i} ` + "x".repeat(500)).join("\n\n");
