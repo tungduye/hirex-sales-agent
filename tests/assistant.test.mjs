@@ -168,7 +168,9 @@ test('phase 2 proposals follow permissions and validate arguments', () => {
   assert.ok(!ASSISTANT_TOOL_NAMES.some((name) => /^de_xuat_(gui|xoa|khoi_chay|bat)/.test(name)), 'no bulk send/delete/launch/enable proposals exist');
   // Group broadcasts: the Trợ lý only prepares a draft; starting it stays a button on the page.
   const broadcast = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals-broadcast.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(broadcast, /changeBroadcast|"START"|RUNNING/);
+  // Only the group where the member talks to the Trợ lý starts on confirmation; many groups stay a draft.
+  assert.equal((broadcast.match(/changeBroadcast\(/g) ?? []).length, 1);
+  assert.match(broadcast, /if \(result\.ok && currentGroup\) \{\n    const started = await changeBroadcast\(context, result\.id, "START"\);/);
   assert.ok(names(['broadcasts.manage']).includes('de_xuat_nhap_gui_nhom'));
   assert.ok(!names(['broadcasts.view']).includes('de_xuat_nhap_gui_nhom'));
 });

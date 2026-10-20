@@ -31,7 +31,7 @@ export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" 
   | "CREATE_EVENT" | "CANCEL_EVENT" | "SET_REMINDER" | "CREATE_BROADCAST";
 /** editableText: the card shows this in a text box; the member's edited version is what runs. */
 export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string; editableKind?: "message" | "note" }
-export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean }
+export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean; /** The Zalo chat (Trợ lý nick) the question came from, if any. */ zaloConversationId?: string | null }
 export interface PendingAction { id: string; kind: ActionKind; preview: ActionPreview; expiresAt: string }
 
 export type Built = { ok: true; kind: ActionKind; params: Record<string, unknown>; preview: ActionPreview } | { ok: false; error: string };

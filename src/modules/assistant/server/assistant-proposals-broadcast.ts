@@ -1,11 +1,12 @@
 import "server-only";
 
-import { broadcastGroups, broadcastNicks, createBroadcast } from "@/modules/broadcasts/server/broadcast-data";
+import { broadcastGroups, broadcastNicks, changeBroadcast, createBroadcast, currentZaloGroup } from "@/modules/broadcasts/server/broadcast-data";
 import { MAX_TARGETS_PER_BROADCAST } from "@/modules/broadcasts/core/broadcast-plan";
 import type { ActionContext, Built, Executed } from "@/modules/assistant/server/assistant-proposals";
 
-// Trợ lý card for "Gửi hàng loạt Zalo": it only prepares a DRAFT (chosen nicks and groups). Nothing is
-// sent until the member opens the page and presses "Bắt đầu gửi".
+// Trợ lý card for "Gửi hàng loạt Zalo". Many groups: it only prepares a DRAFT (chosen nicks and groups);
+// nothing is sent until the member opens the page and presses "Bắt đầu gửi". The one group where the member
+// is talking to the Trợ lý ("nhóm này"): confirming the card sends/pins there right away, from the Trợ lý nick.
 
 const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase().trim();
 
@@ -15,6 +16,20 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
   if (!text) return { ok: false, error: "Cần nội dung tin." };
   if (!sendMessage && !pinNote) return { ok: false, error: "Chọn gửi tin, ghim, hoặc cả hai." };
   if (text.length > (pinNote ? 2000 : 4000)) return { ok: false, error: pinNote ? "Nội dung ghim tối đa 2.000 ký tự." : "Nội dung tối đa 4.000 ký tự." };
+  if (args.nhom_hien_tai === true) {
+    const current = context.zaloConversationId ? await currentZaloGroup(context, context.zaloConversationId) : null;
+    if (!current) return { ok: false, error: "Chỉ dùng được khi sếp hỏi Soda ngay trong nhóm Zalo đó." };
+    const name = String(args.ten ?? "").trim() || `${pinNote ? "Ghim" : "Gửi"} vào ${current.name}`;
+    return {
+      ok: true, kind: "CREATE_BROADCAST",
+      params: { name: name.slice(0, 200), text, sendMessage, pinNote, accountIds: [current.accountId], groupIds: [current.groupId], currentGroup: current },
+      preview: {
+        title: pinNote && !sendMessage ? "Ghim lên đầu nhóm này" : pinNote ? "Gửi và ghim vào nhóm này" : "Gửi vào nhóm này",
+        lines: [`Nhóm: ${current.name}`, `${sendMessage ? "Gửi tin" : ""}${sendMessage && pinNote ? " + " : ""}${pinNote ? "ghim ghi chú lên đầu nhóm" : ""} từ nick Soda`, "Xác nhận là thực hiện ngay (trong khoảng 20 giây)."],
+        editableText: text, editableKind: "message", link: "/broadcasts",
+      },
+    };
+  }
   const nicks = (await broadcastNicks(context)).filter((nick) => nick.status === "CONNECTED");
   const wantedNicks = Array.isArray(args.nick) ? (args.nick as string[]).map(fold).filter(Boolean) : [];
   const chosen = wantedNicks.length ? nicks.filter((nick) => wantedNicks.some((name) => fold(nick.name).includes(name))) : nicks;
@@ -41,10 +56,16 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
 }
 
 export async function executeBroadcast(params: Record<string, unknown>, context: ActionContext): Promise<Executed> {
+  const currentGroup = params.currentGroup as { accountId: string; conversationId: string; groupId: string; name: string } | undefined;
   const result = await createBroadcast(context, {
     name: String(params.name), text: String(params.text), sendMessage: params.sendMessage !== false, pinNote: params.pinNote === true,
-    accountIds: (params.accountIds as string[]) ?? [], groupIds: (params.groupIds as string[]) ?? [], source: "ASSISTANT",
+    accountIds: (params.accountIds as string[]) ?? [], groupIds: (params.groupIds as string[]) ?? [], source: "ASSISTANT", currentGroup,
   });
+  // Only the group the member is talking in: their confirmation of the card is the start.
+  if (result.ok && currentGroup) {
+    const started = await changeBroadcast(context, result.id, "START");
+    return started.ok ? { ok: true, message: params.pinNote === true ? "Em đang ghim vào nhóm này, khoảng 20 giây nữa sẽ hiện ở đầu nhóm." : "Em đang gửi vào nhóm này.", link: `/broadcasts/${result.id}` } : { ok: false, message: started.error };
+  }
   return result.ok
     ? { ok: true, message: `Đã tạo nháp gửi ${result.groups} nhóm từ ${result.nicks} nick. Sếp mở trang để kiểm tra và bấm Bắt đầu gửi.`, link: `/broadcasts/${result.id}` }
     : { ok: false, message: result.error };

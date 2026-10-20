@@ -6,7 +6,7 @@ import { isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { runAssistant, type ChatTurn, type InputItem } from "@/modules/assistant/core/assistant-loop";
 import { assistantInstructions, pageContext, parseModelReply } from "@/modules/assistant/core/assistant-instructions";
-import { openAiToolSpecs, toolsFor } from "@/modules/assistant/core/assistant-tools";
+import { isGroupConversation, metadataName, openAiToolSpecs, toolsFor } from "@/modules/assistant/core/assistant-tools";
 import { runAssistantTool } from "@/modules/assistant/server/assistant-tool-runner";
 import type { PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
@@ -45,6 +45,15 @@ async function attachmentContext(db: ReturnType<typeof createPrivilegedClient>, 
   return `Người dùng đã đính kèm file danh sách "${name}" (upload_id: ${data.id}): ${stats.recipients ?? 0} người nhận hợp lệ${removed ? `, đã loại ${removed} dòng sai/trùng/bị chặn` : ""}; các cột: ${columns || "(không rõ)"}.`;
 }
 
+/** Where a Zalo question was asked: "this group" then means that group. */
+async function zaloChatContext(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, conversationId: string) {
+  const { data } = await db.from("omnichannel_conversations").select("metadata").eq("workspace_id", workspaceId).eq("id", conversationId).maybeSingle();
+  if (!data) return null;
+  if (!isGroupConversation(data.metadata)) return "Người dùng đang nhắn riêng với Soda trên Zalo.";
+  const name = metadataName(data.metadata);
+  return `Người dùng đang hỏi trong nhóm Zalo${name ? ` "${name.replace(/["\n]/gu, " ").slice(0, 120)}"` : ""}; "nhóm này", "nhóm đang chat" là nhóm đó (gửi/ghim vào nhóm này: de_xuat_nhap_gui_nhom với nhom_hien_tai = true, không cần hỏi tên nhóm).`;
+}
+
 export async function runAssistantRequest(request: AssistantRequest): Promise<AssistantResponse> {
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return { ok: false, status: 401, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
@@ -73,9 +82,11 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
   const proposals: PendingAction[] = [];
   const files: GeneratedFile[] = [];
   const channel = request.source?.channel === "ZALO" ? "ZALO" as const : "WEB" as const;
-  const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };
+  const zaloConversationId = request.source?.channel === "ZALO" ? request.source.sourceConversationId : null;
+  const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin, zaloConversationId };
+  const zaloChat = zaloConversationId ? await zaloChatContext(db, workspaceId, zaloConversationId) : null;
   const attachment = request.uploadId ? await attachmentContext(db, workspaceId, account.userId, request.uploadId) : null;
-  const context = [pageContext(request.pagePath), attachment].filter(Boolean).join(" ") || null;
+  const context = [pageContext(request.pagePath), zaloChat, attachment].filter(Boolean).join(" ") || null;
   const instructions = assistantInstructions({ fullName: account.fullName, now: new Date(), toolLabels: tools.map((tool) => tool.label), context, documents });
   const specs = openAiToolSpecs(tools);
   const started = Date.now();

@@ -110,7 +110,24 @@ export async function broadcastTargets(context: BroadcastContext, broadcastId: s
   }));
 }
 
-export interface BroadcastInput { name: string; text: string; sendMessage: boolean; pinNote: boolean; accountIds: string[]; groupIds: string[]; dailyCapPerNick?: number; source?: "WEB" | "ASSISTANT" }
+export interface BroadcastInput {
+  name: string; text: string; sendMessage: boolean; pinNote: boolean; accountIds: string[]; groupIds: string[]; dailyCapPerNick?: number; source?: "WEB" | "ASSISTANT";
+  /** Only the Zalo group where the member asked the Trợ lý: sent from the Trợ lý nick, which is in that group. */
+  currentGroup?: { accountId: string; conversationId: string; groupId: string; name: string };
+}
+
+/** The Zalo group a Trợ lý question came from (the Trợ lý nick's chat), if it is a group. */
+export async function currentZaloGroup(context: BroadcastContext, conversationId: string) {
+  const db = createPrivilegedClient();
+  const [{ data: conversation }, { data: bot }] = await Promise.all([
+    db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata").eq("workspace_id", context.workspaceId).eq("id", conversationId).maybeSingle(),
+    db.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", context.workspaceId).maybeSingle(),
+  ]);
+  if (!conversation || !bot?.enabled || bot.channel_account_id !== conversation.channel_account_id || typeof conversation.provider_conversation_id !== "string") return null;
+  const { data: isGroup } = await db.rpc("is_zalo_group_conversation", { p_conversation_id: conversation.id });
+  if (isGroup !== true) return null;
+  return { accountId: String(conversation.channel_account_id), conversationId: String(conversation.id), groupId: conversation.provider_conversation_id, name: metadataName(conversation.metadata) || "Nhóm Zalo" };
+}
 
 /** A draft: nothing is sent until the member starts it. Each group goes to one of the chosen nicks in it. */
 export async function createBroadcast(context: BroadcastContext, input: BroadcastInput) {
@@ -120,11 +137,14 @@ export async function createBroadcast(context: BroadcastContext, input: Broadcas
   if (text.length > (input.pinNote ? 2000 : 4000)) return { ok: false as const, error: input.pinNote ? "Nội dung ghim tối đa 2.000 ký tự." : "Nội dung tối đa 4.000 ký tự." };
   if (!input.sendMessage && !input.pinNote) return { ok: false as const, error: "Chọn gửi tin, ghim, hoặc cả hai." };
   const wanted = new Set(input.groupIds);
-  if (!wanted.size) return { ok: false as const, error: "Chưa chọn nhóm nào." };
+  if (!wanted.size && !input.currentGroup) return { ok: false as const, error: "Chưa chọn nhóm nào." };
   if (wanted.size > MAX_TARGETS_PER_BROADCAST) return { ok: false as const, error: `Tối đa ${MAX_TARGETS_PER_BROADCAST} nhóm mỗi lần gửi.` };
-  const groups = (await broadcastGroups(context, input.accountIds)).filter((group) => wanted.has(group.groupId));
+  const current = input.currentGroup;
+  const groups: GroupOption[] = current
+    ? [{ groupId: current.groupId, name: current.name, lastMessageAt: null, accounts: [{ accountId: current.accountId, conversationId: current.conversationId }] }]
+    : (await broadcastGroups(context, input.accountIds)).filter((group) => wanted.has(group.groupId));
   if (!groups.length) return { ok: false as const, error: "Các nick đã chọn không ở trong nhóm nào đã chọn." };
-  const plan = assignNicks(groups.map((group) => ({ groupId: group.groupId, accounts: group.accounts.map((item) => item.accountId) })), input.accountIds);
+  const plan = current ? new Map([[current.groupId, current.accountId]]) : assignNicks(groups.map((group) => ({ groupId: group.groupId, accounts: group.accounts.map((item) => item.accountId) })), input.accountIds);
   const db = createPrivilegedClient();
   const cap = Math.min(100, Math.max(1, Math.round(input.dailyCapPerNick ?? BROADCAST_DEFAULTS.dailyCapPerNick)));
   const { data, error } = await db.from("zalo_broadcasts").insert({ workspace_id: context.workspaceId, name, text_content: text, send_message: input.sendMessage, pin_note: input.pinNote,
