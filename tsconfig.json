@@ -327,7 +327,9 @@
     ".next-ghep-nhom-ten-lien/types/**/*.ts",
     ".next-ghep-nhom-ten-lien/dev/types/**/*.ts",
     ".next-hs-1021-1430/types/**/*.ts",
-    ".next-hs-1021-1430/dev/types/**/*.ts"
+    ".next-hs-1021-1430/dev/types/**/*.ts",
+    ".next-soda-tuong-tac-tai-lieu/types/**/*.ts",
+    ".next-soda-tuong-tac-tai-lieu/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -29,6 +29,11 @@ export async function broadcastNicks(context: BroadcastContext): Promise<NickOpt
     .sort((a, b) => Number(b.status === "CONNECTED") - Number(a.status === "CONNECTED") || a.name.localeCompare(b.name, "vi"));
 }
 
+const PLACEHOLDER_NAME = /^zalo group\s*[0-9]*$/iu;
+const realName = (value: unknown) => typeof value === "string" && value.trim() && !PLACEHOLDER_NAME.test(value.trim()) ? value.trim() : "";
+/** A group's name: from the chat details, else the name the group sync wrote from Zalo (subject). */
+function groupName(row: Row) { return realName(metadataName(row.metadata)) || realName(row.subject); }
+
 /** Zalo groups the given nicks are in (as HireX knows them), merged across nicks. */
 export async function broadcastGroups(context: BroadcastContext, accountIds: string[]): Promise<GroupOption[]> {
   const allowed = new Set((await broadcastNicks(context)).map((nick) => nick.id));
@@ -37,7 +42,7 @@ export async function broadcastGroups(context: BroadcastContext, accountIds: str
   const db = createPrivilegedClient();
   const rows: Row[] = [];
   for (let page = 0; page < 10; page++) {
-    const { data, error } = await db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata,last_message_at")
+    const { data, error } = await db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata,subject,last_message_at")
       .eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO").in("channel_account_id", ids)
       .or("metadata->>isGroup.eq.true,metadata->>conversationKind.eq.GROUP,metadata->>threadType.eq.GROUP,metadata->>groupName.not.is.null")
       .order("last_message_at", { ascending: false, nullsFirst: false }).range(page * 1000, page * 1000 + 999);
@@ -49,7 +54,9 @@ export async function broadcastGroups(context: BroadcastContext, accountIds: str
   for (const row of rows) {
     const groupId = String(row.provider_conversation_id ?? "");
     if (!groupId || (row.metadata as Row | null)?.hidden === "true") continue;
-    const group = groups.get(groupId) ?? { groupId, name: metadataName(row.metadata) || "Nhóm Zalo", lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null, accounts: [] };
+    const group = groups.get(groupId) ?? { groupId, name: groupName(row) || "Nhóm Zalo", lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null, accounts: [] };
+    // Another nick's copy of the same group may have the name this one lacks.
+    if (group.name === "Nhóm Zalo") group.name = groupName(row) || group.name;
     group.accounts.push({ accountId: String(row.channel_account_id), conversationId: String(row.id) });
     groups.set(groupId, group);
   }
@@ -120,18 +127,18 @@ export interface BroadcastInput {
 export async function currentZaloGroup(context: BroadcastContext, conversationId: string) {
   const db = createPrivilegedClient();
   const [{ data: conversation }, { data: bot }] = await Promise.all([
-    db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata").eq("workspace_id", context.workspaceId).eq("id", conversationId).maybeSingle(),
+    db.from("omnichannel_conversations").select("id,channel_account_id,provider_conversation_id,metadata,subject").eq("workspace_id", context.workspaceId).eq("id", conversationId).maybeSingle(),
     db.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", context.workspaceId).maybeSingle(),
   ]);
   if (!conversation || !bot?.enabled || bot.channel_account_id !== conversation.channel_account_id || typeof conversation.provider_conversation_id !== "string") return null;
   const { data: isGroup } = await db.rpc("is_zalo_group_conversation", { p_conversation_id: conversation.id });
   if (isGroup !== true) return null;
   // The Trợ lý nick's copy of a group may lack its name; another nick in the same group usually has it.
-  let name = metadataName(conversation.metadata);
+  let name: string | null = groupName(conversation as Row) || null;
   if (!name) {
-    const { data: others } = await db.from("omnichannel_conversations").select("metadata").eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO")
+    const { data: others } = await db.from("omnichannel_conversations").select("metadata,subject").eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO")
       .eq("provider_conversation_id", conversation.provider_conversation_id).neq("id", conversation.id).limit(10);
-    name = ((others ?? []) as Row[]).map((row) => metadataName(row.metadata)).find(Boolean) ?? null;
+    name = ((others ?? []) as Row[]).map(groupName).find(Boolean) ?? null;
   }
   return { accountId: String(conversation.channel_account_id), conversationId: String(conversation.id), groupId: conversation.provider_conversation_id, name: name || "Nhóm Zalo" };
 }

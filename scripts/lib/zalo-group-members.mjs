@@ -88,8 +88,9 @@ export function selectGroupNames(database, accountZaloId, sinceMs) {
            join contacts oc on oc.owner_zalo_id = o.owner_zalo_id and oc.contact_id = o.thread_id
          where m.owner_zalo_id = ? and m.thread_id = g.t and coalesce(m.msg_id, '') <> '' and ${named("oc")} glob '*[^0-9]*'
          order by m.timestamp desc limit 1)) name
-    from (select distinct thread_id t from messages where owner_zalo_id = ? and channel = 'zalo' and thread_type = 1 and timestamp > ?) g`)
-    .all(accountZaloId, accountZaloId, accountZaloId, sinceMs)
+    from (select distinct thread_id t from messages where owner_zalo_id = ? and channel = 'zalo' and thread_type = 1 and timestamp > ?
+      union select contact_id from contacts where owner_zalo_id = ? and contact_type = 'group') g`)
+    .all(accountZaloId, accountZaloId, accountZaloId, sinceMs, accountZaloId)
     .filter((row) => typeof row.name === "string" && row.name.trim() && /^[0-9]{1,40}$/u.test(String(row.thread_id)))
     .map((row) => ({ threadId: String(row.thread_id), name: row.name.replace(/[\u0000-\u001f\u007f]/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 255) }));
 }
