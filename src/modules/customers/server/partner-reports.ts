@@ -2,12 +2,17 @@ import "server-only";
 
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { readHumanApiToken } from "@/modules/human-documents/server/api-sync";
-import { HUMAN_PARTNER_REPORT_URL } from "../core/partner-parse";
+import { HUMAN_PARTNER_REPORT_URL, cvReportCounts } from "../core/partner-parse";
 
 // Tình trạng CV per company: Human answers one company per request, so HireX asks a few at a time and keeps
 // a copy; a company is asked again only when its counts / status changed (fingerprint) or the copy is old.
 
 const STALE_MS = 60 * 60 * 1000;
+
+async function saveCounts(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, partnerId: number, data: unknown) {
+  const counts = cvReportCounts(data);
+  if (counts) await db.from("human_partners").update(counts).eq("workspace_id", workspaceId).eq("partner_id", partnerId);
+}
 const running = new Set<string>();
 
 async function fetchReport(token: string, partnerId: number) {
@@ -43,6 +48,7 @@ export async function refreshPartnerReports(workspaceId: string, wanted: Array<{
         try {
           const data = await fetchReport(token, item.partnerId);
           await db.from("human_partner_reports").upsert({ workspace_id: workspaceId, partner_id: item.partnerId, data, fingerprint: item.fingerprint, fetched_at: new Date().toISOString(), error: null }, { onConflict: "workspace_id,partner_id" });
+          await saveCounts(db, workspaceId, item.partnerId, data);
         } catch (error) {
           const code = error instanceof Error ? error.message.slice(0, 100) : "FAILED";
           if (code === "HUMAN_TOKEN_EXPIRED") { stop = true; return; }
@@ -66,6 +72,7 @@ export async function partnerReport(workspaceId: string, partnerId: number, fing
     const data = await fetchReport(token, partnerId);
     const fetchedAt = new Date().toISOString();
     await db.from("human_partner_reports").upsert({ workspace_id: workspaceId, partner_id: partnerId, data, fingerprint, fetched_at: fetchedAt, error: null }, { onConflict: "workspace_id,partner_id" });
+    await saveCounts(db, workspaceId, partnerId, data);
     return { data, fetchedAt, error: null };
   } catch (error) {
     return { data: copy?.data as unknown ?? null, fetchedAt: copy ? String(copy.fetched_at) : null, error: error instanceof Error ? error.message : "FAILED" };

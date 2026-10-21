@@ -39,3 +39,17 @@ test("tách nhật ký status của Human", () => {
 });
 
 test("bộ lọc gửi đúng khối", () => assert.equal(partnerFilter(36310).blockId, "36310"));
+
+test("đọc Tình trạng CV theo từng danh sách", async () => {
+  const { parseCvReport, cvReportCounts } = await import("../src/modules/customers/core/partner-parse.ts");
+  const report = { code: 200, type: "ok", data: {
+    sentList: [{ cvName: "Lê Văn A", userCode: "RE6980", cvPosition: "Brse/PM", cvSkill: "Other", cvAddress: "24", statusCv: "AB", statusCv2: "CV gửi", updateDate: "2026-10-06T03:00:00Z", history: "Trusted AI, VTI*" }],
+    waitingList: [{ cvName: "B", updateDate: "2026-10-01T00:00:00Z" }, { cvName: "C", updateDate: "2026-10-05T00:00:00Z" }],
+    falseList: [] } };
+  const lists = parseCvReport(report);
+  assert.deepEqual(lists.map((list) => list.label), ["CV chờ gửi", "CV đã gửi", "CV fail"]);
+  assert.equal(lists[0].items[0].name, "C");
+  assert.deepEqual(lists[1].items[0].companies, ["Trusted AI", "VTI*"]);
+  assert.deepEqual(cvReportCounts(report), { report_waiting: 2, report_sent: 1, report_failed: 0 });
+  assert.equal(cvReportCounts(null), null);
+});

@@ -163,3 +163,34 @@ export function reportFingerprint(row: Record<string, unknown>) {
   return [row.allCv, row.allCvSent, row.cvProcessing, row.cvOffer, row.cvDone, status.length, hash].map((value) => value ?? "").join("|");
 }
 export const HUMAN_PARTNER_REPORT_URL = (partnerId: number) => `http://52.220.196.215:8088/applicationHistory/report/partner/${partnerId}`;
+
+export interface CvItem {
+  name: string; code: string | null; position: string | null; skill: string | null; address: string | null; status: string | null; statusCode: string | null;
+  updatedAt: string | null; interviewAt: string | null; companies: string[]; cvId: number | null;
+}
+const LIST_NAMES: Record<string, string> = { waitingList: "CV chờ gửi", sentList: "CV đã gửi", falseList: "CV fail" };
+const LIST_ORDER = ["waitingList", "sentList", "falseList"];
+
+/** Human's CV report ({data:{waitingList, sentList, falseList}}) as named lists of CVs, newest first. */
+export function parseCvReport(value: unknown): Array<{ key: string; label: string; items: CvItem[] }> {
+  const envelope = value as Record<string, unknown> | null;
+  const data = (envelope && typeof envelope === "object" && envelope.data && typeof envelope.data === "object" ? envelope.data : envelope) as Record<string, unknown> | null;
+  if (!data || typeof data !== "object") return [];
+  const text = (item: Record<string, unknown>, key: string) => { const raw = item[key]; return raw == null || raw === "" ? null : String(raw).trim().slice(0, 500) || null; };
+  return Object.entries(data).filter(([, list]) => Array.isArray(list)).sort(([a], [b]) => (LIST_ORDER.indexOf(a) + 1 || 99) - (LIST_ORDER.indexOf(b) + 1 || 99)).map(([key, list]) => ({
+    key, label: LIST_NAMES[key] ?? key.replace(/([a-z])([A-Z])/gu, "$1 $2"),
+    items: (list as unknown[]).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object").map((item) => ({
+      name: text(item, "cvName") ?? "Ứng viên", code: text(item, "userCode"), position: text(item, "cvPosition"), skill: text(item, "cvSkill"), address: text(item, "cvAddress"),
+      status: text(item, "statusCv2"), statusCode: text(item, "statusCv"), updatedAt: text(item, "updateDate"), interviewAt: text(item, "interviewDate"),
+      companies: typeof item.history === "string" ? item.history.split(",").map((part) => part.trim()).filter(Boolean).slice(0, 200) : [],
+      cvId: Number.isSafeInteger(Number(item.cvId)) ? Number(item.cvId) : null,
+    })).sort((a, b) => (Date.parse(b.updatedAt ?? "") || 0) - (Date.parse(a.updatedAt ?? "") || 0)),
+  }));
+}
+
+/** Counts for the list: chờ gửi, đã gửi, fail. */
+export function cvReportCounts(value: unknown) {
+  const lists = parseCvReport(value);
+  const size = (key: string) => lists.find((list) => list.key === key)?.items.length ?? null;
+  return lists.length ? { report_waiting: size("waitingList") ?? 0, report_sent: size("sentList") ?? 0, report_failed: size("falseList") ?? 0 } : null;
+}

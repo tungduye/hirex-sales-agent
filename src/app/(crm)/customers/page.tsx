@@ -5,7 +5,7 @@ import { Building2, Download, ExternalLink, FileUser, Globe, History, Mail, MapP
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import { RefreshFromHumanButton } from "@/modules/customers/components/refresh-button";
 import { statusEntries } from "@/modules/customers/core/partner-parse";
-import { ReportView } from "@/modules/customers/components/report-view";
+import { CvReport } from "@/modules/customers/components/cv-report";
 import { customerFilters, getCustomer, listCustomers, type CustomerFilters, type CustomerRow } from "@/modules/customers/server/customer-data";
 
 type Params = Record<string, string | string[] | undefined>;
@@ -124,7 +124,11 @@ function CustomerLine({ row, filters, selected, person }: { row: CustomerRow; fi
     <td className="px-3 py-2.5">{pill(row.job_rank)}</td>
     <td className="max-w-[190px] px-3 py-2.5"><div className="flex flex-wrap items-start gap-0.5">{row.am_ranks?.length ? row.am_ranks.slice(0, 3).map((rank) => <span key={rank} className="max-w-full truncate rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" title={rank}>{rank}</span>) : <span className="text-slate-300">—</span>}{(row.am_ranks?.length ?? 0) > 3 ? <span className="text-[11px] text-slate-500">+{row.am_ranks.length - 3}</span> : null}</div></td>
     <td className="max-w-[150px] px-3 py-2.5 text-xs text-slate-700"><span className="block truncate">{person(row.sale_human_id) ?? "—"}</span>{row.am_human_id ? <span className="block truncate text-slate-500">AM: {person(row.am_human_id)}</span> : null}</td>
-    <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">{row.cv_total != null ? <><span className="font-semibold">{row.cv_sent ?? 0}</span>/{row.cv_total}{row.cv_offer ? <span className="block text-emerald-700">{row.cv_offer} offer</span> : null}</> : "—"}</td>
+    <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-700">{row.report_sent != null || row.cv_total != null ? <>
+      <span className="font-semibold" title="CV đã gửi">{row.report_sent ?? row.cv_sent ?? 0} gửi</span>
+      {row.report_waiting ? <span className="block text-slate-500">{row.report_waiting} chờ</span> : null}
+      {row.report_failed ? <span className="block text-rose-600">{row.report_failed} fail</span> : null}
+      {row.cv_offer ? <span className="block text-emerald-700">{row.cv_offer} offer</span> : null}</> : "—"}</td>
     <td className="max-w-[300px] px-3 py-2.5 text-xs text-slate-600">{row.last_note ? <><span className="mr-1 font-semibold text-slate-500">{shortDay(row.last_note_at)}</span><span className="line-clamp-2">{row.last_note}</span></> : "—"}</td>
   </tr>;
 }
@@ -158,9 +162,9 @@ function CustomerPanel({ detail, closeHref, blockLabel, person }: { detail: Deta
 
     <section className="mt-4">
       <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><FileUser className="size-4"/>Tình trạng CV</h3>
-      <div className="mt-2 grid grid-cols-5 gap-1.5">{stat("Tổng", customer.cv_total)}{stat("Đã gửi", customer.cv_sent)}{stat("Đang xử lý", customer.cv_processing)}{stat("Offer", customer.cv_offer)}{stat("Xong", customer.cv_done)}</div>
-      <div className="mt-2 max-h-[420px] overflow-y-auto rounded-lg border border-slate-100 p-2 text-sm">
-        {detail.report?.data != null ? <ReportView value={detail.report.data}/> : <p className="text-xs text-slate-500">{detail.report?.error === "HUMAN_TOKEN_EXPIRED" ? "Token Human hết hạn, chưa lấy được Tình trạng CV." : "Chưa lấy được Tình trạng CV từ Human."}</p>}
+      <div className="mt-2 grid grid-cols-5 gap-1.5">{stat("Tổng CV", customer.cv_total)}{stat("Chờ gửi", customer.report_waiting)}{stat("Đã gửi", customer.report_sent ?? customer.cv_sent)}{stat("Fail", customer.report_failed)}{stat("Offer", customer.cv_offer)}</div>
+      <div className="mt-2 max-h-[520px] overflow-y-auto rounded-lg bg-slate-50/70 p-2 text-sm">
+        {detail.report?.data != null ? <CvReport data={detail.report.data} codes={detail.plainCodes}/> : <p className="text-xs text-slate-500">{detail.report?.error === "HUMAN_TOKEN_EXPIRED" ? "Token Human hết hạn, chưa lấy được Tình trạng CV." : "Chưa lấy được Tình trạng CV từ Human."}</p>}
       </div>
       {detail.report?.fetchedAt ? <p className="mt-1 text-[11px] text-slate-400">Tình trạng CV lấy lúc {time(detail.report.fetchedAt)}{detail.report.error ? " (lần lấy lại vừa rồi lỗi, đang hiện bản cũ)" : ""}</p> : null}
     </section>

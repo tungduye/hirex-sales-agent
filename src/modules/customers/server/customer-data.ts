@@ -2,11 +2,11 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
-import { fold, reportFingerprint } from "../core/partner-parse";
+import { fold, parseCvReport, reportFingerprint } from "../core/partner-parse";
 import { partnerReport } from "./partner-reports";
 
 export const CUSTOMER_PAGE_SIZE = 50;
-const COLUMNS = "partner_id,block_ids,name,partner_type,status,address,email,phone,website,contact_name,position,sale_human_id,sale_name,am_human_id,am_name,am2_human_id,am2_name,note,email_sent_at,project_rank,job_rank,am_rank,am_rank2,am_ranks,location,cv_total,cv_sent,cv_processing,cv_offer,cv_done,human_created_at,human_created_by,last_note,last_note_at";
+const COLUMNS = "partner_id,block_ids,name,partner_type,status,address,email,phone,website,contact_name,position,sale_human_id,sale_name,am_human_id,am_name,am2_human_id,am2_name,note,email_sent_at,project_rank,job_rank,am_rank,am_rank2,am_ranks,location,cv_total,cv_sent,cv_processing,cv_offer,cv_done,report_waiting,report_sent,report_failed,human_created_at,human_created_by,last_note,last_note_at";
 
 export interface CustomerFilters { q: string; block: number | null; rank: string | null; job: string | null; amRank: string | null; loc: string | null; owner: string | null; has: "email" | "phone" | null; page: number }
 export interface CustomerRow {
@@ -15,6 +15,7 @@ export interface CustomerRow {
   am2_human_id: string | null; am2_name: string | null; note: string | null; email_sent_at: string | null;
   project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; am_ranks: string[]; location: string | null;
   cv_total: number | null; cv_sent: number | null; cv_processing: number | null; cv_offer: number | null; cv_done: number | null;
+  report_waiting: number | null; report_sent: number | null; report_failed: number | null;
   human_created_at: string | null; human_created_by: string | null; last_note: string | null; last_note_at: string | null;
 }
 
@@ -124,8 +125,10 @@ export async function getCustomer(partnerId: number) {
       .in("contact_id", contactIds).order("last_message_at", { ascending: false, nullsFirst: false }).limit(10)
     : { data: [] };
   const linkRows = (links ?? []) as Array<{ human_user_id: string; profile_id: string | null }>;
+  const report = await reportPromise;
+  const cvAddresses = parseCvReport(report?.data).flatMap((list) => list.items.flatMap((item) => item.address ? [item.address] : []));
   // Names of the other coded fields Human sends (xếp hạng Email / Zalo / facebook / linkedin / SĐT, combo UV).
-  const codeIds = [...new Set(Object.entries(customer.data ?? {}).flatMap(([key, value]) => /^(rate|rank|type$|address$)/iu.test(key) && value != null ? String(value).split(/[,;]+/u) : []).map((part) => part.trim()).filter((part) => /^\d{1,12}$/u.test(part)))].slice(0, 50);
+  const codeIds = [...new Set(Object.entries(customer.data ?? {}).flatMap(([key, value]) => /^(rate|rank|type$|address$)/iu.test(key) && value != null ? String(value).split(/[,;]+/u) : []).map((part) => part.trim()).concat(cvAddresses).filter((part) => /^\d{1,12}$/u.test(part)))].slice(0, 80);
   const { data: codeRows } = codeIds.length ? await db.from("human_master_codes").select("master_id,name,kind").eq("workspace_id", context.workspaceId).in("master_id", codeIds) : { data: [] };
   const codes = new Map(((codeRows ?? []) as Array<{ master_id: number; name: string; kind: string | null }>).map((row) => [String(row.master_id), row.kind ? `${row.name} (${row.kind})` : row.name]));
   const conversationRows = (conversations ?? []) as Array<{ id: string; channel_type: string; channel_account_id: string; subject: string | null; last_message_at: string | null; metadata: Record<string, unknown> | null }>;
@@ -139,7 +142,7 @@ export async function getCustomer(partnerId: number) {
   const accountName = new Map(((accounts ?? []) as Array<{ id: string; display_name: string | null }>).map((row) => [row.id, row.display_name]));
   const members = new Map(linkRows.map((link) => [link.human_user_id, link.profile_id ? profileName.get(link.profile_id) ?? null : null] as const));
   return {
-    report: await reportPromise,
+    report, plainCodes: Object.fromEntries(((codeRows ?? []) as Array<{ master_id: number; name: string }>).map((row) => [String(row.master_id), row.name])) as Record<string, string>,
     context, customer, member: (id: string | null) => id ? members.get(id) ?? null : null, codes: Object.fromEntries(codes) as Record<string, string>,
     conversations: conversationRows.map((item) => {
       const name = item.metadata?.participantDisplayName ?? item.metadata?.groupName ?? item.subject;
