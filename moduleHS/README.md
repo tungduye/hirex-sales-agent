@@ -1,21 +1,24 @@
 # moduleHS — các project riêng của THS gộp vào HireX
 
-Mỗi project con là một thư mục: `moduleHS/<project>/`. Quy cách giống `src/modules/*` của HireX:
+Mỗi project con là một thư mục `moduleHS/<project>/`. Project lớn chia thư mục giống `src/modules/*` của HireX:
 
 ```
 moduleHS/<project>/
   types.ts      kiểu dữ liệu dùng chung của project
   core/         logic thuần (không I/O), test được bằng node --test
-  server/       dữ liệu (Supabase) + route handler
-  components/   UI (React) — mỗi mảng 1 file, không tách vụn
+  server/       dữ liệu + route handler
+  components/   UI (React), mỗi mảng 1 file, không tách vụn
   README.md     nguồn gốc, bảng đối chiếu cũ → mới, cách vận hành, việc còn lại
 ```
 
-- Trang vẫn nằm ở `src/app/(crm)/<đường-dẫn>/page.tsx`, API ở `src/app/api/hs/<project>/`, import mã qua alias `@hs/*` → `moduleHS/*` (tsconfig).
-- Schema DB: `supabase/migrations/NNN_hs_<project>.sql`, bảng tiền tố riêng (vd `ahs_`), RLS khoá, chỉ server đọc sau khi kiểm quyền.
-- Quyền dùng hệ `access` của HireX (`permission-catalog.ts`), không tự làm đăng nhập riêng.
-- Mã nguồn gốc để đối chiếu đặt ở `moduleHS/<project>/_src_python/` (gitignore, không push).
+Project nhỏ thì để phẳng, mỗi chức năng 1 file, như `record/`.
+
+- **Đường dẫn**: trang nằm ở `src/app/(crm)/<đường-dẫn>/page.tsx`, API ở `src/app/api/hs/<project>/`. Import mã bằng đường dẫn tương đối tới `moduleHS/…`, không sửa tsconfig.
+- **Dữ liệu**: bảng Supabase tiền tố riêng (vd `ahs_`), bật RLS và chỉ server đọc sau khi đã kiểm quyền. File để ở `runtime/<project>/`.
+- **Quyền**: dùng hệ `access` của HireX, không tự làm đăng nhập riêng.
+- **Mã nguồn gốc** để đối chiếu đặt ở `moduleHS/<project>/_src_python/` (gitignore, không push).
 
 | Project | Nguồn gốc | Trạng thái |
 | --- | --- | --- |
-| `accountshs` | `ATOOL_TONGHOP/AccountsHS` (v7.py + chatbot/owl/checker/crm/style/core_animation) | đã chuyển — xem `accountshs/README.md` |
+| `accountshs` | `ATOOL_TONGHOP/AccountsHS` (v7.py + chatbot/owl/checker/crm/style/core_animation) | đã chuyển, xem `accountshs/README.md` |
+| `record` | `meeting-hub` (ghi âm → biên bản, dịch trực tiếp, đọc văn bản, Zalo) | đã chuyển, mục **Tiện ích › Cuộc họp**, xem `record/README.md` |

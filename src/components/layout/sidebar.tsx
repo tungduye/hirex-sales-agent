@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bot, BriefcaseBusiness, CalendarDays, Send, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, UsersRound, Workflow } from "lucide-react";
+import { BarChart3, Bot, BriefcaseBusiness, CalendarDays, Send, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, UsersRound, Workflow, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -27,6 +27,7 @@ const navigation: NavItem[] = [
   { label: "Khách hàng", href: "/customers", icon: UsersRound, permission:"customers.view" },
   { label: "Tài liệu", href: "/documents", icon: FileScan, permission:"documents.view" },
   { label: "Tài khoản", href: "/accounts", icon: KeyRound, permission:"accounts.view" },
+  { label: "Tiện ích", href: "/utilities", icon: Wrench, permission:null },
 ];
 
 /** Shown when hovering (or clicking) "Cài đặt". */

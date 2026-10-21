@@ -18,7 +18,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
   const pathname = usePathname();
   // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view;
   // so does "Tài khoản", which shows the account manager site inside HireX.
-  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
+  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/utilities" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
   // The main menu can shrink to an icon column; the choice is remembered in this browser.
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { try { setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* storage unavailable */ } }, []);
