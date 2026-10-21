@@ -86,7 +86,7 @@ export async function syncHumanCvs(workspaceId: string, trigger: "MANUAL" | "SCH
       }
     }
     // Codes Human uses on this list (tình trạng, vị trí, kỹ năng…) get their names from the Tình trạng CV of the companies.
-    const learnt = await learnFromReports(db, workspaceId, fetched.flatMap((block) => block.rows)).catch(() => ({ userCodes: new Map<number, string>() }));
+    await learnFromReports(db, workspaceId, fetched.flatMap((block) => block.rows)).catch(() => null);
     const codes = await codeNames(db, workspaceId);
     const cvs = new Map<number, MappedCv & { block_keys: string[]; history_count: number; applications: Application[] }>();
     for (const { blockKey, rows } of fetched) {
@@ -105,7 +105,7 @@ export async function syncHumanCvs(workspaceId: string, trigger: "MANUAL" | "SCH
           if (mapped.human_created_at && (!previous.human_created_at || mapped.human_created_at < previous.human_created_at)) previous.human_created_at = mapped.human_created_at;
           continue;
         }
-        cvs.set(mapped.cv_id, { ...mapped, code: mapped.code ?? learnt.userCodes.get(mapped.cv_id) ?? null, block_keys: [blockKey], history_count: 1, applications: [application] });
+        cvs.set(mapped.cv_id, { ...mapped, block_keys: [blockKey], history_count: 1, applications: [application] });
       }
       await db.from("human_cv_blocks").update({ last_synced_at: new Date().toISOString(), last_count: seen.size, last_error: null }).eq("workspace_id", workspaceId).eq("block_key", blockKey);
     }

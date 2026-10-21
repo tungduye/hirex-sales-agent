@@ -101,12 +101,13 @@ export function mapCv(row: Row, codes: CodeNames = new Map()): MappedCv | null {
   const recer = idOf(row, ["recerId", "recer", "recId", "recerUserId", "userId"]);
   const mapped = {
     cv_id: cvId, history_id: Number.isSafeInteger(historyId) && historyId > 0 ? historyId : null,
-    code: text(row, ["userCode", "code", "cvCode"], 60),
+    // userCode ("RE6980") is the Rec's code, not the candidate's.
+    code: text(row, ["cvCode", "candidateCode"], 60),
     name: text(row, ["nameCv", "cvName", "fullName", "candidateName", "name"], 200),
     phone, email,
     position: named(text(row, ["cvPosition", "positionName", "position", "positionId"], 300), codes),
     skill: named(text(row, ["cvSkill", "skillName", "skill", "skillId"], 300), codes),
-    skill_tech: named(text(row, ["skillTech"], 500), codes),
+    skill_tech: (() => { const tech = named(text(row, ["skillTech"], 500), codes); const skill = named(text(row, ["cvSkill", "skillName", "skill", "skillId"], 300), codes); return tech && tech !== skill ? tech : null; })(),
     location: named(text(row, ["cvAddress", "address", "location"], 300), codes),
     languages: named(text(row, ["foreignLanguages", "language", "languages"], 300), codes),
     status1: named(text(row, ["statusCv1", "statusCv", "status1"], 200), codes),

@@ -18,7 +18,7 @@ test("phones and e-mails as match keys", () => {
 
 test("a CV row: field names in any case, codes named, raw kept, searchable", () => {
   const codes = new Map([[7222, "Brse/PM"], [24, "Hà Nội"]]);
-  const cv = mapCv({ cvId: 6311, historyId: 9, userCode: "RE6311", cv_name: "Lê Duy An", phoneNumber: "0901234567", email: "an@mail.vn", cvPosition: "7222", cv_skill: "Java",
+  const cv = mapCv({ cvId: 6311, historyId: 9, cvCode: "RE6311", cv_name: "Lê Duy An", phoneNumber: "0901234567", email: "an@mail.vn", cvPosition: "7222", cv_skill: "Java",
     cv_address: "24", statusCv2: "PV (Chưa chốt lịch)", recerId: { id: 188, name: "Vân Anh" }, history: "VTI, Border z", createdDate: "2026-06-11 10:00:00", note: "<b>BrSE N2</b>" }, codes);
   assert.equal(cv.cv_id, 6311); assert.equal(cv.history_id, 9); assert.equal(cv.code, "RE6311"); assert.equal(cv.name, "Lê Duy An");
   assert.equal(cv.position, "Brse/PM"); assert.equal(cv.location, "Hà Nội"); assert.equal(cv.status2, "PV (Chưa chốt lịch)");
