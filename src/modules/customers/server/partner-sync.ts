@@ -87,6 +87,12 @@ export async function syncHumanPartners(workspaceId: string, trigger: "MANUAL" |
       for (let offset = 0; offset < fresh.length; offset += 500) await db.from("human_user_links").insert(fresh.slice(offset, offset + 500));
       for (const [id, name] of people) if (name && have.has(id)) await db.from("human_user_links").update({ human_name: name }).eq("workspace_id", workspaceId).eq("human_user_id", id).is("human_name", null);
     }
+    // Human ids no longer Sale/AM of any customer and never linked (e.g. AM rankings read as people by the first version): removed.
+    if (!failed.length) {
+      const { data: stale } = await db.from("human_user_links").select("human_user_id").eq("workspace_id", workspaceId).is("profile_id", null);
+      const gone = (stale ?? []).map((row) => String(row.human_user_id)).filter((id) => !people.has(id));
+      for (let offset = 0; offset < gone.length; offset += 100) await db.from("human_user_links").delete().eq("workspace_id", workspaceId).is("profile_id", null).in("human_user_id", gone.slice(offset, offset + 100));
+    }
     await finish(!failed.length, rows.length, failed.length ? failed.join("; ").slice(0, 500) : null);
     // Tình trạng CV of the companies whose counts or status changed, in the background (one request per company).
     void refreshPartnerReports(workspaceId, [...partners.values()].map((partner) => ({ partnerId: partner.partner_id, fingerprint: reportFingerprint(partner.data) })))
