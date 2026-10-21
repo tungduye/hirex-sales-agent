@@ -1,0 +1,41 @@
+/* 03 Redmond — Microsoft Fluent 2 (Microsoft 365 admin center). Nav trái trắng có vạch xanh, bề mặt xám–trắng, bo 4px, chữ 14px Segoe. */
+@T{
+--ui-font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+--ui-bg:#F5F5F5;--ui-surface:#FFFFFF;--ui-surface-2:#FAFAFA;--ui-surface-hover:#F5F5F5;--ui-fill:#E0E0E0;--ui-border:#E0E0E0;--ui-border-strong:#D1D1D1;
+--ui-text:#242424;--ui-text-2:#424242;--ui-muted:#616161;--ui-faint:#707070;
+--ui-primary:#0F6CBD;--ui-primary-soft:#EBF3FC;--ui-primary-dark:#115EA3;--ui-primary-line:#B4D6FA;--ui-focus:rgba(15,108,189,.25);
+--ui-sel:#EBF3FC;--ui-sel-hover:#DEECF9;--ui-success:#107C10;--ui-success-soft:#F1FAF1;--ui-warning:#BC4B09;--ui-warning-soft:#FFF9F5;--ui-danger:#C50F1F;--ui-danger-soft:#FDF3F4;
+--ui-radius-sm:4px;--ui-radius-md:4px;--ui-radius-lg:8px;
+--ui-shadow-popover:0 0 2px rgba(0,0,0,.12),0 8px 16px rgba(0,0,0,.14);--ui-overlay:rgba(0,0,0,.4);
+--nav-w:228px;--nav-bg:#FFFFFF;--nav-bd:#E0E0E0;--nav-fg:#242424;--nav-ic:#616161;--nav-hov:#F5F5F5;--nav-on:#EBEBEB;--nav-onfg:#242424;--nav-onic:#0F6CBD;--nav-ih:36px;--nav-r:4px;--nav-bar:block;--nav-ind:#0F6CBD;--nav-pad:8px}
+@T body{font-size:13.5px}
+@T #top{height:48px;background:#fff;border-bottom:1px solid #E0E0E0}
+@T #top .btn,@T #top .scp{border-radius:4px;height:32px}
+@T #top .cn{border:0;background:transparent}
+@T #bar{background:transparent;border:0;margin:0;padding:16px 20px 12px}
+@T #bar .btn,@T #bar .in{height:32px;border-radius:4px;border-color:#D1D1D1}
+@T #bar .search .in{border-bottom-color:#616161}
+@T #bar .btn{font-weight:600}
+@T #bar .btn.pri{background:#0F6CBD;border-color:#0F6CBD}
+@T #bar .btn.pri:hover{background:#115EA3}
+@T .main{padding:0 20px}
+@T .tw{border:0;border-radius:8px;box-shadow:0 0 2px rgba(0,0,0,.12),0 2px 4px rgba(0,0,0,.14)}
+@T .grid th{background:#fff;color:#242424;font-weight:600;font-size:12.5px;height:42px}
+@T .grid td{height:42px;border-bottom-color:#F0F0F0}
+@T .grid tbody tr:hover td{background:#F5F5F5}
+@T .chk{border-radius:3px;border-color:#616161}
+@T #foot{background:transparent;border:0;padding:0 20px}
+@T .mi{border-radius:4px}
+@T .modal,@T .sheet{border-radius:8px;border:0}
+@T .sheet{border-radius:0}
+@T .snav button.on{background:#EBEBEB;color:#242424;box-shadow:inset 3px 0 0 #0F6CBD}
+/* bố cục Windows 11 / WinUI NavigationView: cửa sổ nền Mica xám, khung điều hướng trong suốt,
+   vùng trang là lớp trắng bo góc trên-trái, sát mép phải và đáy */
+@T{--frame-bg:#F3F3F3;--frame-bd:#E5E5E5;--frame-r:8px;--frame-gap:0px;--nav-bg:transparent;--nav-bd:transparent;--nav-on:rgba(0,0,0,.06);--nav-hov:rgba(0,0,0,.04)}
+@T #top{background:#F3F3F3;border:0}
+@T #bar{border-radius:8px 0 0 0;border-right:0;padding:14px 20px 12px}
+@T #mh{border-right:0}
+@T #foot{border-radius:0;border-right:0;border-bottom:0}
+@T #bar:empty~#mh{border-radius:8px 0 0 0}
+@T .tw{box-shadow:none}
+@T .main{padding:0 20px}

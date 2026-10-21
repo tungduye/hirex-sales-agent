@@ -1,0 +1,18 @@
+/* ===== Màn hình hẹp (điện thoại, máy tính bảng dọc) — áp cho MỌI theme, nạp sau cùng =====
+   Mọi bố cục (thanh bên, khung nổi, căn giữa) gộp về 1 cột: thanh trên → tab cuộn ngang → công cụ → bảng → chân trang. */
+@media (max-width:760px){
+ @T #top{height:auto;min-height:48px;flex-wrap:wrap;row-gap:6px;padding:6px 10px;margin:0;border-radius:0;border-left:0;border-right:0}
+ @T #top .cnts{order:3;width:100%;justify-content:flex-start}
+ @T #top .btn,@T #top .scp,@T #top .cn{height:32px}
+ @T #top .btn.icon{width:32px}
+ @T #tb .tabs{max-width:100%}
+ @T #bar{margin:0;padding:8px 10px;border-radius:0;border-left:0;border-right:0;flex-wrap:wrap}
+ @T #bar .search{flex:1 1 100%;width:auto}
+ @T #mh{margin:0;border:0;border-radius:0;overflow:visible}
+ @T .main{padding:0 8px}
+ @T .tw{border-radius:var(--ui-radius-md)}
+ @T #foot{margin:0;padding:6px 10px;border-radius:0;border-left:0;border-right:0;border-bottom:0}
+ @T .modal{width:calc(100vw - 16px);max-height:calc(100dvh - 24px);border-radius:var(--ui-radius-lg)}
+ @T .sheet{width:100%;border-radius:0}
+ @T .pop{max-width:calc(100vw - 16px)}
+}

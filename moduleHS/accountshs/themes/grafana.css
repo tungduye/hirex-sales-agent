@@ -1,0 +1,41 @@
+/* 11 Đài Quan Sát — Grafana (tối). Nền #111217, panel #181B1F, thanh bên chỉ icon (rộng 56px), bo 2px, điểm nhấn cam ở mục đang chọn. */
+@T{
+--ui-font:Inter,"Segoe UI",system-ui,sans-serif;
+--ui-bg:#111217;--ui-surface:#181B1F;--ui-surface-2:#1F2227;--ui-surface-hover:#22252B;--ui-fill:#2C3235;--ui-border:#2C3235;--ui-border-strong:#3D434A;
+--ui-text:#D8D9DA;--ui-text-2:#C7D0D9;--ui-muted:#9FA7B3;--ui-faint:#7B8087;--ui-ink:#22252B;
+--ui-primary:#3D71D9;--ui-primary-soft:rgba(61,113,217,.18);--ui-primary-dark:#6E9FFF;--ui-primary-line:rgba(61,113,217,.5);--ui-focus:rgba(61,113,217,.4);
+--ui-sel:rgba(61,113,217,.16);--ui-sel-hover:rgba(61,113,217,.22);--ui-success:#73BF69;--ui-success-soft:rgba(115,191,105,.15);--ui-warning:#FADE2A;--ui-warning-soft:rgba(250,222,42,.12);--ui-danger:#F2495C;--ui-danger-soft:rgba(242,73,92,.15);
+--ui-radius-sm:2px;--ui-radius-md:2px;--ui-radius-lg:2px;
+--ui-shadow-popover:0 4px 8px rgba(0,0,0,.6);--ui-overlay:rgba(0,0,0,.6);
+--ui-scroll-thumb:#3D434A;--ui-scroll-thumb-hover:#4A5058;--ui-edge:#5A6270;
+--nav-w:56px;--nav-bg:#0B0C0E;--nav-bd:#2C3235;--nav-fg:#9FA7B3;--nav-ic:#9FA7B3;--nav-hov:#22252B;--nav-on:#22252B;--nav-onfg:#FFFFFF;--nav-onic:#FF8833;--nav-ih:40px;--nav-r:4px;--nav-pad:8px;--nav-bar:block;--nav-ind:linear-gradient(#F55F3E,#FF8833);--nav-bar-x:-8px}
+/* thanh bên chỉ icon: ẩn chữ, giữ title của nút làm chú thích */
+@T #tb .tab{justify-content:center;padding:0}
+@T #tb .tab span,@T #tb .tab em{display:none}
+@T #tb .tab svg{width:18px;height:18px}
+@T #top{height:44px;background:#181B1F;border-bottom:1px solid #2C3235}
+@T #top .btn,@T #top .scp{height:30px;border-radius:2px;background:#111217;border-color:#2C3235}
+@T #top .btn.ghost{background:transparent;border-color:transparent}
+@T #top .cn{border:0;background:transparent}
+@T .btn{border-radius:2px;background:#22252B;border-color:#2C3235;color:#D8D9DA}
+@T .btn:hover{background:#2C3235}
+@T .btn.ghost{background:transparent;border-color:transparent}
+@T .btn.pri{background:#3D71D9;border-color:#3D71D9;color:#fff}
+@T .btn.pri:hover{background:#4D7FE0}
+@T .in,@T select.in{background-color:#111217;border-color:#2C3235;color:#D8D9DA;border-radius:2px}
+@T #bar{background:#111217;border:0;margin:0;padding:12px 16px}
+@T #bar .btn,@T #bar .in{height:32px}
+@T .main{padding:0 16px}
+@T #mh>.main{background:#111217}
+@T .tw{background:#181B1F;border-color:#2C3235;border-radius:2px}
+@T .grid th{background:#22252B;color:#D8D9DA;font-weight:500;height:34px;border-bottom-color:#2C3235}
+@T .grid td{height:38px;border-bottom-color:#22252B}
+@T .grid tbody tr:hover td{background:#1F2227}
+@T .pill{border-radius:2px;background:transparent;border:1px solid #3D434A;color:#D8D9DA}
+@T .chip,@T .own,@T .lchip,@T .inb,@T .cn,@T .chk{border-radius:2px;background:#111217;border-color:#2C3235;color:#C7D0D9}
+@T .ci,@T .ti{border-radius:2px;background:#22252B}
+@T #foot{background:#111217;border-top:1px solid #2C3235}
+@T .pop,@T .modal,@T .sheet,@T .tvbox,@T .tt,@T .gtip,@T .hvp{background:#181B1F;border-color:#2C3235;border-radius:2px}
+@T .mi{border-radius:2px}
+@T .mi:hover{background:#22252B}
+@T .snav button.on{background:#22252B;color:#fff;box-shadow:inset 2px 0 0 #FF8833}

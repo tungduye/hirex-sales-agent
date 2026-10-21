@@ -1,0 +1,7 @@
+# Worker AccountsHS (moduleHS/accountshs/worker/hs-accountshs-worker.py)
+# Bắt buộc: truy cập Postgres (Supabase) bằng psycopg 3.
+psycopg[binary]>=3.1
+
+# Khuyến nghị: giả lập TLS/HTTP2 của Chrome thật → check FB / thu thập bài ổn định hơn.
+# Thiếu curl_cffi thì các checker tự lùi về urllib (ít ổn định hơn, dễ bị chặn).
+curl_cffi>=0.7

@@ -1,0 +1,44 @@
+/* 08 Tuyến Tính — Linear (sáng). Cực gọn: chữ 13px, hàng 36px, viền rất mờ, thanh bên #F7F8F8, chàm #5E6AD2, trạng thái là vòng tròn nhỏ. */
+@T{
+--ui-font:"Inter Variable",Inter,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F7F8F8;--ui-surface-hover:#F4F5F6;--ui-fill:#E9E9EB;--ui-border:#E6E6E8;--ui-border-strong:#D4D4D8;
+--ui-text:#282A30;--ui-text-2:#3C4149;--ui-muted:#6F6E77;--ui-faint:#9C9BA3;
+--ui-primary:#5E6AD2;--ui-primary-soft:#EEEFFC;--ui-primary-dark:#4C57C0;--ui-primary-line:#C5C9F4;--ui-focus:rgba(94,106,210,.25);
+--ui-sel:#EEEFFC;--ui-sel-hover:#E5E7FA;--ui-success:#2A9D5C;--ui-success-soft:#E6F6EC;--ui-warning:#B26B00;--ui-warning-soft:#FDF2DE;--ui-danger:#D93636;--ui-danger-soft:#FCE9E9;
+--ui-radius-sm:5px;--ui-radius-md:7px;--ui-radius-lg:8px;
+--ui-shadow-popover:0 0 0 1px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.1);--ui-overlay:rgba(0,0,0,.25);
+--side-areas:"nav top" "nav bar" "nav mh" "nav foot";--nav-w:220px;--nav-bg:#F7F8F8;--nav-bd:#E6E6E8;--nav-fg:#3C4149;--nav-ic:#6F6E77;--nav-hov:#EEEFF1;--nav-on:#E8E9EC;--nav-onfg:#282A30;--nav-onic:#282A30;--nav-ih:28px;--nav-r:5px;--nav-pad:8px 8px}
+@T body{font-size:13px}
+@T #top{height:44px;border-bottom:1px solid #E6E6E8}
+@T #top .btn,@T #top .scp{height:28px;border-radius:5px;font-size:12.5px}
+@T #top .btn.icon{width:28px}
+@T #top .cn{border:0;background:transparent;font-size:12px}
+@T #tb .tab{font-size:13px}
+@T #bar{border-bottom:1px solid #E6E6E8;margin:0;padding:8px 12px}
+@T #bar .btn,@T #bar .in{height:28px;font-size:12.5px;border-color:#E6E6E8;border-radius:5px}
+@T #bar .btn.icon{width:28px}
+@T #bar .btn{box-shadow:0 1px 1px rgba(0,0,0,.03)}
+@T #bar .btn.pri{background:#5E6AD2;border-color:#5E6AD2}
+@T #bar .btn.pri:hover{background:#4C57C0}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#F7F8F8;color:#6F6E77;font-weight:500;font-size:12px;height:32px}
+@T .grid td{height:36px;border-bottom-color:#F1F1F3;font-size:13px}
+@T .grid tbody tr:hover td{background:#F7F8F8}
+@T .pill{border:0;background:transparent;padding:0 2px;height:22px;font-weight:500}
+@T .pill .dot{width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 2px rgba(255,255,255,.55)}
+@T .own,@T .lchip,@T .inb{border-radius:5px;height:24px}
+@T .chk{width:14px;height:14px;border-radius:4px}
+@T .ci{width:18px;height:18px;background:transparent}
+@T #foot{border-top:1px solid #E6E6E8;min-height:34px;font-size:12px}
+@T .pop{border:0;border-radius:8px;padding:4px}
+@T .mi{border-radius:5px;padding:5px 8px;font-size:13px}
+@T .modal{border:0;border-radius:10px}
+@T .snav button{height:28px}
+@T .snav button.on{background:#E8E9EC;color:#282A30}
+
+/* bố cục Linear: thanh bên phẳng cao hết màn hình, toàn bộ vùng làm việc là 1 tấm nổi bo 8px */
+@T{--frame-bg:var(--nav-bg);--frame-r:8px;--frame-gap:8px}
+@T #top{margin:8px 8px 0 0;background:var(--ui-surface);border:1px solid var(--frame-bd,var(--ui-border));border-bottom:1px solid var(--ui-border);border-radius:8px 8px 0 0}
+@T #bar{border-radius:0;border-top:0}
+@T #tb{padding-top:12px}
+@T{--frame-bd:#E0E0E3}

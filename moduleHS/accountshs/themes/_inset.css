@@ -1,0 +1,12 @@
+/* ===== Khung nội dung nổi: thanh công cụ + bảng + chân trang gộp thành 1 tấm bo góc đặt trên nền ứng dụng =====
+   Token: --frame-bg (nền ứng dụng) --frame-bd (viền tấm) --frame-r (bo) --frame-gap (khoảng hở) --frame-sh (bóng) */
+@T #app{background:var(--frame-bg,var(--nav-bg,var(--ui-bg)))}
+@T #top{background:transparent;border-bottom-color:transparent}
+@T #tbw{background:transparent;border-right-color:transparent}
+@T #bar{margin:0 var(--frame-gap,8px) 0 0;background:var(--ui-surface);border:1px solid var(--frame-bd,var(--ui-border));border-bottom-color:var(--ui-border);border-radius:var(--frame-r,12px) var(--frame-r,12px) 0 0;box-shadow:var(--frame-sh,none)}
+@T #mh{margin-right:var(--frame-gap,8px);background:var(--ui-surface);border-left:1px solid var(--frame-bd,var(--ui-border));border-right:1px solid var(--frame-bd,var(--ui-border))}
+@T #mh>.main{background:var(--ui-surface)}
+@T #foot{margin:0 var(--frame-gap,8px) var(--frame-gap,8px) 0;background:var(--ui-surface);border:1px solid var(--frame-bd,var(--ui-border));border-top:1px solid var(--ui-border);border-radius:0 0 var(--frame-r,12px) var(--frame-r,12px)}
+@T .tw{border:0;border-radius:0;box-shadow:none}
+/* trang không có thanh công cụ (Báo cáo, Sơ đồ): tấm bắt đầu từ vùng nội dung */
+@T #bar:empty~#mh{border-top:1px solid var(--frame-bd,var(--ui-border));border-radius:var(--frame-r,12px) var(--frame-r,12px) 0 0;overflow:hidden}

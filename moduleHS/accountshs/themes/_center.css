@@ -1,0 +1,4 @@
+/* ===== Nội dung căn giữa: thanh công cụ, bảng, chân trang nằm trong khung rộng tối đa --wrap (kiểu GitHub / Vercel / Notion) ===== */
+@T{--wrap:1320px}
+@T #bar,@T #foot{padding-left:max(16px,calc((100% - var(--wrap))/2));padding-right:max(16px,calc((100% - var(--wrap))/2))}
+@T .main{padding-left:max(16px,calc((100% - var(--wrap))/2));padding-right:max(16px,calc((100% - var(--wrap))/2))}

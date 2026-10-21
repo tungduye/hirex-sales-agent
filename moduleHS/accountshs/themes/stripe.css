@@ -1,0 +1,38 @@
+/* 12 Tím Khói — Stripe Dashboard. Trắng thoáng, thanh bên trắng không viền, tím #635BFF, nút có bóng 1px, badge mềm. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F6F8FA;--ui-surface-hover:#F6F8FA;--ui-fill:#EBEEF1;--ui-border:#E3E8EE;--ui-border-strong:#D5DBE1;
+--ui-text:#30313D;--ui-text-2:#414552;--ui-muted:#687385;--ui-faint:#8792A2;
+--ui-primary:#635BFF;--ui-primary-soft:#EFEDFF;--ui-primary-dark:#533AFD;--ui-primary-line:#C9C3FF;--ui-focus:rgba(99,91,255,.25);
+--ui-sel:#F5F4FF;--ui-sel-hover:#EFEDFF;--ui-success:#0E6245;--ui-success-soft:#D7F7C2;--ui-warning:#A82C00;--ui-warning-soft:#FCEDB9;--ui-danger:#B3063D;--ui-danger-soft:#FFE7F2;
+--ui-radius-sm:4px;--ui-radius-md:6px;--ui-radius-lg:8px;
+--ui-shadow-popover:0 0 0 1px rgba(64,68,82,.08),0 2px 5px rgba(64,68,82,.08),0 15px 35px -5px rgba(64,68,82,.16);--ui-overlay:rgba(48,49,61,.36);
+--side-areas:"nav top" "nav bar" "nav mh" "nav foot";--nav-w:232px;--nav-bg:#FFFFFF;--nav-bd:#EBEEF1;--nav-fg:#414552;--nav-ic:#687385;--nav-hov:#F6F8FA;--nav-on:transparent;--nav-onfg:#533AFD;--nav-onic:#533AFD;--nav-ih:32px;--nav-r:6px;--nav-pad:12px 12px}
+@T body{font-size:14px}
+@T #top{height:56px;border-bottom:1px solid #EBEEF1}
+@T #top .btn,@T #top .scp{border-radius:6px;height:32px;border-color:#D5DBE1;box-shadow:0 1px 1px rgba(0,0,0,.04)}
+@T #top .btn.ghost{border-color:transparent;box-shadow:none}
+@T #top .cn{border:0;background:transparent}
+@T #tb .tab{font-weight:500}
+@T #tb .tab.on{font-weight:600}
+@T .btn{border-radius:6px;border-color:#D5DBE1;box-shadow:0 1px 1px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.01);font-weight:500}
+@T .btn.ghost{box-shadow:none;border-color:transparent}
+@T .btn.pri{background:#635BFF;border-color:#635BFF;box-shadow:0 1px 1px rgba(0,0,0,.12),0 2px 5px -1px rgba(99,91,255,.4)}
+@T .btn.pri:hover{background:#533AFD}
+@T #bar{border:0;margin:0;padding:16px 32px 10px}
+@T #bar .btn,@T #bar .in{height:32px}
+@T .main{padding:0 32px}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#fff;color:#687385;font-weight:600;font-size:12px;border-bottom:1px solid #E3E8EE}
+@T .grid td{border-bottom-color:#EBEEF1}
+@T .pill{height:20px;border:0;border-radius:4px;background:#EBEEF1;font-size:12px;font-weight:600;color:#414552}
+@T .own,@T .lchip,@T .inb,@T .chk{border-radius:4px}
+@T .chk{border-color:#C0C8D2}
+@T #foot{border-top:1px solid #EBEEF1;padding:0 32px}
+@T .pop,@T .modal{border:0}
+@T .mi:hover{background:#F6F8FA;color:#533AFD}
+@T .snav button.on{background:transparent;color:#533AFD}
+
+/* bố cục Stripe: thanh bên trắng cao hết màn hình, đầu trang chỉ là 1 hàng mảnh bên phải */
+@T #tbw{border-right:1px solid #EBEEF1}
+@T #tb{padding-top:16px}

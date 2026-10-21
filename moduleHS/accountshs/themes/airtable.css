@@ -1,0 +1,45 @@
+/* 19 Lưới Màu — Airtable. Thanh trên xanh, dải tab "view" xám với tab chọn trắng có viền, lưới kẻ cả ô dọc như bảng tính, hàng 32px. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F5F5F5;--ui-surface-hover:#F8F8F8;--ui-fill:#E5E9F0;--ui-border:#DDE1E3;--ui-border-strong:#C4C7CA;
+--ui-text:#1D1F25;--ui-text-2:#333333;--ui-muted:#616670;--ui-faint:#8B8F98;
+--ui-primary:#1B61C9;--ui-primary-soft:#E5EEFB;--ui-primary-dark:#13498F;--ui-primary-line:#A9C6F0;--ui-focus:rgba(27,97,201,.25);
+--ui-sel:#E5EEFB;--ui-sel-hover:#DAE6FA;--ui-success:#0F7B3E;--ui-success-soft:#D1F7C4;--ui-warning:#8A5A00;--ui-warning-soft:#FFEAB6;--ui-danger:#B4123A;--ui-danger-soft:#FFDCE5;
+--ui-radius-sm:3px;--ui-radius-md:6px;--ui-radius-lg:6px;
+--ui-shadow-popover:0 0 0 1px rgba(0,0,0,.1),0 4px 12px rgba(0,0,0,.16);--ui-overlay:rgba(0,0,0,.4)}
+@T body{font-size:13px}
+@T #top{height:52px;background:#1B61C9;border:0;color:#fff;
+ --ui-text:#FFFFFF;--ui-muted:rgba(255,255,255,.8);--ui-surface:rgba(255,255,255,.15);--ui-surface-hover:rgba(255,255,255,.25);--ui-border:transparent;--ui-primary-soft:rgba(255,255,255,.22);--ui-primary-dark:#fff;--ui-primary-line:rgba(255,255,255,.4);
+ --fg:#fff;--mf:rgba(255,255,255,.8);--bd:transparent;--bg:rgba(255,255,255,.15);--mut:rgba(255,255,255,.25)}
+@T #top .btn,@T #top .scp,@T #top .cn{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:6px;height:30px}
+@T #top .btn.ghost{background:transparent}
+@T #top .btn:hover,@T #top .scp:hover{background:rgba(255,255,255,.25)}
+@T #top .btn svg,@T #top .cn b,@T #top .scp .nm{color:#fff}
+@T #tb{background:#F2F2F2;border-bottom:1px solid #DDE1E3;padding:0 12px;gap:0;min-height:36px}
+@T .tab{height:36px;border-radius:0;padding:0 14px;color:#1D1F25;font-size:13px;font-weight:500}
+@T .tab:hover{background:#E8E8E8}
+@T .tab.on{background:#fff;color:#1D1F25;box-shadow:inset 1px 0 0 #DDE1E3,inset -1px 0 0 #DDE1E3}
+@T .tab.on svg{color:#1B61C9}
+@T .tab.on::after,@T .tabs .ca-ind{display:none}
+@T #top .btn:not(.pri),@T #bar .btn:not(.pri){border:0;background:transparent;box-shadow:none}
+@T .btn{border:1px solid #C4C7CA;background:transparent;font-weight:400;border-radius:3px}
+@T .btn:hover{background:#F2F2F2}
+@T .btn.pri{background:#1B61C9;color:#fff;border-radius:6px}
+@T .btn.pri:hover{background:#13498F}
+@T .btn.fbtn.on{background:#E5EEFB;color:#13498F}
+@T #bar{background:#fff;border-bottom:1px solid #DDE1E3;margin:0;padding:6px 12px}
+@T #bar .btn,@T #bar .in{height:28px;font-size:13px}
+@T #bar .search .in{border:0;background:transparent}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#F5F5F5;color:#1D1F25;font-weight:400;font-size:12.5px;height:32px;border-right:1px solid #DDE1E3;border-bottom:1px solid #DDE1E3}
+@T .grid td{height:32px;border-right:1px solid #DDE1E3;border-bottom-color:#DDE1E3;font-size:12.5px}
+@T .grid tbody tr:hover td{background:#F8F8F8}
+@T .pill{height:20px;border:0;border-radius:999px;background:#E5E9F0;font-size:12px}
+@T .own,@T .lchip,@T .inb{height:22px;border-radius:999px}
+@T .chk{width:14px;height:14px;border-radius:2px;border-color:#9CA3AF}
+@T .ci{width:18px;height:18px;border-radius:3px}
+@T #foot{background:#F5F5F5;border-top:1px solid #DDE1E3;min-height:32px}
+@T .pop{border:0;border-radius:6px}
+@T .mi:hover{background:#F2F2F2}
+@T .modal{border:0;border-radius:6px}
+@T .snav button.on{background:#E5EEFB;color:#13498F}

@@ -1,0 +1,27 @@
+/* ===== Dùng chung cho MỌI theme =====
+   1) Nối các màu viết cứng trong code cũ (lõi đã đổi thành var(--x-…, màu gốc)) với token của theme.
+   2) Vài điểm lõi dùng màu rgb/bóng không theo token → trỏ về token.
+   Token theme có thể khai báo (thiếu cái nào → tự lấy cái gần nhất):
+     --ui-font  --ui-bg  --ui-surface  --ui-surface-2  --ui-surface-hover  --ui-fill  --ui-border  --ui-border-strong
+     --ui-text  --ui-text-2  --ui-muted  --ui-faint  --ui-ink  --ui-on-primary
+     --ui-primary  --ui-primary-soft  --ui-primary-dark  --ui-primary-line  --ui-focus  --ui-sel  --ui-sel-hover
+     --ui-success(-soft)  --ui-warning(-soft)  --ui-danger(-soft)
+     --ui-radius-sm/md/lg  --ui-shadow-popover  --ui-overlay  --ui-scroll-thumb(-hover)  --ui-edge  */
+@T{
+--x-surface:var(--ui-surface);--x-surface-2:var(--ui-surface-2,var(--ui-surface-hover));--x-fill:var(--ui-fill,var(--ui-border));
+--x-ink:var(--ui-ink,var(--ui-text));--x-on-ink:var(--ui-on-primary,#fff);--x-faint:color-mix(in srgb,var(--ui-faint,var(--ui-muted)) 50%,var(--ui-muted));--x-muted:var(--ui-muted);--x-text:var(--ui-text);
+--x-line:var(--ui-border);--x-line-2:var(--ui-border-strong,var(--ui-border));
+--x-accent:var(--ui-primary);--x-ok:var(--ui-success);--x-warn:var(--ui-warning);--x-danger:var(--ui-danger);
+--x-ok-soft:var(--ui-success-soft);--x-warn-soft:var(--ui-warning-soft);--x-danger-soft:var(--ui-danger-soft);--x-info-soft:var(--ui-primary-soft);
+--dp-ac:var(--ui-primary);--dp-bd:var(--ui-border);--dp-sf:var(--ui-surface);--dp-hv:var(--ui-surface-hover);--dp-mu:var(--ui-muted);--dp-tx:var(--ui-text);--dp-soft:var(--ui-primary-soft);
+--ahs-layout:top}
+@T body{font-family:var(--ui-font,inherit)}
+@T .in:focus,@T .in-inline,@T .in-inline:focus{box-shadow:0 0 0 3px var(--ui-focus,var(--ui-primary-soft))}
+@T .overlay,@T .dvz-bg{background:var(--ui-overlay,rgb(16 24 40/36%))}
+@T .grid tbody tr.sel td{background:var(--ui-sel,var(--ui-primary-soft))}
+@T .grid tbody tr.sel:hover td{background:var(--ui-sel-hover,var(--ui-sel,var(--ui-primary-soft)))}
+@T tr.focus td{background:var(--ui-sel,var(--ui-primary-soft))!important}
+@T .btn.danger:hover{background:var(--ui-danger);border-color:var(--ui-danger);filter:brightness(.92)}
+@T .btn.pri,@T a.btn.pri{color:var(--ui-on-primary,#fff)}
+@T .sw.on{background:var(--ui-switch,var(--ui-primary))}
+@T .thk,@T .thn i{color:var(--ui-on-primary,#fff)}

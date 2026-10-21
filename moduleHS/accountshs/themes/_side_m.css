@@ -1,0 +1,20 @@
+/* ===== Màn hình hẹp cho theme thanh bên: thanh bên trở lại thành dải tab cuộn ngang (nạp sau CSS của theme) ===== */
+@media (max-width:760px){
+ @T{--ahs-layout:top}
+ @T #app{display:flex;flex-direction:column;height:100dvh;background:var(--ui-bg)}
+ @T #tbw{grid-area:auto;margin:0;border:0;border-bottom:1px solid var(--ui-border);border-radius:0;box-shadow:none;background:var(--ui-surface);flex:none}
+ @T #tb{flex-direction:row;align-items:flex-end;padding:0 8px;overflow:visible;background:transparent;border:0;min-height:0;justify-content:flex-start}
+ @T #tb .tabs,@T #tb .tabs.ca{flex-direction:row;align-items:flex-end;overflow-x:auto;overflow-y:hidden;gap:2px;margin:0;padding:0;background:none;border-radius:0;max-width:100%;scrollbar-width:none}
+ @T #tb .tab{flex:none;width:auto;height:40px;padding:0 12px;border-radius:0;justify-content:center;background:none;box-shadow:none;margin:0}
+ @T #tb .tab span{flex:none;display:inline}
+ @T #tb .tab em{display:inline;margin-left:4px}
+ @T #tb .tab.on{background:none}
+ @T #tb .tab.on::after,@T #tb .tabs.ca .tab.on::after{display:block;content:"";position:absolute;left:8px;right:8px;top:auto;bottom:0;width:auto;height:2px;border-radius:2px 2px 0 0;background:var(--ui-primary)}
+ @T #tb .tabs .tsep{width:1px;height:20px;margin:0 4px;align-self:center}
+ @T #tb .tab{color:var(--ui-muted);font-weight:500}
+ @T #tb .tab svg{color:var(--ui-muted)}
+ @T #tb .tab:hover{background:var(--ui-surface-hover);color:var(--ui-text)}
+ @T #tb .tab.on,@T #tb .tab.on em{color:var(--ui-primary-dark);font-weight:600}
+ @T #tb .tab.on svg{color:var(--ui-primary)}
+ @T #tb .tab em{color:var(--ui-muted)}
+}

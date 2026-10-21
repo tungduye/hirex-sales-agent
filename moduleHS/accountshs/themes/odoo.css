@@ -1,0 +1,45 @@
+/* 18 Hương Cà — Odoo 17 (ERP). Thanh trên tím #714B67, list view dày 32px, nút chính tím, ô tìm kiếm lớn có bóng, bố cục tác nghiệp. */
+@T{
+--ui-font:Roboto,"Segoe UI",system-ui,-apple-system,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F9FAFB;--ui-surface-hover:#F3F4F6;--ui-fill:#E9ECEF;--ui-border:#DEE2E6;--ui-border-strong:#ADB5BD;
+--ui-text:#111827;--ui-text-2:#374151;--ui-muted:#6B7280;--ui-faint:#9CA3AF;
+--ui-primary:#714B67;--ui-primary-soft:#F3EAF1;--ui-primary-dark:#5B3B52;--ui-primary-line:#D8C3D2;--ui-focus:rgba(113,75,103,.25);
+--ui-sel:#F3EAF1;--ui-sel-hover:#EBDDE7;--ui-success:#28A745;--ui-success-soft:#E8F6EC;--ui-warning:#B97A00;--ui-warning-soft:#FFF4D6;--ui-danger:#D44C59;--ui-danger-soft:#FBEBED;
+--ui-radius-sm:3px;--ui-radius-md:4px;--ui-radius-lg:4px;--ui-switch:#017E84;
+--ui-shadow-popover:0 2px 8px rgba(0,0,0,.18);--ui-overlay:rgba(0,0,0,.4)}
+@T body{font-size:13px}
+@T #top{height:46px;background:#714B67;border:0;color:#fff;
+ --ui-text:#FFFFFF;--ui-muted:rgba(255,255,255,.75);--ui-surface:rgba(255,255,255,.12);--ui-surface-hover:rgba(255,255,255,.2);--ui-border:rgba(255,255,255,.2);--ui-primary-soft:rgba(255,255,255,.18);--ui-primary-dark:#fff;--ui-primary-line:rgba(255,255,255,.35);
+ --fg:#fff;--mf:rgba(255,255,255,.75);--bd:rgba(255,255,255,.2);--bg:rgba(255,255,255,.12);--mut:rgba(255,255,255,.2)}
+@T #top .btn,@T #top .scp,@T #top .cn{background:transparent;border:0;color:#fff;height:32px}
+@T #top .btn:hover,@T #top .scp:hover{background:rgba(0,0,0,.12)}
+@T #top .btn svg,@T #top .cn b,@T #top .scp .nm{color:#fff}
+@T #tb{background:#fff;border-bottom:1px solid #DEE2E6}
+@T .tab{color:#374151;font-weight:500}
+@T .tab.on{color:#714B67}
+@T .tab.on svg{color:#714B67}
+@T .tab.on::after,@T .tabs .ca-ind{background:#714B67}
+@T .btn{border-radius:3px;border-color:#DEE2E6;color:#374151;font-weight:500}
+@T .btn:hover{background:#F3F4F6}
+@T .btn.ghost{border-color:transparent}
+@T .btn.pri{background:#714B67;border-color:#714B67;color:#fff}
+@T .btn.pri:hover{background:#5B3B52;border-color:#5B3B52}
+@T #bar{background:#fff;border-bottom:1px solid #DEE2E6;margin:0;padding:8px 16px}
+@T #bar .btn,@T #bar .in{height:30px}
+@T #bar .search{width:420px}
+@T #bar .search .in{border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.08);border-color:#DEE2E6}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#fff;color:#111827;font-weight:600;font-size:12.5px;height:34px;border-bottom:1px solid #DEE2E6}
+@T .grid td{height:32px;border-bottom-color:#E9ECEF;font-size:13px}
+@T .grid tbody tr:hover td{background:#F3F4F6}
+@T .pill{height:20px;border:0;border-radius:10px;background:#E9ECEF;font-size:12px}
+@T .own,@T .lchip,@T .inb{height:22px;border-radius:3px}
+@T .chk{width:14px;height:14px;border-radius:2px;border-color:#9CA3AF}
+@T .ci{width:18px;height:18px;border-radius:3px}
+@T #foot{border-top:1px solid #DEE2E6}
+@T .pop{border-radius:4px}
+@T .mi{border-radius:0}
+@T .mi:hover{background:#F3F4F6}
+@T .modal{border-radius:4px;border:0}
+@T .sheet header,@T .modal header{background:#F9FAFB}
+@T .snav button.on{background:#F3EAF1;color:#714B67}

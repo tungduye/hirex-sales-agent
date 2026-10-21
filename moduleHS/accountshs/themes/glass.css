@@ -1,0 +1,64 @@
+/* 01 Thủy Tinh — Apple Liquid Glass (iPadOS 26).
+   Đúng tinh thần Apple: nền hệ thống xám nhạt phẳng, nội dung trắng phẳng; CHỈ lớp điều khiển nổi (nút, ô tìm kiếm, tab, popup)
+   là "kính": nền trắng mờ + làm mờ phía sau + viền sáng 0.5px + bóng mềm. Một màu nhấn duy nhất: xanh hệ thống. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+--ui-bg:#F2F2F7;--ui-surface:#FFFFFF;--ui-surface-2:#F7F7FA;--ui-surface-hover:rgba(120,120,128,.08);--ui-fill:rgba(120,120,128,.16);
+--ui-border:rgba(60,60,67,.13);--ui-border-strong:rgba(60,60,67,.22);
+--ui-text:#1C1C1E;--ui-text-2:#3A3A3C;--ui-muted:#6E6E73;--ui-faint:#8E8E93;--ui-ink:#1C1C1E;
+--ui-primary:#007AFF;--ui-primary-soft:rgba(0,122,255,.1);--ui-primary-dark:#0066D6;--ui-primary-line:rgba(0,122,255,.3);--ui-focus:rgba(0,122,255,.25);
+--ui-sel:rgba(0,122,255,.1);--ui-sel-hover:rgba(0,122,255,.14);
+--ui-success:#248A3D;--ui-success-soft:rgba(52,199,89,.14);--ui-warning:#B25000;--ui-warning-soft:rgba(255,149,0,.14);--ui-danger:#D70015;--ui-danger-soft:rgba(255,59,48,.12);
+--ui-radius-sm:10px;--ui-radius-md:14px;--ui-radius-lg:20px;--ui-switch:#34C759;
+--ui-shadow-popover:0 0 0 .5px rgba(0,0,0,.06),0 10px 40px -8px rgba(0,0,0,.22);--ui-overlay:rgba(0,0,0,.18);
+--gl:rgba(255,255,255,.72);--gl-fx:blur(24px) saturate(180%);--gl-edge:inset 0 0 0 .5px rgba(255,255,255,.9),inset 0 1px 0 rgba(255,255,255,.95),0 1px 2px rgba(0,0,0,.06),0 6px 20px -6px rgba(0,0,0,.14)}
+/* chrome trong suốt — các nút nổi trên nền */
+@T #top,@T #tb,@T #bar,@T #foot{background:transparent;border:0;box-shadow:none}
+@T #top{height:60px;padding:10px 16px 0}
+@T #top .btn,@T #top .scp,@T #top .cn,@T #bar .btn,@T #bar .search .in,@T #foot .btn{border:0;background:var(--gl);-webkit-backdrop-filter:var(--gl-fx);backdrop-filter:var(--gl-fx);box-shadow:var(--gl-edge);border-radius:999px}
+@T #top .btn.ghost{background:var(--gl)}
+@T #top .btn.icon,@T #bar .btn.icon{width:36px;height:36px}
+@T #top .scp,@T #top .cn,@T #bar .btn,@T #bar .search .in{height:36px}
+@T #top .btn:hover,@T #bar .btn:hover,@T #foot .btn:hover{background:rgba(255,255,255,.92)}
+@T #bar .btn.pri{background:#007AFF;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08),0 6px 18px -6px rgba(0,122,255,.6)}
+@T #bar .btn.pri:hover{background:#0A84FF}
+@T #bar .btn.fbtn.on{background:rgba(0,122,255,.14);color:#0066D6}
+@T #bar{padding:6px 16px 12px;margin:0}
+/* tab: segmented control của iOS */
+@T #tb{padding:4px 16px 0;align-items:center}
+@T #tb .tabs{background:rgba(120,120,128,.12);border-radius:999px;padding:3px;gap:2px}
+@T .tab{height:32px;border-radius:999px;padding:0 14px;color:var(--ui-text);font-weight:500}
+@T .tab:hover{background:rgba(255,255,255,.5);color:var(--ui-text)}
+@T .tab.on{background:#fff;color:var(--ui-text);font-weight:600;box-shadow:0 0 0 .5px rgba(0,0,0,.04),0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04)}
+@T .tab.on svg{color:#007AFF}
+@T .tab.on::after,@T .tabs .ca-ind{display:none}
+@T .tabs .tsep{background:rgba(60,60,67,.18)}
+@T .tsar{background:var(--gl);border-radius:999px}
+/* bảng: thẻ trắng phẳng bo lớn, đường kẻ mảnh 0.5px */
+@T .tw{border:0;border-radius:20px;box-shadow:0 0 0 .5px rgba(0,0,0,.05),0 2px 12px -4px rgba(0,0,0,.08)}
+@T .grid th{background:#fff;color:#8E8E93;font-weight:500;border-bottom:.5px solid rgba(60,60,67,.2)}
+@T .grid td{border-bottom:.5px solid rgba(60,60,67,.12)}
+@T .grid tbody tr:hover td{background:rgba(120,120,128,.06)}
+@T .chk{border-radius:50%;border-color:#C7C7CC}
+@T .pill,@T .lchip,@T .stchip,@T .inb,@T .own{border-radius:999px}
+@T .pill{border:0;background:rgba(120,120,128,.12)}
+@T .ci,@T .ti{border-radius:7px}
+/* popup / hộp thoại: kính đậm hơn */
+@T .pop,@T .tt,@T .gtip,@T .hvp,@T .dpc,@T .rte-m,@T .toast{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(30px) saturate(190%);backdrop-filter:blur(30px) saturate(190%);border:0;box-shadow:var(--ui-shadow-popover),inset 0 0 0 .5px rgba(255,255,255,.8);border-radius:16px}
+@T .mi{border-radius:9px}
+@T .modal,@T .tvbox{border:0;border-radius:24px;box-shadow:0 0 0 .5px rgba(0,0,0,.06),0 24px 70px -12px rgba(0,0,0,.35)}
+@T .sheet{border:0;border-radius:24px 0 0 24px}
+@T .snav button{border-radius:10px}
+@T .snav button.on{background:rgba(0,122,255,.12);color:#0066D6}
+@T #sel{background:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border-radius:999px}
+@T .sw{width:42px;height:25px;background:rgba(120,120,128,.24)}
+@T .sw::after{width:21px;height:21px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+@T .sw.on::after{transform:translateX(17px)}
+@T .seg{border-radius:999px;background:rgba(120,120,128,.12)}
+@T .seg button{border-radius:999px}
+@T .seg button.on{background:#fff;border-color:transparent;box-shadow:0 3px 8px rgba(0,0,0,.12)}
+@T .dv-card,@T .rp-c,@T .dcard,@T .dsec,@T .dorg,@T .rg,@T .gwrap,@T .gbar{border:0;border-radius:18px;box-shadow:0 0 0 .5px rgba(0,0,0,.05),0 2px 12px -4px rgba(0,0,0,.08)}
+
+/* bố cục: thanh tab nổi ở giữa như iPadOS 26 */
+@T #tb{justify-content:center}
+@T #tb .tabs{margin:0 auto}

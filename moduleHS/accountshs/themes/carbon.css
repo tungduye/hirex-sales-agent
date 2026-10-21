@@ -1,0 +1,49 @@
+/* 17 Cacbon — IBM Carbon (g10). Không bo góc, header đen 48px, nền #F4F4F4, nút cao 40px, ô nhập nền xám gạch chân, vạch xanh chỉ mục chọn. */
+@T{
+--ui-font:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+--ui-bg:#F4F4F4;--ui-surface:#FFFFFF;--ui-surface-2:#F4F4F4;--ui-surface-hover:#E8E8E8;--ui-fill:#E0E0E0;--ui-border:#E0E0E0;--ui-border-strong:#8D8D8D;
+--ui-text:#161616;--ui-text-2:#393939;--ui-muted:#525252;--ui-faint:#6F6F6F;--ui-ink:#161616;
+--ui-primary:#0F62FE;--ui-primary-soft:#EDF5FF;--ui-primary-dark:#0043CE;--ui-primary-line:#A6C8FF;--ui-focus:transparent;
+--ui-sel:#E0E0E0;--ui-sel-hover:#D1D1D1;--ui-success:#198038;--ui-success-soft:#DEFBE6;--ui-warning:#8E6A00;--ui-warning-soft:#FCF4D6;--ui-danger:#DA1E28;--ui-danger-soft:#FFF1F1;
+--ui-radius-sm:0;--ui-radius-md:0;--ui-radius-lg:0;
+--ui-shadow-popover:0 2px 6px rgba(0,0,0,.3);--ui-overlay:rgba(22,22,22,.5);
+--nav-w:256px;--nav-bg:#FFFFFF;--nav-bd:#E0E0E0;--nav-fg:#525252;--nav-ic:#525252;--nav-hov:#E8E8E8;--nav-on:#E0E0E0;--nav-onfg:#161616;--nav-onic:#161616;--nav-ih:32px;--nav-r:0;--nav-pad:16px 0;--nav-bar:block;--nav-ind:#0F62FE;--nav-gap:0}
+@T body{font-size:14px}
+@T #tb .tab{padding:0 16px}
+@T #top{height:48px;background:#161616;border-bottom:1px solid #393939;color:#F4F4F4;
+ --ui-text:#F4F4F4;--ui-muted:#C6C6C6;--ui-surface:#161616;--ui-surface-hover:#353535;--ui-border:#393939;--ui-primary-soft:#353535;--ui-primary-dark:#fff;--ui-primary-line:#525252;
+ --fg:#F4F4F4;--mf:#C6C6C6;--bd:#393939;--bg:#161616;--mut:#353535}
+@T #top .btn,@T #top .scp,@T #top .cn{background:#161616;border:0;color:#F4F4F4;border-radius:0;height:48px}
+@T #top .btn:hover,@T #top .scp:hover{background:#353535}
+@T #top .btn.icon{width:48px}
+@T #top .btn svg,@T #top .cn b,@T #top .scp .nm{color:#fff}
+@T .btn{border-radius:0;border:0;background:#E0E0E0;color:#161616;font-weight:400}
+@T .btn:hover{background:#C6C6C6}
+@T .btn.ghost{background:transparent}
+@T .btn.ghost:hover{background:#E8E8E8}
+@T .btn.pri{background:#0F62FE;color:#fff}
+@T .btn.pri:hover{background:#0050E6}
+@T :where(button,a,select,input,textarea,[tabindex]):focus-visible{outline:2px solid #0F62FE;outline-offset:-2px}
+@T #bar{background:transparent;border:0;margin:0;padding:24px 32px 16px}
+@T #bar .btn,@T #bar .in{height:40px}
+@T #bar .btn.icon{width:40px}
+@T .in,@T select.in{border-radius:0;border:0;border-bottom:1px solid #8D8D8D;background-color:#fff}
+@T .in:focus{outline:2px solid #0F62FE;outline-offset:-2px;box-shadow:none}
+@T .main{padding:0 32px}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#E0E0E0;color:#161616;font-weight:600;height:48px;border-bottom:0}
+@T .grid td{height:48px;border-bottom-color:#E0E0E0}
+@T .grid tbody tr:hover td{background:#E8E8E8}
+@T .pill{border-radius:999px;border:0;background:#E0E0E0;height:24px}
+@T .chip,@T .own,@T .lchip,@T .inb,@T .ci,@T .ti,@T .chk{border-radius:0}
+@T .chk{border-color:#161616}
+@T #foot{background:#fff;border-top:1px solid #E0E0E0;padding:0 32px}
+@T .pop,@T .modal,@T .sheet,@T .tvbox{border-radius:0;border:0}
+@T .mi{border-radius:0}
+@T .mi:hover{background:#E8E8E8}
+@T .snav button{border-radius:0}
+@T .snav button.on{background:#E0E0E0;color:#161616;box-shadow:inset 3px 0 0 #0F62FE}
+@T .sw{border-radius:999px}
+
+/* ô nhập trên lớp trắng (hộp thoại, popup, cài đặt) dùng nền xám field-02 như Carbon */
+@T :is(.modal,.sheet,.pop,.spane,.tvbox,.dbox) :is(.in,select.in,textarea.in){background-color:#F4F4F4}

@@ -1,0 +1,56 @@
+/* 02 Cupertino — macOS (Finder / Mail): thanh bên xám mờ, thanh công cụ nhỏ 28px, bảng dòng xen kẽ, chọn dòng xanh đặc, chữ 13px. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F5F5F7;--ui-surface-hover:#F0F0F2;--ui-fill:#E3E3E6;--ui-border:#E1E1E4;--ui-border-strong:#C9C9CE;
+--ui-text:#1D1D1F;--ui-text-2:#3A3A3C;--ui-muted:#6E6E73;--ui-faint:#8E8E93;
+--ui-primary:#0A64DA;--ui-primary-soft:#DCE9FB;--ui-primary-dark:#0A58C2;--ui-primary-line:#9CC0F2;--ui-focus:rgba(10,100,218,.3);
+--ui-sel:#DCE9FB;--ui-sel-hover:#D2E2F9;--ui-success:#1E8E3E;--ui-success-soft:#E3F4E7;--ui-warning:#B05A00;--ui-warning-soft:#FCEFDC;--ui-danger:#D1242F;--ui-danger-soft:#FCE6E7;
+--ui-radius-sm:5px;--ui-radius-md:7px;--ui-radius-lg:10px;--ui-switch:#0A64DA;
+--ui-shadow-popover:0 0 0 .5px rgba(0,0,0,.18),0 8px 24px rgba(0,0,0,.18);--ui-overlay:rgba(0,0,0,.2);
+--side-areas:"nav top" "nav bar" "nav mh" "nav foot";--nav-w:212px;--nav-bg:#ECEBF0;--nav-bd:#D8D7DD;--nav-fg:#1D1D1F;--nav-ic:#0A64DA;--nav-mut:#86868B;--nav-hov:rgba(0,0,0,.05);--nav-on:rgba(0,0,0,.09);--nav-onfg:#1D1D1F;--nav-onic:#0A64DA;--nav-ih:28px;--nav-r:6px;--nav-pad:10px 10px}
+@T #top{height:46px;background:#F6F6F6;border-bottom:1px solid #D8D7DD}
+@T #top .btn,@T #top .scp,@T #top .cn{height:26px;border-radius:6px;background:#fff;border:.5px solid rgba(0,0,0,.14);box-shadow:0 .5px 1px rgba(0,0,0,.1);font-size:12px}
+@T #top .btn.ghost{background:transparent;border-color:transparent;box-shadow:none}
+@T #top .btn.ghost:hover{background:rgba(0,0,0,.06)}
+@T #top .btn.icon{width:28px}
+@T #bar{background:#fff;border-bottom:1px solid #E1E1E4;padding:8px 12px;margin:0}
+@T #bar .btn,@T #bar .in{height:26px;border-radius:6px;font-size:12.5px;box-shadow:0 .5px 1px rgba(0,0,0,.1);border-color:rgba(0,0,0,.14)}
+@T #bar .btn.icon{width:28px}
+@T #bar .search .in{border-radius:7px;box-shadow:inset 0 .5px 1px rgba(0,0,0,.08)}
+@T #bar .btn.pri{background:linear-gradient(#2B83F6,#0A64DA);border-color:#0A5CC8}
+@T #tb .tab{font-size:13px;font-weight:500}
+@T #tb .tab.on{font-weight:500}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#fff;color:#1D1D1F;font-size:11.5px;font-weight:600;height:28px;border-bottom:1px solid #E1E1E4;border-right:1px solid #EFEFF1}
+@T .grid td{height:30px;border-bottom:0;font-size:12.5px}
+@T .grid tbody{background:repeating-linear-gradient(to bottom,transparent 0 30px,#F5F5F7 30px 60px)}
+@T .grid tbody tr:hover td{background:#EEF0F4}
+@T .grid tbody tr.sel td{background:#0A64DA;color:#fff}
+@T .grid tbody tr.sel td :is(.mut,.txt,.own,span,.pill){color:#fff}
+@T .grid tbody tr.sel:hover td{background:#0A5CC8}
+@T .grid tbody tr.sel td :is(.pill,.own,.lchip,.inb,.ci){background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);color:#fff}
+@T .grid tbody tr.sel td svg{color:#fff}
+@T .grid tbody tr.sel .chk{background:#fff;border-color:#fff;color:#0A64DA}
+@T .grid tbody tr.sel .btn.ghost{color:#fff}
+@T .pill,@T .own,@T .lchip,@T .inb{height:20px;border-radius:5px;font-size:12px}
+@T .chk{width:14px;height:14px;border-radius:4px}
+@T .ci{width:18px;height:18px;border-radius:4px}
+@T #foot{background:#F6F6F6;border-top:1px solid #D8D7DD;min-height:30px;font-size:11.5px}
+@T .pop{border-radius:8px;padding:5px}
+@T .mi{border-radius:5px;padding:4px 8px}
+@T .mi:hover{background:#0A64DA;color:#fff}
+@T .mi:hover svg{color:#fff}
+@T .modal{border-radius:12px}
+@T .snav{background:#ECEBF0}
+@T .snav button{height:28px;border-radius:6px}
+@T .snav button.on{background:rgba(0,0,0,.09);color:#1D1D1F}
+
+/* bố cục macOS Tahoe: thanh bên nổi, cao hết cửa sổ; thanh công cụ nằm bên phải */
+@T #app{background:#FFFFFF}
+@T #tbw{margin:8px 0 8px 8px;border:0;border-radius:14px;background:rgba(232,231,237,.92);box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 8px 24px -8px rgba(0,0,0,.18)}
+@T #tb{padding:14px 8px}
+@T #top{background:#FFFFFF}
+/* dòng chọn nền xanh đặc: mọi thứ trong dòng chuyển sang chữ trắng */
+@T .grid tbody tr.sel td :is(.pill,.own,.lchip,.inb,.ci){background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);color:#fff}
+@T .grid tbody tr.sel td svg,@T .grid tbody tr.sel .btn.ghost{color:#fff}
+@T .grid tbody tr.sel .chk{background:#fff;border-color:#fff;color:#0A64DA}

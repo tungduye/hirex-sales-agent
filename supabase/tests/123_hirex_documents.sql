@@ -1,0 +1,20 @@
+-- Verifies migration 123 (Tài liệu HireX saved by Soda).
+begin;
+create function pg_temp.assert_true(value boolean,label text) returns void language plpgsql as $$begin if value is not true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end$$;
+create function pg_temp.fails(statement text) returns boolean language plpgsql as $$begin execute statement; return false; exception when others then return true; end$$;
+grant execute on function pg_temp.fails(text) to authenticated;
+insert into auth.users(id,email) values('99000000-0000-4000-8000-000000002301','a123@test.local');
+insert into public.workspaces(id,name) values('99000000-0000-4000-8000-000000002302','WS 123');
+insert into public.workspace_roles(id,workspace_id,name) values('99000000-0000-4000-8000-000000002303','99000000-0000-4000-8000-000000002302','Role 123');
+insert into public.profiles(id,workspace_id,full_name,role_id) values('99000000-0000-4000-8000-000000002301','99000000-0000-4000-8000-000000002302','A','99000000-0000-4000-8000-000000002303');
+insert into public.hirex_documents(workspace_id,title,content_html,content_chars,source,created_by) values('99000000-0000-4000-8000-000000002302','Quy trình onboard','<p>Bước 1</p>',6,'ZALO','99000000-0000-4000-8000-000000002301');
+select pg_temp.assert_true((select id >= 900000001 and folder = 'Soda lưu' from public.hirex_documents where workspace_id='99000000-0000-4000-8000-000000002302'),'ids never clash with Human ids; default folder');
+select pg_temp.assert_true(pg_temp.fails($$insert into public.hirex_documents(workspace_id,title,folder,content_html) values('99000000-0000-4000-8000-000000002302','x','a/b','<p>x</p>')$$),'folder names have no slashes');
+select pg_temp.assert_true(pg_temp.fails($$insert into public.hirex_documents(workspace_id,title,content_html) values('99000000-0000-4000-8000-000000002302',' ','<p>x</p>')$$),'title required');
+select pg_temp.assert_true(pg_temp.fails($$insert into public.hirex_documents(workspace_id,title,content_html,source) values('99000000-0000-4000-8000-000000002302','x','<p>x</p>','EMAIL')$$),'source checked');
+insert into public.assistant_actions(workspace_id,user_id,kind,params,preview,expires_at) values('99000000-0000-4000-8000-000000002302','99000000-0000-4000-8000-000000002301','SAVE_DOCUMENT','{}','{}',now() + interval '15 minutes');
+select pg_temp.assert_true(true,'SAVE_DOCUMENT cards are allowed');
+set local role authenticated;
+select pg_temp.assert_true(pg_temp.fails($$select * from public.hirex_documents$$),'members read only through the server');
+reset role;
+rollback;

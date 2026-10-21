@@ -1,0 +1,39 @@
+/* 10 Đơn Sắc — Vercel Geist. Đen–trắng–xám, viền #EAEAEA, nút chính đen đặc, tab gạch chân đen, chữ đơn cách (mono) cho cột Tên. */
+@T{
+--ui-font:"Geist","Geist Sans",Inter,"Segoe UI",system-ui,sans-serif;
+--ui-bg:#FAFAFA;--ui-surface:#FFFFFF;--ui-surface-2:#FAFAFA;--ui-surface-hover:#F2F2F2;--ui-fill:#EBEBEB;--ui-border:#EAEAEA;--ui-border-strong:#C9C9C9;
+--ui-text:#171717;--ui-text-2:#333333;--ui-muted:#666666;--ui-faint:#8F8F8F;--ui-ink:#171717;
+--ui-primary:#171717;--ui-primary-soft:#F2F2F2;--ui-primary-dark:#000000;--ui-primary-line:#C9C9C9;--ui-focus:rgba(0,0,0,.12);
+--ui-sel:#F2F2F2;--ui-sel-hover:#EBEBEB;--ui-success:#0070F3;--ui-success-soft:#EBF5FF;--ui-warning:#A35200;--ui-warning-soft:#FFF4E5;--ui-danger:#E5484D;--ui-danger-soft:#FFEBEC;
+--ui-radius-sm:6px;--ui-radius-md:8px;--ui-radius-lg:12px;
+--ui-shadow-popover:0 0 0 1px rgba(0,0,0,.08),0 4px 8px -4px rgba(0,0,0,.04),0 16px 24px -8px rgba(0,0,0,.06);--ui-overlay:rgba(0,0,0,.3)}
+@T body{font-size:14px}
+@T #top{height:56px;border-bottom:1px solid #EAEAEA}
+@T #top .btn,@T #top .scp{border-radius:6px;height:32px}
+@T #top .cn{border:0;background:transparent;color:#666}
+@T #tb{background:#fff;border-bottom:1px solid #EAEAEA}
+@T .tab{color:#666;font-weight:400}
+@T .tab:hover{background:transparent;color:#171717}
+@T .tab.on{color:#171717;font-weight:500}
+@T .tab.on svg{color:#171717}
+@T .tab.on::after,@T .tabs .ca-ind{background:#171717;left:0;right:0}
+@T .btn{border-radius:6px;font-weight:500}
+@T .btn.pri{background:#171717;border-color:#171717;color:#fff}
+@T .btn.pri:hover{background:#383838;border-color:#383838}
+@T .btn.fbtn.on{background:#F2F2F2;border-color:#C9C9C9;color:#171717}
+@T #bar .btn,@T #bar .in{height:32px}
+@T .tw{border-color:#EAEAEA;border-radius:12px;box-shadow:0 2px 2px rgba(0,0,0,.04)}
+@T .grid th{background:#FAFAFA;color:#666;font-weight:500;font-size:12px}
+@T .grid td{border-bottom-color:#EAEAEA}
+@T .grid td .txt.prim{font-family:"Geist Mono","JetBrains Mono",Consolas,"SF Mono",monospace;font-size:12.5px;font-weight:500}
+@T .pill{border-radius:999px;background:#fff;border:1px solid #EAEAEA;font-weight:500}
+@T .lchip,@T .inb{border-radius:999px}
+@T .ci{border-radius:50%;background:#171717;color:#fff}
+@T .chk{border-radius:4px;border-color:#8F8F8F}
+@T .mi:hover{background:#F2F2F2}
+@T .modal{border:0;border-radius:12px}
+@T .snav button.on{background:#F2F2F2;color:#171717}
+@T .sw.on{background:#171717}
+
+@T{--wrap:1240px}
+@T #tb{padding-left:max(16px,calc((100% - var(--wrap))/2))}

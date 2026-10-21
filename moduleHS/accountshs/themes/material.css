@@ -1,0 +1,43 @@
+/* 04 Mountain View — Google Material 3 (Google Cloud Console). Bề mặt tông màu, mục điều hướng viên thuốc 40px, nút 40px bo tròn, chip viền. */
+@T{
+--ui-font:"Google Sans","Google Sans Text",Roboto,"Segoe UI",system-ui,sans-serif;
+--ui-bg:#F8FAFD;--ui-surface:#FFFFFF;--ui-surface-2:#F0F4F9;--ui-surface-hover:#F0F4F9;--ui-fill:#E1E3E1;--ui-border:#DADCE0;--ui-border-strong:#747775;
+--ui-text:#1F1F1F;--ui-text-2:#444746;--ui-muted:#5F6368;--ui-faint:#80868B;
+--ui-primary:#0B57D0;--ui-primary-soft:#D3E3FD;--ui-primary-dark:#0842A0;--ui-primary-line:#A8C7FA;--ui-focus:rgba(11,87,208,.24);
+--ui-sel:#E8F0FE;--ui-sel-hover:#DDE8FC;--ui-success:#146C2E;--ui-success-soft:#E6F4EA;--ui-warning:#8C4F00;--ui-warning-soft:#FEF7E0;--ui-danger:#B3261E;--ui-danger-soft:#FCE8E6;
+--ui-radius-sm:8px;--ui-radius-md:12px;--ui-radius-lg:16px;
+--ui-shadow-popover:0 1px 3px rgba(60,64,67,.3),0 4px 8px 3px rgba(60,64,67,.15);--ui-overlay:rgba(32,33,36,.5);
+--nav-w:256px;--nav-bg:#F8FAFD;--nav-bd:transparent;--nav-fg:#1F1F1F;--nav-ic:#444746;--nav-hov:#E9EEF6;--nav-on:#D3E3FD;--nav-onfg:#041E49;--nav-onic:#041E49;--nav-ih:40px;--nav-r:999px;--nav-pad:8px 12px}
+@T body{font-size:14px}
+@T #top{height:60px;background:#F8FAFD;border:0}
+@T #top .btn,@T #top .scp{border-radius:999px;height:40px;border-color:#747775;background:transparent}
+@T #top .btn.icon{width:40px;border:0}
+@T #top .btn.icon:hover{background:#E9EEF6}
+@T #top .cn{border:0;background:transparent;border-radius:999px}
+@T #bar{background:transparent;border:0;margin:0;padding:12px 24px}
+@T #bar .btn,@T #bar .in{height:40px;border-radius:999px;border-color:#747775;padding:0 16px}
+@T #bar .btn.icon{width:40px;padding:0}
+@T #bar .search .in{padding-left:38px;background:#fff}
+@T #bar .btn.pri{background:#0B57D0;border-color:#0B57D0}
+@T #bar .btn.pri:hover{background:#0842A0;box-shadow:0 1px 3px rgba(60,64,67,.3)}
+@T .main{padding:0 24px}
+@T .tw{border-radius:16px;border-color:#DADCE0;background:#fff}
+@T .grid th{background:#fff;color:#444746;font-weight:500;height:48px;font-size:12.5px}
+@T .grid td{height:48px;border-bottom-color:#E3E3E3}
+@T .pill{border-radius:8px;border:1px solid #747775;background:#fff;height:28px}
+@T .own,@T .lchip,@T .inb{border-radius:8px}
+@T .chk{border-width:2px;border-radius:2px;border-color:#444746}
+@T .ci{border-radius:50%;width:26px;height:26px;background:#E8F0FE;color:#0B57D0}
+@T #foot{background:transparent;border:0;padding:0 24px}
+@T .pop{border-radius:12px;border:0}
+@T .mi{border-radius:0;padding:9px 14px}
+@T .mi:hover{background:#F0F4F9}
+@T .modal{border-radius:28px;border:0}
+@T .snav button{border-radius:999px;height:40px}
+@T .snav button.on{background:#D3E3FD;color:#041E49}
+@T .chip{border-radius:8px;height:32px;border-color:#747775}
+
+/* bố cục Material 3 (Gmail / Cloud): nền tông màu, nội dung nằm trong tấm trắng bo 16px */
+@T{--frame-bg:#F8FAFD;--frame-bd:transparent;--frame-r:16px;--frame-gap:12px}
+@T #bar{padding:12px 20px}
+@T .main{padding:0 8px}

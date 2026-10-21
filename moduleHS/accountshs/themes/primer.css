@@ -1,0 +1,37 @@
+/* 06 Octo — GitHub Primer. Nền #F6F8FA, viền #D0D7DE bo 6px, tab gạch chân cam với bộ đếm pill, nút chính xanh lá. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;
+--ui-bg:#F6F8FA;--ui-surface:#FFFFFF;--ui-surface-2:#F6F8FA;--ui-surface-hover:#F3F4F6;--ui-fill:#E6EAEF;--ui-border:#D1D9E0;--ui-border-strong:#B7C0C9;
+--ui-text:#1F2328;--ui-text-2:#393F46;--ui-muted:#59636E;--ui-faint:#818B98;
+--ui-primary:#0969DA;--ui-primary-soft:#DDF4FF;--ui-primary-dark:#0550AE;--ui-primary-line:#80CCFF;--ui-focus:rgba(9,105,218,.3);
+--ui-sel:#DDF4FF;--ui-sel-hover:#C8ECFF;--ui-success:#1A7F37;--ui-success-soft:#DAFBE1;--ui-warning:#9A6700;--ui-warning-soft:#FFF8C5;--ui-danger:#D1242F;--ui-danger-soft:#FFEBE9;
+--ui-radius-sm:6px;--ui-radius-md:6px;--ui-radius-lg:6px;--ui-switch:#1F883D;
+--ui-shadow-popover:0 0 0 1px #D1D9E0,0 6px 12px -3px rgba(37,41,46,.04),0 6px 18px rgba(37,41,46,.12);--ui-overlay:rgba(31,35,40,.5)}
+@T body{font-size:14px}
+@T #top{height:56px;background:#F6F8FA;border-bottom:1px solid #D1D9E0}
+@T #top .btn,@T #top .scp,@T #top .cn{border-radius:6px;height:32px;background:#F6F8FA;border-color:#D1D9E0}
+@T #top .btn.ghost{background:transparent;border-color:transparent}
+@T #tb{background:#F6F8FA;border-bottom:1px solid #D1D9E0}
+@T .tab{color:#1F2328;font-weight:400;gap:8px}
+@T .tab em{background:rgba(129,139,152,.2);color:#1F2328;border-radius:999px;padding:0 6px;font-weight:500;line-height:18px;font-size:12px}
+@T .tab.on{color:#1F2328;font-weight:600}
+@T .tab.on svg{color:#59636E}
+@T .tab.on::after,@T .tabs .ca-ind{background:#FD8C73;height:2px}
+@T .btn{border-radius:6px;background:#F6F8FA;border-color:#D1D9E0;box-shadow:0 1px 0 rgba(31,35,40,.04);font-weight:500}
+@T .btn:hover{background:#EFF2F5}
+@T .btn.ghost{background:transparent;box-shadow:none;border-color:transparent}
+@T .btn.pri{background:#1F883D;border-color:rgba(31,35,40,.15);box-shadow:0 1px 0 rgba(31,35,40,.1)}
+@T .btn.pri:hover{background:#1C8139}
+@T #bar{background:transparent;border:0}
+@T #bar .btn,@T #bar .in{height:32px}
+@T .tw{border-color:#D1D9E0;border-radius:6px}
+@T .grid th{background:#F6F8FA;color:#1F2328;font-weight:600;font-size:12px}
+@T .grid td{border-bottom-color:#D8DEE4}
+@T .pill{border-radius:999px;background:#fff;border:1px solid #D1D9E0;font-weight:500}
+@T .lchip,@T .inb{border-radius:999px}
+@T .chk{border-radius:3px;border-color:#6E7781}
+@T .pop,@T .modal{border:0}
+@T .mi:hover{background:#F3F4F6}
+@T .snav button.on{background:#F3F4F6;color:#1F2328;box-shadow:inset 2px 0 0 #FD8C73}
+
+@T{--wrap:1280px}

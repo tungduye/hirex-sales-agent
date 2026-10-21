@@ -1,0 +1,46 @@
+/* 14 Tia Chớp — Salesforce Lightning (SLDS). Nền #F3F3F3, dải tab ứng dụng nền xanh #0176D3 với tab chọn trắng nổi, bảng 32px kẻ ô, nút chữ xanh viền xám. */
+@T{
+--ui-font:"Salesforce Sans","Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+--ui-bg:#F3F3F3;--ui-surface:#FFFFFF;--ui-surface-2:#FAFAF9;--ui-surface-hover:#F3F3F3;--ui-fill:#E5E5E5;--ui-border:#E5E5E5;--ui-border-strong:#C9C9C9;
+--ui-text:#181818;--ui-text-2:#444444;--ui-muted:#747474;--ui-faint:#939393;
+--ui-primary:#0176D3;--ui-primary-soft:#D8EDFF;--ui-primary-dark:#014486;--ui-primary-line:#90D0FE;--ui-focus:rgba(1,118,211,.35);
+--ui-sel:#D8EDFF;--ui-sel-hover:#C5E4FE;--ui-success:#2E844A;--ui-success-soft:#EBF7E6;--ui-warning:#8C4B02;--ui-warning-soft:#FEF1EE;--ui-danger:#BA0517;--ui-danger-soft:#FEDED8;
+--ui-radius-sm:4px;--ui-radius-md:4px;--ui-radius-lg:4px;
+--ui-shadow-popover:0 2px 3px 0 rgba(0,0,0,.16);--ui-overlay:rgba(8,7,7,.6)}
+@T body{font-size:13px}
+@T #top{height:50px;background:#fff;border-bottom:1px solid #E5E5E5}
+@T #top .btn,@T #top .scp{border-radius:4px;height:32px;border-color:#C9C9C9}
+@T #top .cn{border-radius:4px}
+/* dải tab nền xanh */
+@T #tb{background:#0176D3;border:0;padding:0 8px;align-items:flex-end;min-height:40px}
+@T .tab{height:36px;margin-top:4px;color:#fff;border-radius:4px 4px 0 0;font-weight:400}
+@T .tab svg,@T .tab em{color:rgba(255,255,255,.85)}
+@T .tab:hover{background:rgba(255,255,255,.14);color:#fff}
+@T .tab.on{background:#fff;color:#181818;font-weight:400}
+@T .tab.on svg{color:#0176D3}
+@T .tab.on em{color:#747474}
+@T .tab.on::after,@T .tabs .ca-ind{display:none}
+@T .tabs .tsep{background:rgba(255,255,255,.35)}
+@T .tsar{background:#0176D3;color:#fff}
+@T .btn{border-radius:4px;border-color:#C9C9C9;color:#0176D3;font-weight:400}
+@T .btn:hover{background:#F3F3F3}
+@T .btn.icon,@T .btn.ghost{color:#747474}
+@T .btn.pri{background:#0176D3;border-color:#0176D3;color:#fff}
+@T .btn.pri:hover{background:#014486;border-color:#014486}
+@T #bar{background:#fff;border-bottom:1px solid #E5E5E5;margin:0 0 12px;padding:10px 16px}
+@T #bar .btn,@T #bar .in{height:32px}
+@T .main{padding:0 12px}
+@T .tw{border-radius:4px;border-color:#E5E5E5;box-shadow:0 2px 2px rgba(0,0,0,.1)}
+@T .grid th{background:#FAFAF9;color:#444;font-weight:700;font-size:12px;height:32px;border-right:1px solid #E5E5E5}
+@T .grid td{height:32px;border-right:1px solid #E5E5E5;border-bottom-color:#E5E5E5;font-size:13px}
+@T .pill{height:20px;border-radius:15rem;border:0;background:#ECEBEA;font-size:12px}
+@T .own,@T .lchip,@T .inb{height:22px;border-radius:4px}
+@T .chk{width:15px;height:15px;border-radius:2px;border-color:#747474}
+@T .ci{width:18px;height:18px;border-radius:3px}
+@T #foot{background:#fff;border-top:1px solid #E5E5E5}
+@T .pop{border-radius:4px;border:1px solid #E5E5E5}
+@T .mi{border-radius:0}
+@T .mi:hover{background:#F3F3F3}
+@T .modal{border-radius:4px;border:0}
+@T .sheet header,@T .modal header{background:#F3F3F3}
+@T .snav button.on{background:#D8EDFF;color:#014486;box-shadow:inset 3px 0 0 #0176D3}

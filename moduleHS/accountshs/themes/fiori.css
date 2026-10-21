@@ -1,0 +1,44 @@
+/* 15 Chân Trời — SAP Fiori Horizon (Morning). Shell bar trắng, tab icon có số lớn gạch chân dày 3px, nền #F5F6F7, nút bo 8px chữ xanh, bảng là thẻ bo 16px. */
+@T{
+--ui-font:"72","72full",Inter,"Segoe UI",system-ui,sans-serif;
+--ui-bg:#F5F6F7;--ui-surface:#FFFFFF;--ui-surface-2:#F5F6F7;--ui-surface-hover:#EAECEE;--ui-fill:#E5E5E5;--ui-border:#E5E5E5;--ui-border-strong:#BCC3CA;
+--ui-text:#1D2D3E;--ui-text-2:#32363A;--ui-muted:#556B82;--ui-faint:#758CA4;
+--ui-primary:#0064D9;--ui-primary-soft:#EBF8FF;--ui-primary-dark:#0050C1;--ui-primary-line:#89D1FF;--ui-focus:rgba(0,100,217,.25);
+--ui-sel:#EBF8FF;--ui-sel-hover:#DCF3FF;--ui-success:#256F3A;--ui-success-soft:#F5FAE5;--ui-warning:#B44F00;--ui-warning-soft:#FFF8D6;--ui-danger:#AA0808;--ui-danger-soft:#FFEAF4;
+--ui-radius-sm:6px;--ui-radius-md:8px;--ui-radius-lg:16px;
+--ui-shadow-popover:0 0 .125rem 0 rgba(34,54,73,.16),0 .5rem 1rem 0 rgba(34,54,73,.16);--ui-overlay:rgba(34,54,73,.6)}
+@T body{font-size:14px}
+@T #top{height:52px;background:#fff;border-bottom:1px solid #E5E5E5;box-shadow:0 0 .125rem rgba(34,54,73,.16)}
+@T #top .btn,@T #top .scp{border-radius:8px;height:36px;border-color:#BCC3CA;color:#0064D9}
+@T #top .btn.ghost{border-color:transparent}
+@T #top .cn{border:0;background:transparent}
+@T #tb{background:#fff;padding:0 32px;border-bottom:1px solid #E5E5E5;min-height:48px;gap:12px}
+@T .tab{height:48px;padding:0 6px;color:#1D2D3E;font-weight:400}
+@T .tab em{font-size:14px;font-weight:700;color:#1D2D3E;font-style:normal}
+@T .tab:hover{background:transparent;color:#0064D9}
+@T .tab.on{color:#0064D9;font-weight:400}
+@T .tab.on em{color:#0064D9}
+@T .tab.on::after,@T .tabs .ca-ind{height:3px;left:0;right:0;border-radius:3px 3px 0 0;background:#0064D9}
+@T .btn{border-radius:8px;border-color:#BCC3CA;color:#0064D9;font-weight:600}
+@T .btn:hover{background:#EAECEE}
+@T .btn.ghost{border-color:transparent}
+@T .btn.pri{background:#0064D9;border-color:#0064D9;color:#fff}
+@T .btn.pri:hover{background:#0050C1}
+@T #bar{background:transparent;border:0;margin:0;padding:16px 32px 12px}
+@T #bar .btn,@T #bar .in{height:36px}
+@T #bar .in{border-radius:8px;border-color:#BCC3CA}
+@T .main{padding:0 32px}
+@T .tw{border:0;border-radius:16px;box-shadow:0 0 .125rem rgba(34,54,73,.15),0 .5rem 1rem rgba(34,54,73,.1)}
+@T .grid th{background:#fff;color:#556B82;font-weight:400;height:44px;border-bottom-color:#E5E5E5}
+@T .grid td{border-bottom-color:#E5E5E5}
+@T .grid tbody tr:hover td{background:#EAECEE}
+@T .pill{border-radius:4px;background:#fff;border:1px solid #BCC3CA;height:22px}
+@T .own,@T .lchip,@T .inb{border-radius:6px}
+@T .ci{border-radius:50%;background:#EAECEE}
+@T .chk{border-radius:4px;border-color:#556B82}
+@T #foot{background:transparent;border:0;padding:0 32px}
+@T .pop{border:0;border-radius:12px}
+@T .mi{border-radius:8px}
+@T .modal{border:0;border-radius:16px}
+@T .snav button{border-radius:8px}
+@T .snav button.on{background:#EBF8FF;color:#0064D9}

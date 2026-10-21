@@ -1,0 +1,42 @@
+/* 16 Thanh Thiên — Ant Design 5 (Alibaba). Thanh bên tối #001529, mục chọn nền xanh #1677FF, header trắng, bảng tiêu đề #FAFAFA, nút 32px bóng 2px. */
+@T{
+--ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+--ui-bg:#F5F5F5;--ui-surface:#FFFFFF;--ui-surface-2:#FAFAFA;--ui-surface-hover:#FAFAFA;--ui-fill:#F0F0F0;--ui-border:#F0F0F0;--ui-border-strong:#D9D9D9;
+--ui-text:rgba(0,0,0,.88);--ui-text-2:rgba(0,0,0,.75);--ui-muted:rgba(0,0,0,.45);--ui-faint:rgba(0,0,0,.35);
+--ui-primary:#1677FF;--ui-primary-soft:#E6F4FF;--ui-primary-dark:#0958D9;--ui-primary-line:#91CAFF;--ui-focus:rgba(5,145,255,.12);
+--ui-sel:#E6F4FF;--ui-sel-hover:#BAE0FF;--ui-success:#389E0D;--ui-success-soft:#F6FFED;--ui-warning:#AD6800;--ui-warning-soft:#FFFBE6;--ui-danger:#CF1322;--ui-danger-soft:#FFF2F0;
+--ui-radius-sm:4px;--ui-radius-md:6px;--ui-radius-lg:8px;
+--ui-shadow-popover:0 6px 16px rgba(0,0,0,.08),0 3px 6px -4px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.05);--ui-overlay:rgba(0,0,0,.45);
+--side-areas:"nav top" "nav bar" "nav mh" "nav foot";--nav-w:208px;--nav-bg:#001529;--nav-bd:#001529;--nav-fg:rgba(255,255,255,.65);--nav-ic:rgba(255,255,255,.65);--nav-mut:rgba(255,255,255,.45);--nav-hov:rgba(255,255,255,.06);--nav-on:#1677FF;--nav-onfg:#FFFFFF;--nav-onic:#FFFFFF;--nav-ih:40px;--nav-r:8px;--nav-pad:8px 4px}
+@T body{font-size:14px}
+@T #tb .tabs .tsep{background:rgba(255,255,255,.12)}
+@T #tb .tab:hover{color:#fff}
+@T #top{height:56px;background:#fff;border-bottom:1px solid #F0F0F0;box-shadow:0 1px 4px rgba(0,21,41,.08)}
+@T #top .btn,@T #top .scp{border-radius:6px;height:32px;border-color:#D9D9D9}
+@T #top .cn{border:0;background:transparent}
+@T .btn{border-radius:6px;border-color:#D9D9D9;box-shadow:0 2px 0 rgba(0,0,0,.02)}
+@T .btn:hover{background:#fff;border-color:#4096FF;color:#4096FF}
+@T .btn.ghost{border-color:transparent;box-shadow:none}
+@T .btn.ghost:hover{background:rgba(0,0,0,.04);color:inherit}
+@T .btn.pri{background:#1677FF;border-color:#1677FF;box-shadow:0 2px 0 rgba(5,145,255,.1)}
+@T .btn.pri:hover{background:#4096FF;border-color:#4096FF;color:#fff}
+@T #bar{background:#fff;border:0;margin:16px 24px 0;padding:16px 24px 12px;border-radius:8px 8px 0 0}
+@T #bar .btn,@T #bar .in{height:32px}
+@T #bar .in{border-color:#D9D9D9;border-radius:6px}
+@T .main{padding:0 24px}
+@T .tw{border:0;border-radius:0 0 8px 8px;padding:0 24px 8px;background:#fff}
+@T .grid th{background:#FAFAFA;color:rgba(0,0,0,.88);font-weight:600;font-size:13px;border-bottom-color:#F0F0F0}
+@T .grid td{height:46px;border-bottom-color:#F0F0F0}
+@T .pill{border-radius:4px;border:1px solid #D9D9D9;background:#FAFAFA;height:22px;font-size:12px;font-weight:400}
+@T .own,@T .lchip,@T .inb{border-radius:4px}
+@T .chk{border-radius:4px;border-color:#D9D9D9}
+@T #foot{background:transparent;border:0;padding:0 24px}
+@T .pop{border:0;border-radius:8px}
+@T .mi{border-radius:4px}
+@T .mi:hover{background:rgba(0,0,0,.04)}
+@T .modal{border:0;border-radius:8px}
+@T .snav button.on{background:#E6F4FF;color:#1677FF}
+
+/* bố cục Ant Design Pro: sider tối cao hết màn hình, header trắng bên phải */
+@T #tbw{border-right:0;box-shadow:2px 0 8px rgba(29,35,41,.05)}
+@T #tb{padding-top:14px}

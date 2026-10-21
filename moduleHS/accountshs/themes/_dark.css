@@ -1,0 +1,14 @@
+/* ===== Dùng chung cho theme nền tối ===== */
+@T{color-scheme:dark}
+@T #sel{background:var(--ui-surface-2,var(--ui-surface-hover));color:var(--ui-text);border:1px solid var(--ui-border-strong,var(--ui-border))}
+@T #sel .btn{color:var(--ui-text);background:transparent;border-color:transparent}
+@T #sel .btn:hover{background:var(--ui-surface-hover)}
+@T select.in{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>")}
+@T .in::placeholder,@T textarea::placeholder{color:var(--ui-faint,var(--ui-muted))}
+@T .chk{background:var(--ui-surface-2,var(--ui-surface));border-color:var(--ui-border-strong,var(--ui-border))}
+@T .attbody iframe{background:#fff}
+@T .gn .gl{fill:var(--ui-text);stroke:var(--ui-bg)}
+@T .gel{stroke:var(--ui-bg)}
+@T .toast,@T .toast.err{background:var(--ui-surface-2,var(--ui-surface));color:var(--ui-text);border:1px solid var(--ui-border)}
+@T ::selection{background:var(--ui-primary-soft)}
+@T .sw{background:var(--ui-fill,var(--ui-border))}

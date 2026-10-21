@@ -1,0 +1,39 @@
+/* 05 Sydney — Atlassian Design System (Jira). Bo 3px, nav trái xám nhạt, nút nền xám không viền, lozenge trạng thái chữ hoa, hàng 40px. */
+@T{
+--ui-font:"Atlassian Sans",ui-sans-serif,"Segoe UI",system-ui,-apple-system,sans-serif;
+--ui-bg:#FFFFFF;--ui-surface:#FFFFFF;--ui-surface-2:#F7F8F9;--ui-surface-hover:#F1F2F4;--ui-fill:#DCDFE4;--ui-border:#DCDFE4;--ui-border-strong:#8590A2;
+--ui-text:#172B4D;--ui-text-2:#44546F;--ui-muted:#626F86;--ui-faint:#8590A2;
+--ui-primary:#0C66E4;--ui-primary-soft:#E9F2FF;--ui-primary-dark:#0055CC;--ui-primary-line:#85B8FF;--ui-focus:rgba(56,139,255,.35);
+--ui-sel:#E9F2FF;--ui-sel-hover:#CCE0FF;--ui-success:#216E4E;--ui-success-soft:#DCFFF1;--ui-warning:#7F5F01;--ui-warning-soft:#FFF7D6;--ui-danger:#AE2E24;--ui-danger-soft:#FFECEB;
+--ui-radius-sm:3px;--ui-radius-md:3px;--ui-radius-lg:3px;
+--ui-shadow-popover:0 8px 12px rgba(9,30,66,.15),0 0 1px rgba(9,30,66,.31);--ui-overlay:rgba(9,30,66,.54);
+--nav-w:240px;--nav-bg:#F7F8F9;--nav-bd:#DCDFE4;--nav-fg:#44546F;--nav-ic:#44546F;--nav-hov:#EBECF0;--nav-on:#E9F2FF;--nav-onfg:#0C66E4;--nav-onic:#0C66E4;--nav-ih:32px;--nav-r:3px;--nav-bar:block;--nav-ind:#0C66E4;--nav-bar-x:-8px}
+@T body{font-size:14px}
+@T #top{height:56px;border-bottom:1px solid #DCDFE4}
+@T #top .btn,@T #top .scp{border-radius:3px;height:32px}
+@T #top .cn{border:0;background:transparent}
+@T .btn{border:0;background:#F1F2F4;color:#172B4D;font-weight:500}
+@T .btn:hover{background:#DCDFE4}
+@T .btn.ghost{background:transparent}
+@T .btn.pri{background:#0C66E4;color:#fff}
+@T .btn.pri:hover{background:#0055CC}
+@T .btn.fbtn.on{background:#E9F2FF;color:#0C66E4}
+@T #bar{border:0;margin:0;padding:16px 24px 12px}
+@T #bar .btn,@T #bar .in{height:32px}
+@T #bar .search .in{border:2px solid #DCDFE4;background:#F7F8F9}
+@T #bar .search .in:focus{background:#fff;border-color:#388BFF;box-shadow:none}
+@T .main{padding:0 24px}
+@T .tw{border:0;border-radius:0}
+@T .grid th{background:#fff;color:#626F86;font-weight:700;font-size:12px;border-bottom:2px solid #DCDFE4}
+@T .grid td{height:40px;border-bottom-color:#F1F2F4}
+@T .grid tbody tr:hover td{background:#F7F8F9}
+@T .pill{height:20px;border-radius:3px;border:0;background:#DCDFE4;color:#172B4D;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:0 6px}
+@T .pill .dot{width:6px;height:6px}
+@T .own,@T .lchip,@T .inb,@T .chip,@T .chk{border-radius:3px}
+@T .chk{border-color:#8590A2}
+@T #foot{border-top:1px solid #DCDFE4}
+@T .pop{border:0;border-radius:3px}
+@T .mi{border-radius:0}
+@T .mi:hover{background:#F1F2F4;box-shadow:inset 2px 0 0 #0C66E4}
+@T .modal,@T .sheet{border:0;border-radius:3px}
+@T .snav button.on{background:#E9F2FF;color:#0C66E4}

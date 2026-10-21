@@ -1,0 +1,25 @@
+/* ===== Bố cục thanh bên: thanh tab chuyển thành cột điều hướng bên trái (chỉ CSS, cùng DOM, cùng chức năng) =====
+   Token: --side-areas ("top top"… = thanh trên phủ ngang | "nav top"… = thanh bên cao hết màn hình) --nav-w --nav-bg --nav-bd --nav-fg --nav-ic --nav-mut --nav-hov --nav-on --nav-onfg --nav-onic
+          --nav-ih (cao mỗi mục) --nav-r (bo) --nav-pad --nav-gap --nav-bar (block|none: vạch chỉ báo) --nav-ind (màu vạch) --nav-bar-x */
+@T{--ahs-layout:side}
+@T #app{display:grid;grid-template-columns:var(--nav-w,232px) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto;grid-template-areas:var(--side-areas,"top top" "nav bar" "nav mh" "nav foot")}
+@T #top{grid-area:top}
+@T #bar{grid-area:bar;min-width:0}
+@T #mh{grid-area:mh;min-width:0}
+@T #foot{grid-area:foot;min-width:0}
+@T #tbw{grid-area:nav;min-height:0;display:flex;flex-direction:column;background:var(--nav-bg,var(--ui-surface));border-right:1px solid var(--nav-bd,var(--ui-border));-webkit-mask-image:none;mask-image:none}
+@T #tb{flex:1;min-height:0;display:flex;flex-direction:column;align-items:stretch;padding:var(--nav-pad,10px 8px);margin:0;background:transparent;border:0;overflow-y:auto;overflow-x:hidden}
+@T #tb .tabs,@T #tb .tabs.ca{flex-direction:column;align-items:stretch;gap:var(--nav-gap,2px);overflow:visible;max-width:none;-webkit-mask-image:none;mask-image:none;padding:0}
+@T #tb .tab{flex:none;height:var(--nav-ih,32px);padding:0 10px;gap:9px;border-radius:var(--nav-r,var(--ui-radius-sm));justify-content:flex-start;color:var(--nav-fg,var(--ui-text));font-weight:500;background:transparent;box-shadow:none}
+@T #tb .tab span{flex:1;min-width:0;max-width:none;text-align:left}
+@T #tb .tab em{margin-left:auto;color:var(--nav-mut,var(--ui-muted));background:none;padding:0}
+@T #tb .tab svg{color:var(--nav-ic,var(--ui-muted))}
+@T #tb .tab:hover{background:var(--nav-hov,var(--ui-surface-hover));color:var(--nav-fg,var(--ui-text))}
+@T #tb .tab.on{background:var(--nav-on,var(--ui-primary-soft));color:var(--nav-onfg,var(--ui-primary-dark));font-weight:600}
+@T #tb .tab.on svg{color:var(--nav-onic,var(--ui-primary))}
+@T #tb .tab.on em{color:var(--nav-onfg,var(--ui-primary-dark))}
+@T #tb .tab.on::after,@T #tb .tabs.ca .tab.on::after{display:var(--nav-bar,none);content:"";position:absolute;left:var(--nav-bar-x,0);right:auto;top:7px;bottom:7px;width:3px;height:auto;border-radius:2px;background:var(--nav-ind,var(--ui-primary))}
+@T #tb .ca-ind{display:none}
+@T #tb .tabs .tsep{flex:none;width:auto;height:1px;margin:6px 6px;align-self:stretch;background:var(--nav-bd,var(--ui-border))}
+@T .tsar{display:none!important}
+@T #tb.solo{margin:0}

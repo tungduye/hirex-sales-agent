@@ -1,10 +1,9 @@
-import { ExternalLink, KeyRound } from "lucide-react";
-import { hasPermission } from "@/modules/access/server/access-control";
+import { KeyRound } from "lucide-react";
+import { hasPermission, isWorkspaceAdmin } from "@/modules/access/server/access-control";
+import { AccountsApp } from "../../../../moduleHS/accountshs/components/accounts-app";
 
-// "Tài khoản": the team's account manager (server-ahs.hat11.io.vn) shown inside HireX, so people stay in
-// the HireX tab. Only members whose role has "Tài khoản · Xem" see the menu item and this page.
-const ACCOUNTS_SITE = "https://server-ahs.hat11.io.vn/";
-
+// "Tài khoản": AccountsHS (moduleHS/accountshs) chạy ngay trong HireX — trước đây là iframe tới server-ahs.hat11.io.vn.
+// Quyền: "Tài khoản · Xem" (accounts.view) = xem + thêm/sửa/xoá/nhập; Tùy chỉnh / sao lưu / CRM = Quản trị viên.
 export const metadata = { title: "Tài khoản" };
 
 export default async function AccountsPage() {
@@ -13,11 +12,6 @@ export default async function AccountsPage() {
       <KeyRound className="mx-auto mb-3 size-8 text-slate-400"/>Tài khoản của bạn chưa được cấp quyền xem mục Tài khoản.
     </div>;
   }
-  return <div className="flex h-[calc(100dvh-4rem)] flex-col bg-white">
-    <div className="flex h-9 shrink-0 items-center justify-between border-b border-slate-200 px-4 text-xs text-slate-500">
-      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700"><KeyRound className="size-3.5"/>Tài khoản</span>
-      <a href={ACCOUNTS_SITE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline">Mở trong tab mới<ExternalLink className="size-3"/></a>
-    </div>
-    <iframe src={ACCOUNTS_SITE} title="Tài khoản" className="min-h-0 w-full flex-1 border-0" allow="clipboard-read; clipboard-write" referrerPolicy="strict-origin-when-cross-origin"/>
-  </div>;
+  const manage = await isWorkspaceAdmin();
+  return <div className="h-[calc(100dvh-4rem)] min-h-0 overflow-hidden bg-white"><AccountsApp canEdit canManage={manage} /></div>;
 }
