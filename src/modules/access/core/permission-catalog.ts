@@ -11,6 +11,7 @@ export const permissionGroups = [
   { key:"jobs", label:"Job", actions:[["view","Xem"],["manage","Quản lý"]] },
   { key:"broadcasts", label:"Gửi hàng loạt Zalo", actions:[["view","Xem"],["manage","Tạo và gửi vào nhóm"]] },
   { key:"documents", label:"Tài liệu", actions:[["view","Xem và hỏi Trợ lý về tài liệu"]] },
+  { key:"customers", label:"Khách hàng (Human)", actions:[["view","Xem khách mình là Sale/AM"],["view_all","Xem tất cả khách"],["manage","Cập nhật từ Human và cài đặt"]] },
   { key:"accounts", label:"Tài khoản", actions:[["view","Xem"]] },
   { key:"settings", label:"Cài đặt", actions:[["view","Xem"]] },
   { key:"channels", label:"Tài khoản kết nối", actions:[["view","Xem"],["manage","Quản lý"]] },

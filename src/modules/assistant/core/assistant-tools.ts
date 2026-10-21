@@ -646,6 +646,28 @@ function BROADCAST_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Khách hàng (copied from Human): within the member's rights (all customers, or the ones they are Sale/AM of).
+function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "khach_hang",
+    permission: "customers.view",
+    label: "Tra cứu khách hàng",
+    description: "Tra cứu màn Khách hàng (dữ liệu khách/đối tác lấy từ Human): tên, loại, trạng thái, người liên hệ, email, SĐT, website, địa chỉ, Sale, AM, ngày gửi email, khối; tổng số khớp và tối đa 30 khách. Người không có quyền xem tất cả chỉ thấy khách mình là Sale/AM.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["tu_khoa", "trang_thai", "khoi", "chi_cua_toi", "chua_gui_email", "so_luong"],
+      properties: {
+        tu_khoa: nullableString("Tên công ty, email, SĐT, website, địa chỉ hoặc mã khách (có/không dấu), hoặc null."),
+        trang_thai: nullableString("Một phần tên trạng thái trên Human, hoặc null."),
+        khoi: nullableInteger("Mã khối (blockId, ví dụ 36309), hoặc null."),
+        chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ khách người hỏi là Sale/AM." },
+        chua_gui_email: { type: ["boolean", "null"], description: "true = chỉ khách chưa có ngày gửi email." },
+        so_luong: nullableInteger("Số khách trả về (mặc định 10, tối đa 30)."),
+      },
+    },
+    args: z.object({ tu_khoa: text(120).nullable(), trang_thai: text(120).nullable(), khoi: z.number().int().positive().nullable(), chi_cua_toi: z.boolean().nullable(), chua_gui_email: z.boolean().nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+  }];
+}
+
 // Suối Nguồn bulk actions: the card shows how many conversations match; confirming runs it (undo 10 minutes).
 function INBOX_BULK_TOOLS(): AssistantToolDefinition[] {
   return [{
@@ -892,6 +914,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...FILE_TOOLS(),
   ...BROADCAST_TOOLS(),
   ...INBOX_BULK_TOOLS(),
+  ...CUSTOMER_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

@@ -19,6 +19,11 @@ export async function storeHumanApiToken(workspace: string, token: string) {
   const p = paths(workspace); const encrypted = encryptCredential(token);
   await mkdir(p.folder, { recursive: true, mode: 0o700 }); await atomicSave(p.token, encrypted);
 }
+/** The Human API token saved in "Cài đặt API Human" (shared by Tài liệu and Khách hàng); null when none is saved. */
+export async function readHumanApiToken(workspace: string): Promise<string | null> {
+  try { return decryptCredential(await readFile(paths(workspace).token, "utf8")); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+}
 const running = new Set<string>();
 export async function syncHumanApi(workspace: string) {
   if (running.has(workspace)) throw Error("SYNC_BUSY");

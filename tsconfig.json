@@ -315,7 +315,9 @@
     ".next-p1-suoi-nguon/types/**/*.ts",
     ".next-p1-suoi-nguon/dev/types/**/*.ts",
     ".next-p2-gan-nhan-hang-loat/types/**/*.ts",
-    ".next-p2-gan-nhan-hang-loat/dev/types/**/*.ts"
+    ".next-p2-gan-nhan-hang-loat/dev/types/**/*.ts",
+    ".next-p2b-toc-do-thanh-chon/types/**/*.ts",
+    ".next-p2b-toc-do-thanh-chon/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

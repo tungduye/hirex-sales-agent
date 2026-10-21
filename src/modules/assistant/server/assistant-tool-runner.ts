@@ -22,6 +22,7 @@ import { loadHumanSnapshot } from "@/modules/human-documents/server/snapshot";
 import { readTools2 } from "@/modules/assistant/server/assistant-read-tools";
 import { crmTools } from "@/modules/assistant/server/assistant-crm-tools";
 import { fileTools } from "@/modules/assistant/server/assistant-file-tools";
+import { customerTools } from "@/modules/assistant/server/assistant-customer-tools";
 import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
@@ -124,6 +125,7 @@ const runners: Record<string, Runner> = {
   ...crmTools,
   // Round C: Word files (assistant-file-tools.ts).
   ...fileTools,
+  ...customerTools,
   async tong_quan_crm() {
     const data = await getDashboardData();
     if (data.metricsHaveError) return { loi: "Không tải được số liệu tổng quan." };
