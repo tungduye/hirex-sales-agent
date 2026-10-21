@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { addCustomerBlock, saveHumanUserLinks } from "../server/customer-actions";
+import { addCustomerBlock, importHumanCodes, saveHumanUserLinks } from "../server/customer-actions";
 
 const idle = { ok: false, message: "" };
 
@@ -28,5 +28,13 @@ export function UserLinksForm({ people, members }: { people: Array<{ humanId: st
       </tr>)}</tbody>
     </table></div>
     <div className="mt-2 flex items-center gap-3"><button disabled={pending} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Đang lưu…" : "Lưu liên kết"}</button>{state.message ? <p role="status" className={`text-xs ${state.ok ? "text-emerald-700" : "text-rose-600"}`}>{state.message}</p> : null}</div>
+  </form>;
+}
+
+export function ImportCodesForm() {
+  const [state, action, pending] = useActionState(importHumanCodes, idle);
+  return <form action={action} className="space-y-2">
+    <textarea name="codes" rows={5} placeholder={"Dán bảng bộ mã từ Human, ví dụ:\nHạng 1\t200223\tXếp hạng Công việc\tKích hoạt"} className="w-full rounded-lg border border-slate-200 p-2 font-mono text-xs"/>
+    <div className="flex items-center gap-3"><button disabled={pending} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Đang lưu…" : "Lưu bộ mã"}</button>{state.message ? <p role="status" className={`text-xs ${state.ok ? "text-emerald-700" : "text-rose-600"}`}>{state.message}</p> : null}</div>
   </form>;
 }

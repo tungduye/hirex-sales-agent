@@ -61,3 +61,28 @@ export async function saveHumanUserLinks(_state: State, form: FormData): Promise
   revalidatePath("/customers"); revalidatePath("/customers/settings");
   return { ok: true, message: `Đã lưu ${changed} liên kết người Human ↔ HireX.` };
 }
+
+/** "Bộ mã" pasted from Human (rows of Tên · MasterId · Loại, separated by tabs): saved, then used on the next update. */
+export async function importHumanCodes(_state: State, form: FormData): Promise<State> {
+  const context = await manager();
+  if (!context) return { ok: false, message: "Bạn chưa có quyền cài đặt Khách hàng." };
+  const text = String(form.get("codes") ?? "").slice(0, 500_000);
+  const rows = new Map<number, { name: string; kind: string | null }>();
+  for (const line of text.split(/\r?\n/u)) {
+    const cells = line.split("\t").map((cell) => cell.trim());
+    const index = cells.findIndex((cell, position) => position > 0 && /^\d{1,12}$/u.test(cell) && cells.slice(0, position).some(Boolean));
+    if (index < 0) continue;
+    const name = cells.slice(0, index).filter(Boolean).at(-1);
+    if (!name) continue;
+    rows.set(Number(cells[index]), { name: name.slice(0, 200), kind: cells[index + 1]?.slice(0, 100) || null });
+  }
+  if (!rows.size) return { ok: false, message: "Không đọc được dòng nào. Dán nguyên bảng từ Human (cột Tên, MasterId, Loại)." };
+  const db = createPrivilegedClient();
+  const values = [...rows].map(([masterId, row]) => ({ workspace_id: context.workspaceId, master_id: masterId, name: row.name, kind: row.kind }));
+  for (let offset = 0; offset < values.length; offset += 500) {
+    const { error } = await db.from("human_master_codes").upsert(values.slice(offset, offset + 500), { onConflict: "workspace_id,master_id" });
+    if (error) return { ok: false, message: "Chưa lưu được bộ mã." };
+  }
+  revalidatePath("/customers/settings");
+  return { ok: true, message: `Đã lưu ${rows.size} mã. Bấm "Cập nhật từ Human" để đổi tên trên danh sách.` };
+}

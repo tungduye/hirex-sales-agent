@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { HumanApiSettings } from "@/modules/human-documents/components/api-controls";
-import { AddBlockForm, UserLinksForm } from "@/modules/customers/components/settings-forms";
+import { AddBlockForm, ImportCodesForm, UserLinksForm } from "@/modules/customers/components/settings-forms";
 import { updateCustomerBlock } from "@/modules/customers/server/customer-actions";
 import { customerContext } from "@/modules/customers/server/customer-data";
 
@@ -14,13 +14,17 @@ export default async function CustomerSettingsPage() {
   const context = await customerContext();
   if (!context?.canManage) redirect("/customers");
   const db = await createClient();
-  const [{ data: blocks }, { data: links }, { data: members }, { data: syncs }, { data: owners }] = await Promise.all([
+  const [{ data: blocks }, { data: links }, { data: members }, { data: syncs }, { data: owners }, { count: codeCount }, { data: facets }] = await Promise.all([
     db.from("human_partner_blocks").select("block_id,name,enabled,last_synced_at,last_count,last_error").eq("workspace_id", context.workspaceId).order("sort").order("block_id"),
     db.from("human_user_links").select("human_user_id,human_name,profile_id").eq("workspace_id", context.workspaceId).order("human_name"),
     db.from("profiles").select("id,full_name").eq("workspace_id", context.workspaceId).order("full_name"),
     db.from("human_partner_syncs").select("id,trigger,started_at,finished_at,ok,rows,error").eq("workspace_id", context.workspaceId).order("started_at", { ascending: false }).limit(10),
     db.rpc("human_partner_owner_counts"),
+    db.from("human_master_codes").select("master_id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId),
+    db.rpc("human_partner_facets"),
   ]);
+  // Codes still shown as "Mã 123" on the list (not in the bộ mã yet).
+  const unknown = [...new Set(((facets ?? []) as Array<{ value: string }>).flatMap((row) => row.value.match(/Mã \d+/gu) ?? []))].slice(0, 60);
   const counts = new Map<string, number>();
   for (const row of (owners ?? []) as Array<{ human_user_id: string; total: number }>) counts.set(row.human_user_id, Number(row.total) || 0);
   const people = ((links ?? []) as Array<{ human_user_id: string; human_name: string | null; profile_id: string | null }>).map((link) => ({ humanId: link.human_user_id, humanName: link.human_name, profileId: link.profile_id, customers: counts.get(link.human_user_id) ?? 0 }))
@@ -58,6 +62,13 @@ export default async function CustomerSettingsPage() {
       <h2 className="font-bold text-slate-900">Sale / AM trên Human là ai ở HireX</h2>
       <p className="mt-1 text-sm text-slate-600">Người không có quyền &quot;Xem tất cả khách&quot; chỉ thấy khách mà họ là Sale hoặc AM, theo liên kết này.</p>
       <div className="mt-3"><UserLinksForm people={people} members={((members ?? []) as Array<{ id: string; full_name: string | null }>).map((member) => ({ id: member.id, name: member.full_name ?? "?" }))}/></div>
+    </section>
+
+    <section className={card}>
+      <h2 className="font-bold text-slate-900">Bộ mã Human</h2>
+      <p className="mt-1 text-sm text-slate-600">Đổi mã (MasterId) thành tên: xếp hạng công việc, xếp hạng AM, địa điểm… Đang có {(codeCount ?? 0).toLocaleString("vi-VN")} mã.</p>
+      {unknown.length ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Mã chưa có tên trong dữ liệu: {unknown.map((code) => code.replace("Mã ", "")).join(", ")}</p> : null}
+      <div className="mt-3"><ImportCodesForm/></div>
     </section>
 
     <section className={card}>

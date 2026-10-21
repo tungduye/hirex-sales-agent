@@ -76,16 +76,50 @@ export interface MappedPartner {
   partner_id: number; name: string | null; partner_type: string | null; status: string | null; address: string | null; email: string | null; phone: string | null;
   website: string | null; contact_name: string | null; position: string | null; sale_human_id: string | null; sale_name: string | null;
   am_human_id: string | null; am_name: string | null; am2_human_id: string | null; am2_name: string | null; note: string | null; email_sent_at: string | null;
+  project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; location: string | null;
+  cv_total: number | null; cv_sent: number | null; cv_processing: number | null; cv_offer: number | null; cv_done: number | null;
+  human_created_at: string | null; human_created_by: string | null; last_note: string | null; last_note_at: string | null;
   data: Row; search_text: string;
 }
 
-export function mapPartner(row: Row): MappedPartner | null {
+/** Human code (masterId) → its name in the company's bộ mã; unknown codes stay as "Mã 123". */
+export type CodeNames = Map<number, string>;
+function codeName(value: unknown, codes: CodeNames): string | null {
+  if (value == null || value === "") return null;
+  const text = String(value).trim();
+  const parts = text.split(/[,;]+/u).map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  return [...new Set(parts.map((part) => /^\d+$/u.test(part) ? codes.get(Number(part)) ?? `Mã ${part}` : part))].join(", ").slice(0, 300);
+}
+const count = (value: unknown) => { const number = Number(value); return Number.isSafeInteger(number) && number >= 0 ? number : null; };
+
+/** Human's status log ("2026-09-16: MaiSA79 <p>…</p>"), as entries with plain text, oldest first. */
+export function statusEntries(value: unknown): Array<{ date: string; author: string; text: string }> {
+  if (typeof value !== "string" || !value.trim()) return [];
+  const entries: Array<{ date: string; author: string; text: string }> = [];
+  const pattern = /(?:^|\n)(\d{4}-\d{2}-\d{2}): ?(\S*)/gu;
+  const marks = [...value.matchAll(pattern)];
+  marks.forEach((mark, index) => {
+    const start = (mark.index ?? 0) + mark[0].length;
+    const end = index + 1 < marks.length ? marks[index + 1].index ?? value.length : value.length;
+    const text = plain(value.slice(start, end)).replace(/^-\s*-?\s*/u, "").trim();
+    const author = mark[2].startsWith("<") ? "" : mark[2];
+    entries.push({ date: mark[1], author, text: (mark[2].startsWith("<") ? plain(mark[2]) + " " : "") + text });
+  });
+  return entries;
+}
+function plain(html: string) {
+  return html.replace(/<br\s*\/?>(?!\n)/giu, "\n").replace(/<\/(p|div|li)>/giu, "\n").replace(/<[^>]*>/gu, "").replace(/&nbsp;/gu, " ").replace(/&amp;/gu, "&").replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&quot;/gu, '"').replace(/&#39;/gu, "'")
+    .replace(/[ \t]+/gu, " ").replace(/\n\s*\n+/gu, "\n").trim();
+}
+
+export function mapPartner(row: Row, codes: CodeNames = new Map()): MappedPartner | null {
   const id = Number(pickId(row, ["partnerId", "partner_id", "id"]));
   if (!Number.isSafeInteger(id) || id <= 0) return null;
   const mapped = {
     partner_id: id,
-    name: pick(row, ["name", "partnerName", "companyName", "company"]),
-    partner_type: pick(row, ["typeName", "partnerTypeName", "type", "partnerType"]),
+    name: pick(row, ["partner_name", "partnerName", "name", "companyName", "company"]),
+    partner_type: codeName(pick(row, ["typeName", "partnerTypeName", "type"]), codes),
     status: pick(row, ["statusName", "status"]),
     address: pick(row, ["address", "addressDetail"]),
     email: pick(row, ["email", "emailInfo", "mail"]),
@@ -95,14 +129,24 @@ export function mapPartner(row: Row): MappedPartner | null {
     position: pick(row, ["position", "positionName", "title"]),
     sale_human_id: pickId(row, ["saleId", "sale", "saleUserId"]),
     sale_name: pick(row, ["saleName", "saleFullName", "sale"]) ?? objectName(row, "saleId"),
-    am_human_id: pickId(row, ["rateAmId", "amId", "am"]),
-    am_name: pick(row, ["rateAmName", "amName", "rateAm", "am"]) ?? objectName(row, "rateAmId"),
-    am2_human_id: pickId(row, ["rateAmId2", "amId2", "am2"]),
-    am2_name: pick(row, ["rateAmName2", "amName2", "rateAm2", "am2"]) ?? objectName(row, "rateAmId2"),
+    // amId is the AM (a person); rateAmId / rateAmId2 are AM rankings (codes), below.
+    am_human_id: pickId(row, ["amId", "am"]),
+    am_name: pick(row, ["amName"]) ?? objectName(row, "amId"),
+    am2_human_id: pickId(row, ["amId2", "am2"]),
+    am2_name: pick(row, ["amName2"]) ?? objectName(row, "amId2"),
     note: pick(row, ["noteEmail", "note", "notes", "description"]),
     email_sent_at: pick(row, ["dateSendEmail", "sendEmailDate", "emailSentAt"]),
+    project_rank: pick(row, ["typePartner"]),
+    job_rank: codeName(pick(row, ["rankJobId"]), codes),
+    am_rank: codeName(pick(row, ["rateAmId"]), codes),
+    am_rank2: codeName(pick(row, ["rateAmId2"]), codes),
+    location: codeName(pick(row, ["address"]), codes),
+    cv_total: count(row.allCv), cv_sent: count(row.allCvSent), cv_processing: count(row.cvProcessing), cv_offer: count(row.cvOffer), cv_done: count(row.cvDone),
+    human_created_at: (() => { const value = pick(row, ["created_date", "createdDate"]); return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null; })(),
+    human_created_by: pick(row, ["created_by", "createdBy"]),
+    ...(() => { const last = statusEntries(row.statusNew).at(-1); return { last_note: last ? `${last.author ? `${last.author}: ` : ""}${last.text}`.slice(0, 500) : null, last_note_at: last?.date ?? null }; })(),
   };
-  const search_text = fold([mapped.partner_id, mapped.name, mapped.email, mapped.phone, mapped.website, mapped.address, mapped.contact_name, mapped.position, mapped.sale_name, mapped.am_name, mapped.am2_name, mapped.status, mapped.partner_type]
+  const search_text = fold([mapped.partner_id, mapped.name, mapped.email, mapped.phone, mapped.website, mapped.address, mapped.contact_name, mapped.position, mapped.sale_name, mapped.am_name, mapped.am2_name, mapped.partner_type, mapped.project_rank, mapped.job_rank, mapped.am_rank, mapped.am_rank2, mapped.location, mapped.human_created_by]
     .filter((value) => value != null && value !== "").join(" ")).slice(0, 4000);
   // Keep the raw record small enough: long text fields are cut.
   const data: Row = {};

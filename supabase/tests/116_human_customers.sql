@@ -22,7 +22,7 @@ select pg_temp.assert_true((select count(*)=3 from public.human_partners),'Xem t
 select pg_temp.assert_true((select string_agg(human_user_id||'='||total, ',' order by human_user_id)='11=2,12=1,13=1' from public.human_partner_owner_counts()),'customers per Sale/AM');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000001162',true);
 select pg_temp.assert_true((select string_agg(partner_id::text, ',' order by partner_id)='1,2' from public.human_partners),'Sale: only customers where they are Sale or AM');
-select pg_temp.assert_true((select total=2 from public.human_partner_facets() where kind='status' and value=''),'facets count only what the member sees');
+select pg_temp.assert_true((select total=2 from public.human_partner_facets() where kind='project_rank' and value=''),'facets count only what the member sees');
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000001163',true);
 select pg_temp.assert_true((select count(*)=0 from public.human_partners),'no Khách hàng · Xem: nothing');
 select pg_temp.assert_true((select count(*)=0 from public.human_user_links),'no permission: links hidden too');

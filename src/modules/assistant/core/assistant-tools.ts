@@ -652,15 +652,15 @@ function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
     name: "khach_hang",
     permission: "customers.view",
     label: "Tra cứu khách hàng",
-    description: "Tra cứu màn Khách hàng (dữ liệu khách/đối tác lấy từ Human): tên, loại, trạng thái, người liên hệ, email, SĐT, website, địa chỉ, Sale, AM, ngày gửi email, khối; tổng số khớp và tối đa 30 khách. Người không có quyền xem tất cả chỉ thấy khách mình là Sale/AM.",
+    description: "Tra cứu màn Khách hàng (công ty khách lấy từ Human): tên, địa điểm, website, xếp hạng dự án, hạng, xếp hạng AM, Sale, AM, số CV (tổng/đã gửi/đang xử lý/offer/xong), ghi chú mới nhất, khối; tổng số khớp và tối đa 30 khách. Người không có quyền xem tất cả chỉ thấy khách mình là Sale/AM.",
     parameters: {
       type: "object", additionalProperties: false, required: ["tu_khoa", "trang_thai", "khoi", "chi_cua_toi", "chua_gui_email", "so_luong"],
       properties: {
         tu_khoa: nullableString("Tên công ty, email, SĐT, website, địa chỉ hoặc mã khách (có/không dấu), hoặc null."),
-        trang_thai: nullableString("Một phần tên trạng thái trên Human, hoặc null."),
+        trang_thai: nullableString("Một phần xếp hạng dự án / hạng / xếp hạng AM (ví dụ \"Chờ nhiệm thu\", \"Hạng 1\", \"Doing\"), hoặc null."),
         khoi: nullableInteger("Mã khối (blockId, ví dụ 36309), hoặc null."),
         chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ khách người hỏi là Sale/AM." },
-        chua_gui_email: { type: ["boolean", "null"], description: "true = chỉ khách chưa có ngày gửi email." },
+        chua_gui_email: { type: ["boolean", "null"], description: "true = chỉ khách chưa được gửi CV nào." },
         so_luong: nullableInteger("Số khách trả về (mặc định 10, tối đa 30)."),
       },
     },

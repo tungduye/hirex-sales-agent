@@ -40,6 +40,13 @@ export async function syncHumanPartners(workspaceId: string, trigger: "MANUAL" |
     const { data: blocks } = await db.from("human_partner_blocks").select("block_id").eq("workspace_id", workspaceId).eq("enabled", true).order("sort");
     const blockIds = (blocks ?? []).map((row) => Number(row.block_id)).filter(Number.isSafeInteger);
     if (!blockIds.length) { await finish(false, 0, "NO_BLOCKS"); return { ok: false, rows: 0, message: "Chưa bật khối nào trong Cài đặt." }; }
+    // The company's bộ mã: codes become names (Hạng 1, Doing, Hà Nội, …).
+    const codes = new Map<number, string>();
+    for (let from = 0; from < 20000; from += 1000) {
+      const { data: codeRows } = await db.from("human_master_codes").select("master_id,name").eq("workspace_id", workspaceId).range(from, from + 999);
+      for (const row of codeRows ?? []) codes.set(Number(row.master_id), String(row.name));
+      if ((codeRows ?? []).length < 1000) break;
+    }
     const partners = new Map<number, MappedPartner & { block_ids: number[] }>();
     const failed: string[] = [];
     for (const blockId of blockIds) {
@@ -47,7 +54,7 @@ export async function syncHumanPartners(workspaceId: string, trigger: "MANUAL" |
         const rows = await fetchBlock(token, blockId);
         let count = 0;
         for (const row of rows) {
-          const mapped = mapPartner(row);
+          const mapped = mapPartner(row, codes);
           if (!mapped) continue;
           count += 1;
           const previous = partners.get(mapped.partner_id);
