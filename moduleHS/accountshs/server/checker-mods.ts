@@ -14,7 +14,8 @@ export interface CheckerMeta {
   id: string; name: string; icon: string; value: string;
   hint_tab: string[]; hint_field: string[];
   fields?: Array<{ k: string; label: string; secret?: boolean; ph?: string }>;
-  extra?: Array<{ k: string; label: string; type?: string; icon?: string; match?: string[]; hint?: string }>;
+  /** skip_filled: đọc sẵn giá trị cột để checker bỏ qua dòng đã đủ · junk: regex giá trị rác (dọn thành ô trống) · stale: regex giá trị cũ cần đọc lại */
+  extra?: Array<{ k: string; label: string; type?: string; icon?: string; match?: string[]; hint?: string; skip_filled?: boolean; junk?: string; stale?: string }>;
   parts?: Array<{ k: string; label: string; icon?: string; match?: string[] }>;
   results?: Array<[string, string]>;
   desc?: string; threads?: number; timeout?: number; batch?: number; no_proxy?: boolean; url?: string;
@@ -34,7 +35,7 @@ export interface CheckerMod {
   meta?: () => Record<string, unknown>;
 }
 
-export class Abort extends Error {}
+export class Abort extends Error { override name = "Abort"; }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function nap(sec: number, opt: CheckOpt) {
@@ -74,12 +75,40 @@ function tgParse(h: string): { res: CheckRes | null; info: string; name: string 
   if (h.includes("tgme_page") && (h.includes("tgme_page_photo") || h.includes("tgme_page_title"))) return { res: "live", info: "Live", name: "" };
   return { res: null, info: "không nhận ra trang t.me", name: "" };
 }
+/* cổng giãn nhịp (_gate): gửi dồn dập sẽ bị 429 → khoảng cách tối thiểu tự tăng khi bị 429 */
+let TG_NEXT = 0, TG_IV = 0.04;
+async function tgGate(opt: CheckOpt) { const t = Date.now() / 1000, slot = Math.max(t, TG_NEXT); TG_NEXT = slot + TG_IV; if (slot > t) await nap(slot - t, opt); }
+const TG_HDR = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" };
+/** GET https://t.me/<u> — có proxy (http://[user:pass@]ip:port) thì đi qua CONNECT như ProxyHandler của urllib. */
+async function tgGet(u: string, opt: CheckOpt): Promise<{ code: number; h: string; retry: string }> {
+  const tmo = (opt.timeout || 10) * 1000, px = String(opt.proxy || "").trim();
+  if (!px) {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), tmo);
+    try { const r = await fetch("https://t.me/" + u, { signal: ctrl.signal, headers: TG_HDR }); return { code: r.status, h: (await r.text()).slice(0, 200000), retry: r.headers.get("retry-after") || "" }; }
+    finally { clearTimeout(to); }
+  }
+  const p = pxParse(px.includes("://") ? px : "http://" + px); if (!p) throw new Error("ProxyError");
+  const s = await connectRaw(p.host, p.port, tmo);
+  try {
+    s.write(`CONNECT t.me:443 HTTP/1.1\r\nHost: t.me:443\r\n${p.user ? `Proxy-Authorization: ${basic(p)}\r\n` : ""}\r\n`);
+    const c = httpCode(await readHead(s, tmo)); if (c !== 200) return { code: c, h: "", retry: "" };
+    const t = tls.connect({ socket: s, servername: "t.me" });
+    t.write(`GET /${u} HTTP/1.0\r\nHost: t.me\r\n${Object.entries(TG_HDR).map(([k, v]) => `${k}: ${v}\r\n`).join("")}Connection: close\r\n\r\n`);
+    const raw = await new Promise<Buffer>((res, rej) => {
+      const bs: Buffer[] = []; let n = 0; const to = setTimeout(() => { t.destroy(); rej(new PxTimeout()); }, tmo);
+      t.on("data", (d: Buffer) => { bs.push(d); n += d.length; if (n > 220000) { clearTimeout(to); t.destroy(); res(Buffer.concat(bs)); } });
+      t.on("end", () => { clearTimeout(to); res(Buffer.concat(bs)); }); t.on("error", (e) => { clearTimeout(to); rej(e); });
+    });
+    const k = raw.indexOf("\r\n\r\n"), head = raw.subarray(0, k < 0 ? raw.length : k).toString("latin1");
+    return { code: httpCode(raw), h: k < 0 ? "" : raw.subarray(k + 4).toString("utf8"), retry: /^retry-after:\s*(\S+)/im.exec(head)?.[1] || "" };
+  } finally { s.destroy(); }
+}
 const telegram: CheckerMod = {
   CHECKER: {
     id: "telegram", name: "Telegram", icon: "send", value: "Username Telegram",
     hint_tab: ["telegram", "tele", "tg"], hint_field: ["telegram", "username", "user name", "tele", "tg", "user", "id"],
     fields: [], extra: [{ k: "name", label: "Tên Telegram", type: "text", icon: "send", match: ["ten telegram", "ten tele", "ten tg", "telegram name", "ten", "name", "ho ten"], hint: "Tên hiển thị · chỉ ghi khi Live" }],
-    desc: "t.me/<username>: có tên hiển thị = Live · \"If you have Telegram…\" = Die · lỗi / bị giới hạn = giữ nguyên.",
+    desc: "t.me/<username>: có tên hiển thị = Live · \"If you have Telegram, you can contact @… right away\" = Die · lỗi / bị giới hạn = giữ nguyên. Nhận @user, user, t.me/user.",
     threads: 8, timeout: 10,
   },
   async check(value, opt) {
@@ -90,14 +119,16 @@ const telegram: CheckerMod = {
     try {
       for (let i = 0; i < 3; i++) {
         if (opt.stopped?.()) return { res: "error", info: "Đã dừng" };
-        let code = 0, h = "";
-        try {
-          const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), (opt.timeout || 10) * 1000);
-          const r = await fetch("https://t.me/" + u, { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" } });
-          clearTimeout(to); code = r.status; h = await r.text();
-        } catch (e) { why = e instanceof Error ? e.name : "err"; await nap(0.4 * (i + 1) + Math.random() * 0.3, opt); continue; }
-        if (code === 429) { why = "Telegram giới hạn tốc độ (giảm luồng / dùng proxy)"; await nap(1.5, opt); continue; }
+        await tgGate(opt);
+        let code = 0, h = "", retry = "";
+        try { ({ code, h, retry } = await tgGet(u, opt)); }
+        catch (e) { why = e instanceof Error ? e.name : "err"; await nap(0.4 * (i + 1) + Math.random() * 0.3, opt); continue; }
+        if (code === 429) {
+          TG_IV = Math.min(1.0, TG_IV * 2 + 0.05); TG_NEXT = Math.max(TG_NEXT, Date.now() / 1000 + 1.5);
+          why = "Telegram giới hạn tốc độ (giảm luồng / dùng proxy)"; await nap(Math.min(5, Number(retry) || 1.5), opt); continue;
+        }
         if (code !== 200) { why = "HTTP " + code; await nap(0.4 * (i + 1), opt); continue; }
+        TG_IV = Math.max(0.04, TG_IV * 0.9);
         const p = tgParse(h);
         if (p.res === "live") return (want && p.name) ? { res: "live", info: "Live · " + p.name, extra: { name: p.name } } : { res: "live", info: "Live" };
         if (p.res === "die") return { res: "die", info: p.info };
@@ -116,7 +147,7 @@ const gmail: CheckerMod = {
     id: "gmail", name: "Gmail", icon: "mail", value: "Email",
     hint_tab: ["gmail", "email", "mail"], hint_field: ["email", "gmail", "mail"], batch: 1000, threads: 1, timeout: 60,
     fields: [{ k: "api_key", label: "API key", secret: true, ph: "Dán API key checkmail.live" }, { k: "session", label: "Session", secret: true, ph: "Chỉ cần khi API báo lỗi phiên" }],
-    no_proxy: true, desc: "checkmail.live: gom tối đa 1.000 email / request. Hết lượt / sai key → dừng cả lượt.",
+    no_proxy: true,
   },
   meta: () => ({ ...gmInfo }),
   async check_batch(values, opt) {
@@ -196,6 +227,7 @@ const pxType = (t: string) => { const s = String(t || "").toLowerCase().replace(
 
 class PxFail extends Error { constructor(readonly resK: CheckRes, readonly why: string, readonly auth: string | null = null) { super(why); } }
 class PxNotThis extends Error {}
+class PxTimeout extends Error {}
 
 function connectRaw(host: string, port: number, timeoutMs: number): Promise<net.Socket> {
   return new Promise((res, rej) => {
@@ -208,7 +240,7 @@ function connectRaw(host: string, port: number, timeoutMs: number): Promise<net.
 function readHead(s: net.Socket | tls.TLSSocket, timeoutMs: number): Promise<Buffer> {
   return new Promise((res, rej) => {
     let buf = Buffer.alloc(0);
-    const to = setTimeout(() => { cleanup(); rej(new PxFail("die", "Hết thời gian đọc proxy")); }, timeoutMs);
+    const to = setTimeout(() => { cleanup(); rej(new PxTimeout()); }, timeoutMs);
     const onData = (d: Buffer) => { buf = Buffer.concat([buf, d]); if (buf.includes("\r\n\r\n") || buf.length > 16384) { cleanup(); res(buf); } };
     const onEnd = () => { cleanup(); res(buf); };
     const onErr = (e: Error) => { cleanup(); rej(e); };
@@ -219,7 +251,7 @@ function readHead(s: net.Socket | tls.TLSSocket, timeoutMs: number): Promise<Buf
 function readN(s: net.Socket, n: number, timeoutMs: number): Promise<Buffer> {
   return new Promise((res, rej) => {
     let buf = Buffer.alloc(0);
-    const to = setTimeout(() => { cleanup(); rej(new PxNotThis("timeout")); }, timeoutMs);
+    const to = setTimeout(() => { cleanup(); rej(new PxTimeout()); }, timeoutMs);
     const onData = (d: Buffer) => { buf = Buffer.concat([buf, d]); if (buf.length >= n) { cleanup(); res(buf.subarray(0, n)); } };
     const onEnd = () => { cleanup(); rej(new PxNotThis("đóng kết nối")); };
     const onErr = (e: Error) => { cleanup(); rej(e); };
@@ -230,9 +262,10 @@ function readN(s: net.Socket, n: number, timeoutMs: number): Promise<Buffer> {
 function httpCode(head: Buffer): number { const m = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(head.toString("latin1")); if (!m) throw new PxNotThis("không phải HTTP"); return +m[1]; }
 const basic = (p: Px) => "Basic " + Buffer.from(`${p.user}:${p.pw}`).toString("base64");
 
-async function pxTry(p: Px, sch: string, url: URL, tmo: number): Promise<{ code: number; used: boolean }> {
+async function pxTry(p: Px, sch: string, url: URL, tmo: number): Promise<{ code: number; ms: number; used: boolean }> {
   const th = url.hostname, tp = +(url.port || (url.protocol === "https:" ? 443 : 80));
   const path = url.pathname + (url.search || "");
+  const t0 = Date.now();
   const s = await connectRaw(p.host, p.port, tmo);
   let used = Boolean(p.user);
   try {
@@ -242,7 +275,7 @@ async function pxTry(p: Px, sch: string, url: URL, tmo: number): Promise<{ code:
       s.write(req + "\r\n");
       const code = httpCode(await readHead(s, tmo));
       if (code === 407) throw new PxFail("die", p.user ? "407 sai user/pass" : "407 proxy cần user/pass", p.user ? A_BAD : A_MISS);
-      return { code, used };
+      return { code, ms: Date.now() - t0, used };
     }
     if (sch === "http" || sch === "https") {
       let req = `CONNECT ${th}:${tp} HTTP/1.1\r\nHost: ${th}:${tp}\r\nUser-Agent: Mozilla/5.0\r\nProxy-Connection: keep-alive\r\n`;
@@ -257,10 +290,14 @@ async function pxTry(p: Px, sch: string, url: URL, tmo: number): Promise<{ code:
     let sock: net.Socket | tls.TLSSocket = s;
     if (url.protocol === "https:") sock = tls.connect({ socket: s, servername: th, rejectUnauthorized: false });
     sock.write(`GET ${path || "/"} HTTP/1.1\r\nHost: ${th}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n`);
-    let code: number; try { code = httpCode(await readHead(sock, tmo)); } catch { throw new PxFail("die", "Trang kiểm tra không trả lời qua proxy"); }
-    return { code, used };
+    const head = await readHead(sock, tmo);
+    let code: number; try { code = httpCode(head); } catch { throw new PxFail("die", "Trang kiểm tra không trả lời qua proxy"); }
+    return { code, ms: Date.now() - t0, used };
   } catch (e) {
     if (e instanceof PxFail || e instanceof PxNotThis) throw e;
+    if (e instanceof PxTimeout) throw new PxFail("die", `Hết thời gian (${sch.toUpperCase()})`);
+    const c = String((e as NodeJS.ErrnoException).code || "");
+    if (c.startsWith("ERR_SSL") || c.startsWith("ERR_TLS") || /ssl|tls/i.test((e as Error).message)) throw new PxFail("die", `Lỗi TLS qua proxy (${c || "SSL"})`);
     throw new PxNotThis((e as Error).name);
   } finally { try { s.destroy(); } catch { /* */ } }
 }
@@ -311,13 +348,12 @@ const proxy: CheckerMod = {
     url: "https://www.google.com/generate_204", no_proxy: true,
     extra: [{ k: "auth", label: "Xác thực", type: "text", icon: "key", match: ["xac thuc", "auth", "authen", "trang thai auth", "user pass"] }],
     threads: 20, timeout: 10,
-    desc: "Kết nối qua proxy tới trang kiểm tra (mặc định Google generate_204); kiểm luôn user/pass. Hỗ trợ HTTP/HTTPS/SOCKS5/SOCKS4.",
   },
   compose(v, pt) {
     v = String(v || "").trim();
     const port = String(pt.port || "").replace(/\D/g, ""); const user = String(pt.user || "").trim(); const pw = String(pt.pw || "").trim(); const ty = pxType(pt.type);
     if (/^[0-9a-fA-F]*:[0-9a-fA-F:]+$/.test(v) && (v.match(/:/g) || []).length >= 2 && port) v = "[" + v + "]";
-    let p = pxParse(v); if (!p && port) p = pxParse(v.replace(/:$/, "") + ":" + port); if (!p) return v;
+    let p = pxParse(v); if (!p && port) p = pxParse(v.replace(/:+$/, "") + ":" + port); if (!p) return v;
     if (!p.user && user) { p.user = user; p.pw = pw; }
     const sch = ty || (p.auto ? "" : p.sch); const h = p.host.includes(":") ? "[" + p.host + "]" : p.host;
     return (sch ? sch + "://" : "") + `${h}:${p.port}` + (p.user ? `@${p.user}:${p.pw}` : "");
@@ -330,8 +366,8 @@ const proxy: CheckerMod = {
     const order = p.auto ? ["http", "socks5", "socks4"] : [p.sch];
     let last: PxFail | null = null;
     for (const sch of order) {
-      let code: number, used: boolean;
-      try { ({ code, used } = await pxTry(p, sch, url, tmo)); }
+      let code: number, ms: number, used: boolean;
+      try { ({ code, ms, used } = await pxTry(p, sch, url, tmo)); }
       catch (f) {
         if (f instanceof PxNotThis) { last = last || new PxFail("die", "Proxy không phản hồi đúng giao thức (" + f.message + ")"); continue; }
         if (f instanceof PxFail) {
@@ -343,23 +379,34 @@ const proxy: CheckerMod = {
       const name = sch.toUpperCase();
       if (p.user && used && (sch === "http" || sch === "https")) used = await needsAuth(p, url, tmo);
       const auth = p.user ? (used ? A_OK : A_OPEN) : A_NONE;
-      if (code >= 200 && code < 400) return { res: "live", info: `${code} · ${name} · ${auth}`, extra: { auth } };
+      if (code >= 200 && code < 400) return { res: "live", info: `${code} · ${ms}ms · ${name} · ${auth}`, extra: { auth } };
       return { res: "error", info: `HTTP ${code} · ${name} · ${auth}`, extra: { auth } };
     }
     return { res: "die", info: (last || new PxFail("die", "Không kết nối được proxy")).why };
   },
 };
 
-/* checker chạy trong worker (curl_cffi) — chỉ khai báo META để UI hiện; chạy = tạo job. */
+/* checker chạy trong worker (curl_cffi) — chỉ khai báo META (giống CHECKER của checkfb*.py) để UI hiện; chạy = tạo job. */
+/** JUNK của checkfb.py: tên "rác" Facebook trả khi bị chặn / trang trung gian → không ghi vào cột tên. */
+export const FB_JUNK = String.raw`^\s*(redirecting|đang chuyển hướng|log in|log into|login|sign up|sign in|đăng nhập|đăng ký|facebook\s*$|security check|kiểm tra bảo mật|`
+  + String.raw`error\b|lỗi\b|page not found|content not found|something went wrong|you must log in|you're temporarily|bạn tạm thời|`
+  + String.raw`this content isn|nội dung này hiện|this page isn|trang này hiện|oops|sorry|xin lỗi|checkpoint|connect with|kết nối với)|log in or sign up|đăng nhập hoặc đăng ký`;
+const FB_FIELDS = [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn · giúp đọc tên ổn định hơn" }, { k: "refresh", label: "Đọc lại tên", ph: "Trống = chỉ đọc ô tên còn trống · 1 = đọc lại tất cả" }];
 const fbWorker: CheckerMeta[] = [
-  { id: "fb", name: "Facebook", icon: "facebook", value: "UID Facebook", worker: true, hint_tab: ["facebook", "fb", "via", "clone"], hint_field: ["uid", "id facebook", "id fb", "fb id", "id"], fields: [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn · giúp đọc tên ổn định hơn" }, { k: "refresh", label: "Đọc lại tên", ph: "Trống = chỉ đọc ô tên còn trống · 1 = đọc lại tất cả" }], extra: [{ k: "name", label: "Tên FB", type: "text", icon: "user", match: ["ten fb", "ten facebook", "ten tai khoan", "fb name", "ten", "name", "ho ten"], hint: "chỉ ghi khi Live" }], threads: 5, timeout: 12, desc: "Cần worker Python (curl_cffi). Graph picture + đọc tên khi Live." },
-  { id: "fbpage", name: "FB Page", icon: "flag", value: "UID Page", worker: true, hint_tab: ["fb page", "fanpage", "page"], hint_field: ["uid page", "page id", "id page", "uid", "id"], fields: [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn" }, { k: "refresh", label: "Đọc lại tên" }], extra: [{ k: "name", label: "Tên Page", type: "text", icon: "flag", match: ["ten page", "ten fanpage", "ten trang", "page name", "ten", "name"], hint: "chỉ ghi khi Live" }], threads: 5, timeout: 12, desc: "Cần worker Python (curl_cffi). Giống Facebook." },
-  { id: "fbpost", name: "Bài đăng FB", icon: "note", value: "UID bài viết", worker: true, hint_tab: ["bai dang fb", "bai dang", "post fb", "fb post", "bai viet"], hint_field: ["uid bai viet", "uid bai dang", "post id", "id bai viet", "uid", "link bai viet", "link"], fields: [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn" }], extra: [{ k: "comments", label: "Số bình luận", type: "number", icon: "chat", match: ["so binh luan", "binh luan", "so comment", "comment", "comments", "so cmt", "cmt"], hint: "Ghi khi bài Live" }], threads: 5, timeout: 15, desc: "Cần worker Python (curl_cffi). Bài LIVE/DIE theo UID." },
+  { id: "fb", name: "Facebook", icon: "facebook", value: "UID Facebook", worker: true, hint_tab: ["facebook", "fb", "via", "clone"], hint_field: ["uid", "id facebook", "id fb", "fb id", "id"], fields: FB_FIELDS,
+    extra: [{ k: "name", label: "Tên FB", type: "text", icon: "user", match: ["ten fb", "ten facebook", "ten tai khoan", "fb name", "ten", "name", "ho ten"], hint: "Profile: Tên · Page: Page (Tên) · chỉ ghi khi Live", skip_filled: true, junk: FB_JUNK, stale: String.raw`\s\|\s` }],
+    desc: "Graph picture: có ảnh thật = Live · ảnh trống (rsrc.php, không có height) = Die · bị giới hạn / lỗi = giữ nguyên. Live thì mở facebook.com/<uid> đọc tên.", threads: 5, timeout: 12 },
+  { id: "fbpage", name: "FB Page", icon: "flag", value: "UID Page", worker: true, hint_tab: ["fb page", "fanpage", "page"], hint_field: ["uid page", "page id", "id page", "uid", "id"], fields: FB_FIELDS,
+    extra: [{ k: "name", label: "Tên Page", type: "text", icon: "flag", match: ["ten page", "ten fanpage", "ten trang", "page name", "ten", "name"], hint: "Page: Tên · lẫn profile: Profile (Tên) · chỉ ghi khi Live", skip_filled: true, junk: FB_JUNK, stale: String.raw`\s\|\s` }],
+    desc: "Giống Facebook (Graph picture + đọc tên Page từ facebook.com/<id> khi Live).", threads: 5, timeout: 12 },
+  { id: "fbpost", name: "Bài đăng FB", icon: "note", value: "UID bài viết", worker: true, hint_tab: ["bai dang fb", "bai dang", "post fb", "fb post", "bai viet"], hint_field: ["uid bai viet", "uid bai dang", "post id", "id bai viet", "uid", "link bai viet", "link"],
+    fields: [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn · giúp đọc bài ổn định hơn" }],
+    extra: [{ k: "comments", label: "Số bình luận", type: "number", icon: "chat", match: ["so binh luan", "binh luan", "so comment", "comment", "comments", "so cmt", "cmt"], hint: "Ghi khi bài Live" }], threads: 5, timeout: 15 },
 ];
 
-export const MODS: CheckerMod[] = [telegram, gmail, proxy];
+export const MODS: CheckerMod[] = [gmail, proxy, telegram];
 export const WORKER_METAS = fbWorker;
 export const MOD_MAP: Record<string, CheckerMod> = Object.fromEntries(MODS.map((m) => [m.CHECKER.id, m]));
 export const WORKER_IDS = new Set(fbWorker.map((m) => m.id));
-/** META của mọi checker (node + worker), theo thứ tự hiển thị. */
-export const ALL_METAS: CheckerMeta[] = [...MODS.map((m) => m.CHECKER), ...fbWorker];
+/** META của mọi checker (node + worker), theo thứ tự hiển thị = thứ tự file check*.py của bản gốc. */
+export const ALL_METAS: CheckerMeta[] = [...fbWorker, ...MODS.map((m) => m.CHECKER)];

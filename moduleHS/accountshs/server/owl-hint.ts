@@ -1,6 +1,6 @@
 // Cú vọ — "hiểu ý" THUẦN (port AI_engine.Hint + hint + merge_hint): tách phần nội dung / số / thời gian / xếp hạng / nhóm / tổng / owner / giá trị
 // có thật ra khỏi câu trước khi luật cũ (owl-rules.understand) đọc phần còn lại; rồi gộp lại. File phụ của owl-rules.ts (không I/O, không "server-only").
-import { fold, str, leaves, isVirt, type Id, type QField, type Ref, type Where } from "./owl-query.ts";
+import { fold, str, leaves, isVirt, vnParts, vnTs, type Id, type QField, type Ref, type Where } from "./owl-query.ts";
 import { Brain, tok, clone, sim, tabVote, money, contentField, tabOf, words, iter, search, ms, me, gp, isUpper, maxBy, resc, tru, blank, jc, STOPW, NOISE, FILL, GBY, GBYV, VERBS, type O, type Plan, type Ctx } from "./owl-rules.ts";
 
 /** bỏ dấu từng ký tự, giữ vị trí → [chuỗi không dấu, vị trí gốc của từng ký tự] */
@@ -287,14 +287,14 @@ export class Hint {
     return ds.length ? this.ref(ds[0]) : "created";
   }
   time_() {
-    const now = new Date(), Y = now.getFullYear(), Mo = now.getMonth() + 1, D = now.getDate(), wd = (now.getDay() + 6) % 7;
+    const { y: Y, m: Mo, d: D, wd } = vnParts(Date.now() / 1000); // giờ VN (như máy chạy bản gốc)
     const P2 = (n: number) => String(n).padStart(2, "0"), day = (y: number, m: number, d: number) => `${String(y).padStart(4, "0")}-${P2(m)}-${P2(d)}`;
     const nxt = (y: number, m: number): [number, number] => [y + (m === 12 ? 1 : 0), m === 12 ? 1 : m + 1];
-    const ymd = (t: number) => { const d = new Date(t * 1000); return day(d.getFullYear(), d.getMonth() + 1, d.getDate()); };
-    const today0 = new Date(Y, Mo - 1, D).getTime() / 1000;
+    const ymd = (t: number) => { const d = vnParts(t); return day(d.y, d.m, d.d); };
+    const today0 = vnTs(Y, Mo, D);
     const dm = String.raw`(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?`;
     const pd = (g1?: string, g2?: string, g3?: string): string | null => { const d = +(g1 ?? 0), m = +(g2 ?? 0); let y = g3 ? +g3 : m < Mo || (m === Mo && d <= D) ? Y : Y - 1; if (y < 100) y += 2000; return m >= 1 && m <= 12 && d >= 1 && d <= 31 ? day(y, m, d) : null; };
-    const plus1 = (iso: string) => { const [y, m, d] = iso.split("-").map(Number); return ymd(new Date(y, m - 1, d).getTime() / 1000 + 86400 + 3600); };
+    const plus1 = (iso: string) => { const [y, m, d] = iso.split("-").map(Number); return ymd(vnTs(y, m, d) + 86400 + 3600); };
     const R: Array<[string, (m: RegExpExecArray) => [string | null, string | null]]> = [
       [String.raw`\bhom nay\b`, () => [ymd(today0), ymd(today0 + 86400 + 3600)]],
       [String.raw`\bhom qua\b`, () => [ymd(today0 - 86400 + 3600), ymd(today0)]],

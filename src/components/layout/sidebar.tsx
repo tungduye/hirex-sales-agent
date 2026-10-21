@@ -27,7 +27,7 @@ const navigation: NavItem[] = [
   { label: "Khách hàng", href: "/customers", icon: UsersRound, permission:"customers.view" },
   { label: "CV", href: "/cvs", icon: FileUser, permission:"cvs.view" },
   { label: "Tài liệu", href: "/documents", icon: FileScan, permission:"documents.view" },
-  { label: "Tài khoản", href: "/accounts", icon: KeyRound, permission:"accounts.view" },
+  { label: "Tài nguyên", href: "/accounts", icon: KeyRound, permission:"accounts.view" },
   { label: "Tiện ích", href: "/utilities", icon: Wrench, permission:null },
 ];
 

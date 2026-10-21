@@ -6,14 +6,15 @@ import { SaxesParser } from "saxes";
 /* Word (.docx) → HTML để xem nhanh đính kèm — port đúng docx_html() của v7.py (đoạn văn, tiêu đề, danh sách, bảng, in đậm/nghiêng/
    gạch, màu, highlight, siêu liên kết, ảnh nhúng base64). Dùng jszip + saxes (đã có trong node_modules qua exceljs). */
 
-interface El { tag: string; attrs: Record<string, string>; kids: Array<El | string>; parent?: El }
+export interface El { tag: string; attrs: Record<string, string>; kids: Array<El | string>; parent?: El }
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const V = "urn:schemas-microsoft-com:vml";
-const he = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+/** html.escape() của Python */
+const he = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" })[c]!);
 
-function parseXml(xml: string): El | null {
+export function parseXml(xml: string): El | null {
   const p = new SaxesParser({ xmlns: true });
   const root: El = { tag: "#root", attrs: {}, kids: [] }; let cur = root; let err: Error | null = null;
   p.on("error", (e) => { err = e; });
@@ -28,13 +29,14 @@ function parseXml(xml: string): El | null {
   if (err) return null;
   return (root.kids.find((k) => typeof k !== "string") as El | undefined) ?? null;
 }
-const children = (e: El) => e.kids.filter((k): k is El => typeof k !== "string");
-const find = (e: El, tag: string) => children(e).find((c) => c.tag === tag);
-const text = (e: El): string => e.kids.map((k) => (typeof k === "string" ? k : text(k))).join("");
-function* iter(e: El, tag: string): Generator<El> { for (const c of children(e)) { if (c.tag === tag) yield c; yield* iter(c, tag); } }
+export const children = (e: El) => e.kids.filter((k): k is El => typeof k !== "string");
+export const find = (e: El, tag: string) => children(e).find((c) => c.tag === tag);
+export const text = (e: El): string => e.kids.map((k) => (typeof k === "string" ? k : text(k))).join("");
+/** Element.iter(tag) của Python (gồm cả chính nó) */
+export function* iter(e: El, tag: string): Generator<El> { if (e.tag === tag) yield e; for (const c of children(e)) yield* iter(c, tag); }
 
 /** .rels → {rId: đường dẫn trong zip} */
-async function rels(z: JSZip, path: string) {
+export async function rels(z: JSZip, path: string) {
   const base = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const rp = (base ? base + "/" : "") + "_rels/" + path.slice(path.lastIndexOf("/") + 1) + ".rels";
   const f = z.file(rp); const out: Record<string, string> = {};
@@ -50,7 +52,8 @@ async function rels(z: JSZip, path: string) {
   }
   return out;
 }
-const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", bmp: "image/bmp", webp: "image/webp", svg: "image/svg+xml", emf: "image/emf", wmf: "image/wmf" };
+/** ảnh nhúng: kiểu MIME theo ATT_MIME của v7.py (đuôi khác → application/octet-stream như bản gốc) */
+const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", ico: "image/x-icon", avif: "image/avif" };
 
 export async function docxHtml(raw: Buffer): Promise<string> {
   const z = await JSZip.loadAsync(raw);
@@ -61,7 +64,7 @@ export async function docxHtml(raw: Buffer): Promise<string> {
   const img = async (rid: string | undefined) => {
     if (!rid) return ""; if (imgs.has(rid)) return imgs.get(rid)!;
     let h = ""; const p = rl[rid]; const f = p ? z.file(p) : null;
-    if (f) { const b = await f.async("nodebuffer"); if (b.length < 8 * 1024 * 1024) h = `<img src="data:${MIME[(p.split(".").pop() || "").toLowerCase()] ?? "image/png"};base64,${b.toString("base64")}">`; }
+    if (f) { const b = await f.async("nodebuffer"); if (b.length < 8 * 1024 * 1024) h = `<img src="data:${MIME[(p.split("/").pop()!.match(/[^.]\.([A-Za-z0-9]{1,8})$/)?.[1] ?? "").toLowerCase()] ?? "application/octet-stream"};base64,${b.toString("base64")}">`; }
     imgs.set(rid, h); return h;
   };
   const on = (pr: El, tag: string) => { const e = find(pr, `{${W}}${tag}`); return !!e && !["0", "false", "none"].includes(e.attrs[`{${W}}val`] ?? ""); };

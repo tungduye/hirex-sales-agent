@@ -1,7 +1,8 @@
 import "server-only";
 
-import { HsError, T, now, orMissing, run, sb } from "./db";
-import { ALL_METAS, MOD_MAP, WORKER_IDS, type CheckOut, type CheckerMeta } from "./checker-mods";
+import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb } from "./db";
+import { snapshot } from "./backup";
+import { ALL_METAS, Abort, MOD_MAP, WORKER_IDS, type CheckOut, type CheckerMeta } from "./checker-mods";
 import type { Id } from "../types";
 
 /* Vọng gác (checker/) — khung chạy trong HireX.
@@ -15,6 +16,19 @@ const DEF: Cfg = { tab_id: null, field_id: null, target: "status", live: null, d
 
 const metaOf = (cid: string): CheckerMeta | undefined => ALL_METAS.find((m) => m.id === cid);
 const nz = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/\s+/g, " ").trim();
+
+/* ───────── worker Python: nhịp sống (dòng ahs_jobs kind='worker', worker cập nhật `started` vài giây/lần) ───────── */
+const WORKER_TTL = 60;
+/** Worker còn chạy không (nhịp gần nhất ≤ 60 giây). Dùng chung cho Vọng gác / CRM / Cú vọ tự động. */
+export async function workerAlive(): Promise<boolean> {
+  const r = await orMissing(run<{ started: number | null } | null>(sb().from("ahs_jobs").select("started").eq("kind", "worker").order("started", { ascending: false }).limit(1).maybeSingle()), () => null);
+  return Boolean(r?.started && now() - Number(r.started) < WORKER_TTL);
+}
+/** Thông báo cho job còn 'queued' khi chưa có worker nhận (giao diện không treo im lặng). */
+export async function queuedNote(status: string): Promise<string> {
+  if (status !== "queued") return "";
+  return (await workerAlive()) ? "" : "Chưa có worker chạy (worker/hs-accountshs-worker.py trên máy chủ) — việc đang chờ trong hàng đợi, sẽ chạy khi worker bật.";
+}
 
 /** 0h hôm nay theo giờ VN (UTC+7), epoch giây — không phụ thuộc tz máy chủ. */
 function today0(): number { const off = 7 * 3600; const t = now() + off; return Math.floor(t / 86400) * 86400 - off; }
@@ -31,7 +45,7 @@ async function cfgGet(cid: string): Promise<Cfg> {
 async function cfgSet(cid: string, c: Cfg) { await run(sb().from(T.settings).upsert({ k: "cyv." + cid, v: JSON.stringify(c) }, { onConflict: "k" })); }
 
 /* ───────── ghép giá trị nhiều cột (proxy) + chọn dòng cần check ───────── */
-async function fieldsOf(tab: Id) { return run<{ id: Id; label: string; type: string }[]>(sb().from(T.fields).select("id,label,type").eq("tab_id", tab).order("pos").order("id")); }
+async function fieldsOf(tab: Id) { return pages<{ id: Id; label: string; type: string }>((a, b) => sb().from(T.fields).select("id,label,type").eq("tab_id", tab).order("pos").order("id").range(a, b)); }
 async function partFields(cfg: Cfg, cid: string): Promise<Record<string, Id>> {
   const m = metaOf(cid); const out: Record<string, Id> = {};
   if (!m?.parts?.length || !cfg.tab_id) return out;
@@ -49,10 +63,10 @@ async function targets(cfg: Cfg, ids: Id[] | null, onlyUnchecked: boolean, cid: 
   if (!cfg.tab_id || !cfg.field_id) return [];
   const m = MOD_MAP[cid]; const pf = Object.keys(await partFields(cfg, cid)).length ? await partFields(cfg, cid) : {};
   const comp = m?.compose && Object.keys(pf).length ? m.compose : null;
-  const rows = await run<{ id: Id; data: Record<string, unknown> }[]>(sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)));
+  const rows = await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b));   // đọc theo trang (max_rows 1000)
   const want = ids ? new Set(ids) : null;
   let done = new Set<Id>();
-  if (onlyUnchecked) { const dr = await run<{ acc_id: Id }[]>(sb().from(T.cyv_checks).select("acc_id").eq("ck", cid).gte("ts", today0())); done = new Set(dr.map((r) => r.acc_id)); }
+  if (onlyUnchecked) { const dr = await pages<{ acc_id: Id }>((a, b) => sb().from(T.cyv_checks).select("acc_id").eq("ck", cid).gte("ts", today0()).order("id").range(a, b)); done = new Set(dr.map((r) => r.acc_id)); }
   const out: Array<{ id: Id; value: string }> = [];
   for (const r of rows) {
     if (want && !want.has(r.id)) continue; if (done.has(r.id)) continue;
@@ -150,20 +164,47 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
     const c2 = await cfgGet(cid); c2.last = J.ended;
     try { const mt = m.meta?.(); if (mt && mt.credit != null) c2.credit = mt.credit; } catch { /* */ }
     await cfgSet(cid, c2);
+    if (J.changed) await bumpVer();
+    await log("cyv_" + cid, J.done, `Vọng gác ${meta.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${J.by === "auto" ? " (định kỳ)" : ""}`).catch(() => undefined);
   }
 }
 async function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJob, m: (typeof MOD_MAP)[string], it: { id: Id; value: string }, r: CheckOut, ms = 0) {
   if (J.stop) return;
   J.done++; J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   J.recent.unshift({ id: it.id, v: m.show ? m.show(it.value) : it.value, res: r.res, info: r.info, ms, ts: now() }); J.recent.length = Math.min(J.recent.length, 60);
-  try { if (await applyOne(cid, cfg, xf, { id: it.id, res: r.res, info: r.info, extra: r.extra })) J.changed++; } catch { /* lỗi ghi 1 dòng: bỏ qua */ }
+  try { if (await applyOne(cid, cfg, xf, { id: it.id, res: r.res, info: r.info, extra: r.extra })) { J.changed++; await bumpSoon(); } } catch { /* lỗi ghi 1 dòng: bỏ qua */ }
 }
+/** ahs_ver + 1 khi có dòng đổi (để client/Cú vọ thấy), tối đa 1 lần / 3 giây trong lúc chạy */
+let lastBump = 0;
+async function bumpSoon() { if (Date.now() - lastBump > 3000) { lastBump = Date.now(); await bumpVer(); } }
 
 /* ───────── job cho worker (curl_cffi) ───────── */
 async function createWorkerJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>) {
   const meta = metaOf(cid)!; const xon = (meta.extra || []).filter((e) => cfg["xf_" + e.k] !== "").map((e) => e.k);
-  const payload = { cid, items, opt: { timeout: Number(cfg.timeout) || 12, proxy: String(cfg.proxy || ""), url: String(cfg.url || meta.url || ""), x: cfg.x || {}, xon } };
+  const have = await preloadExtra(cid, cfg, meta, xon, items.map((i) => i.id));   // số liệu thêm skip_filled: đọc ô đã có + dọn rác (_preload_extra)
+  const payloadItems = items.map((i) => (have[i.id] ? { ...i, have: have[i.id] } : i));
+  const payload = { cid, items: payloadItems, opt: { timeout: Number(cfg.timeout) || 12, proxy: String(cfg.proxy || ""), url: String(cfg.url || meta.url || ""), x: cfg.x || {}, xon } };
   await run(sb().from("ahs_jobs").insert({ kind: "cyv", payload, status: "queued", progress: { done: 0, total: items.length, applied: 0 }, created: now(), by: "cyv:" + cid }));
+}
+/** _preload_extra của core.py: cột skip_filled → đọc sẵn giá trị đang có (checker bỏ qua dòng đã đủ) + dọn giá trị rác (junk→'') cả tab; giá trị 'stale' giữ nguyên nhưng buộc đọc lại (trả ''). */
+async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: string[], aids: Id[]): Promise<Record<number, Record<string, string>>> {
+  const exs = (meta.extra || []).filter((e) => e.skip_filled && xon.includes(e.k));
+  if (!exs.length || !cfg.tab_id) return {};
+  const fids: Array<[string, string, RegExp | null, RegExp | null]> = [];
+  for (const e of exs) { const f = await xfield(cid, cfg, e); if (f) fids.push([e.k, String(f), e.junk ? new RegExp(e.junk, "i") : null, e.stale ? new RegExp(e.stale) : null]); }
+  if (!fids.length) return {};
+  const want = new Set(aids); const out: Record<number, Record<string, string>> = {};
+  const ts = now();
+  for (const r of await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b))) {
+    const d = { ...(r.data || {}) }; let ch = false;
+    for (const [k, fid, jr, sr] of fids) {
+      let v = String(d[fid] ?? "");
+      if (v && jr && jr.test(v)) { d[fid] = ""; v = ""; ch = true; }
+      if (want.has(r.id)) (out[r.id] ??= {})[k] = v && sr && sr.test(v) ? "" : v;
+    }
+    if (ch) await run(sb().from(T.accounts).update({ data: d, updated: ts }).eq("id", r.id));
+  }
+  return out;
 }
 async function activeWorkerJob(cid: string) {
   return orMissing(run<{ id: Id; status: string; progress: Record<string, unknown>; result: unknown; started: number | null; finished: number | null } | null>(
@@ -173,16 +214,24 @@ async function activeWorkerJob(cid: string) {
 async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
   const row = await activeWorkerJob(cid); if (!row) return null;
   const res = Array.isArray(row.result) ? (row.result as Array<{ id: Id; res: string; info: string; extra?: Record<string, unknown> }>) : [];
-  const prog = (row.progress || {}) as Record<string, number>; const applied = Number(prog.applied || 0);
-  const J: NodeJob = { cid, running: row.status === "queued" || row.status === "running", stop: false, total: Number(prog.total || 0), done: Number(prog.done || res.length), live: 0, die: 0, error: 0, changed: 0, started: row.started || 0, ended: row.finished || 0, by: "worker", recent: [], scope: "" };
+  const prog = (row.progress || {}) as Record<string, unknown>; const applied = Number(prog.applied || 0);
+  const running = row.status === "queued" || row.status === "running";
+  const J: NodeJob = { cid, running, stop: false, total: Number(prog.total || 0), done: Number(prog.done || res.length), live: 0, die: 0, error: 0, changed: 0, started: row.started || 0, ended: row.finished || 0, by: "worker", recent: [], scope: "" };
+  for (const r of res) J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   if (res.length > applied) {
     const cfg = await cfgGet(cid); const meta = metaOf(cid)!; const xf: Record<string, Id | null> = {};
     for (const e of meta.extra || []) if (cfg["xf_" + e.k] !== "") { try { xf[e.k] = await xfield(cid, cfg, e); } catch { xf[e.k] = null; } }
-    for (let k = applied; k < res.length; k++) { try { if (await applyOne(cid, cfg, xf, res[k])) J.changed++; } catch { /* */ } }
+    for (let k = applied; k < res.length; k++) { try { if (await applyOne(cid, cfg, xf, res[k])) J.changed++; } catch { /* lỗi ghi 1 dòng: bỏ qua */ } }
+    if (J.changed) await bumpVer();
     await run(sb().from("ahs_jobs").update({ progress: { ...prog, applied: res.length } }).eq("id", row.id));
-    if (!J.running) { cfg.last = now(); await cfgSet(cid, cfg); }
+    if (!running) { cfg.last = now(); await cfgSet(cid, cfg); }
   }
-  for (const r of res) J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
+  if (!running && !prog.logged) {                                                  // ghi nhật ký 1 lần khi worker xong (như finally của core._run)
+    await log("cyv_" + cid, J.done, `Vọng gác ${metaOf(cid)!.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}`).catch(() => undefined);
+    await run(sb().from("ahs_jobs").update({ progress: { ...prog, applied: res.length, logged: 1 } }).eq("id", row.id)).catch(() => undefined);
+  }
+  if (row.status === "failed") J.err_msg = String(prog.err || "Worker lỗi");
+  else if (running) { const note = await queuedNote(row.status); if (note) J.err_msg = note; }   // chưa có worker → báo, không treo im lặng
   J.recent = res.slice(-60).reverse().map((r) => ({ id: r.id, v: "", res: r.res, info: r.info, ts: 0 }));
   return J;
 }
@@ -195,16 +244,16 @@ async function stats(cid: string) {
   return s;
 }
 async function state() {
-  const out = [];
-  for (const meta of ALL_METAS) {
+  // các checker độc lập → đọc song song (tuần tự mỗi lần poll mất vài giây trên Supabase thật)
+  const out = await Promise.all(ALL_METAS.map(async (meta) => {
     const cid = meta.id; const c = await cfgGet(cid);
     const J: NodeJob | null = WORKER_IDS.has(cid) ? await drainWorkerJob(cid) : JOBS.get(cid) || null;
     const nxt = c.auto ? Number(c.last || 0) + Math.max(5, Number(c.every) || 60) * 60 : 0;
     const m = MOD_MAP[cid]; let mt: Record<string, unknown> = {}; try { mt = m?.meta?.() || {}; } catch { mt = {}; }
     if (mt.credit == null && c.credit != null) mt.credit = c.credit;
     const job = J ? { running: J.running, total: J.total, done: J.done, live: J.live, die: J.die, error: J.error, changed: J.changed, started: J.started, ended: J.ended, recent: J.recent, err_msg: J.err_msg } : {};
-    out.push({ id: cid, info: { ...meta }, cfg: c, stats: await stats(cid), meta: mt, job, next: nxt });
-  }
+    return { id: cid, info: { ...meta }, cfg: c, stats: await stats(cid), meta: mt, job, next: nxt };
+  }));
   return { checkers: out, now: now() };
 }
 async function start(cid: string, ids: Id[] | null, scope?: string) {
@@ -217,6 +266,7 @@ async function start(cid: string, ids: Id[] | null, scope?: string) {
   const sc = scope || String(c.scope || "all");
   const items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid);
   if (!items.length) throw new HsError("Không có dòng nào cần check");
+  if (items.length > 50) await snapshot().catch(() => undefined);                  // core.start(): chụp bản an toàn trước lượt lớn
   if (WORKER_IDS.has(cid)) { await createWorkerJob(cid, c, items); return { ok: 1, total: items.length }; }
   const J: NodeJob = { cid, running: true, stop: false, total: items.length, done: 0, live: 0, die: 0, error: 0, changed: 0, started: now(), ended: 0, by: "manual", recent: [], scope: sc };
   JOBS.set(cid, J);

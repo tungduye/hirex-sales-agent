@@ -343,7 +343,9 @@
     "runtime/hs-preview/next/types/**/*.ts",
     "runtime/hs-preview/next/dev/types/**/*.ts",
     ".next-man-cv-sua/types/**/*.ts",
-    ".next-man-cv-sua/dev/types/**/*.ts"
+    ".next-man-cv-sua/dev/types/**/*.ts",
+    ".next-man-cv-sua-2/types/**/*.ts",
+    ".next-man-cv-sua-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

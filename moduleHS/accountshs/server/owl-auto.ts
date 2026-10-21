@@ -1,6 +1,7 @@
 import "server-only";
 
-import { HsError, T, now, run, sb } from "./db";
+import { HsError, T, now, pages, run, sb } from "./db";
+import { queuedNote } from "./checker";
 import type { Id } from "../types";
 
 /* Cú vọ tự động (owl/) — thu thập dữ liệu ngoài (bài đăng Page…) rồi đồng bộ vào tab.
@@ -47,7 +48,7 @@ const scriptOf = (id: unknown) => SCRIPTS.find((s) => s.id === id);
 interface TabF { id: Id; name: string; icon: string; color: string; fields: Array<{ id: Id; label: string; type: string; opts: string; link_tab: Id | null }> }
 async function metaTabs(): Promise<TabF[]> {
   const tabs = await run<{ id: Id; name: string; icon: string; color: string }[]>(sb().from(T.tabs).select("id,name,icon,color").order("pos").order("id"));
-  const fields = await run<{ id: Id; tab_id: Id; label: string; type: string; opts: string; link_tab: Id | null }[]>(sb().from(T.fields).select("id,tab_id,label,type,opts,link_tab").order("pos").order("id"));
+  const fields = await pages<{ id: Id; tab_id: Id; label: string; type: string; opts: string; link_tab: Id | null }>((a, b) => sb().from(T.fields).select("id,tab_id,label,type,opts,link_tab").order("pos").order("id").range(a, b));
   return tabs.map((t) => ({ ...t, fields: fields.filter((f) => f.tab_id === t.id).map((f) => ({ id: f.id, label: f.label, type: f.type, opts: f.opts, link_tab: f.link_tab })) }));
 }
 const tabByName = (tabs: TabF[], name: unknown) => tabs.find((t) => nzc(t.name) === nzc(name));
@@ -69,17 +70,17 @@ function cookiePlan(tab: TabF, tabs: TabF[]): Plan[] {
   return plan;
 }
 async function accById(aid: Id) { const r = await run<{ id: Id; tab_id: Id; data: Record<string, unknown> } | null>(sb().from(T.accounts).select("id,tab_id,data").eq("id", aid).maybeSingle()); return r; }
-async function linksFrom(aid: Id, fid: Id) { const r = await run<{ dst: Id }[]>(sb().from(T.links).select("dst").eq("src", aid).eq("field_id", fid)); return r.map((x) => x.dst); }
+async function linksFrom(aid: Id, fid: Id) { const r = await pages<{ dst: Id }>((a, b) => sb().from(T.links).select("dst").eq("src", aid).eq("field_id", fid).order("id").range(a, b)); return r.map((x) => x.dst); }
 async function resolveCookie(a: { id: Id; data: Record<string, unknown> }, item: Plan | null): Promise<string> {
   if (!item) return "";
   if (item.mode === "field") return String(a.data[String(item.field)] ?? "");
   for (const d of await linksFrom(a.id, item.via)) { const ad = await accById(d); if (ad) { const v = String(ad.data[String(item.target)] ?? ""); if (v) return v; } }
   return "";
 }
-async function firstFieldId(tab: Id) { const r = await run<{ id: Id } | null>(sb().from(T.accounts).select("id").limit(0)); void r; const f = await run<{ id: Id } | null>(sb().from(T.fields).select("id").eq("tab_id", tab).order("pos").order("id").limit(1).maybeSingle()); return f?.id ?? null; }
-async function labelOf(a: { id: Id; tab_id: Id; data: Record<string, unknown> }) { const f = await firstFieldId(a.tab_id); const v = f ? String(a.data[String(f)] ?? "") : ""; return v || "#" + a.id; }
+/** label_of: giá trị cột đầu (pos,id) của tab — tab.fields đã nạp sẵn (metaTabs sắp theo pos,id) nên không cần truy vấn thêm. */
+function labelOf(a: { id: Id; data: Record<string, unknown> }, tab: TabF) { const f = tab.fields[0]; const v = f ? String(a.data[String(f.id)] ?? "") : ""; return v || "#" + a.id; }
 async function resolveSource(a: { id: Id; tab_id: Id; data: Record<string, unknown> }, tab: TabF, tabs: TabF[], script: Script, mapping: Record<string, { mode?: string; field?: number; via?: number; target?: number }> | undefined) {
-  const src: Record<string, unknown> = { id: a.id, label: await labelOf(a) };
+  const src: Record<string, unknown> = { id: a.id, label: labelOf(a, tab) };
   const plan = cookiePlan(tab, tabs);
   for (const inp of script.inputs) {
     const k = inp.k; const ov = (mapping || {})[k] || {};
@@ -121,7 +122,8 @@ async function syncRows(script: Script, rows: Array<Record<string, unknown>>, ta
   }
   const keycol = (key as string) || script.sync.key; const keyfid = colmap[keycol];
   const exist = new Map<string, Id>();
-  if (keyfid) for (const r of await run<{ id: Id; data: Record<string, unknown> }[]>(sb().from(T.accounts).select("id,data").eq("tab_id", tab.id))) { const v = String(r.data[String(keyfid)] ?? "").trim().toLowerCase(); if (v) exist.set(v, r.id); }
+  if (keyfid) for (const r of await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", tab.id).order("id").range(a, b))) {   // đọc theo trang (max_rows 1000)
+    const v = String(r.data[String(keyfid)] ?? "").trim().toLowerCase(); if (v) exist.set(v, r.id); }
   const dept = await run<{ id: Id } | null>(sb().from(T.depts).select("id").order("pos").order("id").limit(1).maybeSingle());
   const did = dept?.id ?? 1;
   const st = await run<{ id: Id } | null>(sb().from(T.statuses).select("id").eq("tab_id", tab.id).order("pos").order("id").limit(1).maybeSingle());
@@ -166,14 +168,17 @@ async function apiJob(qs: URLSearchParams) {
   if (!row) return { error: "job?" };
   const p = row.progress || {}; const rows = Array.isArray(p.rows) ? (p.rows as unknown[]) : []; const frm = Number(qs.get("from") || 0);
   const done = ["done", "failed", "stopped"].includes(row.status);
-  return { status: String(p.status || row.status), done, paused: row.status === "paused", total: rows.length, rows: rows.slice(frm), logs: Array.isArray(p.logs) ? p.logs : [] };
+  const logs = Array.isArray(p.logs) ? [...(p.logs as unknown[])] : [];
+  const note = await queuedNote(row.status);                                         // queued mà chưa có worker → thêm 1 dòng nhật ký (không treo)
+  if (note && !logs.some((l) => (l as { msg?: string }).msg === note)) logs.push({ t: "", msg: note, kind: "warn" });
+  return { status: note ? "Chờ worker…" : String(p.status || row.status), done, paused: row.status === "paused", total: rows.length, rows: rows.slice(frm), logs };
 }
 async function apiStop(b: Record<string, unknown>) { await run(sb().from("ahs_jobs").update({ status: "stopped", finished: now() }).eq("id", Number(b.job || 0)).in("status", ["queued", "running", "paused"])); return { ok: 1 }; }
 async function apiPause(b: Record<string, unknown>) { await run(sb().from("ahs_jobs").update({ status: b.on ? "paused" : "running" }).eq("id", Number(b.job || 0)).in("status", ["running", "paused"])); return { ok: 1 }; }
 async function apiSources(b: Record<string, unknown>) {
   const s = scriptOf(b.script); if (!s) throw new HsError("Kịch bản không tồn tại");
   const tabs = await metaTabs(); const tab = tabByName(tabs, b.tab) || (s.tabs.length ? tabByName(tabs, s.tabs[0]) : undefined); if (!tab) throw new HsError("Không tìm thấy tab");
-  const ids = (Array.isArray(b.ids) && b.ids.length ? b.ids : (await run<{ id: Id }[]>(sb().from(T.accounts).select("id").eq("tab_id", tab.id).order("id"))).map((r) => r.id)) as Id[];
+  const ids = (Array.isArray(b.ids) && b.ids.length ? b.ids : (await pages<{ id: Id }>((a, b) => sb().from(T.accounts).select("id").eq("tab_id", tab.id).order("id").range(a, b))).map((r) => r.id)) as Id[];
   const mapping = b.map as Record<string, { mode?: string; field?: number; via?: number; target?: number }> | undefined;
   const out: Array<Record<string, unknown>> = [];
   for (const aid of ids) { const a = await accById(aid); if (!a || a.tab_id !== tab.id) continue; const src = await resolveSource(a, tab, tabs, s, mapping); const ck = String(src.cookie || ""); out.push({ id: aid, label: src.label, uid: src.uid || "", name: src.name || "", cookie_ok: Boolean(ck), cookie_via: src.cookie_via || "" }); }

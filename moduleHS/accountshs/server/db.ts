@@ -30,12 +30,12 @@ export async function run<R = unknown>(query: PromiseLike<{ data: unknown; error
   return data as R;
 }
 
-/** Lỗi do DB chưa có migration 121 (hàm/bảng mới chưa tạo) — bản chạy local xem trước khi deploy vẫn dùng được phần còn lại. */
+/** Lỗi do DB chưa có migration 128_hs_accountshs (hàm/bảng mới chưa tạo) — bản chạy local xem trước khi deploy vẫn dùng được phần còn lại. */
 const MISSING = /PGRST20[25]|Could not find the (function|table)|(function|relation) [^ ]*ahs_\w+[^ ]* does not exist/i;
 export const isMissing = (e: unknown) => e instanceof Error && MISSING.test(e.message);
-export class NeedMigration extends HsError { constructor() { super("Chức năng này cần migration 121_hs_accountshs.sql — sẽ có sau khi deploy.", 503); } }
+export class NeedMigration extends HsError { constructor() { super("Chức năng này cần cập nhật DB: migration 128_hs_accountshs (release với -ExpectMigrations 128).", 503); } }
 function explain(m: string) {
-  if (MISSING.test(m)) return "Chức năng này cần migration 121_hs_accountshs.sql — sẽ có sau khi deploy. (" + m + ")";
+  if (MISSING.test(m)) return "Chức năng này cần cập nhật DB: migration 128_hs_accountshs (release với -ExpectMigrations 128). (" + m + ")";
   return m;
 }
 /** Chạy truy vấn; nếu DB chưa có migration thì trả `fallback` (hàm) thay vì lỗi. */
@@ -48,11 +48,21 @@ export async function bumpVer() {
   if (r) await run(sb().from(T.ver).update({ n: Number(r.n) + 1 }).eq("id", 1)).catch(() => undefined);
 }
 
-/** select * from <t> [where] order by pos,id — thứ tự chuẩn của mọi bảng meta. */
-export async function allOrdered<R>(t: TableKey, order: "pos" | "id" = "pos"): Promise<R[]> {
-  let q = sb().from(T[t]).select("*");
-  q = order === "pos" ? q.order("pos").order("id") : q.order("id");
-  return run<R[]>(q);
+/** PostgREST trả tối đa max_rows (supabase/config.toml: 1000) dòng mỗi lần → đọc hết theo trang. `q` phải sắp theo khoá duy nhất; `max` = giới hạn tổng. */
+export const PAGE = 1000;
+export async function pages<R>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>, max = Infinity): Promise<R[]> {
+  const out: R[] = [];
+  for (let from = 0; from < max; from += PAGE) {
+    const n = Math.min(PAGE, max - from), rows = await run<R[]>(q(from, from + n - 1));
+    out.push(...rows);
+    if (rows.length < n) break;
+  }
+  return out;
+}
+
+/** select * from <t> order by pos,id — thứ tự chuẩn của mọi bảng meta. */
+export function allOrdered<R>(t: TableKey, order: "pos" | "id" = "pos"): Promise<R[]> {
+  return pages<R>((a, b) => { const q = sb().from(T[t]).select("*"); return (order === "pos" ? q.order("pos").order("id") : q.order("id")).range(a, b); });
 }
 
 export async function getSetting(k: string, d = ""): Promise<string> {
@@ -73,10 +83,37 @@ export function parseDevice(d: Omit<Device, "caps"> & { caps: string | Record<st
   return { ...d, caps };
 }
 
-/** Nhật ký (ahs_logs) — HireX ghi thêm ai làm. */
+/** ahs_logs có cột user_id/user_name chưa (migration HireX). Bảng của bản Python chưa có → ghi như Python.
+ *  Hỏi lại sau 10 phút để tự bật khi migration đã chạy. */
+let logUser: { ok: boolean; at: number } | null = null;
+export async function hasLogUser(): Promise<boolean> {
+  if (logUser && Date.now() - logUser.at < 600_000) return logUser.ok;
+  const { error } = await sb().from(T.logs).select("user_id,user_name").limit(1);
+  logUser = { ok: !error, at: Date.now() };
+  return logUser.ok;
+}
+/** Nhật ký (ahs_logs) — HireX ghi thêm ai làm (khi DB đã có cột). */
 export async function log(act: string, n = 1, detail = "") {
-  const who = await getAccountContext().catch(() => null);
-  await run(sb().from(T.logs).insert({ ts: now(), act, n, detail: String(detail).slice(0, 400), user_id: who?.userId ?? null, user_name: who?.fullName ?? who?.email ?? null }));
+  const row: Record<string, unknown> = { ts: now(), act, n, detail: String(detail).slice(0, 400) };
+  if (await hasLogUser()) {
+    const who = await getAccountContext().catch(() => null);
+    row.user_id = who?.userId ?? null; row.user_name = who?.fullName ?? who?.email ?? null;
+  }
+  await run(sb().from(T.logs).insert(row));
+}
+
+/** Bucket Storage của module: bản Python lưu file ở ổ đĩa nên DB cũ chưa có bucket → tự tạo (private) lần đầu. */
+export const BUCKET = "hs-accountshs";
+let bucketOk: Promise<void> | null = null;
+export function ensureBucket() {
+  return (bucketOk ??= (async () => {
+    const st = sb().storage;
+    const { error } = await st.getBucket(BUCKET);
+    if (!error) return;
+    let c = await st.createBucket(BUCKET, { public: false, fileSizeLimit: 104857600 });
+    if (c.error && /size/i.test(c.error.message)) c = await st.createBucket(BUCKET, { public: false });   // gói Supabase giới hạn thấp hơn 100 MB → theo giới hạn chung
+    if (c.error && !/exist|duplicate/i.test(c.error.message)) throw new HsError("Không tạo được bucket Storage " + BUCKET + ": " + c.error.message, 500);
+  })().catch((e) => { bucketOk = null; throw e; }));
 }
 
 /** Quyền: dùng đúng quyền có sẵn của HireX (không thêm khoá vào permission-catalog — chỉ code trong moduleHS):
@@ -88,6 +125,7 @@ export async function requireHs(level: Level = "view") {
   if (!account?.workspaceId) throw new HsError("Chưa đăng nhập", 401);
   if (!account.permissions.includes("accounts.view")) throw new HsError("Bạn chưa được cấp quyền mục Tài khoản", 403);
   if (level === "manage" && !(await isWorkspaceAdmin())) throw new HsError("Chỉ Quản trị viên được dùng chức năng này", 403);
+  await ensureBucket().catch((e) => console.error("[accountshs]", e));   // lỗi bucket chỉ ảnh hưởng đính kèm / sao lưu
   return account;
 }
 export { hasPermission };

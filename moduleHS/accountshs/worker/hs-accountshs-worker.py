@@ -23,6 +23,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))             # moduleHS/account
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))   # gốc repo HireX (.env.local, runtime/)
 WORKER_DIR = HERE
 POLL = 2.0
+HEARTBEAT_EVERY = 15.0           # cập nhật nhịp sống (ahs_jobs kind='worker') để Next biết worker còn chạy
+_hb_jid = [None]
+_last_hb = [0.0]
 
 try:
     import psycopg
@@ -95,6 +98,31 @@ def jstatus(conn, jid):
     return r[0] if r else 'stopped'
 
 
+def heartbeat(conn, force=False):
+    """Giữ 1 dòng ahs_jobs kind='worker': cột started = lần nhịp gần nhất. Next đọc để báo "chưa có worker" khi nhịp quá 60s."""
+    if not force and time.time() - _last_hb[0] < HEARTBEAT_EVERY:
+        return
+    _last_hb[0] = time.time()
+    try:
+        with conn.cursor() as cur:
+            if _hb_jid[0] is None:
+                cur.execute("select id from ahs_jobs where kind='worker' order by id limit 1")
+                r = cur.fetchone()
+                if r:
+                    _hb_jid[0] = r[0]
+                else:
+                    cur.execute("insert into ahs_jobs(kind,status,started,created,by) values('worker','running',%s,%s,'worker') returning id", (time.time(), time.time()))
+                    _hb_jid[0] = cur.fetchone()[0]
+            else:
+                cur.execute("update ahs_jobs set started=%s, status='running' where id=%s", (time.time(), _hb_jid[0]))
+        conn.commit()
+    except Exception:  # noqa
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 def claim(conn):
     with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute("update ahs_jobs set status='running', started=%s, by='worker' "
@@ -135,7 +163,10 @@ def run_cyv(conn, job):
         if stop['v']:
             return
         try:
-            r = mod.check(it['value'], dict(opt))
+            o = dict(opt)
+            if it.get('have'):
+                o['have'] = it['have']
+            r = mod.check(it['value'], o)
             res, info = r[0], r[1]
             extra = r[2] if len(r) > 2 and isinstance(r[2], dict) else None
         except Exception as e:  # noqa
@@ -306,6 +337,7 @@ def main():
     sys.path.insert(0, HERE)
     url = db_url()
     print('[worker] AccountsHS worker: kết nối DB, poll %.1fs' % POLL)
+    _hb_jid[0] = None
     while True:
         try:
             conn = psycopg.connect(url, autocommit=False)
@@ -315,6 +347,7 @@ def main():
             continue
         try:
             while True:
+                heartbeat(conn)
                 job = None
                 try:
                     job = claim(conn)

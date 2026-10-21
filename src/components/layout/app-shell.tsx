@@ -17,8 +17,10 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
   // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view;
-  // so does "Tài khoản", which shows the account manager site inside HireX.
+  // so does "Tài nguyên", which shows the account manager site inside HireX.
   const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/utilities" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
+  // "Tài nguyên" has its own toolbar: hide the top bar on desktop (phones keep it for the menu button).
+  const noTopBar = pathname === "/accounts";
   // The main menu can shrink to an icon column; the choice is remembered in this browser.
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { try { setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* storage unavailable */ } }, []);
@@ -44,7 +46,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
       )}
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/95 px-4 backdrop-blur md:px-6 lg:px-8">
+        <header className={`sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/95 px-4 backdrop-blur md:px-6 lg:px-8 ${noTopBar ? "lg:hidden" : ""}`}>
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Mở điều hướng">
             <Menu className="size-5" />
           </Button>

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { T, allOrdered, chunks, getJsonSetting, getSetting, isMissing, now, orMissing, run, sb, parseDevice, toIds } from "./db";
+import { T, allOrdered, chunks, getJsonSetting, getSetting, isMissing, now, orMissing, pages, run, sb, parseDevice, toIds } from "./db";
 import type { Account, DbCheck, Delta, Device, Epoch, Field, HistChange, HistInfo, HistItem, HistLast, Id, Link, LogRow, Meta, Snapshot, Status, Tab, TabRows } from "../types";
 
 /* ───────── meta ───────── */
@@ -37,13 +37,6 @@ async function lazyExcl(lz = ""): Promise<Id[]> {
 }
 
 const parseJsonText = <R>(t: string | null | undefined): R => JSON.parse(t || "[]") as R;
-const PAGE = 1000;
-/** đọc hết theo trang (PostgREST giới hạn số dòng mỗi lần) */
-async function pages<R>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<R[]> {
-  const out: R[] = [];
-  for (let from = 0; ; from += PAGE) { const rows = await run<R[]>(q(from, from + PAGE - 1)); out.push(...rows); if (rows.length < PAGE) break; }
-  return out;
-}
 const ACC_COLS = "id,tab_id,dept_id,owner_id,status_id,device_id,note,data,created,updated";
 /** Dòng tài khoản: hàm SQL ahs_accounts_json (1 lượt, dựng JSON trong Postgres); chưa có migration → đọc theo trang. */
 export async function loadAccounts(exclude: Id[], only: Id | null): Promise<Account[]> {
@@ -70,18 +63,33 @@ export async function loadLinks(exclude: Id[], only: Id | null): Promise<Link[]>
 }
 
 /* ───────── dữ liệu ───────── */
+/** Số dòng từng tab (để hiện "+N" cho tab tải riêng chưa nạp). */
+async function tabCounts(tabs: Id[]): Promise<Map<Id, number>> {
+  if (!tabs.length) return new Map();
+  const cnt = await orMissing(run<{ tab_id: Id; n: number }[]>(sb().rpc("ahs_tab_counts", { p_tabs: tabs })),
+    () => Promise.all(tabs.map(async (tab_id) => ({ tab_id, n: (await sb().from(T.accounts).select("id", { count: "exact", head: true }).eq("tab_id", tab_id)).count ?? 0 }))));
+  return new Map(cnt.map((r) => [Number(r.tab_id), Number(r.n)]));
+}
+
+/** Bộ đệm dòng + liên kết của /api/data (như DCACHE/data_cached của v7): khoá = (tab bỏ qua, ahs_ver.n) — trigger tăng ver mỗi lần ghi accounts/links.
+ *  Đọc ver TRƯỚC dữ liệu → bản giữ lại không bao giờ cũ hơn khoá. Meta/thiết bị luôn đọc mới (ghi meta không tăng ver). */
+let dcache: { key: string; accounts: Account[]; links: Link[] } | null = null;
+
 /** /api/data — giống get_data_fast(): bỏ dòng của tab tải riêng chưa nạp (kèm số dòng để hiện "+N"). */
 export async function getData(lz = ""): Promise<Snapshot> {
   const ts = now();
-  const ex = await lazyExcl(lz);
-  const [meta, devices, accounts, links] = await Promise.all([getMeta(), getDevices(), loadAccounts(ex, null), loadLinks(ex, null)]);
-  if (ex.length) {
-    const cnt = await orMissing(run<{ tab_id: Id; n: number }[]>(sb().rpc("ahs_tab_counts", { p_tabs: ex })),
-      () => Promise.all(ex.map(async (tab_id) => ({ tab_id, n: (await sb().from(T.accounts).select("id", { count: "exact", head: true }).eq("tab_id", tab_id)).count ?? 0 }))));
-    const m = new Map(cnt.map((r) => [r.tab_id, Number(r.n)]));
-    for (const t of meta.tabs) if (ex.includes(t.id)) t.lazy_n = m.get(t.id) ?? 0;
-  }
-  return { meta, devices, accounts, links, ts };
+  const [ex, ver] = await Promise.all([lazyExcl(lz),
+    run<{ n: number } | null>(sb().from(T.ver).select("n").eq("id", 1).maybeSingle()).then((r) => (r ? Number(r.n) : -1), () => -1)]);   // -1: không đệm
+  const key = ver >= 0 ? `${ex.join(",")}|${ver}` : "";
+  const hit = key && dcache?.key === key ? dcache : null;
+  const [meta, devices, rows, cnt] = await Promise.all([
+    getMeta(), getDevices(),
+    hit ?? Promise.all([loadAccounts(ex, null), loadLinks(ex, null)]).then(([accounts, links]) => ({ key, accounts, links })),
+    tabCounts(ex),
+  ]);
+  if (key) dcache = rows;
+  for (const t of meta.tabs) if (ex.includes(t.id)) t.lazy_n = cnt.get(t.id) ?? 0;
+  return { meta, devices, accounts: rows.accounts, links: rows.links, ts };
 }
 
 /** /api/tab_rows — nạp riêng một tab "tải riêng" + liên kết với các dòng đã nạp (bỏ liên kết sang tab tải riêng khác chưa nạp). */
@@ -95,19 +103,21 @@ export async function getTabRows(tab: Id, skip = ""): Promise<TabRows> {
 export async function getDelta(since: number, lz = ""): Promise<Delta> {
   const ts = now();
   const ex = await lazyExcl(lz);
-  let q = sb().from(T.accounts).select("*").gte("updated", since - 0.01);
-  if (ex.length) q = q.not("tab_id", "in", `(${ex.join(",")})`);
-  const [accounts, meta, devices, tomb] = await Promise.all([
-    run<Account[]>(q), getMeta(), getDevices(),
-    run<{ id: Id }[]>(sb().from(T.tomb).select("id").gte("ts", since - 0.01)),
+  const [rows, meta, devices, tomb] = await Promise.all([
+    pages<Account>((a, b) => {
+      const q = sb().from(T.accounts).select("*").gte("updated", since - 0.01).order("id").range(a, b);
+      return ex.length ? q.not("tab_id", "in", `(${ex.join(",")})`) : q;
+    }),
+    getMeta(), getDevices(),
+    pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - 0.01).order("id").order("ts").range(a, b)),
   ]);
-  const ids = accounts.map((a) => a.id);
-  const links: Link[] = [];
-  for (const ch of chunks(ids, 400)) {
+  // đọc theo trang trong lúc có ghi: dòng có thể lặp (không bao giờ sót) → bỏ trùng
+  const accounts = [...new Map(rows.map((r) => [r.id, r])).values()];
+  const links: Link[] = [], seen = new Set<Id>();   // liên kết nối 2 dòng ở 2 lô khác nhau: v7 trả 2 lần, ở đây bỏ trùng
+  for (const ch of await Promise.all(chunks(accounts.map((a) => a.id), 400).map((ch) => {
     const list = `(${ch.join(",")})`;
-    const rows = await run<{ id: Id; src: Id; dst: Id; field_id: Id }[]>(sb().from(T.links).select("id,src,dst,field_id").or(`src.in.${list},dst.in.${list}`));
-    for (const l of rows) links.push({ id: l.id, src: l.src, dst: l.dst, f: l.field_id });
-  }
+    return pages<{ id: Id; src: Id; dst: Id; field_id: Id }>((a, b) => sb().from(T.links).select("id,src,dst,field_id").or(`src.in.${list},dst.in.${list}`).order("id").range(a, b));
+  }))) for (const l of ch) if (!seen.has(l.id)) { seen.add(l.id); links.push({ id: l.id, src: l.src, dst: l.dst, f: l.field_id }); }
   return { meta, devices, accounts, links, deleted: [...new Set(tomb.map((r) => r.id))], ts, delta: 1 };
 }
 
@@ -126,17 +136,20 @@ let lastPrune = 0;
 const hjs = (s: unknown): Record<string, unknown> => {
   try { const d = typeof s === "string" ? JSON.parse(s || "{}") : s; return d && typeof d === "object" && !Array.isArray(d) ? (d as Record<string, unknown>) : {}; } catch { return {}; }
 };
-const canon = (v: unknown) => JSON.stringify(v, v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v as object).sort() : undefined);
+/** json.dumps(sort_keys=True): sắp khoá ở mọi tầng; thiếu = null */
+const canon = (v: unknown): string => !v || typeof v !== "object" ? (JSON.stringify(v) ?? "null")
+  : Array.isArray(v) ? `[${v.map(canon).join(",")}]`
+  : `{${Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon((v as Record<string, unknown>)[k])).join(",")}}`;
 function hdiff(col: string, a: unknown, b: unknown): HistChange[] {
   if (col !== "data") return [{ c: col, a, b }];
   const A = hjs(a), B = hjs(b), out: HistChange[] = [];
   const keys = [...new Set([...Object.keys(A), ...Object.keys(B)])].sort((x, y) => (/^\d+$/.test(x) ? +x : 0) - (/^\d+$/.test(y) ? +y : 0));
-  for (const k of keys) if (canon(A[k]) !== canon(B[k])) out.push({ f: /^\d+$/.test(k) ? +k : k, a: A[k], b: B[k] });
+  for (const k of keys) if (canon(A[k]) !== canon(B[k])) out.push({ f: /^\d+$/.test(k) ? +k : k, a: A[k] ?? null, b: B[k] ?? null });
   return out;
 }
 
 export async function histDays(): Promise<number> {
-  const v = parseFloat(await getSetting("hist_days", String(HIST_DAYS)));
+  const v = Number(await getSetting("hist_days", String(HIST_DAYS)));   // Python: int(float(v or 0)) — "" = 0 (giữ vĩnh viễn), sai = 180
   return Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : HIST_DAYS;
 }
 export async function histPrune() {
@@ -161,7 +174,7 @@ export async function histGet(aid: Id, limit = 400): Promise<{ items: HistItem[]
   const out: HistItem[] = [];
   const rows = await run<HistRow[]>(sb().from(T.acc_hist).select("*").eq("acc_id", aid).order("id", { ascending: false }).limit(limit));
   for (const e of rows) {
-    if (e.k === "l+" || e.k === "l-") { const x = hjs(e.data); out.push({ ts: e.ts, k: e.k, f: x.f as Id, t: x.t as Id }); continue; }
+    if (e.k === "l+" || e.k === "l-") { const x = hjs(e.data); out.push({ ts: e.ts, k: e.k, f: (x.f ?? null) as Id | null, t: (x.t ?? null) as Id | null }); continue; }
     const ch: HistChange[] = [];
     for (const [bit, c] of HC) if ((e.m ?? 0) & bit) { ch.push(...hdiff(c, e[c], st[c])); st[c] = e[c]; }
     if (ch.length) out.push({ ts: e.ts, k: "u", ch });
@@ -176,13 +189,13 @@ export async function histLast(rawIds: unknown): Promise<Record<Id, HistLast>> {
   if (Date.now() - lastPrune > 86_400_000) { try { await histPrune(); } catch { /* dọn lịch sử: không chặn đọc */ } }
   if (!ids.length) return {};
   const cur = new Map((await run<Account[]>(sb().from(T.accounts).select("id,data,status_id,owner_id,dept_id,note,device_id").in("id", ids))).map((r) => [r.id, r]));
-  // dòng lịch sử mới nhất của từng acc: lấy theo lô rồi giữ id lớn nhất (không có "max(id) group by" trong PostgREST).
-  const rows = await run<HistRow[]>(sb().from(T.acc_hist).select("*").in("acc_id", ids).order("id", { ascending: false }));
+  // dòng lịch sử mới nhất của từng acc: đọc theo trang (mới trước) rồi giữ id lớn nhất (không có "max(id) group by" trong PostgREST).
+  const rows = await pages<HistRow>((a, b) => sb().from(T.acc_hist).select("*").in("acc_id", ids).order("id", { ascending: false }).range(a, b));
   const out: Record<Id, HistLast> = {};
   for (const e of rows) {
     if (out[e.acc_id]) continue;
     const r = cur.get(e.acc_id); if (!r) continue;
-    if (e.k === "l+" || e.k === "l-") { const x = hjs(e.data); out[e.acc_id] = { ts: e.ts, k: e.k, f: x.f as Id, t: x.t as Id }; continue; }
+    if (e.k === "l+" || e.k === "l-") { const x = hjs(e.data); out[e.acc_id] = { ts: e.ts, k: e.k, f: (x.f ?? null) as Id | null, t: (x.t ?? null) as Id | null }; continue; }
     const ch: HistChange[] = [];
     for (const [bit, c] of HC) if ((e.m ?? 0) & bit) ch.push(...hdiff(c, e[c], r[c]));
     out[e.acc_id] = { ts: e.ts, k: "u", ch: ch.slice(0, 3), n: ch.length };
@@ -194,20 +207,48 @@ export async function histLast(rawIds: unknown): Promise<Record<Id, HistLast>> {
 export async function getLogs(qs: string, limit: number | string): Promise<{ rows: LogRow[] }> {
   const lim = Math.max(1, Math.min(parseInt(String(limit || 300), 10) || 300, 5000));
   const like = `%${qs || ""}%`;
-  const rows = await run<LogRow[]>(sb().from(T.logs).select("*").or(`act.ilike.${esc(like)},detail.ilike.${esc(like)}`).order("id", { ascending: false }).limit(lim));
+  const rows = await pages<LogRow>((a, b) => sb().from(T.logs).select("*").or(`act.ilike.${esc(like)},detail.ilike.${esc(like)}`).order("id", { ascending: false }).range(a, b), lim);
   return { rows };
 }
-/** giá trị trong bộ lọc PostgREST: bọc dấu nháy kép để dấu phẩy/ngoặc không phá cú pháp. */
-const esc = (v: string) => `"${v.replace(/"/g, '\\"')}"`;
+/** giá trị trong bộ lọc PostgREST: bọc dấu nháy kép (thoát \ và ") để dấu phẩy/ngoặc không phá cú pháp. */
+const esc = (v: string) => `"${v.replace(/[\\"]/g, "\\$&")}"`;
 
 export const checkDb = () => orMissing(run<DbCheck>(sb().rpc("ahs_check_db")),
-  (): DbCheck => ({ integrity: "chưa có migration 121", orphan_links: 0, cross_links: 0, bad_tab: 0, bad_status: 0, bad_owner: 0, bad_device: 0 }));
+  (): DbCheck => ({ integrity: "chưa chạy SQL hs_accountshs", orphan_links: 0, cross_links: 0, bad_tab: 0, bad_status: 0, bad_owner: 0, bad_device: 0 }));
 export const dbSize = () => orMissing(run<number>(sb().rpc("ahs_db_size")).then((n) => Number(n) || 0), () => 0);
+
+/** ov_lazy: Tổng quan đếm cả tab "tải riêng" chưa nạp về trình duyệt — số đếm gom theo tab/bộ phận/owner/tình trạng
+ *  (n = tổng, nn = tạo mới trong [since, until)). Có hàm SQL thì gom trong Postgres; chưa có thì đọc theo trang. Đệm theo ahs_ver. */
+type OvRow = [Id, Id, Id | null, Id | null, number, number];
+const OVL = new Map<string, Promise<OvRow[]>>();
+export async function ovLazy(tabs: Id[], since: number, until: number): Promise<{ rows: OvRow[] }> {
+  if (!tabs.length) return { rows: [] };
+  const k = [await dataVersion(), tabs.join(","), since, until].join("|");
+  if (!OVL.has(k)) {
+    if (OVL.size > 20) OVL.clear();
+    OVL.set(k, (async (): Promise<OvRow[]> => {
+      try {
+        const r = await run<Array<{ t: Id; d: Id; o: Id | null; s: Id | null; n: number; nn: number }>>(sb().rpc("ahs_ov_counts", { p_tabs: tabs, p_since: since, p_until: until }));
+        return r.map((x) => [Number(x.t), Number(x.d), x.o == null ? null : Number(x.o), x.s == null ? null : Number(x.s), Number(x.n), Number(x.nn)]);
+      } catch (e) { if (!isMissing(e)) throw e; }
+      const g = new Map<string, OvRow>();
+      const rs = await pages<{ tab_id: Id; dept_id: Id; owner_id: Id | null; status_id: Id | null; created: number | null }>((a, b) =>
+        sb().from(T.accounts).select("tab_id,dept_id,owner_id,status_id,created").in("tab_id", tabs).order("id").range(a, b));
+      for (const r of rs) {
+        const key = `${r.tab_id}|${r.dept_id}|${r.owner_id}|${r.status_id}`;
+        const x = g.get(key) ?? g.set(key, [r.tab_id, r.dept_id, r.owner_id, r.status_id, 0, 0]).get(key)!;
+        x[4]++; if (r.created != null && r.created >= since && r.created < until) x[5]++;
+      }
+      return [...g.values()];
+    })().catch((e) => { OVL.delete(k); throw e; }));
+  }
+  return { rows: await OVL.get(k)! };
+}
 
 /** ov_trend: dòng đã xoá trong khoảng (thống kê tăng/giảm của Tổng quan). */
 export async function ovTrend(since?: number) {
   const s = Number(since) || now() - 31 * 86400;
-  const del = await run<{ tab_id: Id; dept_id: Id; owner_id: Id | null; ts: Epoch }[]>(sb().from(T.tomb).select("tab_id,dept_id,owner_id,ts").gte("ts", s).not("tab_id", "is", null));
+  const del = await pages<{ tab_id: Id; dept_id: Id; owner_id: Id | null; ts: Epoch }>((a, b) => sb().from(T.tomb).select("tab_id,dept_id,owner_id,ts").gte("ts", s).not("tab_id", "is", null).order("ts").order("id").range(a, b));
   return { ts: now(), del };
 }
 

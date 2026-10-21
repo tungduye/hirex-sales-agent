@@ -43,10 +43,10 @@ export interface LogRow { id: Id; ts: Epoch; act: string; n: number; detail: str
 export interface HistChange { c?: string; f?: Id | string; a: unknown; b: unknown }
 export type HistItem =
   | { ts: Epoch; k: "u"; ch: HistChange[] }
-  | { ts: Epoch; k: "l+" | "l-"; f?: Id; t?: Id }
+  | { ts: Epoch; k: "l+" | "l-"; f: Id | null; t: Id | null }
   | { ts: Epoch; k: "new" };
 export interface HistInfo { days: number; keepdel: boolean; n: number; oldest: Epoch | null }
-export interface HistLast { ts: Epoch; k: "u" | "l+" | "l-"; ch?: HistChange[]; n?: number; f?: Id; t?: Id }
+export interface HistLast { ts: Epoch; k: "u" | "l+" | "l-"; ch?: HistChange[]; n?: number; f?: Id | null; t?: Id | null }
 
 export interface BackupCfg { dir: string; enabled: number; every_h: number; keep: number; formats: string[] }
 export interface BackupFile { name: string; size: number; mtime: Epoch; kind: "auto" | "manual" | "safe" | "import" | "other"; ext: "ahs" | "xlsx" | "json" }

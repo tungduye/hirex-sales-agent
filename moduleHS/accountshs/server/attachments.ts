@@ -1,10 +1,10 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { HsError, now, sb } from "./db";
 import { BUCKET } from "./backup";
-import { docxHtml } from "./docx-html";
+import { children, docxHtml, find, iter, parseXml, rels, text as xmlText, type El } from "./docx-html";
 import type { Attachment } from "../types";
 
 /* Đính kèm (trường kiểu "file"): trước đây là thư mục attachments/ trên máy (tên = băm nội dung + đuôi, trùng nội dung chỉ lưu 1 lần);
@@ -22,7 +22,12 @@ const MIME: Record<string, string> = {
 const TEXT = new Set(["txt", "log", "json", "md", "xml", "ini", "cfg", "conf", "yaml", "yml", "html", "htm", "js", "css", "py", "sql", "bat", "sh", "ps1", "env"]);
 const storage = () => sb().storage.from(BUCKET);
 
-export const attExt = (name: string) => { const e = (String(name || "").match(/\.([A-Za-z0-9]{1,8})$/)?.[1] ?? "").toLowerCase(); return /^[a-z0-9]{1,8}$/.test(e) ? e : ""; };
+/** _att_ext: đuôi theo os.path.splitext (bỏ dấu chấm đầu tên như ".env"), chữ thường, 1–8 ký tự [a-z0-9] */
+export const attExt = (name: string) => {
+  const b = String(name || "").split(/[\\/]/).pop()!, i = b.lastIndexOf(".");
+  const e = i > 0 && /[^.]/.test(b.slice(0, i)) ? b.slice(i + 1).toLowerCase() : "";
+  return /^[a-z0-9]{1,8}$/.test(e) ? e : "";
+};
 export const attMime = (name: string) => MIME[attExt(name)] ?? "application/octet-stream";
 const checkId = (fid: string) => { if (!/^[0-9a-f]{24}(\.[a-z0-9]{1,8})?$/.test(fid || "")) throw new HsError("Mã file không hợp lệ"); return fid; };
 
@@ -45,10 +50,10 @@ export async function attRead(fid: string): Promise<Buffer> {
 
 function attText(raw: Buffer, limit = 2 * 1024 * 1024): [string, boolean] {
   const cut = raw.length > limit; raw = raw.subarray(0, limit);
-  if (raw[0] === 0xff && raw[1] === 0xfe) return [raw.subarray(2).toString("utf16le"), cut];
-  if (raw[0] === 0xfe && raw[1] === 0xff) { const b = Buffer.from(raw.subarray(2)); b.swap16(); return [b.toString("utf16le"), cut]; }
+  if (raw[0] === 0xff && raw[1] === 0xfe) return [new TextDecoder("utf-16le").decode(raw.subarray(2)), cut];
+  if (raw[0] === 0xfe && raw[1] === 0xff) return [new TextDecoder("utf-16be").decode(raw.subarray(2)), cut];
   try { return [new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw), cut]; }
-  catch { try { return [new TextDecoder("windows-1258").decode(raw), cut]; } catch { return [raw.toString("latin1"), cut]; } }
+  catch { return [/[\x81\x8a\x8d-\x90\x9a\x9d\x9e]/.test(raw.toString("latin1")) ? raw.toString("latin1") : new TextDecoder("windows-1258").decode(raw), cut]; }   // cp1258 thiếu các byte này → latin-1
 }
 
 export type Preview =
@@ -66,58 +71,116 @@ export async function attPreview(fid: string, name = ""): Promise<Preview> {
     const [t, cut] = attText(raw);
     const dl = ext === "tsv" ? "\t" : (t.slice(0, 2000).split(";").length > t.slice(0, 2000).split(",").length ? ";" : ",");
     const rows = parseCsv(t, dl).slice(0, 3000);
-    return { kind: "xlsx", sheets: [{ name: (name || fid).split("/").pop()!, rows, cols: Math.max(0, ...rows.map((r) => r.length)), cut }] };
+    return { kind: "xlsx", sheets: [{ name: (name || fid).split(/[\\/]/).pop()!, rows, cols: Math.max(0, ...rows.map((r) => r.length)), cut }] };
   }
   if (TEXT.has(ext) || (raw.length < 512 * 1024 && ext === "")) { const [text, cut] = attText(raw); return { kind: "text", text, cut }; }
   return { kind: "none" };
 }
 
 
-/** Excel → bảng chuỗi (ngày tháng về dd/mm/yyyy như bản Python), tối đa 3000 dòng × 80 cột / sheet. */
+
+/* ───────── Excel → bảng chuỗi: port đúng xlsx_sheets() của v7.py (đọc thẳng XML; ô gộp không lặp giá trị, ngày → dd/mm/yyyy) ───────── */
+const S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}";
+const RL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}";
+async function xml(z: JSZip, path: string): Promise<El | null> { const f = z.file(path); return f ? parseXml(await f.async("string")) : null; }
+const colIdx = (ref: string) => { let n = 0; for (const ch of ref) { if (ch >= "A" && ch <= "Z") n = n * 26 + ch.charCodeAt(0) - 64; else break; } return Math.max(n - 1, 0); };
+/** '%.10g' của Python */
+function g10(x: number): string {
+  if (!Number.isFinite(x)) return Number.isNaN(x) ? "nan" : x > 0 ? "inf" : "-inf";
+  if (x === 0) return Object.is(x, -0) ? "-0" : "0";
+  const [m, e] = x.toExponential(9).split("e"), ex = Number(e);
+  if (ex < -4 || ex >= 10) return m.replace(/\.?0+$/, "") + "e" + (ex < 0 ? "-" : "+") + String(Math.abs(ex)).padStart(2, "0");
+  return x.toFixed(9 - ex).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+}
+const p2 = (n: number) => String(n).padStart(2, "0");
+
 async function xlsxSheets(raw: Buffer, maxRows = 3000, maxCols = 80) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(raw as unknown as ArrayBuffer);
+  const z = await JSZip.loadAsync(raw);
+  const ss: string[] = [];
+  const sst = await xml(z, "xl/sharedStrings.xml");
+  if (sst) for (const si of children(sst).filter((e) => e.tag === S + "si")) ss.push([...iter(si, S + "t")].map(xmlText).join(""));
+  const dateXf = new Set<number>();                                       // style nào là ngày tháng
+  const st = await xml(z, "xl/styles.xml");
+  if (st) {
+    const custom = new Map<number, string>();
+    const nf = find(st, S + "numFmts");
+    if (nf) for (const x of children(nf).filter((e) => e.tag === S + "numFmt")) custom.set(parseInt(x.attrs.numFmtId, 10), x.attrs.formatCode || "");
+    const cx = find(st, S + "cellXfs");
+    if (cx) children(cx).filter((e) => e.tag === S + "xf").forEach((xf, i) => {
+      const fid = parseInt(xf.attrs.numFmtId || "0", 10) || 0;
+      const code = (custom.get(fid) ?? "").replace(/"[^"]*"|\[[^\]]*\]/g, "").toLowerCase();
+      if ((fid >= 14 && fid <= 22) || (fid >= 45 && fid <= 47) || (code && /[dy]|h+:m/.test(code))) dateXf.add(i);
+    });
+  }
+  const wb = await xml(z, "xl/workbook.xml");
+  if (!wb) throw new HsError("Không đọc được file Excel");
+  const rl = await rels(z, "xl/workbook.xml");
   const out: Array<{ name: string; rows: string[][]; cols: number; cut: boolean }> = [];
-  const fmtDate = (d: Date) => { const p = (n: number) => String(n).padStart(2, "0"); const s = `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; return d.getUTCHours() || d.getUTCMinutes() ? `${s} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : s; };
-  const cellText = (v: ExcelJS.CellValue): string => {
-    if (v === null || v === undefined) return "";
-    if (v instanceof Date) return fmtDate(v);
-    if (typeof v === "number") return Number.isInteger(v) && Math.abs(v) < 1e15 ? String(v) : v.toPrecision(10).replace(/\.?0+$/, "");
-    if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-    if (typeof v === "object") {
-      if ("richText" in v) return v.richText.map((x) => x.text).join("");
-      if ("result" in v) return cellText(v.result as ExcelJS.CellValue);
-      if ("text" in v) return String(v.text);
-      if ("error" in v) return String(v.error);
-    }
-    return String(v);
-  };
-  wb.eachSheet((ws) => {
+  for (const sh of iter(wb, S + "sheet")) {
+    const p = rl[sh.attrs[RL + "id"] ?? ""];
+    const root = p ? await xml(z, p) : null;
     const rows: string[][] = []; let cut = false, ncol = 0;
-    ws.eachRow((row, r) => {
-      if (r > maxRows) { cut = true; return; }
-      while (rows.length < r - 1) rows.push([]);
+    if (root) for (const row of iter(root, S + "row")) {
+      const r = (parseInt(row.attrs.r || "", 10) || rows.length + 1) - 1;
+      if (r >= maxRows) { cut = true; break; }
+      while (rows.length < r) rows.push([]);
       const cur: string[] = [];
-      row.eachCell({ includeEmpty: false }, (c, ci) => { if (ci > maxCols) { cut = true; return; } while (cur.length < ci - 1) cur.push(""); cur.push(cellText(c.value)); });
+      for (const c of children(row).filter((e) => e.tag === S + "c")) {
+        const ci = c.attrs.r ? colIdx(c.attrs.r) : cur.length;
+        if (ci >= maxCols) { cut = true; continue; }
+        const t = c.attrs.t, v = find(c, S + "v"), vt = v ? xmlText(v) : null;
+        let val = "";
+        if (t === "s" && v) val = ss[parseInt(vt ?? "", 10)] ?? "";
+        else if (t === "inlineStr") val = [...iter(c, S + "t")].map(xmlText).join("");
+        else if (t === "b" && v) val = vt === "1" ? "TRUE" : "FALSE";
+        else if (v && vt !== null) {
+          val = vt;
+          const num = vt.trim() ? Number(vt) : NaN;
+          if ((t === undefined || t === "n") && !Number.isNaN(num)) {
+            if (dateXf.has(parseInt(c.attrs.s || "0", 10) || 0) && num > 0 && num < 2958466) {
+              const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Math.round(num * 86400e6) / 1000));
+              const ds = `${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+              val = Number.isInteger(num) ? ds : `${ds} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+            } else if (Number.isInteger(num) && Math.abs(num) < 1e15) val = String(Math.trunc(num) || 0);
+            else val = g10(num);
+          }
+        }
+        while (cur.length < ci) cur.push("");
+        cur.push(val);
+      }
       while (cur.length && cur[cur.length - 1] === "") cur.pop();
       ncol = Math.max(ncol, cur.length); rows.push(cur);
-    });
+    }
     while (rows.length && !rows[rows.length - 1].length) rows.pop();
-    out.push({ name: ws.name || "Sheet", rows, cols: ncol, cut });
-  });
+    out.push({ name: sh.attrs.name || "Sheet", rows, cols: ncol, cut });
+  }
   return out;
 }
 
+/** csv.reader của Python (dialect excel, không strict): dòng trống → [], dấu " chỉ có nghĩa ở đầu ô. */
 function parseCsv(t: string, dl: string): string[][] {
-  const rows: string[][] = []; let row: string[] = [], cell = "", q = false;
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i];
-    if (q) { if (c === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; continue; }
-    if (c === '"') q = true;
-    else if (c === dl) { row.push(cell); cell = ""; }
-    else if (c === "\n" || c === "\r") { if (c === "\r" && t[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
-    else cell += c;
+  const rows: string[][] = [];
+  type St = "rec" | "fld" | "in" | "q" | "qq" | "crnl";
+  let row: string[] = [], f = "", st = "rec" as St;
+  const save = () => { row.push(f); f = ""; };
+  const end = (c: string | null) => { save(); st = c === null ? "rec" : "crnl"; };
+  const step = (c: string | null): void => {                              // c = null: hết dòng
+    const nl = c === "\n" || c === "\r";
+    if (st === "rec") { if (c === null) return; if (nl) { st = "crnl"; return; } st = "fld"; }
+    switch (st) {
+      case "fld": if (c === null || nl) end(c); else if (c === '"') st = "q"; else if (c === dl) save(); else { f += c; st = "in"; } return;
+      case "in": if (c === null || nl) end(c); else if (c === dl) { save(); st = "fld"; } else f += c; return;
+      case "q": if (c === null) return; if (c === '"') st = "qq"; else f += c; return;
+      case "qq": if (c === '"') { f += c; st = "q"; } else if (c === dl) { save(); st = "fld"; } else if (c === null || nl) end(c); else { f += c; st = "in"; } return;
+      case "crnl": if (c === null) st = "rec"; else if (!nl) { rows.push(row); row = []; st = "rec"; step(c); } return;   // \r lẻ: Python báo lỗi, ở đây coi như xuống dòng
+    }
+  };
+  for (let i = 0; i < t.length;) {                                       // từng dòng như io.StringIO (tách ở \n)
+    const k = t.indexOf("\n", i), ln = t.slice(i, k < 0 ? t.length : k + 1); i += ln.length;
+    for (const c of ln) step(c);
+    step(null);
+    if (st === "rec") { rows.push(row); row = []; }
   }
-  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  if (st === "q") { save(); rows.push(row); }                              // hết file giữa ô có ngoặc kép
   return rows;
 }

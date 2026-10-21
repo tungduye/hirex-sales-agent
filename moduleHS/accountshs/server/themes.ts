@@ -1,11 +1,11 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-/* Giao diện (theme) — port của style/themes.py. CSS nằm ở moduleHS/accountshs/themes/*.css (đọc lúc chạy, sửa file là thấy),
-   ảnh xem trước ở moduleHS/accountshs/themes/preview/<id>.jpg (phục vụ qua /api/hs/accountshs/theme-preview/<id>.jpg). Trong CSS viết @T thay cho bộ chọn theme — ở HireX theme chỉ
-   bao trùm vùng Tài khoản (.hs-acc[data-theme=…]) chứ không đụng <html> của cả app. */
+/* Giao diện (theme) — port của style/themes.py. CSS gốc nằm ở moduleHS/accountshs/ui/themes/*.css (đọc lúc chạy, sửa file là thấy),
+   ảnh xem trước ở ui/themes/preview/<id>.jpg (phục vụ qua /api/hs/accountshs/theme-preview/<id>.jpg). Trong CSS viết @T thay cho html[data-theme="<id>"]
+   (trang Tài nguyên chạy trong khung riêng nên theme chỉ áp cho khung đó, không đụng giao diện HireX). */
 
 export interface ThemeInfo { id: string; name: string; en: string; group: string; layout: "top" | "side"; scheme: "light" | "dark"; frame: "" | "inset" | "center"; img: string }
 const THEMES: Array<[string, string, string, string, ThemeInfo["layout"], ThemeInfo["scheme"], ThemeInfo["frame"]]> = [
@@ -31,21 +31,22 @@ const THEMES: Array<[string, string, string, string, ThemeInfo["layout"], ThemeI
   ["linear-dark", "Tuyến Tính Đêm", "Linear · tối", "Nền tối", "side", "dark", "inset"],
   ["grafana", "Đài Quan Sát", "Grafana · tối", "Nền tối", "side", "dark", ""],
 ];
-const DIR = path.join(process.cwd(), "moduleHS", "accountshs", "themes");
-const PREVIEW = path.join(process.cwd(), "moduleHS", "accountshs", "themes", "preview");
-const read = (fn: string) => readFile(path.join(DIR, fn), "utf8").catch(() => "");
-const exists = (p: string) => readFile(p).then(() => true, () => false);
+// tính lúc gọi (không lúc nạp module) — cwd là gốc dự án khi chạy
+const dir = (...p: string[]) => path.join(process.cwd(), "moduleHS", "accountshs", "ui", "themes", ...p);
+const read = (fn: string) => readFile(dir(fn), "utf8").catch(() => "");
+const exists = (p: string) => stat(p).then(() => true, () => false);
 
 export async function themesList(): Promise<ThemeInfo[]> {
   const out: ThemeInfo[] = [];
   for (const [id, name, en, group, layout, scheme, frame] of THEMES) {
-    if (id !== "base" && !(await exists(path.join(DIR, id + ".css")))) continue;
-    out.push({ id, name, en, group, layout, scheme, frame, img: (await exists(path.join(PREVIEW, id + ".jpg"))) ? `/api/hs/accountshs/theme-preview/${id}.jpg` : "" });
+    if (id !== "base" && !(await exists(dir(id + ".css")))) continue;
+    const img = await stat(dir("preview", id + ".jpg")).catch(() => null);
+    out.push({ id, name, en, group, layout, scheme, frame, img: img ? `/api/hs/accountshs/theme-preview/${id}.jpg?v=${Math.floor(img.mtimeMs / 1000)}` : "" });
   }
   return out;
 }
 
-/** CSS ghép của 1 theme (null = không có theme đó). Bộ chọn @T → .hs-acc[data-theme="id"]. */
+/** CSS ghép của 1 theme (null = không có theme đó). Bộ chọn @T → html[data-theme="id"] (như themes.py). */
 export async function themeCss(tid: string): Promise<string | null> {
   const t = THEMES.find((x) => x[0] === tid);
   if (!t) return null;
@@ -59,11 +60,11 @@ export async function themeCss(tid: string): Promise<string | null> {
   parts.push(body);
   if (t[4] === "side") parts.push(await read("_side_m.css"));
   parts.push(await read("_mobile.css"));
-  return parts.join("\n").replace(/@T\b/g, `.hs-acc[data-theme="${tid}"]`).replace(/html\[data-theme=("|')[\w-]+\1\]/g, `.hs-acc[data-theme="${tid}"]`);
+  return parts.join("\n").replaceAll("@T", `html[data-theme="${tid}"]`);
 }
 
 /** ảnh xem trước theme (jpg) — null nếu không có */
 export async function themePreview(id: string): Promise<Buffer | null> {
   if (!/^[\w-]+$/.test(id)) return null;
-  return readFile(path.join(PREVIEW, id + ".jpg")).catch(() => null);
+  return readFile(dir("preview", id + ".jpg")).catch(() => null);
 }

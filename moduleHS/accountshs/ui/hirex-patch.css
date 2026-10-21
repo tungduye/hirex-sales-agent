@@ -1,0 +1,9 @@
+/* HireX · vá thêm (đi kèm hirex-patch.js) */
+.ovtb{position:relative}
+.hx-ovind{position:absolute;z-index:0;pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),left .24s cubic-bezier(.2,.8,.2,1),width .24s cubic-bezier(.2,.8,.2,1),height .24s cubic-bezier(.2,.8,.2,1);will-change:transform}
+.ovtb.hx-sl .ovi.on::before{background:transparent!important}
+.ovth .hx-ovgh{display:flex;align-items:center;gap:2px;min-width:0}
+.ovth .hx-sep{color:var(--ui-muted);font-weight:500;margin:0 2px}
+.ovth .hx-ovg{margin-right:0;color:var(--ui-primary)}
+.ovth .hx-ovg svg{color:currentColor}
+html.ca-off .hx-ovind{transition:none}

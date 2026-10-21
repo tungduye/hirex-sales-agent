@@ -3,6 +3,7 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { readHumanApiToken } from "@/modules/human-documents/server/api-sync";
 import { parseCvReport } from "@/modules/customers/core/partner-parse";
+import { refreshCvDetails } from "./cv-details";
 import { applicationOf, cvFilter, HUMAN_CV_PAGE_SIZE, HUMAN_CV_URL, learnCodes, mapCv, parseCvPage, type Application, type MappedCv } from "../core/cv-parse";
 
 // Màn CV: copies the CVs of every enabled block from Human (by hand, or every 6 hours from the alerts worker).
@@ -133,6 +134,8 @@ export async function syncHumanCvs(workspaceId: string, trigger: "MANUAL" | "SCH
       for (const [id, name] of people) if (name && have.has(id) && !have.get(id)) await db.from("human_user_links").update({ human_name: name }).eq("workspace_id", workspaceId).eq("human_user_id", id);
     }
     await finish(!failed.length, rows.length, failed.length ? failed.join("; ").slice(0, 500) : null);
+    // Hồ sơ chi tiết of new or changed CVs, in the background (one request per CV).
+    void refreshCvDetails(workspaceId).catch((error) => console.error("[cvs] details failed", error instanceof Error ? error.message : error));
     if (failed.some((item) => item.includes("HUMAN_TOKEN_EXPIRED"))) return { ok: false, rows: rows.length, message: "Token Human đã hết hạn. Admin dán token mới trong \"Cài đặt API Human\"; dữ liệu cũ được giữ." };
     return failed.length
       ? { ok: false, rows: rows.length, message: `Cập nhật ${rows.length.toLocaleString("vi-VN")} CV; khối lỗi: ${failed.join(", ")}. CV của khối lỗi giữ bản cũ.` }

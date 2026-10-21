@@ -11,7 +11,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { docxText, normText, xlsxText } from "./office";
 import {
-  C, LANGS, TPL, VOICES, err, cleanTitle, safeId, fmtT, esc, slugify, lang, langs, st, nextId, dir, fp, save, upd, bySid, need, chunks, has, prune, rj,
+  C, LANGS, TPL, VOICES, err, refresh, cleanTitle, safeId, fmtT, esc, slugify, lang, langs, st, nextId, dir, fp, save, upd, bySid, need, chunks, has, prune, rj,
   styles, saveStyles, pubStyles, topics, saveTopics, glossary, saveGlossary, settings, saveSettings, type HsErr, type Meta, type Settings,
 } from "./data";
 import {
@@ -223,7 +223,7 @@ function publicRoute(req: Request, seg: string[]) {
     ...(k === "summary" && (m.fmt === "excel" ? { sheets: rj<{ sheets: unknown[] }>(fp(m.slug, "report.json"), { sheets: [] }).sheets } : { html: rd("summary.html") })) });
 }
 /** Trang xem công khai /m/<slug>: tiêu đề cho thẻ link (Zalo, trình duyệt). */
-export function publicTitle(slug: string) { const m = /^[\w-]{1,100}$/.test(slug) ? st().meta.get(slug) : undefined; return m?.status === "done" ? m.title : ""; }
+export function publicTitle(slug: string) { refresh(); const m = /^[\w-]{1,100}$/.test(slug) ? st().meta.get(slug) : undefined; return m?.status === "done" ? m.title : ""; }
 
 /* ============ cửa vào ============ */
 async function form(req: Request) {
@@ -238,6 +238,7 @@ const sameOrigin = (req: Request) => { const o = req.headers.get("origin"); if (
 
 export async function handle(req: Request, seg: string[]) {
   try {
+    refresh();
     if (seg[0] === "f" || seg[0] === "d") return publicRoute(req, seg);
     if (seg.length) return text("Không tìm thấy", 404);
     const account = await getAccountContext();

@@ -186,3 +186,16 @@ test("chip · tên kế hoạch · gợi ý", () => {
   assert.ok(R.suggestions(B).length > 0);
   assert.ok(R.profileText(B).includes("Lương=số"));
 });
+
+test("AI_engine: chữ tìm = FTS (đầu từ, cụm liền nhau) · thứ tự id giảm · thống kê theo tình trạng · ngày theo giờ VN", () => {
+  const posts = FX.accs.filter((a) => a.tab_id === 5);
+  assert.equal(query({ tab: 5, q: "ien" }).count, 0); // "chuyến", "điện" chứa "ien" nhưng không có từ nào BẮT ĐẦU bằng "ien"
+  assert.equal(query({ tab: 5, q: "dien thoai" }).count, posts.filter((a) => a.data[52].includes("điện thoại")).length);
+  assert.equal(query({ tab: 5, where: [{ field: 52, op: "contains", value: "bò phở" }] }).count, 0); // đảo chữ → không khớp cụm
+  assert.equal(query({ tab: 5, where: [{ field: 52, op: "contains", value: "phở bò" }] }).count, 5);
+  const r = query({ tab: 1 }); assert.deepEqual(r.ids, [...r.ids].sort((a, b) => b - a));
+  assert.deepEqual(r.stats.map((s) => s.t), ["Live", "Die"]);
+  assert.equal(Q.toTs("2026-10-01"), Date.UTC(2026, 8, 30, 17) / 1000); assert.equal(Q.ymd(Date.UTC(2026, 8, 30, 23) / 1000), "2026-10-01");
+  assert.equal(Q.unitOf("2026-01-05", "week"), "2026-W01"); assert.equal(Q.toTs("30/02/2026"), null);
+  const g = query({ tab: 3, group: { by: 33 }, agg: { fn: "max", field: 32 } }); assert.equal(g.groups.length, 3); assert.ok(g.groups.every((x) => x.n >= 8000000 && x.ids.length === 0));
+});

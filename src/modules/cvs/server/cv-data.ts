@@ -5,6 +5,7 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { fold } from "@/modules/customers/core/partner-parse";
+import { cvDetail } from "./cv-details";
 
 // Màn CV (read with the member's session: row level security decides which CVs, by Rec or "Xem tất cả CV").
 
@@ -45,7 +46,8 @@ function filteredQuery(db: Db, context: Context, filters: CvFilters, links: Link
   if (filters.q) {
     const digits = filters.q.replace(/\D/gu, "");
     const phone = /^0\d{9}$/u.test(digits) ? `84${digits.slice(1)}` : /^84\d{9}$/u.test(digits) ? digits : null;
-    query = phone ? query.contains("phone_keys", [phone]) : query.ilike("search_text", `%${fold(filters.q).replace(/[%_\\]/gu, "")}%`);
+    const pattern = `%${fold(filters.q).replace(/[%_\\,()]/gu, "")}%`;
+    query = phone ? query.contains("phone_keys", [phone]) : query.or(`search_text.ilike.${pattern},detail_search.ilike.${pattern}`);
   }
   if (filters.block) query = query.contains("block_keys", [filters.block]);
   for (const [column, value] of [["status1", filters.status1], ["status2", filters.status2], ["position", filters.position], ["location", filters.loc]] as const)
@@ -102,6 +104,8 @@ export async function getCv(cvId: number) {
   const { data: row } = await db.from("human_cvs").select(`${COLUMNS},data,synced_at,active`).eq("workspace_id", context.workspaceId).eq("cv_id", cvId).maybeSingle();
   if (!row) return null;
   const cv = row as unknown as CvRow & { data: Record<string, unknown>; synced_at: string; active: boolean };
+  // Hồ sơ chi tiết: the kept copy, or fetched now when missing / changed / old (the member may see this CV: read above with their rights).
+  const detailPromise = cvDetail(context.workspaceId, cvId).catch(() => null);
   const [conversations, { data: sameRows }, { data: links }] = await Promise.all([
     conversationsFor(db, context.workspaceId, cv.phone_keys ?? [], cv.email_keys ?? []),
     cv.phone_keys?.length || cv.email_keys?.length
@@ -111,10 +115,11 @@ export async function getCv(cvId: number) {
     db.from("human_user_links").select("human_user_id,human_name,profile_id").eq("workspace_id", context.workspaceId),
   ]);
   const people = await personNames(db, context.workspaceId, (links ?? []) as Link[]);
-  const codeIds = [...new Set(Object.entries(cv.data ?? {}).flatMap(([key, value]) => /(id$|rate|rank|address|position|skill|status)/iu.test(key) && value != null && typeof value !== "object" ? String(value).split(/[,;]+/u) : []).map((part) => part.trim()).filter((part) => /^\d{1,12}$/u.test(part)))].slice(0, 80);
+  const detail = await detailPromise;
+  const codeIds = [...new Set([...Object.entries(cv.data ?? {}), ...Object.entries(detail?.detail ?? {})].flatMap(([key, value]) => /(id$|rate|rank|address|position|skill|status)/iu.test(key) && value != null && typeof value !== "object" ? String(value).split(/[,;]+/u) : []).map((part) => part.trim()).filter((part) => /^\d{1,12}$/u.test(part)))].slice(0, 80);
   const { data: codeRows } = codeIds.length ? await db.from("human_master_codes").select("master_id,name,kind").eq("workspace_id", context.workspaceId).in("master_id", codeIds) : { data: [] };
   return {
-    context, cv, conversations, recer: cv.recer_human_id ? people.byHuman[cv.recer_human_id] ?? cv.recer_name ?? `#${cv.recer_human_id}` : cv.recer_name,
+    context, cv, conversations, detail, recer: cv.recer_human_id ? people.byHuman[cv.recer_human_id] ?? cv.recer_name ?? `#${cv.recer_human_id}` : cv.recer_name,
     sameCandidate: (sameRows ?? []) as Array<{ cv_id: number; name: string | null; position: string | null; status2: string | null; human_updated_at: string | null }>,
     codes: Object.fromEntries(((codeRows ?? []) as Array<{ master_id: number; name: string; kind: string | null }>).map((code) => [String(code.master_id), code.kind ? `${code.name} (${code.kind})` : code.name])) as Record<string, string>,
   };

@@ -1,24 +1,64 @@
 import "server-only";
 
-import { Conflict, HsError, T, chunks, getJsonSetting, isMissing, j, now, run, sb, setSetting, toIds } from "./db";
-import { checkDb, firstField, firstStatus, histInfo, histPrune, ovTrend } from "./accounts-data";
-import type { Account, BulkBody, BulkLinkItem, BulkReport, Epoch, Field, HistInfo, Id, MetaTable } from "../types";
+import { Conflict, HsError, PAGE, T, bumpVer, chunks, getJsonSetting, isMissing, j, now, pages, run, sb, setSetting, toIds } from "./db";
+import { checkDb, firstField, firstStatus, histInfo, histPrune } from "./accounts-data";
+import { snapshot } from "./backup";
+import type { Account, BulkBody, BulkLinkItem, BulkReport, BulkRow, Epoch, Field, HistInfo, Id, MetaTable } from "../types";
 
 /* Các hàm ghi của v7.py (ROUTES) — giữ nguyên tên, tham số và kết quả trả về để client không đổi.
-   Khác Python: không có LOCK toàn cục / transaction; mỗi thao tác là chuỗi lệnh PostgREST. Thao tác lớn (bulk, delete) chạy tuần tự. */
+   Khác Python: không có LOCK toàn cục / transaction; mỗi thao tác là chuỗi lệnh PostgREST (đọc theo trang 1000 dòng = max_rows).
+   Lỗi kiểm tra (ValueError của Python) → HTTP 500 {error}, Conflict → 409 như bản gốc. */
 
 type Body = Record<string, unknown>;
+type LinkRow = { src: Id; dst: Id; field_id: Id };
+type Patch = Record<string, unknown>;
 const num = (v: unknown): Id | null => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+/** Python `x or None` */
+const idOr = (v: unknown): Id | null => num(v) || null;
 const str = (v: unknown, d = "") => (v === null || v === undefined ? d : String(v));
 const dataOf = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const bad = (m: string) => new HsError(m, 500);
+const KINDS = ["phone", "pc", "boxphone"];
+/** chạy fn cho từng phần tử, tối đa n lệnh song song */
+async function pool<X>(xs: X[], fn: (x: X) => Promise<unknown>, n = 8) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); }));
+}
+const idsWhere = async (t: "accounts" | "devices", col: string, val: Id) =>
+  (await pages<{ id: Id }>((a, z) => sb().from(T[t]).select("id").eq(col, val).order("id").range(a, z))).map((r) => r.id);
+const PCOLS = new Set(["data", "note", "status_id", "owner_id", "dept_id", "device_id", "updated"]);
+let noPatchFn = false;
+/** ghi patch từng dòng: các dòng cùng một patch gộp thành 1 lệnh (≤ 500 id);
+ *  patch lẻ (mỗi dòng một khác) gửi theo lô 500 qua ahs_patch_accounts, chưa có hàm thì ghi từng dòng. */
+async function updateIds(ps: Map<Id, Patch>) {
+  const g = new Map<string, Id[]>();
+  for (const [i, p] of ps) { const k = j(p); (g.get(k) ?? g.set(k, []).get(k)!).push(i); }
+  const one: Patch[] = [], jobs: Array<readonly [Patch, Id[]]> = [];
+  for (const [k, ids] of g) {
+    const p = JSON.parse(k) as Patch;
+    if (ids.length === 1 && !noPatchFn && Object.keys(p).every((c) => PCOLS.has(c))) one.push({ ...p, id: ids[0] });
+    else for (const ch of chunks(ids, 500)) jobs.push([p, ch]);
+  }
+  for (const ch of chunks(one, 500)) {
+    if (noPatchFn) { for (const { id, ...p } of ch) jobs.push([p, [Number(id)]]); continue; }
+    try { await run(sb().rpc("ahs_patch_accounts", { p_rows: ch })); }
+    catch (e) {
+      if (!isMissing(e)) throw e;
+      noPatchFn = true;
+      for (const { id, ...p } of ch) jobs.push([p, [Number(id)]]);
+    }
+  }
+  await pool(jobs, ([p, ch]) => run(sb().from(T.accounts).update(p).in("id", ch)));
+}
 
 async function exists(t: keyof typeof T, id: Id | null): Promise<boolean> {
   if (!id) return false;
   return Boolean(await run(sb().from(T[t]).select("id").eq("id", id).maybeSingle()));
 }
-async function nextPos(t: keyof typeof T, where?: { col: string; val: Id }): Promise<number> {
-  let q = sb().from(T[t]).select("pos").order("pos", { ascending: false }).limit(1);
-  if (where) q = q.eq(where.col, where.val);
+/** coalesce(max(pos),0)+1 */
+async function nextPos(t: keyof typeof T, where?: { col: string; val: Id | null }): Promise<number> {
+  let q = sb().from(T[t]).select("pos").not("pos", "is", null).order("pos", { ascending: false }).limit(1);
+  if (where) q = q.eq(where.col, where.val ?? -1);
   const r = await run<{ pos: number } | null>(q.maybeSingle());
   return (r?.pos ?? 0) + 1;
 }
@@ -26,10 +66,11 @@ async function insertId(t: keyof typeof T, row: Record<string, unknown>): Promis
   const r = await run<{ id: Id }>(sb().from(T[t]).insert(row).select("id").single());
   return r.id;
 }
-/** insert or ignore into links */
-async function addLinks(rows: Array<{ src: Id; dst: Id; field_id: Id }>) {
-  if (!rows.length) return;
-  for (const ch of chunks(rows, 500)) await run(sb().from(T.links).upsert(ch, { onConflict: "src,dst,field_id", ignoreDuplicates: true }));
+/** insert or ignore into links → số liên kết thật sự thêm */
+async function addLinks(rows: LinkRow[]): Promise<number> {
+  let n = 0;
+  for (const ch of chunks(rows, 500)) n += (await run<{ id: Id }[]>(sb().from(T.links).upsert(ch, { onConflict: "src,dst,field_id", ignoreDuplicates: true }).select("id"))).length;
+  return n;
 }
 /** dòng thuộc tab có trạng thái sid (1 truy vấn / 900 dòng) */
 async function idsWithStatusTab(ids: Id[], sid: Id): Promise<Set<Id>> {
@@ -44,25 +85,25 @@ async function idsWithStatusTab(ids: Id[], sid: Id): Promise<Set<Id>> {
 export async function saveAccount(b: Body) {
   const ts = now();
   const tabId = num(b.tab_id);
-  if (!(await exists("tabs", tabId))) throw new HsError("Tab không tồn tại");
+  if (!(await exists("tabs", tabId))) throw bad("Tab không tồn tại");
   const row = { tab_id: tabId, dept_id: num(b.dept_id), owner_id: num(b.owner_id), status_id: num(b.status_id), device_id: num(b.device_id), note: str(b.note), data: dataOf(b.data), updated: ts };
   let aid = num(b.id);
   if (aid) {
     const cur = await run<{ updated: Epoch; tab_id: Id } | null>(sb().from(T.accounts).select("updated,tab_id").eq("id", aid).maybeSingle());
-    if (!cur) throw new HsError("Dòng này không còn tồn tại");
-    if (b.ver && Math.abs(cur.updated - Number(b.ver)) > 0.001) throw new Conflict("Dữ liệu đã được thay đổi ở nơi khác - đã tải lại");
+    if (!cur) throw bad("Dòng này không còn tồn tại");
+    if (b.ver && Math.abs(Number(cur.updated) - Number(b.ver)) > 0.001) throw new Conflict("Dữ liệu đã được thay đổi ở nơi khác - đã tải lại");
     await run(sb().from(T.accounts).update(row).eq("id", aid));
   } else aid = await insertId("accounts", { ...row, created: ts });
   if ("links" in b) {
     const fl = new Map((await run<{ id: Id; link_tab: Id | null }[]>(sb().from(T.fields).select("id,link_tab").eq("tab_id", tabId!))).map((f) => [f.id, f.link_tab]));
     await run(sb().from(T.links).delete().eq("src", aid));
-    const want: Array<{ src: Id; dst: Id; field_id: Id }> = [];
+    const want: LinkRow[] = [], seen = new Set<string>();
     for (const [fid, ids] of Object.entries(dataOf(b.links))) {
       const lt = fl.get(Number(fid)); if (!lt) continue;
-      const dsts = toIds(ids).filter((d) => d !== aid);
-      if (!dsts.length) continue;
-      const okTab = await run<{ id: Id }[]>(sb().from(T.accounts).select("id").in("id", dsts).eq("tab_id", lt));
-      for (const r of okTab) want.push({ src: aid, dst: r.id, field_id: Number(fid) });
+      for (const ch of chunks(toIds(ids).filter((d) => d !== aid), PAGE)) {
+        const ok = new Set((await run<{ id: Id }[]>(sb().from(T.accounts).select("id").in("id", ch).eq("tab_id", lt))).map((r) => r.id));
+        for (const d of ch) if (ok.has(d) && !seen.has(`${fid},${d}`)) { seen.add(`${fid},${d}`); want.push({ src: aid, dst: d, field_id: Number(fid) }); }   // giữ thứ tự người dùng chọn
+      }
     }
     await addLinks(want);
   }
@@ -71,7 +112,7 @@ export async function saveAccount(b: Body) {
 
 export async function statusSet(b: Body) {
   const ts = now(), sid = num(b.status_id);
-  if (sid && !(await exists("statuses", sid))) throw new HsError("Trạng thái không tồn tại");
+  if (sid && !(await exists("statuses", sid))) throw bad("Trạng thái không tồn tại");
   let ids = toIds(b.ids);
   if (sid) { const ok = await idsWithStatusTab(ids, sid); ids = ids.filter((i) => ok.has(i)); }
   for (const ch of chunks(ids, 500)) await run(sb().from(T.accounts).update({ status_id: sid, updated: ts }).in("id", ch));
@@ -79,23 +120,27 @@ export async function statusSet(b: Body) {
 }
 
 export async function deviceSet(b: Body) {
-  const dv = num(b.device_id);
-  if (dv && !(await exists("devices", dv))) throw new HsError("Thiết bị không tồn tại");
-  for (const ch of chunks(toIds(b.ids), 500)) await run(sb().from(T.accounts).update({ device_id: dv, updated: now() }).in("id", ch));
+  const ts = now(), dv = num(b.device_id);
+  if (dv && !(await exists("devices", dv))) throw bad("Thiết bị không tồn tại");
+  for (const ch of chunks(toIds(b.ids), 500)) await run(sb().from(T.accounts).update({ device_id: dv, updated: ts }).in("id", ch));
   return { ok: 1 };
 }
 
+const capsOf = (v: unknown) => {
+  const caps: Record<string, number> = {};
+  for (const [k, x] of Object.entries(dataOf(v))) if (Math.trunc(Number(x)) > 0) caps[String(k)] = Math.trunc(Number(x));
+  return j(caps);
+};
 export async function deviceBulk(b: Body) {
   const ts = now(), pos = await nextPos("devices");
-  const caps: Record<string, number> = {};
-  for (const [k, v] of Object.entries(dataOf(b.caps))) if (Number(v) > 0) caps[String(k)] = Math.trunc(Number(v));
   const rows: Record<string, unknown>[] = [];
   for (const r of (Array.isArray(b.rows) ? b.rows : []) as Body[]) {
     const nm = str(r.name).trim(); if (!nm) continue;
-    let kind = str(r.kind || b.kind || "phone"); if (!["phone", "pc", "boxphone"].includes(kind)) kind = "phone";
-    rows.push({ dept_id: num(b.dept_id), owner_id: num(b.owner_id), name: nm, kind, serial: str(r.serial), caps: j(caps), note: "", pos: pos + rows.length, created: ts });
+    let kind = str(r.kind || b.kind || "phone"); if (!KINDS.includes(kind)) kind = "phone";
+    rows.push({ dept_id: num(b.dept_id), owner_id: num(b.owner_id), name: nm, kind, serial: str(r.serial || ""), caps: capsOf(b.caps), note: "", pos: pos + rows.length, created: ts });
   }
-  if (rows.length) await run(sb().from(T.devices).insert(rows));
+  for (const ch of chunks(rows, 500)) await run(sb().from(T.devices).insert(ch));
+  if (rows.length) await bumpVer();
   return { created: rows.length };
 }
 
@@ -113,24 +158,26 @@ export async function ownerSet(b: Body) {
 export async function massSet(b: Body) {
   const ts = now(), ids = toIds(b.ids);
   const rows = new Map<Id, Pick<Account, "id" | "data" | "note">>();
-  for (const ch of chunks(ids, 1000)) for (const r of await run<Pick<Account, "id" | "data" | "note">[]>(sb().from(T.accounts).select("id,data,note").in("id", ch))) rows.set(r.id, r);
-  const sid = num(b.status_id);
+  for (const ch of chunks(ids, PAGE)) for (const r of await run<Pick<Account, "id" | "data" | "note">[]>(sb().from(T.accounts).select("id,data,note").in("id", ch))) rows.set(r.id, r);
+  const sid = num(b.status_id), oid = num(b.owner_id);
   const sok = sid ? await idsWithStatusTab(ids, sid) : new Set<Id>();
-  const od = b.set_owner && num(b.owner_id) ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", num(b.owner_id)!).maybeSingle()) : null;
+  const od = b.set_owner && oid ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", oid).maybeSingle()) : null;
+  const ps = new Map<Id, Patch>();
   let n = 0;
   for (const i of ids) {
     const r = rows.get(i); if (!r) continue;
-    const d = { ...dataOf(r.data) };
-    for (const [k, v] of Object.entries(dataOf(b.data))) { if (v === "" || v === null || v === undefined) delete d[String(k)]; else d[String(k)] = v; }
+    const d: Record<string, unknown> = { ...dataOf(r.data) }, bd = Object.entries(dataOf(b.data));
+    for (const [k, v] of bd) { if (v === "" || v === null || v === undefined) delete d[String(k)]; else d[String(k)] = v; }
     let note = r.note || "";
     if (b.note !== null && b.note !== undefined) note = b.note_mode !== "append" ? str(b.note) : (note ? note + "\n" : "") + str(b.note);
-    const patch: Record<string, unknown> = { data: d, note, updated: ts };
-    if (b.set_device) patch.device_id = num(b.device_id);
-    if (sid && sok.has(i)) patch.status_id = sid;
-    if (b.set_owner) { patch.owner_id = num(b.owner_id); const nd = od ? od.dept_id : num(b.dept_id); if (nd) patch.dept_id = nd; }
-    await run(sb().from(T.accounts).update(patch).eq("id", i));
+    const p: Patch = { ...(bd.length ? { data: d } : {}), note, updated: ts };   // không sửa trường → data giữ nguyên (patch giống nhau gộp được)
+    if (b.set_device) p.device_id = num(b.device_id);
+    if (sid && sok.has(i)) p.status_id = sid;
+    if (b.set_owner) { p.owner_id = oid; const nd = od ? od.dept_id : num(b.dept_id); if (nd) p.dept_id = nd; }   // owner thuộc bộ phận nào thì dòng chuyển sang bộ phận đó
+    ps.set(i, p);
     n++;
   }
+  await updateIds(ps);
   return { ok: n };
 }
 
@@ -154,48 +201,48 @@ export async function quick(b: Body) {
 }
 
 /* ───────── nhập hàng loạt (bulk2) ───────── */
+/** phiên nhập nhiều lượt (sid): chỉ mục khoá → id giữ giữa các lượt; chk = khoá đã hỏi DB */
 const BKC: { sid: string | null; t: number; idx: Map<string, Map<string, Id>>; chk: Map<string, Set<string>> } = { sid: null, t: 0, idx: new Map(), chk: new Map() };
+const bkReset = () => { BKC.sid = null; BKC.idx = new Map(); BKC.chk = new Map(); };
 const kk = (d: Record<string, string>, fs: string[]) => { const p = fs.map((f) => String(d[f] ?? "").trim().toLowerCase()); return p.some(Boolean) ? p.join("\x1f") : ""; };
 
-/** Postgres: id (nhỏ nhất) của các khoá trong tab (hàm ahs_key_lookup). */
+/** Postgres: id (nhỏ nhất) của các khoá trong tab (hàm ahs_key_lookup, ≤ 1000 khoá / lần vì max_rows). */
 async function keyLookup(tab: Id, fids: string[], keys: Iterable<string>): Promise<Map<string, Id>> {
   const out = new Map<string, Id>();
   const ks = [...new Set([...keys].filter(Boolean))].sort();
+  if (!ks.length) return out;
   try {
-    for (const ch of chunks(ks, 20000)) {
-      const rows = await run<{ k: string; id: Id }[]>(sb().rpc("ahs_key_lookup", { p_tab: tab, p_fields: fids.map(Number), p_keys: ch }));
-      for (const r of rows) out.set(r.k, r.id);
-    }
+    await pool(chunks(ks, PAGE), async (ch) => {
+      for (const r of await run<{ k: string; id: Id }[]>(sb().rpc("ahs_key_lookup", { p_tab: tab, p_fields: fids.map(Number), p_keys: ch }))) out.set(r.k, r.id);
+    }, 4);
     return out;
   } catch (e) { if (!isMissing(e)) throw e; }
   // chưa có migration: đọc dòng của tab theo trang, tính khoá giống hàm SQL (strip khoảng trắng + chữ thường, nối chr(31), id nhỏ nhất)
   const want = new Set(ks), ws = /^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g;
-  for (let from = 0; ; from += 1000) {
-    const rows = await run<{ id: Id; data: Record<string, unknown> }[]>(sb().from(T.accounts).select("id,data").eq("tab_id", tab).order("id").range(from, from + 999));
-    for (const r of rows) {
-      const k = fids.map((f) => String(r.data?.[String(f)] ?? "").replace(ws, "").toLowerCase()).join("\x1f");
-      if (want.has(k) && !out.has(k)) out.set(k, r.id);
-    }
-    if (rows.length < 1000) break;
+  for (const r of await pages<{ id: Id; data: Record<string, unknown> }>((a, z) => sb().from(T.accounts).select("id,data").eq("tab_id", tab).order("id").range(a, z))) {
+    const k = fids.map((f) => String(r.data?.[String(f)] ?? "").replace(ws, "").toLowerCase()).join("\x1f");
+    if (want.has(k) && !out.has(k)) out.set(k, r.id);
   }
   return out;
 }
 
-/** Nhập / cập nhật hàng loạt có kiểm soát toàn vẹn. mode: skip · fill · update · add. dry=true: chỉ báo cáo, không ghi. */
+/** Nhập / cập nhật hàng loạt có kiểm soát toàn vẹn. mode: skip · fill · update · add. dry=true: chỉ báo cáo, không ghi.
+ *  rows[].links[fid] = [text | {k, a: {field_id đích: giá trị}}]. Dòng mới mang id tạm (< 0) trong lúc duyệt; cuối cùng mới chèn
+ *  theo lô (id tăng đúng thứ tự dòng như Python), dòng có sẵn gộp thay đổi rồi ghi 1 lần → dry và ghi thật đi cùng một đường. */
 export async function bulk2(b0: Body) {
   const b = b0 as unknown as BulkBody;
   const tab = Number(b.tab_id), dept = Number(b.dept_id), owner = num(b.owner_id), sid = num(b.status_id);
-  const mode = b.mode || "skip", create = b.create !== false, dry = Boolean(b.dry);
+  const mode = b.mode || "skip", create = !("create" in b0) || Boolean(b0.create), dry = Boolean(b.dry);
   const keyf = String(b.key_field || (await firstField(tab)));
-  const kfs = (b.key_fields || []).map(String).filter((x) => x.trim()).slice(0, 2);
+  const kfs = (Array.isArray(b.key_fields) ? b.key_fields : []).map(String).filter((x) => x.trim()).slice(0, 2);
   if (!kfs.length) kfs.push(keyf);
   const ts = now();
   const [fields, tabs, stats, owns, devs] = await Promise.all([
-    run<Field[]>(sb().from(T.fields).select("id,tab_id,label,type,link_tab")),
-    run<{ id: Id; name: string }[]>(sb().from(T.tabs).select("id,name")),
-    run<{ id: Id; label: string }[]>(sb().from(T.statuses).select("id,label").eq("tab_id", tab)),
-    run<{ id: Id; name: string }[]>(sb().from(T.owners).select("id,name").eq("dept_id", dept)),
-    run<{ id: Id; name: string; serial: string }[]>(sb().from(T.devices).select("id,name,serial")),
+    pages<Pick<Field, "id" | "tab_id" | "label" | "type" | "link_tab">>((a, z) => sb().from(T.fields).select("id,tab_id,label,type,link_tab").order("id").range(a, z)),
+    pages<{ id: Id; name: string }>((a, z) => sb().from(T.tabs).select("id,name").order("id").range(a, z)),
+    run<{ id: Id; label: string }[]>(sb().from(T.statuses).select("id,label").eq("tab_id", tab).order("id")),
+    pages<{ id: Id; name: string }>((a, z) => sb().from(T.owners).select("id,name").eq("dept_id", dept).order("id").range(a, z)),
+    pages<{ id: Id; name: string; serial: string | null }>((a, z) => sb().from(T.devices).select("id,name,serial").order("id").range(a, z)),
   ]);
   const ftype = new Map(fields.map((f) => [String(f.id), f]));
   const tname = new Map(tabs.map((t) => [t.id, t.name]));
@@ -204,12 +251,14 @@ export async function bulk2(b0: Body) {
   const dev = new Map<string, Id>();
   for (const d of devs) { dev.set(d.name.trim().toLowerCase(), d.id); if (d.serial) dev.set(d.serial.trim().toLowerCase(), d.id); }
   const ssid = !dry && b.sid ? String(b.sid) : null;
-  if (!(ssid && BKC.sid === ssid && ts - BKC.t < 180)) { BKC.sid = ssid; BKC.idx = new Map(); BKC.chk = new Map(); }
+  if (!(ssid && BKC.sid === ssid && ts - BKC.t < 180)) { bkReset(); BKC.sid = ssid; }
   BKC.t = ts;
   const idxOf = (k: string) => BKC.idx.get(k) ?? BKC.idx.set(k, new Map()).get(k)!;
   const chkOf = (k: string) => BKC.chk.get(k) ?? BKC.chk.set(k, new Set()).get(k)!;
   const primC = new Map<Id, string>(), fsC = new Map<Id, Id | null>(), mtC = new Map<Id, boolean>();
-  const rcache = new Map<Id, [Record<string, unknown>, string]>();
+  const rcache = new Map<Id, [Record<string, unknown>, string]>();                  // id → [data, note] (đọc theo lô, cập nhật khi ghi)
+  const pend = new Map<Id, Patch>(), patches = new Map<Id, Patch>();
+  let tmp = 0;
   const rep: BulkReport = { created: 0, updated: 0, skipped: 0, same: 0, invalid: 0, dup_in: 0, filled: 0, changed: 0, kept: 0, l_created: 0, l_updated: 0, l_links: 0, l_missing: 0, conflicts: [], bad: [], dry };
   const noteBad = (ln: number | null, why: string) => { rep.invalid++; if (rep.bad.length < 60) rep.bad.push({ ln, why }); };
   const noteConf = (ln: number | null, tb: Id, key: string, fid: string, kind: "changed" | "kept") => {
@@ -222,68 +271,76 @@ export async function bulk2(b0: Body) {
   const isMailTab = async (t: Id) => { if (!mtC.has(t)) { const f = ftype.get(await prim(t)); mtC.set(t, /mail/i.test((f?.label ?? "") + (tname.get(t) ?? ""))); } return mtC.get(t)!; };
   const rowdata = async (aid: Id) => {
     let v = rcache.get(aid);
-    if (!v) { const r = await run<{ data: Record<string, unknown>; note: string } | null>(sb().from(T.accounts).select("data,note").eq("id", aid).maybeSingle()); v = [dataOf(r?.data), r?.note ?? ""]; rcache.set(aid, v); }
+    if (!v) { const r = await run<{ data: Record<string, unknown>; note: string | null } | null>(sb().from(T.accounts).select("data,note").eq("id", aid).maybeSingle()); v = [dataOf(r?.data), r?.note ?? ""]; rcache.set(aid, v); }
     return v;
   };
-  const write = async (aid: Id, patch: Record<string, unknown>) => { if (!dry) await run(sb().from(T.accounts).update(patch).eq("id", aid)); };
-  const insertAcc = async (row: Record<string, unknown>): Promise<Id> => (dry ? -(++dryIds) : insertId("accounts", row));
-  let dryIds = 0;
+  /** dòng mới (id tạm): sửa thẳng bản sẽ chèn · dòng có sẵn: gộp patch */
+  const write = (aid: Id, p: Patch) => { Object.assign(aid < 0 ? pend.get(aid)! : patches.get(aid) ?? patches.set(aid, {}).get(aid)!, p); };
+  const insertAcc = (row: Patch): Id => { const id = -(++tmp); pend.set(id, { device_id: null, ...row }); rcache.set(id, [dataOf(row.data), str(row.note)]); return id; };
   /** điền/ghi đè các trường của 1 dòng đã có; true nếu có thay đổi. */
   const applyVals = async (aid: Id, tb: Id, vals: Record<string, string>, md: string, ln: number | null, key: string) => {
     if (!Object.keys(vals).length) return false;
     const row = await rowdata(aid), old = { ...row[0] };
     let chg = false;
-    for (const [f0, v] of Object.entries(vals)) {
-      const f = String(f0), cur = String(old[f] ?? "");
+    for (const [f, v] of Object.entries(vals)) {
+      const cur = String(old[f] || "");
       if (cur === v) continue;
       if (cur === "") { old[f] = v; rep.filled++; chg = true; }
       else if (md === "update") { old[f] = v; rep.changed++; chg = true; noteConf(ln, tb, key, f, "changed"); }
       else { rep.kept++; noteConf(ln, tb, key, f, "kept"); }
     }
-    if (chg) { row[0] = old; await write(aid, { data: old, updated: ts }); }
+    if (chg) { row[0] = old; write(aid, { data: old, updated: ts }); }
     return chg;
   };
-  const resolve = async (t: Id, text: string, attrs: Record<string, string>, d: Id, o: Id | null, md: string, ln: number | null): Promise<Id | null> => {
+  const resolve = async (t: Id, text: string, attrs: Record<string, string>, d: Id, o: Id | null, ln: number | null): Promise<Id | null> => {
     const key = text.trim(); if (!key) return null;
-    const m = idxOf(`${t}:${await prim(t)}`), lk = key.toLowerCase();
-    if (m.has(lk)) { const aid = m.get(lk)!; if (await applyVals(aid, t, attrs, md === "update" ? "update" : "fill", ln, key)) rep.l_updated++; return aid; }
+    const p = await prim(t), m = idxOf(`${t}:${p}`), lk = key.toLowerCase(), hit = m.get(lk);
+    if (hit !== undefined) { if (await applyVals(hit, t, attrs, mode === "update" ? "update" : "fill", ln, key)) rep.l_updated++; return hit; }
     if (!create) { rep.l_missing++; return null; }
-    const data: Record<string, unknown> = { [await prim(t)]: key };
-    for (const [k, v] of Object.entries(attrs)) if (v !== null && v !== undefined && v !== "") data[String(k)] = v;
+    const data: Record<string, unknown> = { [p]: key };
+    for (const [k, v] of Object.entries(attrs)) data[k] = v;
     if (!fsC.has(t)) fsC.set(t, await firstStatus(t));
-    const nid = await insertAcc({ tab_id: t, dept_id: d, owner_id: o, status_id: fsC.get(t), note: "", data, created: ts, updated: ts });
+    const nid = insertAcc({ tab_id: t, dept_id: d, owner_id: o, status_id: fsC.get(t) ?? null, note: "", data, created: ts, updated: ts });
     m.set(lk, nid); rep.l_created++; return nid;
   };
-  // chỉ hỏi server đúng các khoá có trong file
+  const rows: BulkRow[] = Array.isArray(b.rows) ? b.rows.filter((r) => r && typeof r === "object") : [];
+  const cleanData = (r: BulkRow) => Object.fromEntries(Object.entries(dataOf(r.data)).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => [String(k), String(v)]));
+  const linksOf = (r: BulkRow) => Object.entries(dataOf(r.links)).map(([fid, xs]) => [Number(fid), (Array.isArray(xs) ? xs : []) as Array<string | BulkLinkItem>] as const);
+  const itKey = (it: string | BulkLinkItem) => String((typeof it === "object" && it ? it.k : it) || "").trim();
+  const itAttrs = (it: string | BulkLinkItem): Record<string, string> => {
+    const a: Record<string, string> = {};
+    for (const [x, y] of Object.entries(dataOf(typeof it === "object" && it ? it.a : null))) if (y !== null && y !== undefined && y !== "") a[String(x)] = String(y);
+    return a;
+  };
+  // chỉ hỏi server đúng các khoá có trong file (không kéo cả chỉ mục về)
   const mk = `${tab}:${kfs.join(",")}`;
   const m0 = idxOf(mk), chk0 = chkOf(mk), need = new Set<string>();
-  const rows = Array.isArray(b.rows) ? b.rows : [];
-  const cleanData = (r: typeof rows[number]) => Object.fromEntries(Object.entries(dataOf(r.data)).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => [String(k), String(v)]));
   for (const r of rows) { const k = kk(cleanData(r), kfs); if (k && !chk0.has(k)) need.add(k); }
   const got = await keyLookup(tab, kfs, need);
   for (const [k, v] of got) m0.set(k, v);
   for (const k of need) chk0.add(k);
   const want = new Map<Id, Set<string>>(), wa = new Set<Id>();
-  for (const r of rows) for (const [fid, items] of Object.entries(r.links ?? {})) {
-    const lt = linkTab(Number(fid)); if (!lt) continue;
+  for (const r of rows) for (const [fid, items] of linksOf(r)) {
+    const lt = linkTab(fid); if (!lt) continue;
     for (const it of items) {
-      const k = String((typeof it === "object" && it ? it.k : it) ?? "").trim().toLowerCase();
-      if (!k) continue;
+      const k = itKey(it).toLowerCase(); if (!k) continue;
       (want.get(lt) ?? want.set(lt, new Set()).get(lt)!).add(k);
-      if (typeof it === "object" && it && it.a) wa.add(lt);
+      if (typeof it === "object" && it && Object.keys(dataOf(it.a)).length) wa.add(lt);
     }
   }
-  let rids = new Set<Id>(mode === "fill" || mode === "update" ? got.values() : []);
+  const rids = new Set<Id>(mode === "fill" || mode === "update" ? got.values() : []);
   for (const [lt, ks] of want) {
-    const ik = `${lt}:${await prim(lt)}`, m = idxOf(ik), ck = chkOf(ik), nd = [...ks].filter((k) => !ck.has(k));
-    for (const [k, v] of await keyLookup(lt, [await prim(lt)], nd)) m.set(k, v);
+    const p = await prim(lt), ik = `${lt}:${p}`, m = idxOf(ik), ck = chkOf(ik), nd = [...ks].filter((k) => !ck.has(k));
+    for (const [k, v] of await keyLookup(lt, [p], nd)) m.set(k, v);
     for (const k of nd) ck.add(k);
-    if (wa.has(lt)) for (const k of ks) if (m.has(k)) rids.add(m.get(k)!);
+    if (wa.has(lt)) for (const k of ks) { const v = m.get(k); if (v !== undefined) rids.add(v); }
   }
-  rids = new Set([...rids].filter((i) => !rcache.has(i)));
-  for (const ch of chunks([...rids].sort((a, b) => a - b), 3000)) for (const r of await run<{ id: Id; data: Record<string, unknown>; note: string }[]>(sb().from(T.accounts).select("id,data,note").in("id", ch))) rcache.set(r.id, [dataOf(r.data), r.note ?? ""]);
+  const pre = [...rids].filter((i) => i > 0 && !rcache.has(i)).sort((x, y) => x - y);
+  await pool(chunks(pre, PAGE), async (ch) => {
+    for (const r of await run<{ id: Id; data: Record<string, unknown>; note: string | null }[]>(sb().from(T.accounts).select("id,data,note").in("id", ch))) rcache.set(r.id, [dataOf(r.data), r.note ?? ""]);
+  }, 4);
   const seen = new Set<string>();
-  const lcur: Array<{ src: Id; dst: Id; field_id: Id }> = [];
+  const lcur: LinkRow[] = [];
   for (const r of rows) {
     const ln = r.ln ?? null, data = cleanData(r), key = kk(data, kfs);
     const rs = stat.get(str(r.status).trim().toLowerCase()) ?? sid;
@@ -291,83 +348,105 @@ export async function bulk2(b0: Body) {
     const note = r.note || "", rd = dev.get(str(r.device).trim().toLowerCase()) ?? null;
     const hit = Boolean(key && m0.has(key) && mode !== "add");
     if (!key && b.no_new) { noteBad(ln, "thiếu giá trị khóa — không biết dòng nào để cập nhật"); continue; }
-    if (!key && !Object.keys(data).length && !r.links && !note) { noteBad(ln, "dòng trống"); continue; }
+    if (!key && !Object.keys(data).length && !Object.keys(dataOf(r.links)).length && !note) { noteBad(ln, "dòng trống"); continue; }
     if (key && seen.has(key) && (mode === "fill" || mode === "update")) rep.dup_in++;
     seen.add(key);
     if (!hit && b.no_new) { rep.skipped++; continue; }
     if (hit && mode === "skip") { rep.skipped++; continue; }
+    // liên kết: kiểm tra trước (email sai định dạng → bỏ liên kết đó, vẫn nhập dòng chính)
     const lks = new Map<number, Array<[string, Record<string, string>]>>();
-    for (const [fid, items] of Object.entries(r.links ?? {})) {
-      const lt = linkTab(Number(fid)); if (!lt) continue;
+    for (const [fid, items] of linksOf(r)) {
+      const lt = linkTab(fid); if (!lt) continue;
       const good: Array<[string, Record<string, string>]> = [];
       for (const it of items) {
-        const k = String((typeof it === "object" && it ? it.k : it) ?? "").trim(); if (!k) continue;
+        const k = itKey(it); if (!k) continue;
         if ((await isMailTab(lt)) && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(k)) { noteBad(ln, `"${k.slice(0, 40)}" không phải email — bỏ liên kết này`); continue; }
-        const a: Record<string, string> = {};
-        for (const [x, y] of Object.entries((typeof it === "object" && it ? (it as BulkLinkItem).a : null) ?? {})) if (y !== null && y !== undefined && y !== "") a[String(x)] = String(y);
-        good.push([k, a]);
+        good.push([k, itAttrs(it)]);
       }
-      lks.set(Number(fid), good);
+      lks.set(fid, good);
     }
     let aid: Id;
     if (hit) {
       aid = m0.get(key)!;
       let chg = await applyVals(aid, tab, data, mode, ln, key.split("\x1f")[0]);
-      const patch: Record<string, unknown> = {};
-      if (rs && mode === "update") patch.status_id = rs;
-      if (ro && mode === "update") patch.owner_id = ro;
-      if (note) { const cur = (await rowdata(aid))[1] || ""; if ((mode === "update" && cur !== note) || (mode === "fill" && !cur)) patch.note = note; }
-      if (Object.keys(patch).length) { await write(aid, { ...patch, updated: ts }); if ("note" in patch) (await rowdata(aid))[1] = note; chg = true; }
-      if (rd) { await write(aid, { device_id: rd }); chg = true; }
+      const p: Patch = {};
+      if (rs && mode === "update") p.status_id = rs;
+      if (ro && mode === "update") p.owner_id = ro;
+      if (note) { const cur = (await rowdata(aid))[1] || ""; if ((mode === "update" && cur !== note) || (mode === "fill" && !cur)) p.note = note; }
+      if (Object.keys(p).length) { write(aid, { ...p, updated: ts }); if ("note" in p) (await rowdata(aid))[1] = note; chg = true; }
+      if (rd) { write(aid, { device_id: rd, updated: ts }); chg = true; }   // Python không đổi updated ở đây → client (delta) không thấy; HireX có
       rep[chg ? "updated" : "same"]++;
     } else {
-      aid = await insertAcc({ tab_id: tab, dept_id: dept, owner_id: ro, status_id: rs, note, data, created: ts, updated: ts });
+      aid = insertAcc({ tab_id: tab, dept_id: dept, owner_id: ro, status_id: rs, note, data, created: ts, updated: ts });
       if (key) m0.set(key, aid);
-      if (rd) await write(aid, { device_id: rd });
+      if (rd) write(aid, { device_id: rd });
       rep.created++;
     }
-    for (const [fid, good] of lks) {
-      const lt = linkTab(fid)!;
-      for (const [k, a] of good) { const dst = await resolve(lt, k, a, dept, ro, mode, ln); if (dst && dst !== aid) lcur.push({ src: aid, dst, field_id: fid }); }
+    for (const [fid, good] of lks) for (const [k, a] of good) {
+      const dst = await resolve(linkTab(fid)!, k, a, dept, ro, ln);
+      if (dst && dst !== aid) lcur.push({ src: aid, dst, field_id: fid });
     }
   }
-  if (!dry) {
-    const before = lcur.length ? (await sb().from(T.links).select("id", { count: "exact", head: true })).count ?? 0 : 0;
-    await addLinks(lcur.filter((l) => l.src > 0 && l.dst > 0));
-    const after = lcur.length ? (await sb().from(T.links).select("id", { count: "exact", head: true })).count ?? 0 : 0;
-    rep.l_links += after - before;
-  } else rep.l_links += lcur.length;
-  if (dry || b.last) { BKC.sid = null; BKC.idx = new Map(); BKC.chk = new Map(); }
+  const uniq = (ls: LinkRow[]) => [...new Map(ls.map((l) => [`${l.src},${l.dst},${l.field_id}`, l])).values()];
+  if (dry) {
+    // như insert or ignore: chỉ đếm liên kết chưa có
+    const ls = uniq(lcur), old = ls.filter((l) => l.src > 0 && l.dst > 0), have = new Set<string>();
+    for (const ch of chunks([...new Set(old.map((l) => l.src))], 200))
+      for (const l of await pages<LinkRow>((a, z) => sb().from(T.links).select("src,dst,field_id").in("src", ch).order("id").range(a, z))) have.add(`${l.src},${l.dst},${l.field_id}`);
+    rep.l_links += ls.length - old.filter((l) => have.has(`${l.src},${l.dst},${l.field_id}`)).length;
+  } else {
+    const real = new Map<Id, Id>(), ins = [...pend];
+    for (const ch of chunks(ins, 500)) {
+      const ids = (await run<{ id: Id }[]>(sb().from(T.accounts).insert(ch.map(([, r]) => r)).select("id"))).map((r) => r.id).sort((x, y) => x - y);
+      if (ids.length !== ch.length) throw bad("Chèn dòng mới không đủ");
+      ch.forEach(([t], i) => real.set(t, ids[i]));                                    // id cấp theo thứ tự dòng chèn
+    }
+    const fix = (i: Id) => (i < 0 ? real.get(i)! : i);
+    await updateIds(patches);
+    rep.l_links += await addLinks(uniq(lcur.map((l) => ({ src: fix(l.src), dst: fix(l.dst), field_id: l.field_id }))));
+    for (const m of BKC.idx.values()) for (const [k, v] of m) if (v < 0) m.set(k, fix(v));   // lượt sau của phiên thấy id thật
+  }
+  if (dry || b.last) bkReset();
   return rep;
 }
 
 /* ───────── cập nhật theo từng dòng (đối chiếu cũ/mới) ───────── */
 export async function rowsSet(b: Body) {
-  const ts = now(); let n = 0;
-  for (const it of (Array.isArray(b.items) ? b.items : []) as Body[]) {
-    const r = await run<Account | null>(sb().from(T.accounts).select("*").eq("id", num(it.id) ?? 0).maybeSingle());
-    if (!r) continue;
-    const d = { ...dataOf(r.data) };
-    const valid = new Map((await run<{ id: Id; type: string }[]>(sb().from(T.fields).select("id,type").eq("tab_id", r.tab_id))).map((f) => [String(f.id), f.type]));
+  const ts = now(), items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === "object") as Body[];
+  const rows = new Map<Id, Account>();
+  for (const ch of chunks([...new Set(items.map((it) => num(it.id)).filter((x): x is Id => x !== null))], PAGE))
+    for (const r of await run<Account[]>(sb().from(T.accounts).select("*").in("id", ch))) rows.set(r.id, r);
+  const tabs = [...new Set([...rows.values()].map((r) => r.tab_id))];
+  const [fs, sts, owns, devs] = tabs.length ? await Promise.all([
+    pages<{ id: Id; tab_id: Id; type: string }>((a, z) => sb().from(T.fields).select("id,tab_id,type").in("tab_id", tabs).order("id").range(a, z)),
+    pages<{ id: Id; tab_id: Id }>((a, z) => sb().from(T.statuses).select("id,tab_id").in("tab_id", tabs).order("id").range(a, z)),
+    pages<{ id: Id; dept_id: Id }>((a, z) => sb().from(T.owners).select("id,dept_id").order("id").range(a, z)),
+    pages<{ id: Id }>((a, z) => sb().from(T.devices).select("id").order("id").range(a, z)),
+  ]) : [[], [], [], []];
+  const ftype = new Map(fs.map((f) => [`${f.tab_id}:${f.id}`, f.type]));
+  const stTab = new Map(sts.map((s) => [s.id, s.tab_id])), oDept = new Map(owns.map((o) => [o.id, o.dept_id])), devOk = new Set(devs.map((d) => d.id));
+  const ps = new Map<Id, Patch>();
+  let n = 0;
+  for (const it of items) {
+    const r = rows.get(num(it.id) ?? 0); if (!r) continue;
+    const d: Record<string, unknown> = { ...dataOf(r.data) };
     for (const [k, v] of Object.entries(dataOf(it.data))) {
-      const t = valid.get(String(k)); if (!t || t === "link" || t === "file") continue;
+      const t = ftype.get(`${r.tab_id}:${k}`); if (!t || t === "link" || t === "file") continue;
       if (v === null || v === undefined || v === "") delete d[String(k)]; else d[String(k)] = String(v);
     }
-    const patch: Record<string, unknown> = { data: d, updated: ts };
-    if ("note" in it) patch.note = str(it.note);
-    if ("status_id" in it) {
-      const sid = num(it.status_id);
-      if (sid === null || (await run(sb().from(T.statuses).select("id").eq("id", sid).eq("tab_id", r.tab_id).maybeSingle()))) patch.status_id = sid;
-    }
+    const p: Patch = { data: d, updated: ts };
+    if ("note" in it) p.note = it.note ? String(it.note) : "";
+    if ("status_id" in it) { const sid = idOr(it.status_id); if (sid === null || stTab.get(sid) === r.tab_id) p.status_id = sid; }
     if ("owner_id" in it) {
-      const oid = num(it.owner_id);
-      const o = oid ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", oid).maybeSingle()) : null;
-      if (o) { patch.owner_id = oid; patch.dept_id = o.dept_id; } else if (oid === null) patch.owner_id = null;
+      const oid = idOr(it.owner_id), od = oid ? oDept.get(oid) : undefined;
+      if (od !== undefined) { p.owner_id = oid; p.dept_id = od; } else if (oid === null) p.owner_id = null;
     }
-    if ("device_id" in it) { const dv = num(it.device_id); if (dv === null || (await exists("devices", dv))) patch.device_id = dv; }
-    await run(sb().from(T.accounts).update(patch).eq("id", r.id));
+    if ("device_id" in it) { const dv = idOr(it.device_id); if (dv === null || devOk.has(dv)) p.device_id = dv; }
+    rows.set(r.id, { ...r, ...p } as Account);                                       // cùng id xuất hiện lại: thấy kết quả lần trước (như chạy tuần tự)
+    ps.set(r.id, { ...ps.get(r.id), ...p });
     n++;
   }
+  await updateIds(ps);
   return { updated: n };
 }
 
@@ -382,16 +461,16 @@ export async function upsert(kind: keyof typeof COLS, b: Body) {
   const vals: Record<string, unknown> = {};
   for (const c of cols) if (c in b) vals[c] = /_id$|_tab$|^lazy$|^tint$/.test(c) ? num(b[c]) : b[c];
   if (kind === "device") {
-    if ("caps" in vals) { const caps: Record<string, number> = {}; for (const [k, v] of Object.entries(dataOf(vals.caps))) if (Number(v) > 0) caps[String(k)] = Math.trunc(Number(v)); vals.caps = j(caps); }
-    if (vals.kind !== undefined && !["phone", "pc", "boxphone"].includes(String(vals.kind))) vals.kind = "phone";
-    if ("name" in vals) { vals.name = str(vals.name).trim(); if (!vals.name) throw new HsError("Tên thiết bị trống"); }
+    if ("caps" in vals) vals.caps = capsOf(vals.caps);
+    if (vals.kind !== undefined && vals.kind !== null && !KINDS.includes(String(vals.kind))) vals.kind = "phone";
+    if ("name" in vals) { vals.name = str(vals.name).trim(); if (!vals.name) throw bad("Tên thiết bị trống"); }
   }
   const id = num(b.id);
   if (id) {
     if (kind === "owner" && vals.parent_id) {
       let p = vals.parent_id as Id | null; const seen = new Set<Id>();
       while (p && !seen.has(p)) {
-        if (p === id) throw new HsError("Owner không thể là cấp trên của chính nó / cấp dưới của nó");
+        if (p === id) throw bad("Owner không thể là cấp trên của chính nó / cấp dưới của nó");
         seen.add(p);
         const r = await run<{ parent_id: Id | null } | null>(sb().from(T.owners).select("parent_id").eq("id", p).maybeSingle());
         p = r?.parent_id ?? null;
@@ -400,17 +479,18 @@ export async function upsert(kind: keyof typeof COLS, b: Body) {
     if (Object.keys(vals).length) await run(sb().from(T[table]).update(vals).eq("id", id));
     if (kind === "field") {
       if ("type" in vals && vals.type !== "link") { await run(sb().from(T.links).delete().eq("field_id", id)); await run(sb().from(T.fields).update({ link_tab: null }).eq("id", id)); }
-      if ("link_tab" in vals) {
-        const okIds = await run<{ id: Id }[]>(sb().from(T.accounts).select("id").eq("tab_id", (vals.link_tab as Id | null) ?? -1));
-        const keep = new Set(okIds.map((r) => r.id));
-        const ls = await run<{ id: Id; dst: Id }[]>(sb().from(T.links).select("id,dst").eq("field_id", id));
-        const bad = ls.filter((l) => !keep.has(l.dst)).map((l) => l.id);
-        for (const ch of chunks(bad, 500)) await run(sb().from(T.links).delete().in("id", ch));
+      if ("link_tab" in vals) {   // bỏ liên kết trỏ sang dòng không thuộc tab liên kết mới
+        const lt = (vals.link_tab as Id | null) ?? -1;
+        const ls = await pages<{ id: Id; dst: Id }>((a, z) => sb().from(T.links).select("id,dst").eq("field_id", id).order("id").range(a, z));
+        const keep = new Set<Id>();
+        for (const ch of chunks([...new Set(ls.map((l) => l.dst))], PAGE)) for (const r of await run<{ id: Id }[]>(sb().from(T.accounts).select("id").eq("tab_id", lt).in("id", ch))) keep.add(r.id);
+        for (const ch of chunks(ls.filter((l) => !keep.has(l.dst)).map((l) => l.id), 500)) await run(sb().from(T.links).delete().in("id", ch));
       }
     }
+    await bumpVer();
     return { id };
   }
-  const where = kind === "field" || kind === "status" ? { col: "tab_id", val: num(b.tab_id)! } : kind === "owner" ? { col: "dept_id", val: num(b.dept_id)! } : undefined;
+  const where = kind === "field" || kind === "status" ? { col: "tab_id", val: num(b.tab_id) } : kind === "owner" ? { col: "dept_id", val: num(b.dept_id) } : undefined;
   vals.pos = await nextPos(table, where);
   if (kind === "device") vals.created = now();
   const nid = await insertId(table, vals);
@@ -418,16 +498,16 @@ export async function upsert(kind: keyof typeof COLS, b: Body) {
     await run(sb().from(T.fields).insert({ tab_id: nid, label: "Tên", type: "text", pos: 1 }));
     await run(sb().from(T.statuses).insert([{ tab_id: nid, label: "Live", color: "#10b981", pos: 1 }, { tab_id: nid, label: "Die", color: "#ef4444", pos: 2 }]));
   }
+  await bumpVer();
   return { id: nid };
 }
 
 export async function del(b: Body) {
-  const t = String(b.table), i = num(b.id)!;
-  const idsOf = async (q: Promise<{ id: Id }[]>) => (await q).map((r) => r.id);
+  const t = String(b.table), i = num(b.id) ?? 0;
   if (t === "depts") {
-    await delAccountIds(await idsOf(run<{ id: Id }[]>(sb().from(T.accounts).select("id").eq("dept_id", i))));
-    const devs = await idsOf(run<{ id: Id }[]>(sb().from(T.devices).select("id").eq("dept_id", i)));
-    if (devs.length) await run(sb().from(T.accounts).update({ device_id: null }).in("device_id", devs));
+    await delAccountIds(await idsWhere("accounts", "dept_id", i));
+    const devs = await idsWhere("devices", "dept_id", i);
+    for (const ch of chunks(devs, 500)) await run(sb().from(T.accounts).update({ device_id: null }).in("device_id", ch));
     await run(sb().from(T.devices).delete().eq("dept_id", i));
     await run(sb().from(T.owners).delete().eq("dept_id", i));
     await run(sb().from(T.depts).delete().eq("id", i));
@@ -439,8 +519,8 @@ export async function del(b: Body) {
     await run(sb().from(T.devices).update({ owner_id: par }).eq("owner_id", i));
     await run(sb().from(T.owners).delete().eq("id", i));
   } else if (t === "tabs") {
-    await delAccountIds(await idsOf(run<{ id: Id }[]>(sb().from(T.accounts).select("id").eq("tab_id", i))));
-    const fids = [...await idsOf(run<{ id: Id }[]>(sb().from(T.fields).select("id").eq("tab_id", i))), ...await idsOf(run<{ id: Id }[]>(sb().from(T.fields).select("id").eq("link_tab", i)))];
+    await delAccountIds(await idsWhere("accounts", "tab_id", i));
+    const fids = (await run<{ id: Id }[]>(sb().from(T.fields).select("id").or(`tab_id.eq.${i},link_tab.eq.${i}`))).map((r) => r.id);
     if (fids.length) await run(sb().from(T.links).delete().in("field_id", fids));
     await run(sb().from(T.fields).update({ link_tab: null }).eq("link_tab", i));
     await run(sb().from(T.fields).delete().eq("tab_id", i));
@@ -455,36 +535,39 @@ export async function del(b: Body) {
   } else if (t === "statuses") {
     await run(sb().from(T.accounts).update({ status_id: null }).eq("status_id", i));
     await run(sb().from(T.statuses).delete().eq("id", i));
-  } else throw new HsError("bad table");
+  } else return { ok: 1 };   // Python: bảng lạ → bỏ qua
+  await bumpVer();
   return { ok: 1 };
 }
 
 export async function reorder(b: Body) {
   const t = String(b.table) as MetaTable;
-  if (!["depts", "owners", "tabs", "fields", "statuses", "devices"].includes(t)) throw new HsError("bad table");
-  const ids = toIds(b.ids);
-  for (let pos = 1; pos <= ids.length; pos++) await run(sb().from(T[t]).update({ pos }).eq("id", ids[pos - 1]));
+  if (!["depts", "owners", "tabs", "fields", "statuses", "devices"].includes(t)) throw bad("bad table");
+  await pool(toIds(b.ids).map((id, k) => [id, k + 1] as const), ([id, pos]) => run(sb().from(T[t]).update({ pos }).eq("id", id)));
+  await bumpVer();
   return { ok: 1 };
 }
 
 /* ───────── cài đặt lặt vặt ───────── */
 export async function tabKeys(b: Body) {
-  const tid = num(b.tab_id) ?? 0;
-  if (!(await exists("tabs", tid))) throw new HsError("Tab không tồn tại");
+  const tid = Math.trunc(Number(b.tab_id) || 0);
+  if (!(await exists("tabs", tid))) throw bad("Tab không tồn tại");
   const ok = new Set((await run<{ id: Id }[]>(sb().from(T.fields).select("id").eq("tab_id", tid))).map((r) => r.id));
   const ks: Id[] = [];
-  for (const x of toIds(b.keys).slice(0, 2)) if (ok.has(x) && !ks.includes(x)) ks.push(x);
+  for (const x of toIds((Array.isArray(b.keys) ? b.keys : []).slice(0, 2))) if (ok.has(x) && !ks.includes(x)) ks.push(x);
   const tk = await getJsonSetting<Record<string, Id[]>>("tab_keys", {});
   if (ks.length) tk[String(tid)] = ks; else delete tk[String(tid)];
   await setSetting("tab_keys", JSON.stringify(tk));
+  await bumpVer();
   return { ok: 1 };
 }
 export async function grpIcon(b: Body) {
-  const g = str(b.g).trim(); if (!g) throw new HsError("Chưa có tên nhóm");
+  const g = str(b.g).trim(); if (!g) throw bad("Chưa có tên nhóm");
   const ic = str(b.icon).toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30);
   const gi = await getJsonSetting<Record<string, string>>("grp_icons", {});
   if (ic) gi[g] = ic; else delete gi[g];
   await setSetting("grp_icons", JSON.stringify(gi));
+  await bumpVer();
   return { ok: 1 };
 }
 export async function histCfg(b: Body): Promise<HistInfo> {
@@ -495,8 +578,9 @@ export async function histCfg(b: Body): Promise<HistInfo> {
   return histInfo();
 }
 export async function logClear() { await run(sb().from(T.logs).delete().gte("id", 0)); return { ok: true }; }
-export async function repair() { return run(sb().rpc("ahs_repair", { p_now: now() })); }
-export { checkDb, ovTrend };
+/** sửa lỗi dữ liệu: luôn chụp bản an toàn trước (snapshot(True) của Python) */
+export async function repair() { await snapshot(true); return run(sb().rpc("ahs_repair", { p_now: now() })); }
+export { checkDb };
 
 /* ───────── nhãn dòng (nhật ký) ───────── */
 export async function accLabel(i: Id): Promise<string> {
@@ -512,11 +596,11 @@ export async function auditDetail(name: string, b: Body): Promise<string> {
   if (ids.length) return (await Promise.all(ids.slice(0, 3).map(accLabel))).join(", ") + (ids.length > 3 ? " …" : "");
   if (name === "account") {
     if (b.id) return accLabel(num(b.id)!);
-    const f = await firstField(num(b.tab_id)!);
+    const f = await firstField(num(b.tab_id) ?? 0);
     return str(dataOf(b.data)[String(f)]);
   }
   if (["dept", "owner", "tab", "field", "status", "device"].includes(name)) return str(b.name || b.label || `#${b.id ?? ""}`);
-  if (name === "delete") return `${b.table} #${b.id}`;
+  if (name === "delete") return `${str(b.table, "None")} #${str(b.id, "None")}`;
   if (name === "bulk") return `${Array.isArray(b.rows) ? b.rows.length : 0} dòng`;
   if (name === "device_bulk") return `${Array.isArray(b.rows) ? b.rows.length : 0} máy`;
   return str(b.name);

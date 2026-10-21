@@ -5,6 +5,7 @@ import { Briefcase, Building2, Code2, FileUser, Globe, History, Languages, Mail,
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import { RefreshCvsButton } from "@/modules/cvs/components/cv-forms";
 import { cvFilters, getCv, listCvs, type CvFilters, type CvRow } from "@/modules/cvs/server/cv-data";
+import { detailPairs } from "@/modules/cvs/core/cv-detail";
 
 type Params = Record<string, string | string[] | undefined>;
 type Detail = NonNullable<Awaited<ReturnType<typeof getCv>>>;
@@ -127,6 +128,9 @@ function CvPanel({ detail, closeHref, blockLabel }: { detail: Detail; closeHref:
   const data = cv.data ?? {};
   const field = (icon: ReactNode, label: string, value: ReactNode) => value ? <div className="flex gap-2.5"><span className="mt-0.5 text-slate-400">{icon}</span><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p><div className="break-words text-sm text-slate-800">{value}</div></div></div> : null;
   const companies = (cv.companies ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  // Every filled field of the hồ sơ; coded values get their bộ mã name.
+  const codeLike = /(id$|rate|rank|address|position|skill|status)/iu;
+  const detailRows = detail.detail?.detail ? detailPairs(detail.detail.detail).map(([path, value]) => [path, codeLike.test(path.split(" › ").at(-1) ?? "") ? value.split(/[,;]+/u).map((part) => detail.codes[part.trim()] ?? part.trim()).join(", ") : value] as const) : [];
   const links = Object.entries(data).flatMap(([key, value]) => typeof value === "string" && /^https?:\/\//iu.test(value.trim()) ? [{ key, url: value.trim() }] : []).slice(0, 8);
   const showValue = (key: string, value: unknown) => {
     if (value == null || value === "") return <span className="text-slate-300">—</span>;
@@ -167,6 +171,15 @@ function CvPanel({ detail, closeHref, blockLabel }: { detail: Detail; closeHref:
         {item.status2 ? <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">{item.status2}</span> : null}
         <span className="text-[11px] text-slate-500">{day(item.status2_at ?? item.updated_at)}</span>
       </li>)}</ul> : companies.length ? <ul className="mt-2 flex flex-wrap gap-1.5">{companies.map((company, index) => <li key={`${company}-${index}`} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{company}</li>)}</ul> : <p className="mt-1.5 text-xs text-slate-500">Chưa gửi công ty nào.</p>}
+    </section>
+
+    <section className="mt-5">
+      <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><FileUser className="size-4"/>Hồ sơ chi tiết</h3>
+      {detailRows.length ? <dl className="mt-2 grid grid-cols-[minmax(0,130px)_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg bg-slate-50/70 p-2.5 text-xs">
+        {detailRows.map(([path, value], index) => <div key={`${path}-${index}`} className="contents"><dt className="break-words font-medium text-slate-500" title={path}>{path}</dt>
+          <dd className="whitespace-pre-line break-words text-slate-800">{/^https?:\/\//iu.test(value) ? <a href={value} target="_blank" rel="noreferrer noopener" className="break-all text-blue-700 hover:underline">{value}</a> : value}</dd></div>)}
+      </dl> : <p className="mt-1.5 text-xs text-slate-500">{detail.detail?.error === "HUMAN_TOKEN_EXPIRED" ? "Token Human hết hạn, chưa lấy được hồ sơ." : detail.detail?.error ? "Chưa lấy được hồ sơ chi tiết từ Human." : "Chưa có hồ sơ chi tiết."}</p>}
+      {detail.detail?.fetchedAt ? <p className="mt-1 text-[11px] text-slate-400">Hồ sơ lấy lúc {time(detail.detail.fetchedAt)}{detail.detail.error && detailRows.length ? " (lần lấy lại vừa rồi lỗi, đang hiện bản cũ)" : ""}</p> : null}
     </section>
 
     <section className="mt-5">

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { HsError, T, getJsonSetting, now, orMissing, run, sb } from "./db";
+import { queuedNote } from "./checker";
 import type { Id } from "../types";
 
 /* CRM (crm/) — kéo dữ liệu từ hệ thống chat-stats về rồi chuẩn hóa vào các tab (Facebook / Email / SĐT / Zalo…).
@@ -24,7 +25,8 @@ async function state() {
   const j = await activeJob();
   const p = (j?.progress || {}) as Record<string, unknown>;
   const running = Boolean(j && (j.status === "queued" || j.status === "running"));
-  const job = { running, phase: String(p.phase || (running ? "Đang chạy" : "")), done: Number(p.done || 0), total: Number(p.total || 0), err: j?.status === "failed" ? String(p.err || "Lỗi") : String(p.err || "") };
+  const note = j ? await queuedNote(j.status) : "";                                 // queued mà chưa có worker → báo rõ, giao diện không treo
+  const job = { running, phase: String(p.phase || (note ? "Chờ worker" : running ? "Đang chạy" : "")), done: Number(p.done || 0), total: Number(p.total || 0), err: j?.status === "failed" ? String(p.err || "Lỗi") : String(p.err || note || "") };
   return { cfg: { url: c.url, has_token: Boolean((c.token || "").trim()) }, job, last: await getJsonSetting<unknown>("crm.last", null) };
 }
 async function enqueue(payload: Record<string, unknown>) {

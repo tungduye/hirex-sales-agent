@@ -2,7 +2,7 @@ import "server-only";
 
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { HsError, log, requireHs, type Level } from "./db";
+import { HsError, bumpVer, log, requireHs, type Level } from "./db";
 import * as D from "./accounts-data";
 import * as R from "./accounts-routes";
 import * as B from "./backup";
@@ -13,15 +13,22 @@ import { owlAutoHandle } from "./owl-auto";
 import { crmHandle } from "./crm";
 import { themeCss, themePreview, themesList } from "./themes";
 import { cyvTick } from "./checker";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
-/* Một cửa cho mọi /api/hs/accountshs/<name> — giữ đúng tên đường dẫn + hình dạng JSON của v7.py (do_GET / do_POST / ROUTES),
-   nên phần client chỉ đổi tiền tố URL. Quyền: GET = view · ghi = edit · cài đặt/sao lưu/khôi phục/Cú vọ = manage. */
+/** Giao diện gốc của v7.py (ui/index.html, ui/owl.html — dựng bằng ui/build_ui.py), bản chạy thật nạp 1 lần rồi giữ trong bộ nhớ; bản xem trước đọc lại mỗi lần. */
+const UI = new Map<string, Promise<string>>();
+const uiPage = (f: string) => { if (process.env.NODE_ENV !== "production") UI.delete(f); if (!UI.has(f)) UI.set(f, readFile(path.join(process.cwd(), "moduleHS", "accountshs", "ui", f), "utf8").catch((e) => { UI.delete(f); throw e; })); return UI.get(f)!; };
+
+/* Một cửa cho mọi /api/hs/accountshs/<name> — giữ đúng tên đường dẫn + hình dạng JSON của v7.py (do_GET / do_POST / ROUTES):
+   giao diện là trang gốc của v7 (GET ui), chỉ đổi tiền tố URL /api/ → /api/hs/accountshs/. Quyền: GET = view · ghi = edit · cài đặt/sao lưu/khôi phục/Cú vọ = manage. */
 
 type Body = Record<string, unknown>;
 type Fn = (b: Body) => Promise<unknown>;
 
 const ROUTES: Record<string, [Level, Fn]> = {
-  ov_trend: ["view", (b) => R.ovTrend(Number(b.since))],
+  ov_trend: ["view", (b) => D.ovTrend(Number(b.since))],
+  ov_lazy: ["view", (b) => D.ovLazy((Array.isArray(b.tabs) ? b.tabs : []).map(Number).filter((x) => Number.isInteger(x) && x > 0), Number(b.since) || 0, Number(b.until) || 0)],
   account: ["edit", R.saveAccount], status_set: ["edit", R.statusSet], owner_set: ["edit", R.ownerSet], mass_set: ["edit", R.massSet],
   delete_accounts: ["edit", R.deleteAccounts], quick: ["edit", R.quick], bulk: ["edit", R.bulk2], bulk_check: ["edit", (b) => R.bulk2({ ...b, dry: true })],
   delete: ["manage", R.del], reorder: ["manage", R.reorder],
@@ -33,8 +40,11 @@ const ROUTES: Record<string, [Level, Fn]> = {
   backup_restore: ["manage", B.backupRestore], backup_cfg: ["manage", B.cfgSet], repair: ["manage", R.repair],
   ...AI.routes,
 };
-const NO_LOG = new Set(["reorder", "bulk_check", "ov_trend", ...AI.noLog]);
+const NO_LOG = new Set(["reorder", "bulk_check", "ov_trend", "ov_lazy", ...AI.noLog]);
+const READ_ONLY = new Set(["bulk_check", "ov_trend", "ov_lazy", "ai_chat", "ai_rows", "ai_models", "ai_test", "ai_backup", "ai_feedback", "ai_drop", "ai_cfg_set", "ai_learn", "ai_logic_import"]);
 
+/** Giờ Việt Nam dạng %Y%m%d_%H%M%S (tên file tải về như Python). */
+const stamp = () => new Date(Date.now() + 7 * 3600_000).toISOString().replace(/[-:]/g, "").replace("T", "_").slice(0, 15);
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const file = (body: Buffer | string, type: string, name?: string, dl = true) =>
   new NextResponse(body as BodyInit, { headers: { "Content-Type": type, "Cache-Control": "no-store", ...(name ? { "Content-Disposition": `${dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(name)}` } : {}) } });
@@ -50,6 +60,7 @@ export async function handleGet(name: string, qs: URLSearchParams): Promise<Resp
     if (name.startsWith("cyv/")) { await requireHs("view"); return json(...(await checkerHandle("GET", name.slice(4), qs, null))); }
     if (name.startsWith("owl/")) { await requireHs("view"); return json(...(await owlAutoHandle("GET", name.slice(4), qs, null))); }
     if (name.startsWith("crm/")) { await requireHs("view"); return json(...(await crmHandle("GET", name.slice(4), qs, null))); }
+    if (name === "ui" || name === "owl-page") { await requireHs("view"); return new NextResponse(await uiPage(name === "ui" ? "index.html" : "owl.html"), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }); }
     if (name === "themes") { await requireHs("view"); return json({ themes: await themesList() }); }
     if (name.startsWith("theme-preview/")) { await requireHs("view"); const img = await themePreview(name.slice(14).replace(/\.jpg$/, "")); return img ? new NextResponse(img as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "max-age=86400" } }) : json({ error: "not found" }, 404); }
     if (name.startsWith("theme/")) { await requireHs("view"); const c = await themeCss(name.slice(6).replace(/\.css$/, "")); return c === null ? json({ error: "not found" }, 404) : file(c, "text/css; charset=utf-8"); }
@@ -69,7 +80,7 @@ export async function handleGet(name: string, qs: URLSearchParams): Promise<Resp
       case "check": return json(await D.checkDb());
       case "backup_file": { await requireHs("manage"); const f = await B.backupFile(q("name")); return file(f.body, "application/octet-stream", f.name); }
       case "export_all": {
-        const st = new Date(Date.now() + 7 * 3600_000).toISOString().replace(/[-:]/g, "").replace("T", "_").slice(0, 15);
+        const st = stamp();
         if (q("fmt", "xlsx") === "json") return file(JSON.stringify(await B.dumpJson()), "application/json", `accountshs_${st}.json`);
         return file(await B.writeXlsx(await B.xlsxAll(), true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `accountshs_${st}.xlsx`);
       }
@@ -96,9 +107,16 @@ async function internalTick(req: Request): Promise<Response> {
 export async function handlePost(name: string, qs: URLSearchParams, req: Request): Promise<Response> {
   try {
     if (name === "internal/tick") return await internalTick(req);
-    if (name.startsWith("cyv/")) { await requireHs("edit"); return json(...(await checkerHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())))); }
-    if (name.startsWith("owl/")) { await requireHs("edit"); return json(...(await owlAutoHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())))); }
-    if (name.startsWith("crm/")) { await requireHs("edit"); return json(...(await crmHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())))); }
+    if (name.startsWith("cyv/")) { await requireHs("edit"); const r = await checkerHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())); await bumpVer(); return json(...r); }
+    if (name === "owl/export") {
+      // owl.py write_xlsx(headers, rows, sheet): 1 sheet, dòng 1 là tiêu đề
+      await requireHs("view");
+      const b = ((await req.json().catch(() => ({}))) ?? {}) as Body;
+      const sheet = String(b.sheet || "Owl").slice(0, 31) || "Owl", rows = [(b.headers as unknown[]) ?? [], ...((b.rows as unknown[][]) ?? [])];
+      return file(await B.writeXlsx({ [sheet]: rows }, true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `owl_${stamp()}.xlsx`);
+    }
+    if (name.startsWith("owl/")) { await requireHs("edit"); const r = await owlAutoHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())); await bumpVer(); return json(...r); }
+    if (name.startsWith("crm/")) { await requireHs("edit"); const r = await crmHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())); await bumpVer(); return json(...r); }
     if (name === "att_upload") { await requireHs("edit"); return json(await A.attSave(qs.get("name") ?? "file", Buffer.from(await req.arrayBuffer()))); }
     if (name === "backup_upload") {
       await requireHs("manage");
@@ -124,6 +142,7 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
     const ln = n(b.ids) || n(b.items) || ((name === "bulk" || name === "device_bulk") && r ? Number(r.created ?? 0) + Number(r.updated ?? 0) : 1);
     if (!NO_LOG.has(name)) await log(act, ln, detail);
+    if (!READ_ONLY.has(name)) await bumpVer();   // Python tăng ahs_ver sau mỗi lần ghi (DB của bản Python không có trigger tăng)
     B.autoBackupIfDue().catch((e) => console.error("[accountshs] auto backup", e));
     return json(r ?? { ok: 1 });
   } catch (e) { return fail(e); }

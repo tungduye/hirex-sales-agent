@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
-import { HsError, T, chunks, getJsonSetting, log, now, orMissing, run, sb, setSetting } from "./db";
+import { HsError, T, chunks, getJsonSetting, log, now, orMissing, pages, run, sb, setSetting } from "./db";
 import { dataVersion, firstStatus, getDevices, getMeta, loadAccounts, loadLinks } from "./accounts-data";
 import { delAccountIds } from "./accounts-routes";
 import { BUCKET, snapshot } from "./backup";
@@ -50,7 +50,7 @@ const toRow = (p: R.Pattern) => ({ id: p.id, sig: p.sig, x: p.x ?? null, q: p.q 
 let PC: { at: number; ps: R.Pattern[] } | null = null;
 async function patterns(): Promise<R.Pattern[]> {
   if (PC && Date.now() - PC.at < 30_000) return PC.ps;
-  const rows = await orMissing(run<PRow[]>(sb().from(TABLE).select("*").order("ts").limit(1000)), () => [] as PRow[]);
+  const rows = await orMissing(pages<PRow>((a, b) => sb().from(TABLE).select("*").order("ts").order("id").range(a, b)), () => [] as PRow[]); // Supabase cắt 1000 dòng / lần → đọc theo trang
   PC = { at: Date.now(), ps: rows.map(toPat) }; return PC.ps;
 }
 async function patPut(ps: R.Pattern[]) { if (ps.length) { await backupLogic(1800); await run(sb().from(TABLE).upsert(ps.map(toRow), { onConflict: "id" })); } PC = null; await trimPatterns(); }
@@ -226,12 +226,12 @@ async function drop(b: Body) {
 function relax(d: DS, sp: Q.Spec, chs: R.Chip[]) {
   const cand = chs.filter((c) => ["status", "where", "q", "owner", "dept"].includes(c.k));
   if (cand.length < 2 && !cand.some((c) => ["status", "q", "owner", "dept"].includes(c.k))) return [];
-  const out: Array<{ k: string; i?: number; t: string; n: number }> = [];
+  const out: Array<{ k: string; i: number | null; t: string; n: number }> = [];
   for (const c of cand.slice(0, 8)) {
     const s2 = R.jc(sp);
     if (c.k === "where") { s2.where = (s2.where ?? []).filter((_, k) => k !== c.i); if (!s2.where.length) delete s2.where; } else delete s2[c.k];
     let n = 0; try { n = query(d, s2, 0).count; } catch { continue; }
-    if (n) out.push({ k: c.k, i: c.i, t: c.t, n });
+    if (n) out.push({ k: c.k, i: c.i ?? null, t: c.t, n });
   }
   return out.sort((a, b) => b.n - a.n).slice(0, 3);
 }
@@ -549,7 +549,7 @@ async function cfgView(): Promise<O> {
   const c = await cfg(), [ps, al, tr, bk] = await Promise.all([patterns(), alias(), trLoad(), backups().catch(() => [])]);
   const key = !!process.env.OPENAI_API_KEY;
   return { ...c, provider: "openai", url: "", key_set: hasAi(c), keys_set: key ? { [`openai|${c.model}`]: true } : {}, keys_val: {}, models: { openai: c.model }, urls: {},
-    providers: [{ id: "openai", name: "OpenAI (ChatGPT)", model: MODEL0(), models: [...new Set([MODEL0(), "gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1", "gpt-5-mini"])], hint: key ? "Key đặt ở máy chủ (OPENAI_API_KEY)" : "Máy chủ chưa có OPENAI_API_KEY", ph: "", url: "", presets: [], local: false }],
+    providers: [{ id: "openai", name: "OpenAI (ChatGPT)", model: MODEL0(), models: [...new Set([MODEL0(), "gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1", "gpt-5-mini"])], hint: key ? "Key đặt ở máy chủ (OPENAI_API_KEY)" : "Máy chủ chưa có OPENAI_API_KEY", ph: key ? "Đã cấu hình bởi HireX (OPENAI_API_KEY)" : "Máy chủ HireX chưa có OPENAI_API_KEY", url: "", presets: [], local: false }],
     mem: al, patterns: [...ps].reverse().slice(0, 200).map((p) => ({ id: p.id, sig: p.sig, hits: p.hits, auto: !!p.auto, q: p.q ?? "" })), n_patterns: ps.length, n_auto: ps.filter((p) => p.auto).length,
     train: { open: tr.filter((x) => x.status !== "fixed").length, fixed: tr.filter((x) => x.status === "fixed").length, file: "ahs_settings: ai_training" }, backups: bk,
     files: { logic: TABLE, cfg: "ahs_settings: ai_cfg", dir: `${BUCKET}/${AIDIR}` } };

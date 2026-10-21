@@ -3,6 +3,7 @@
 // HireX shows are picked from the names Human is known or likely to use, and coded values get their bộ mã name.
 // Pure; covered by tests/human-cv-parse.test.mjs.
 import { fold, parsePartnerPage } from "../../customers/core/partner-parse.ts";
+import { cvFingerprint } from "./cv-detail.ts";
 
 export const HUMAN_CV_URL = "http://52.220.196.215:8088/cv";
 export const HUMAN_CV_PAGE_SIZE = 5000;
@@ -89,7 +90,7 @@ export interface MappedCv {
   cv_id: number; history_id: number | null; code: string | null; name: string | null; phone: string | null; email: string | null; position: string | null; skill: string | null;
   skill_tech: string | null; location: string | null; languages: string | null; status1: string | null; status2: string | null; recer_human_id: string | null; recer_name: string | null;
   partner_name: string | null; companies: string | null; salary: string | null; human_created_at: string | null; human_updated_at: string | null;
-  phone_keys: string[]; email_keys: string[]; data: Row; search_text: string;
+  phone_keys: string[]; email_keys: string[]; data: Row; search_text: string; fingerprint: string;
 }
 
 export function mapCv(row: Row, codes: CodeNames = new Map()): MappedCv | null {
@@ -126,7 +127,7 @@ export function mapCv(row: Row, codes: CodeNames = new Map()): MappedCv | null {
   const values = Object.values(mapped).filter((value): value is string => typeof value === "string" && !/^\d{4}-\d{2}-\d{2}T/u.test(value));
   const extra = Object.entries(row).flatMap(([key, value]) => /^(description|descriptionCv|status|note|noteEmail|noteZalo|empName|certificates|managementRank)$/iu.test(key) && typeof value === "string" ? [value.slice(0, 1000)] : []);
   const search_text = fold([cvId, ...values, ...extra, ...mapped.phone_keys].join(" ")).slice(0, 6000);
-  return { ...mapped, data, search_text };
+  return { ...mapped, data, search_text, fingerprint: cvFingerprint(row) };
 }
 
 /** One company the CV was sent to (a row of Human's /cv list), names from the bộ mã. */

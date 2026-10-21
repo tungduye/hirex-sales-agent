@@ -58,3 +58,16 @@ test("code names learnt from the Tình trạng CV of the same application", () =
   assert.equal(learnt.names.get(11002).kind, "Tình trạng CV");
   assert.deepEqual([...learnt.userCodes], [[1, "RE1"]]);
 });
+
+test("hồ sơ chi tiết: unwrapped, trimmed, flattened for search", async () => {
+  const { cvFingerprint, detailLines, detailPairs, detailSearchText, trimDetail, unwrapDetail } = await import("../src/modules/cvs/core/cv-detail.ts");
+  assert.deepEqual(unwrapDetail({ code: 200, type: "success", data: { cvId: 533, nameCv: "An" } }), { cvId: 533, nameCv: "An" });
+  assert.deepEqual(unwrapDetail({ cvId: 533 }), { cvId: 533 });
+  assert.throws(() => unwrapDetail({ code: 404, message: "not found" }), /HUMAN_CODE_404/u);
+  assert.equal(String(trimDetail("x".repeat(9000))).length, 8001);
+  const detail = { nameCv: "Lê Duy An", skillTech: "Java", experiences: [{ company: "FPT", years: 3, note: "<p>Leader</p><p>BrSE</p>" }], empty: "", flag: true };
+  assert.deepEqual(detailPairs(detail), [["nameCv", "Lê Duy An"], ["skillTech", "Java"], ["experiences 1 › company", "FPT"], ["experiences 1 › years", "3"], ["experiences 1 › note", "Leader\nBrSE"]]);
+  assert.equal(detailLines(detail)[0], "nameCv: Lê Duy An");
+  assert.ok(detailSearchText(detail).includes("le duy an java fpt 3 leader"));
+  assert.equal(cvFingerprint({ historyId: 1, updatedDate: "d", statusCv2: 11002 }), "1|d||11002|||||");
+});

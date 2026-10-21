@@ -69,25 +69,38 @@ export interface Meta {
   style_id?: string; style_name?: string; style_prompt?: string; fmt?: "word" | "excel"; template_structure?: string; template_file?: string; use_file?: number;
   voice?: string; voice_label?: string; speed?: number; char_count?: number; plain?: string; by?: string; up?: string;
 }
-interface State { meta: Map<string, Meta>; run: Set<number>; id: number }
+interface State { meta: Map<string, Meta>; run: Set<number>; id: number; mt: Map<string, number> }
 const G = globalThis as typeof globalThis & { __hsRecord?: State };
-/** Một bản trong bộ nhớ cho cả tiến trình (route handler, HMR); nạp từ đĩa ở lần gọi đầu. */
+/** Bộ nhớ đệm của tiến trình (route handler, HMR). Thư mục trên đĩa là nguồn chung: bản thật (cổng 3000) và bản xem trước
+ *  (cổng 3005) cùng đọc/ghi runtime/hs-record, nên mỗi request gọi refresh() để thấy bản ghi tiến trình kia vừa tạo / sửa. */
 export function st(): State {
   if (G.__hsRecord) return G.__hsRecord;
-  const s: State = { meta: new Map(), run: new Set(), id: Date.now() };
+  const s: State = { meta: new Map(), run: new Set(), id: Date.now(), mt: new Map() };
   G.__hsRecord = s;
   for (const d of [M, CF, TPL]) fs.mkdirSync(d, { recursive: true });
-  for (const slug of fs.readdirSync(M)) {
-    const m = rj<Meta | null>(fp(slug, "meta.json"), null); if (!m) continue; s.id = Math.max(s.id, m.id || 0); s.meta.set(slug, m);
-    // Tiến trình trước bị tắt giữa chừng: bản ghi về "chờ tạo" (audio đọc văn bản thì báo lỗi để tạo lại).
-    if (m.status === "recording" || m.status === "processing") upd(m, { status: m.kind === "tts" ? "error" : "pending", error: m.kind === "tts" ? "Bị ngắt, hãy tạo lại" : "", stage: "" });
-  }
+  refresh();
   return s;
 }
+const STUCK_MS = 3 * 3600e3;
+/** Đồng bộ bộ nhớ với đĩa: nạp meta.json mới/đổi, bỏ bản ghi đã xoá. Bản đang ghi/xử lý mà quá 3 giờ không đổi
+ *  (tiến trình xử lý đã tắt giữa chừng) thì về "chờ tạo" (audio đọc văn bản thì báo lỗi để tạo lại). */
+export function refresh() {
+  const s = st(), seen = new Set<string>(), now = Date.now();
+  for (const slug of fs.readdirSync(M)) {
+    const f = fp(slug, "meta.json"); let t: number; try { t = fs.statSync(f).mtimeMs; } catch { continue; }
+    seen.add(slug);
+    const cur = s.meta.get(slug); if (cur && s.run.has(cur.id)) continue; // tiến trình này đang xử lý: giữ bản trong bộ nhớ
+    if (s.mt.get(slug) !== t) { const m = rj<Meta | null>(f, null); if (!m) continue; s.mt.set(slug, t); s.id = Math.max(s.id, m.id || 0); s.meta.set(slug, m); }
+    const m = s.meta.get(slug)!;
+    if ((m.status === "recording" || m.status === "processing") && now - t > STUCK_MS && now - dirAge(slug) > STUCK_MS) upd(m, { status: m.kind === "tts" ? "error" : "pending", error: m.kind === "tts" ? "Bị ngắt, hãy tạo lại" : "", stage: "" });
+  }
+  for (const slug of [...s.meta.keys()]) if (!seen.has(slug) && !s.run.has(s.meta.get(slug)!.id)) { s.meta.delete(slug); s.mt.delete(slug); }
+}
+const dirAge = (slug: string) => { try { return fs.statSync(dir(slug)).mtimeMs; } catch { return 0; } };
 export const nextId = () => ++st().id;
 export const dir = (s: string) => path.join(M, s);
 export const fp = (s: string, f: string) => path.join(M, s, f);
-export const save = (m: Meta) => { const f = fp(m.slug, "meta.json"), t = f + ".tmp"; fs.writeFileSync(t, JSON.stringify(m)); fs.renameSync(t, f); st().meta.set(m.slug, m); return m; };
+export const save = (m: Meta) => { const f = fp(m.slug, "meta.json"), t = f + ".tmp"; fs.writeFileSync(t, JSON.stringify(m)); fs.renameSync(t, f); const s = st(); s.meta.set(m.slug, m); try { s.mt.set(m.slug, fs.statSync(f).mtimeMs); } catch { /* vừa bị xoá */ } return m; };
 export const upd = (m: Meta, p: Partial<Meta>) => save(Object.assign(m, p));
 export const bySid = (sid: string) => (sid ? [...st().meta.values()].find((m) => m.sid === sid) : undefined);
 export const need = (sid: unknown) => { const m = bySid(safeId(sid)); if (!m) throw err("no_chunks", 404); return m; };
@@ -97,8 +110,7 @@ export const jobSet = (m: Meta, stage: string, x: Partial<Job> = {}) => upd(m, {
 /** Bản ghi chưa xong quá PENDING_RETENTION_HOURS thì tự dọn. */
 export const prune = () => {
   const lim = Date.now() - C.keep * 3600e3, s = st();
-  const age = (slug: string) => { try { return fs.statSync(dir(slug)).mtimeMs; } catch { return 0; } };
-  for (const m of [...s.meta.values()]) if (m.status !== "done" && !s.run.has(m.id) && m.created * 1000 < lim && age(m.slug) < lim) { fs.rmSync(dir(m.slug), { recursive: true, force: true }); s.meta.delete(m.slug); }
+  for (const m of [...s.meta.values()]) if (m.status !== "done" && !s.run.has(m.id) && m.created * 1000 < lim && dirAge(m.slug) < lim) { fs.rmSync(dir(m.slug), { recursive: true, force: true }); s.meta.delete(m.slug); }
 };
 export function rename(m: Meta, title: string) { const old = m.slug, slug = slugify(title); fs.renameSync(dir(old), dir(slug)); st().meta.delete(old); m.slug = slug; m.title = title; }
 
