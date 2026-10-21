@@ -2,17 +2,18 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
-import { fold } from "../core/partner-parse";
+import { fold, reportFingerprint } from "../core/partner-parse";
+import { partnerReport } from "./partner-reports";
 
 export const CUSTOMER_PAGE_SIZE = 50;
-const COLUMNS = "partner_id,block_ids,name,partner_type,status,address,email,phone,website,contact_name,position,sale_human_id,sale_name,am_human_id,am_name,am2_human_id,am2_name,note,email_sent_at,project_rank,job_rank,am_rank,am_rank2,location,cv_total,cv_sent,cv_processing,cv_offer,cv_done,human_created_at,human_created_by,last_note,last_note_at";
+const COLUMNS = "partner_id,block_ids,name,partner_type,status,address,email,phone,website,contact_name,position,sale_human_id,sale_name,am_human_id,am_name,am2_human_id,am2_name,note,email_sent_at,project_rank,job_rank,am_rank,am_rank2,am_ranks,location,cv_total,cv_sent,cv_processing,cv_offer,cv_done,human_created_at,human_created_by,last_note,last_note_at";
 
 export interface CustomerFilters { q: string; block: number | null; rank: string | null; job: string | null; amRank: string | null; loc: string | null; owner: string | null; has: "email" | "phone" | null; page: number }
 export interface CustomerRow {
   partner_id: number; block_ids: number[]; name: string | null; partner_type: string | null; status: string | null; address: string | null; email: string | null; phone: string | null;
   website: string | null; contact_name: string | null; position: string | null; sale_human_id: string | null; sale_name: string | null; am_human_id: string | null; am_name: string | null;
   am2_human_id: string | null; am2_name: string | null; note: string | null; email_sent_at: string | null;
-  project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; location: string | null;
+  project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; am_ranks: string[]; location: string | null;
   cv_total: number | null; cv_sent: number | null; cv_processing: number | null; cv_offer: number | null; cv_done: number | null;
   human_created_at: string | null; human_created_by: string | null; last_note: string | null; last_note_at: string | null;
 }
@@ -69,7 +70,8 @@ function filteredQuery(db: Db, context: Context, filters: CustomerFilters, linkR
   let query = db.from("human_partners").select(columns, { count: "exact" }).eq("workspace_id", context.workspaceId).eq("active", true);
   if (filters.q) query = query.ilike("search_text", `%${fold(filters.q).replace(/[%_\\]/gu, "")}%`);
   if (filters.block) query = query.contains("block_ids", [filters.block]);
-  for (const [column, value] of [["project_rank", filters.rank], ["job_rank", filters.job], ["am_rank", filters.amRank], ["location", filters.loc]] as const)
+  if (filters.amRank !== null) query = query.contains("am_ranks", [filters.amRank]);
+  for (const [column, value] of [["project_rank", filters.rank], ["job_rank", filters.job], ["location", filters.loc]] as const)
     if (value !== null) query = value === "—" ? query.is(column, null) : query.eq(column, value);
   if (filters.has === "email") query = query.not("email", "is", null);
   if (filters.has === "phone") query = query.not("phone", "is", null);
@@ -104,7 +106,9 @@ export async function getCustomer(partnerId: number) {
   const db = await createClient();
   const { data: row } = await db.from("human_partners").select(`${COLUMNS},data,synced_at,active`).eq("workspace_id", context.workspaceId).eq("partner_id", partnerId).maybeSingle();
   if (!row) return null;
-  const customer = row as CustomerRow & { data: Record<string, unknown>; synced_at: string; active: boolean };
+  const customer = row as unknown as CustomerRow & { data: Record<string, unknown>; synced_at: string; active: boolean };
+  // Tình trạng CV (Human answers per company): the kept copy, or fetched now when old / changed.
+  const reportPromise = partnerReport(context.workspaceId, partnerId, reportFingerprint(customer.data ?? {})).catch(() => null);
   const humanIds = [customer.sale_human_id, customer.am_human_id, customer.am2_human_id].filter((id): id is string => Boolean(id));
   const emails = [...new Set((customer.email ?? "").toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gu) ?? [])].slice(0, 5);
   const phones = [...new Set((customer.phone ?? "").split(/[,;/|\n]+/u).map(phoneKey).filter((value): value is string => Boolean(value)))].slice(0, 5);
@@ -135,6 +139,7 @@ export async function getCustomer(partnerId: number) {
   const accountName = new Map(((accounts ?? []) as Array<{ id: string; display_name: string | null }>).map((row) => [row.id, row.display_name]));
   const members = new Map(linkRows.map((link) => [link.human_user_id, link.profile_id ? profileName.get(link.profile_id) ?? null : null] as const));
   return {
+    report: await reportPromise,
     context, customer, member: (id: string | null) => id ? members.get(id) ?? null : null, codes: Object.fromEntries(codes) as Record<string, string>,
     conversations: conversationRows.map((item) => {
       const name = item.metadata?.participantDisplayName ?? item.metadata?.groupName ?? item.subject;

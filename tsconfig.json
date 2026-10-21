@@ -319,7 +319,9 @@
     ".next-p2b-toc-do-thanh-chon/types/**/*.ts",
     ".next-p2b-toc-do-thanh-chon/dev/types/**/*.ts",
     ".next-khach-hang-human/types/**/*.ts",
-    ".next-khach-hang-human/dev/types/**/*.ts"
+    ".next-khach-hang-human/dev/types/**/*.ts",
+    ".next-khach-hang-bo-ma/types/**/*.ts",
+    ".next-khach-hang-bo-ma/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

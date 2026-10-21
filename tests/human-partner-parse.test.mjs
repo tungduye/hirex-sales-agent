@@ -20,6 +20,8 @@ test("lấy cột từ tên trường Human, đổi mã sang tên, giữ nguyên
   assert.equal(row.job_rank, "Hạng 1");
   assert.equal(row.am_rank, "Mã 200461");
   assert.equal(row.am_rank2, "Doing");
+  assert.deepEqual(row.am_ranks, ["Mã 200461", "Doing"]);
+  assert.deepEqual(mapPartner({ partner_id: 1, rateAmId: "200261,null,200261" }, codes).am_ranks, ["Doing"]);
   assert.equal(row.am_human_id, "233");
   assert.equal(row.sale_human_id, "94");
   assert.equal(row.cv_sent, 9);

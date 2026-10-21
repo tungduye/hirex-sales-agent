@@ -54,3 +54,6 @@ next-env.d.ts
 # local working folders: ad-hoc scripts, QA captures, exported drafts
 /tmp/
 /outputs/
+
+# AccountsHS Python sources (API keys, Facebook debug dumps): kept on this computer, never pushed
+moduleHS/accountshs/_src_python/

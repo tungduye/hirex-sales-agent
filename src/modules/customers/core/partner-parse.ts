@@ -76,7 +76,7 @@ export interface MappedPartner {
   partner_id: number; name: string | null; partner_type: string | null; status: string | null; address: string | null; email: string | null; phone: string | null;
   website: string | null; contact_name: string | null; position: string | null; sale_human_id: string | null; sale_name: string | null;
   am_human_id: string | null; am_name: string | null; am2_human_id: string | null; am2_name: string | null; note: string | null; email_sent_at: string | null;
-  project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; location: string | null;
+  project_rank: string | null; job_rank: string | null; am_rank: string | null; am_rank2: string | null; am_ranks: string[]; location: string | null;
   cv_total: number | null; cv_sent: number | null; cv_processing: number | null; cv_offer: number | null; cv_done: number | null;
   human_created_at: string | null; human_created_by: string | null; last_note: string | null; last_note_at: string | null;
   data: Row; search_text: string;
@@ -87,7 +87,7 @@ export type CodeNames = Map<number, string>;
 function codeName(value: unknown, codes: CodeNames): string | null {
   if (value == null || value === "") return null;
   const text = String(value).trim();
-  const parts = text.split(/[,;]+/u).map((part) => part.trim()).filter(Boolean);
+  const parts = text.split(/[,;]+/u).map((part) => part.trim()).filter((part) => part && part.toLowerCase() !== "null");
   if (!parts.length) return null;
   return [...new Set(parts.map((part) => /^\d+$/u.test(part) ? codes.get(Number(part)) ?? `Mã ${part}` : part))].join(", ").slice(0, 300);
 }
@@ -140,6 +140,7 @@ export function mapPartner(row: Row, codes: CodeNames = new Map()): MappedPartne
     job_rank: codeName(pick(row, ["rankJobId"]), codes),
     am_rank: codeName(pick(row, ["rateAmId"]), codes),
     am_rank2: codeName(pick(row, ["rateAmId2"]), codes),
+    am_ranks: [...new Set([pick(row, ["rateAmId"]), pick(row, ["rateAmId2"])].flatMap((value) => codeName(value, codes)?.split(", ") ?? []))].slice(0, 20),
     location: codeName(pick(row, ["address"]), codes),
     cv_total: count(row.allCv), cv_sent: count(row.allCvSent), cv_processing: count(row.cvProcessing), cv_offer: count(row.cvOffer), cv_done: count(row.cvDone),
     human_created_at: (() => { const value = pick(row, ["created_date", "createdDate"]); return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null; })(),
@@ -153,3 +154,12 @@ export function mapPartner(row: Row, codes: CodeNames = new Map()): MappedPartne
   for (const [key, value] of Object.entries(row).slice(0, 120)) data[key] = typeof value === "string" ? value.slice(0, 4000) : value;
   return { ...mapped, data, search_text };
 }
+
+/** Changes when the company's CV counts or status log change: then its CV report is fetched again. */
+export function reportFingerprint(row: Record<string, unknown>) {
+  const status = typeof row.statusNew === "string" ? row.statusNew : "";
+  let hash = 0;
+  for (let index = 0; index < status.length; index += 1) hash = (hash * 31 + status.charCodeAt(index)) | 0;
+  return [row.allCv, row.allCvSent, row.cvProcessing, row.cvOffer, row.cvDone, status.length, hash].map((value) => value ?? "").join("|");
+}
+export const HUMAN_PARTNER_REPORT_URL = (partnerId: number) => `http://52.220.196.215:8088/applicationHistory/report/partner/${partnerId}`;

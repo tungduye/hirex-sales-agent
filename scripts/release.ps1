@@ -43,6 +43,18 @@ if ($forbidden.Count -gt 0) {
   git reset -q
   Fail ("These files must not be committed (check .gitignore):`n  " + ($forbidden -join "`n  "))
 }
+# Stop before committing anything that looks like an API key or token (GitHub refuses the push anyway).
+$secretPattern = '(sk-(proj-|or-v1-|ant-)?[A-Za-z0-9_\-]{20,}|gsk_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_\-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|xox[abpr]-[A-Za-z0-9\-]{10,}|eyJhbGciOi[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{20,}\.)'
+$secretFiles = @()
+$currentFile = $null
+foreach ($line in @(git diff --cached -U0 --no-color)) {
+  if ($line -like '+++ b/*') { $currentFile = $line.Substring(6) }
+  elseif ($line.StartsWith('+') -and -not $line.StartsWith('+++') -and $line -match $secretPattern -and $secretFiles -notcontains $currentFile) { $secretFiles += $currentFile }
+}
+if ($secretFiles.Count -gt 0) {
+  git reset -q
+  Fail ("These files look like they contain API keys or tokens. Move the key to .env.local or add the file to .gitignore, then release again:`n  " + ($secretFiles -join "`n  "))
+}
 if ($staged.Count -gt 0) {
   Write-Host "$($staged.Count) file(s) will be committed. First 40:"
   $staged | Select-Object -First 40 | ForEach-Object { Write-Host "  $_" }
