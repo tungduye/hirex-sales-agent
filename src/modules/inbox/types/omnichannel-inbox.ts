@@ -89,10 +89,16 @@ export interface OmnichannelInboxData {
   search?: string;
   /** Tab badges (newest 3,000 conversations of the last 30 days); capped = there were more. */
   viewCounts?: { all: number; waiting: number; mine: number; groups: number; other: number; capped: boolean };
+  /** Only when asked for ids: every conversation the filters select (5,001 means "more than 5,000"). */
+  matchingIds?: string[];
+  /** The member may change conversations (Suối Nguồn · Cập nhật): bulk actions are offered. */
+  canUpdate?: boolean;
   /** Where the next page starts; null at the end. */
   nextCursor?: string | null;
   /** Database time for the list, in milliseconds (shown in Server-Timing). */
   listMs?: number;
+  /** Time per step on the server, for Server-Timing: [step, milliseconds]. */
+  timing?: Array<[string, number]>;
   selectedPage: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;

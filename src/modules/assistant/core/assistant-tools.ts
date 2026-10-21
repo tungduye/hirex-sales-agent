@@ -646,6 +646,34 @@ function BROADCAST_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Suối Nguồn bulk actions: the card shows how many conversations match; confirming runs it (undo 10 minutes).
+function INBOX_BULK_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "de_xuat_thao_tac_hang_loat",
+    permission: "inbox.update",
+    proposal: true,
+    label: "Đề xuất thao tác hàng loạt ở Suối Nguồn",
+    description: "Gắn nhãn / bỏ nhãn, đánh dấu đã đọc, chuyển vào Khác hoặc về Chính, giao cho người phụ trách — cho NHIỀU hội thoại Suối Nguồn cùng lúc (tối đa 5.000), chọn theo tab, nick, kênh, nhãn đang có, từ khoá (tên, SĐT, email, tên nhóm). Thẻ cho biết số hội thoại khớp; người dùng xác nhận mới làm; hoàn tác được trong 10 phút ở Suối Nguồn.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["hanh_dong", "nhan", "tao_nhan_moi", "giao_cho", "tab", "tu_khoa", "nick", "kenh", "loc_theo_nhan"],
+      properties: {
+        hanh_dong: { type: "string", enum: ["GAN_NHAN", "BO_NHAN", "DA_DOC", "VAO_KHAC", "VE_CHINH", "GIAO"], description: "Việc cần làm." },
+        nhan: { type: ["array", "null"], items: { type: "string" }, description: "Tên nhãn cần gắn/bỏ (GAN_NHAN, BO_NHAN), hoặc null." },
+        tao_nhan_moi: { type: ["boolean", "null"], description: "true = tạo nhãn chưa có (chỉ khi người dùng đồng ý tạo nhãn mới)." },
+        giao_cho: nullableString("GIAO: tên người được giao; null = bỏ người được giao."),
+        tab: { type: ["string", "null"], enum: ["TAT_CA", "CHUA_TRA_LOI", "GIAO_CHO_TOI", "NHOM", "KHAC", "MOI_LOAI", null], description: "TAT_CA = khách (không gồm nhóm và mục Khác), CHUA_TRA_LOI, GIAO_CHO_TOI, NHOM, KHAC, MOI_LOAI = tất cả. Mặc định TAT_CA." },
+        tu_khoa: nullableString("Chỉ hội thoại có tên/SĐT/email/tên nhóm chứa từ khoá này, hoặc null."),
+        nick: { type: ["array", "null"], items: { type: "string" }, description: "Tên nick/tài khoản kênh; null = mọi nick người dùng được dùng." },
+        kenh: { type: ["array", "null"], items: { type: "string", enum: ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] }, description: "Kênh; null = mọi kênh." },
+        loc_theo_nhan: { type: ["array", "null"], items: { type: "string" }, description: "Chỉ hội thoại đang có đủ các nhãn này, hoặc null." },
+      },
+    },
+    args: z.object({ hanh_dong: z.enum(["GAN_NHAN", "BO_NHAN", "DA_DOC", "VAO_KHAC", "VE_CHINH", "GIAO"]), nhan: z.array(text(80)).max(20).nullable(), tao_nhan_moi: z.boolean().nullable(),
+      giao_cho: text(120).nullable(), tab: z.enum(["TAT_CA", "CHUA_TRA_LOI", "GIAO_CHO_TOI", "NHOM", "KHAC", "MOI_LOAI"]).nullable(), tu_khoa: text(100).nullable(),
+      nick: z.array(text(120)).max(30).nullable(), kenh: z.array(z.enum(["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"])).max(4).nullable(), loc_theo_nhan: z.array(text(80)).max(10).nullable() }).strict(),
+  }];
+}
+
 /**
  * "2026-10-15" or "2026-10-15 17:30" in Vietnam time → ISO timestamp. A date alone means 17:30.
  * Null when the text is not a valid date.
@@ -863,6 +891,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...CALENDAR_TOOLS(),
   ...FILE_TOOLS(),
   ...BROADCAST_TOOLS(),
+  ...INBOX_BULK_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

@@ -8,5 +8,5 @@ export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   // Phạm vi (Của tôi / Team / Tất cả) is remembered per browser in a cookie.
   const data = await getOmnichannelInboxData({ ...inboxFiltersFrom(query), scope: scopeFromCookie(request.headers.get("cookie")) });
-  return Response.json(data, { headers: { "Cache-Control": "private, no-store", "Server-Timing": `db;desc="danh sách";dur=${data.listMs ?? 0}, total;dur=${Math.round(performance.now() - startedAt)}` } });
+  return Response.json(data, { headers: { "Cache-Control": "private, no-store", "Server-Timing": [...(data.timing ?? []).map(([name, ms]) => `${name};dur=${ms}`), `total;dur=${Math.round(performance.now() - startedAt)}`].join(", ") } });
 }

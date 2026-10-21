@@ -8,5 +8,5 @@ export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   const data = await getOmnichannelInboxData({ ...inboxFiltersFrom(query), scope: scopeFromCookie(request.headers.get("cookie")) });
   if (data.error) return Response.json({ error: data.error }, { status: 400 });
-  return Response.json({ conversations: data.conversations, hasNextPage: data.hasNextPage, nextCursor: data.nextCursor ?? null }, { headers: { "Cache-Control": "private, no-store", "Server-Timing": `db;desc="danh sách";dur=${data.listMs ?? 0}, total;dur=${Math.round(performance.now() - startedAt)}` } });
+  return Response.json({ conversations: data.conversations, hasNextPage: data.hasNextPage, nextCursor: data.nextCursor ?? null }, { headers: { "Cache-Control": "private, no-store", "Server-Timing": [...(data.timing ?? []).map(([name, ms]) => `${name};dur=${ms}`), `total;dur=${Math.round(performance.now() - startedAt)}`].join(", ") } });
 }

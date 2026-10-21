@@ -7,7 +7,8 @@ import { BellOff, CheckCheck, LoaderCircle, MoreVertical, Pin, Search, Trash2, U
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
-import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
+import type { OmnichannelInboxConversation, OmnichannelInboxProfile, OmnichannelInboxTag } from "../types/omnichannel-inbox";
+import { BulkUndoNotice, InboxBulkBar, readLastBulk, type BulkAction, type BulkDone, type BulkTarget } from "./inbox-bulk-bar";
 import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow } from "./inbox-live-events";
 import { appendPage, rowIndexFor } from "../core/group-merge";
 import { DRAFT_EVENT, draftStore, listDrafts } from "@/modules/channels/core/composer-drafts";
@@ -37,7 +38,7 @@ function filterQuery(filters: Filters) {
 // Tab badges per filter set, kept a minute so switching back and forth does not count again.
 const countCache = new Map<string, { at: number; counts: ViewCounts }>();
 
-export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode }) {
+export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode; canUpdate?: boolean; profiles?: OmnichannelInboxProfile[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -53,6 +54,15 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   const [shownQ, setShownQ] = useState(props.filters.q ?? "");
   if (shownQ !== (props.filters.q ?? "")) { setShownQ(props.filters.q ?? ""); setSearch(props.filters.q ?? ""); }
   const [loadedCounts, setLoadedCounts] = useState<{ key: string; counts: ViewCounts } | null>(null);
+  // Bulk actions: picked rows (by row id), or every conversation the filters select.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [lastPick, setLastPick] = useState<string | null>(null);
+  const [filterPick, setFilterPick] = useState<{ count: number; more: boolean } | null>(null);
+  const [pickingFilter, setPickingFilter] = useState(false);
+  const [createdTags, setCreatedTags] = useState<OmnichannelInboxTag[]>([]);
+  const [lastBulk, setLastBulk] = useState<BulkDone | null>(() => typeof window === "undefined" ? null : readLastBulk());
+  const allTags = [...props.tags, ...createdTags.filter((tag) => !props.tags.some((item) => item.id === tag.id))];
+  const clearPick = useCallback(() => { setPicked(new Set()); setFilterPick(null); setLastPick(null); }, []);
   const navigate = useCallback((change: (query: URLSearchParams) => void) => {
     const query = new URLSearchParams(searchParams.toString());
     change(query);
@@ -89,6 +99,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     if (previousFilterKeyRef.current !== filterKey) {
       previousFilterKeyRef.current = filterKey;
       setConversations(props.initialConversations); setCursor(props.initialNextCursor); setHasNextPage(props.initialHasNextPage); setLoading(false); setFailed(false);
+      setPicked(new Set()); setFilterPick(null); setLastPick(null);
       return;
     }
     setConversations((current) => {
@@ -191,14 +202,63 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     countCache.clear();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   }, []);
+  // Picking: a click toggles one row, Shift+click picks every row between the last pick and this one.
+  const pickRow = (id: string, range: boolean) => {
+    setFilterPick(null);
+    setPicked((current) => {
+      const next = new Set(current);
+      const from = lastPick ? visible.findIndex((item) => item.id === lastPick) : -1;
+      const to = visible.findIndex((item) => item.id === id);
+      if (range && from >= 0 && to >= 0) for (const item of visible.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(item.id);
+      else if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    setLastPick(id);
+  };
+  const pickedRows = visible.filter((item) => picked.has(item.id));
+  const bulkTarget: BulkTarget | null = filterPick ? { kind: "filter", filterQuery: filterQuery(props.filters).toString(), count: filterPick.count, more: filterPick.more }
+    : pickedRows.length ? { kind: "rows", conversationIds: pickedRows.flatMap((item) => item.copyIds.length ? item.copyIds : [item.id]), rowCount: pickedRows.length } : null;
+  const pickFilter = async () => {
+    setPickingFilter(true);
+    try {
+      const response = await fetch("/api/inbox/bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "MARK_READ", dryRun: true, filterQuery: filterQuery(props.filters).toString() }) });
+      const payload = await response.json().catch(() => null) as { count?: number; more?: boolean } | null;
+      if (response.ok && typeof payload?.count === "number") setFilterPick({ count: payload.count, more: Boolean(payload.more) });
+    } finally { setPickingFilter(false); }
+  };
+  const bulkActive = bulkTarget !== null;
+  useEffect(() => {
+    if (!bulkActive) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !(event.target instanceof HTMLInputElement)) clearPick(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [bulkActive, clearPick]);
+  const onBulkDone = (action: BulkAction, input: { tagIds: string[]; assigneeId: string | null }, done: BulkDone) => {
+    if (!filterPick) {
+      const ids = new Set(pickedRows.map((item) => item.id));
+      setConversations((current) => current.map((item) => !ids.has(item.id) ? item
+        : action === "TAG_ADD" ? { ...item, tagIds: [...new Set([...item.tagIds, ...input.tagIds])] }
+        : action === "TAG_REMOVE" ? { ...item, tagIds: item.tagIds.filter((id) => !input.tagIds.includes(id)) }
+        : action === "MARK_READ" ? { ...item, unreadCount: 0 }
+        : action === "MOVE_OTHER" ? { ...item, folder: "OTHER" } : action === "MOVE_PRIMARY" ? { ...item, folder: "PRIMARY" }
+        : { ...item, assignedTo: input.assigneeId }));
+    }
+    clearPick(); setLastBulk(done); countCache.clear();
+    window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
+  };
   const tabs: Array<[ViewMode, string]> = [["all", "Tất cả"], ["waiting", "Chưa trả lời"], ["mine", "Giao cho tôi"], ["groups", "Nhóm"], ["other", "Khác"]];
   return <div className="min-h-0 flex flex-1 flex-col">
     <div className="relative flex shrink-0 flex-col gap-2.5 border-b border-slate-100 px-3.5 pb-2.5 pt-2.5">
       <div className="flex gap-2"><label className="relative block min-w-0 flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Tìm theo tên, số điện thoại, email, tên nhóm" placeholder="Tìm tên, SĐT, email, nhóm…" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[13px] outline-none focus:border-blue-400 focus:bg-white"/>{search ? <button type="button" onClick={() => setSearch("")} aria-label="Xóa tìm kiếm" className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4"/></button> : null}</label>{props.filterControl}</div>
-      <div role="tablist" aria-label="Lọc nhanh hội thoại" className="flex flex-wrap gap-0.5">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{counts.capped ? "+" : ""}</span> : null}</button>)}</div>
+      {bulkTarget ? <InboxBulkBar target={bulkTarget} visibleCount={visible.length} allVisiblePicked={pickedRows.length === visible.length} tags={allTags} profiles={props.profiles ?? []}
+        onPickVisible={() => { setFilterPick(null); setPicked(new Set(visible.map((item) => item.id))); }} onPickFilter={() => void pickFilter()} pickingFilter={pickingFilter} onClear={clearPick}
+        onTagCreated={(tag) => setCreatedTags((current) => [...current, tag])} onDone={onBulkDone}/> : null}
+      {lastBulk && !bulkTarget ? <BulkUndoNotice done={lastBulk} onClose={() => setLastBulk(null)} onUndone={() => { setLastBulk(null); countCache.clear(); window.dispatchEvent(new Event(INBOX_REFRESH_EVENT)); }}/> : null}
+      <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-wrap gap-0.5`}>{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{counts.capped ? "+" : ""}</span> : null}</button>)}</div>
       {props.channelChips}
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={props.tags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null} onChanged={applyLocal}/>)}{visible.length === 0 && !loading && !hasNextPage ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời." : needle ? `Không tìm thấy hội thoại nào với “${props.filters.q}”.` : conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={allTags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null} onChanged={applyLocal}
+      pick={props.canUpdate ? { picked: Boolean(filterPick) || picked.has(conversation.id), picking: Boolean(bulkTarget), toggle: (range) => pickRow(conversation.id, range) } : null}/>)}{visible.length === 0 && !loading && !hasNextPage ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời." : needle ? `Không tìm thấy hội thoại nào với “${props.filters.q}”.` : conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
 }
@@ -222,13 +282,16 @@ export function waitBadge(lastInboundAt: string | null, now: number): { text: st
 
 const LOGO_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] as const;
 
-function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string) => void }) {
+function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged, pick }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string) => void; pick: { picked: boolean; picking: boolean; toggle: (range: boolean) => void } | null }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
   const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
   const badgeChannel = (LOGO_CHANNELS as readonly string[]).includes(conversation.channelType) ? conversation.channelType : "EMAIL";
-  return <div className={`group relative rounded-[10px] border transition ${selected ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-slate-50"}`}><Link prefetch={false} href={inboxHref(conversation.id, filters)} className="block px-3 py-2.5" aria-label={`${label}${waiting ? `, ${waiting.text}` : ""}`}><div className="flex items-start gap-2.5">
-    <span className="relative shrink-0">{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
+  return <div className={`group relative rounded-[10px] border transition ${pick?.picked ? "border-blue-300 bg-blue-50/70" : selected ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-slate-50"}`}><Link prefetch={false} href={inboxHref(conversation.id, filters)} className="block px-3 py-2.5" aria-label={`${label}${waiting ? `, ${waiting.text}` : ""}`}><div className="flex items-start gap-2.5">
+    <span className="relative shrink-0">{pick ? <button type="button" role="checkbox" aria-checked={pick.picked} aria-label={`Chọn ${label}`} title="Chọn (Shift+bấm để chọn một dải)"
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); pick.toggle(event.shiftKey); }}
+      className={`absolute inset-0 z-10 flex items-center justify-center rounded-full transition ${pick.picked ? "bg-blue-600 opacity-100" : pick.picking ? "bg-white/85 opacity-100 ring-2 ring-inset ring-slate-300" : "bg-white/85 opacity-0 ring-2 ring-inset ring-slate-300 group-hover:opacity-100 focus-visible:opacity-100"}`}>
+      {pick.picked ? <CheckCheck className="size-4 text-white"/> : null}</button> : null}{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold transition group-hover:opacity-0 ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500 transition group-hover:opacity-0">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
