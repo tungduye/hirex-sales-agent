@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
 import { broadcastGroups, broadcastNicks } from "@/modules/broadcasts/server/broadcast-data";
 import type { ActionContext } from "@/modules/assistant/server/assistant-proposals";
@@ -20,7 +21,8 @@ const vnTime = (iso: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "s
 async function nicksFor(scope: Scope, wanted: string | null) {
   const supabase = await createClient();
   const accessible = await getAccessibleChannelAccountIds();
-  let query = supabase.from("channel_accounts").select("id,display_name,external_account_id,channel_type").eq("workspace_id", scope.workspaceId).is("deleted_at", null);
+  // The nick list is read by the server (members cannot read channel_accounts directly); the counts below use the member's session.
+  let query = createPrivilegedClient().from("channel_accounts").select("id,display_name,external_account_id,channel_type").eq("workspace_id", scope.workspaceId).is("deleted_at", null);
   if (accessible) query = query.in("id", accessible.length ? accessible : ["00000000-0000-0000-0000-000000000000"]);
   const { data } = await query;
   const all = (data ?? []).map((row) => ({ id: String(row.id), name: String(row.display_name ?? row.external_account_id ?? "Nick"), channel: String(row.channel_type) }));

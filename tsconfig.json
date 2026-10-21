@@ -331,7 +331,9 @@
     ".next-soda-tuong-tac-tai-lieu/types/**/*.ts",
     ".next-soda-tuong-tac-tai-lieu/dev/types/**/*.ts",
     ".next-gui-nhom-ten-soda/types/**/*.ts",
-    ".next-gui-nhom-ten-soda/dev/types/**/*.ts"
+    ".next-gui-nhom-ten-soda/dev/types/**/*.ts",
+    ".next-soda-dot-1/types/**/*.ts",
+    ".next-soda-dot-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

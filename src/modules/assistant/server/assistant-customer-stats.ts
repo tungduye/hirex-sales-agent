@@ -127,10 +127,10 @@ export const customerStatTools: Record<string, (args: Record<string, unknown>, s
     const base = {
       pham_vi: seen.scopeLabel, khoi: wanted ? wanted.map(blockLabel) : "mọi khối", ...(when.label ? { thoi_gian: when.label } : {}),
       du_lieu: { so_cong_ty_xet: ids.length, co_tinh_trang_cv: reports.length, cap_nhat_cu_nhat: oldest ? vnDayTime(Date.parse(oldest)) : null },
-      ghi_chu: "Lấy từ Tình trạng CV đã lưu của từng công ty (Human), cập nhật mỗi 6 giờ hoặc khi mở công ty. Lịch phỏng vấn theo ngày phỏng vấn Human ghi; CV chưa chốt lịch không có ngày.",
+      ghi_chu: "tong_cv đếm theo công ty (một UV gửi nhiều công ty tính nhiều lần); số người là so_ung_vien_khac_nhau. Lấy từ Tình trạng CV đã lưu của từng công ty (Human), cập nhật mỗi 6 giờ hoặc khi mở công ty. Lịch phỏng vấn theo ngày phỏng vấn Human ghi; CV chưa chốt lịch không có ngày.",
     };
     if (kind === "TONG_QUAN") {
-      return { ...base, tong_cv: all.length, theo_loai: kinds.map((item) => ({ loai: CV_KIND_LABEL[item], so_cv: all.filter((cv) => cv.kind === item).length })),
+      return { ...base, tong_cv: all.length, so_ung_vien_khac_nhau: new Set(all.map((cv) => cv.item.code ?? `ten:${cv.item.name}`)).size, theo_loai: kinds.map((item) => ({ loai: CV_KIND_LABEL[item], so_cv: all.filter((cv) => cv.kind === item).length })),
         theo_cong_ty: countCompanies(all).slice(0, 40) };
     }
     const sorted = kind === "PHONG_VAN"
@@ -143,6 +143,8 @@ export const customerStatTools: Record<string, (args: Record<string, unknown>, s
     if (kind === "PHONG_VAN") for (const cv of all) { const round = interviewRound(cv.item.status) ?? "Chưa ghi vòng"; rounds.set(round, (rounds.get(round) ?? 0) + 1); }
     return {
       ...base, loai: CV_KIND_LABEL[kind], ...(status ? { loc_trang_thai: status } : {}), tong_cv: all.length,
+      // One candidate can be in several companies' lists.
+      so_ung_vien_khac_nhau: new Set(all.map((cv) => cv.item.code ?? (cv.item.cvId != null ? `cv:${cv.item.cvId}` : `ten:${cv.item.name}`))).size,
       theo_cong_ty: countCompanies(all).slice(0, 40),
       theo_trang_thai: [...statuses].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([trang_thai, so_cv]) => ({ trang_thai, so_cv })),
       ...(kind === "PHONG_VAN" ? { theo_vong: [...rounds].map(([vong, so_cv]) => ({ vong, so_cv })), co_ngay_phong_van: all.filter((cv) => Number.isFinite(humanTime(cv.item.interviewAt))).length } : {}),
