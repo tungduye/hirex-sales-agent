@@ -4,6 +4,8 @@ import { ReportView } from "./report-view";
 
 const date = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }) : null;
 const dateTime = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+// Lists of candidates; any other list (chat stats…) is shown field by field.
+const CV_LISTS = new Set(["waitingList", "sentList", "falseList", "offerList", "oblist", "obList", "prList"]);
 const TONE: Record<string, string> = { waitingList: "bg-slate-100 text-slate-700", sentList: "bg-blue-50 text-blue-800", falseList: "bg-rose-50 text-rose-700" };
 function statusTone(status: string | null) {
   const value = (status ?? "").toLowerCase();
@@ -24,7 +26,9 @@ export function CvReport({ data, codes }: { data: unknown; codes: Record<string,
     <div className="flex flex-wrap gap-1.5">{lists.filter((list) => list.items.length || ["waitingList", "sentList", "falseList"].includes(list.key)).map((list) => <span key={list.key} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE[list.key] ?? "bg-slate-100 text-slate-700"}`}>{list.label}: {list.items.length}</span>)}</div>
     {lists.filter((list) => list.items.length).map((list, index) => <section key={list.key}>
       <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">{["I", "II", "III", "IV", "V"][index] ?? index + 1}. {list.label} ({list.items.length})</h4>
-      <ol className="mt-1.5 space-y-1.5">{list.items.map((item, position) => <CvLine key={`${item.cvId ?? item.name}-${position}`} item={item} codes={codes}/>)}</ol>
+      {CV_LISTS.has(list.key)
+        ? <ol className="mt-1.5 space-y-1.5">{list.items.map((item, position) => <CvLine key={`${item.cvId ?? item.name}-${position}`} item={item} codes={codes}/>)}</ol>
+        : <div className="mt-1.5 rounded-lg border border-slate-100 bg-white p-2"><ReportView value={list.items.map((item) => item.raw)}/></div>}
     </section>)}
   </div>;
 }

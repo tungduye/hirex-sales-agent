@@ -4,6 +4,7 @@ import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { readHumanApiToken } from "@/modules/human-documents/server/api-sync";
 import { HUMAN_PARTNER_PAGE_SIZE, HUMAN_PARTNER_URL, mapPartner, parsePartnerPage, partnerFilter, reportFingerprint, type MappedPartner } from "../core/partner-parse";
 import { refreshPartnerReports } from "./partner-reports";
+import { suggestPartnerGroups } from "./cv-pins";
 
 const SYNC_EVERY_MS = 6 * 60 * 60 * 1000;
 const running = new Set<string>();
@@ -97,6 +98,8 @@ export async function syncHumanPartners(workspaceId: string, trigger: "MANUAL" |
     // Tình trạng CV of the companies whose counts or status changed, in the background (one request per company).
     void refreshPartnerReports(workspaceId, [...partners.values()].map((partner) => ({ partnerId: partner.partner_id, fingerprint: reportFingerprint(partner.data) })))
       .catch((error) => console.error("[customers] CV reports failed", error instanceof Error ? error.message : error));
+    // New companies: suggest their Zalo groups (by group name) for an AM to confirm.
+    void suggestPartnerGroups(workspaceId).catch(() => 0);
     if (failed.some((item) => item.includes("HUMAN_TOKEN_EXPIRED"))) return { ok: false, rows: rows.length, message: "Token Human đã hết hạn. Admin dán token mới trong \"Cài đặt API Human\"; dữ liệu cũ được giữ." };
     return failed.length
       ? { ok: false, rows: rows.length, message: `Cập nhật ${rows.length.toLocaleString("vi-VN")} khách; khối lỗi: ${failed.join(", ")}. Khách của khối lỗi giữ bản cũ.` }

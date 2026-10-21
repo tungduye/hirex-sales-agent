@@ -665,6 +665,17 @@ function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
       },
     },
     args: z.object({ tu_khoa: text(120).nullable(), trang_thai: text(120).nullable(), khoi: z.number().int().positive().nullable(), chi_cua_toi: z.boolean().nullable(), chua_gui_email: z.boolean().nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+  }, {
+    name: "tinh_trang_cv",
+    permission: "customers.view",
+    label: "Lấy Tình trạng CV",
+    description: "Tình trạng CV của MỘT công ty khách (lấy mới từ Human nếu cũ hơn 1 giờ), soạn sẵn đúng mẫu tin AM ghim trong nhóm Zalo của công ty: \"I. CV chờ gửi / II. CV đã gửi / III. Phỏng vấn / IV. Offer / V. Onboard / VI. Failed\", mỗi CV một dòng \"[mã RE] - ngày - vị trí - kỹ năng -tên(các công ty đã gửi) -địa điểm- xếp loại - trạng thái----\". Tin dài được chia nhiều phần (cac_tin). Khi trả lời, đưa NGUYÊN VĂN nội dung, không tóm tắt, trừ khi người dùng chỉ hỏi số lượng.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["cong_ty"],
+      properties: { cong_ty: { type: "string", description: "Tên công ty (như trên màn Khách hàng / tên nhóm Zalo, ví dụ \"Brisasoft\") hoặc mã khách." } },
+    },
+    args: z.object({ cong_ty: text(120).min(1) }).strict(),
+    maxOutputChars: 16_000,
   }];
 }
 

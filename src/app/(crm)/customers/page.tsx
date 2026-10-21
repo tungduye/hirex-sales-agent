@@ -7,6 +7,7 @@ import { RefreshFromHumanButton } from "@/modules/customers/components/refresh-b
 import { cvReportCounts, statusEntries } from "@/modules/customers/core/partner-parse";
 import { CvReport } from "@/modules/customers/components/cv-report";
 import { customerFilters, getCustomer, listCustomers, type CustomerFilters, type CustomerRow } from "@/modules/customers/server/customer-data";
+import { decidePartnerGroup } from "@/modules/customers/server/customer-actions";
 
 type Params = Record<string, string | string[] | undefined>;
 type Detail = NonNullable<Awaited<ReturnType<typeof getCustomer>>>;
@@ -189,6 +190,19 @@ function CustomerPanel({ detail, closeHref, blockLabel, person }: { detail: Deta
         <p className="whitespace-pre-line text-slate-800">{entry.text || "—"}</p>
       </li>)}</ol>
     </section> : null}
+
+    <section className="mt-5">
+      <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><MessagesSquare className="size-4"/>Nhóm Zalo của công ty (Soda ghim Tình trạng CV)</h3>
+      {detail.zaloGroups.length ? <ul className="mt-2 space-y-1.5">{detail.zaloGroups.map((group) => <li key={group.groupId}>
+        <form action={decidePartnerGroup} className="flex flex-wrap items-center gap-2 text-sm">
+          <input type="hidden" name="groupId" value={group.groupId}/><input type="hidden" name="partnerId" value={customer.partner_id}/><input type="hidden" name="groupName" value={group.name}/>
+          <span className="min-w-0 flex-1 truncate" title={group.name}>{group.name}</span>
+          {group.confirmed ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Đã duyệt</span> : <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Gợi ý</span>}
+          {detail.canDecideGroups && !group.confirmed ? <button name="decision" value="CONFIRMED" className="h-7 rounded-md bg-emerald-600 px-2.5 text-xs font-semibold text-white">Đúng</button> : null}
+          {detail.canDecideGroups ? <button name="decision" value="REJECTED" className="h-7 rounded-md px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50">{group.confirmed ? "Bỏ ghép" : "Không phải"}</button> : null}
+        </form>
+      </li>)}</ul> : <p className="mt-1.5 text-xs text-slate-500">Chưa có nhóm nào của nick Soda khớp với công ty này.</p>}
+    </section>
 
     <section className="mt-5">
       <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><MessagesSquare className="size-4"/>Hội thoại ở Suối Nguồn</h3>

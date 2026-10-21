@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { addCustomerBlock, importHumanCodes, saveHumanUserLinks } from "../server/customer-actions";
+import { useActionState, useState, useTransition } from "react";
+import { addCustomerBlock, importHumanCodes, refreshGroupSuggestions, runCvPinsNow, saveCvPinSettings, saveHumanUserLinks } from "../server/customer-actions";
 
 const idle = { ok: false, message: "" };
 
@@ -37,4 +37,25 @@ export function ImportCodesForm() {
     <textarea name="codes" rows={5} placeholder={"Dán bảng bộ mã từ Human, ví dụ:\nHạng 1\t200223\tXếp hạng Công việc\tKích hoạt"} className="w-full rounded-lg border border-slate-200 p-2 font-mono text-xs"/>
     <div className="flex items-center gap-3"><button disabled={pending} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Đang lưu…" : "Lưu bộ mã"}</button>{state.message ? <p role="status" className={`text-xs ${state.ok ? "text-emerald-700" : "text-rose-600"}`}>{state.message}</p> : null}</div>
   </form>;
+}
+
+export function CvPinSettingsForm({ enabled, time }: { enabled: boolean; time: string }) {
+  const [state, action, pending] = useActionState(saveCvPinSettings, idle);
+  return <form action={action} className="flex flex-wrap items-end gap-3">
+    <label className="inline-flex h-9 items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" name="enabled" defaultChecked={enabled}/>Bật ghim tự động mỗi ngày</label>
+    <label className="text-xs font-semibold text-slate-600">Giờ ghim<input type="time" name="time" min="08:00" max="20:59" defaultValue={time} className="mt-1 block h-9 rounded-lg border border-slate-200 px-2 text-sm"/></label>
+    <button disabled={pending} className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Đang lưu…" : "Lưu"}</button>
+    {state.message ? <p role="status" className={`w-full text-xs ${state.ok ? "text-emerald-700" : "text-rose-600"}`}>{state.message}</p> : null}
+  </form>;
+}
+
+export function CvPinRunButtons() {
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pending, start] = useTransition();
+  return <div className="flex flex-wrap items-center gap-2">
+    <button type="button" disabled={pending} onClick={() => start(async () => setResult(await refreshGroupSuggestions()))} className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Tìm gợi ý ghép nhóm</button>
+    <button type="button" disabled={pending} onClick={() => { if (window.confirm("Soda sẽ gửi và ghim Tình trạng CV vào các nhóm đã duyệt có thay đổi (gửi thật, trong 8:00–21:00). Tiếp tục?")) start(async () => setResult(await runCvPinsNow())); }}
+      className="h-9 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">{pending ? "Đang chạy…" : "Ghim ngay"}</button>
+    {result ? <p role="status" className={`w-full text-xs ${result.ok ? "text-emerald-700" : "text-rose-600"}`}>{result.message}</p> : null}
+  </div>;
 }

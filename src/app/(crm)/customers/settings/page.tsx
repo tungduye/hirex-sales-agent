@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { HumanApiSettings } from "@/modules/human-documents/components/api-controls";
-import { AddBlockForm, ImportCodesForm, UserLinksForm } from "@/modules/customers/components/settings-forms";
-import { updateCustomerBlock } from "@/modules/customers/server/customer-actions";
+import { AddBlockForm, CvPinRunButtons, CvPinSettingsForm, ImportCodesForm, UserLinksForm } from "@/modules/customers/components/settings-forms";
+import { decidePartnerGroup, updateCustomerBlock } from "@/modules/customers/server/customer-actions";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { sodaGroups } from "@/modules/customers/server/cv-pins";
 import { customerContext } from "@/modules/customers/server/customer-data";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) : "—";
@@ -23,6 +25,21 @@ export default async function CustomerSettingsPage() {
     db.from("human_master_codes").select("master_id", { count: "exact", head: true }).eq("workspace_id", context.workspaceId),
     db.rpc("human_partner_facets"),
   ]);
+  // Soda (Trợ lý) groups and which company each belongs to.
+  const [{ nick, groups }, { data: groupLinks }, { data: pinSettings }, partnerPage1, partnerPage2] = await Promise.all([
+    sodaGroups(createPrivilegedClient(), context.workspaceId),
+    db.from("human_partner_groups").select("group_id,partner_id,status,score").eq("workspace_id", context.workspaceId).neq("status", "REJECTED").limit(5000),
+    db.from("human_cv_pin_settings").select("enabled,run_hour,run_minute,last_run_at,last_result").eq("workspace_id", context.workspaceId).maybeSingle(),
+    db.from("human_partners").select("partner_id,name").eq("workspace_id", context.workspaceId).eq("active", true).order("name").range(0, 999),
+    db.from("human_partners").select("partner_id,name").eq("workspace_id", context.workspaceId).eq("active", true).order("name").range(1000, 1999),
+  ]);
+  const partnerName = new Map([...(partnerPage1.data ?? []), ...(partnerPage2.data ?? [])].map((row) => [Number(row.partner_id), String(row.name ?? `Khách #${row.partner_id}`)]));
+  const linksByGroup = new Map<string, Array<{ partnerId: number; status: string; score: number }>>();
+  for (const row of (groupLinks ?? []) as Array<{ group_id: string; partner_id: number; status: string; score: number }>) linksByGroup.set(row.group_id, [...(linksByGroup.get(row.group_id) ?? []), { partnerId: Number(row.partner_id), status: row.status, score: row.score }]);
+  const groupRows = groups.map((group) => ({ ...group, links: (linksByGroup.get(group.groupId) ?? []).sort((a, b) => Number(b.status === "CONFIRMED") - Number(a.status === "CONFIRMED") || b.score - a.score) }))
+    .sort((a, b) => Number(a.links.some((link) => link.status === "CONFIRMED")) - Number(b.links.some((link) => link.status === "CONFIRMED")) || Number(b.links.length > 0) - Number(a.links.length > 0));
+  const confirmedCount = groupRows.filter((group) => group.links.some((link) => link.status === "CONFIRMED")).length;
+  const pinTime = `${String(pinSettings?.run_hour ?? 8).padStart(2, "0")}:${String(pinSettings?.run_minute ?? 30).padStart(2, "0")}`;
   // Codes still shown as "Mã 123" on the list (not in the bộ mã yet).
   const unknown = [...new Set(((facets ?? []) as Array<{ value: string }>).flatMap((row) => row.value.match(/Mã \d+/gu) ?? []))].slice(0, 60);
   const counts = new Map<string, number>();
@@ -62,6 +79,40 @@ export default async function CustomerSettingsPage() {
       <h2 className="font-bold text-slate-900">Sale / AM trên Human là ai ở HireX</h2>
       <p className="mt-1 text-sm text-slate-600">Người không có quyền &quot;Xem tất cả khách&quot; chỉ thấy khách mà họ là Sale hoặc AM, theo liên kết này.</p>
       <div className="mt-3"><UserLinksForm people={people} members={((members ?? []) as Array<{ id: string; full_name: string | null }>).map((member) => ({ id: member.id, name: member.full_name ?? "?" }))}/></div>
+    </section>
+
+    <section className={card}>
+      <h2 className="font-bold text-slate-900">Soda ghim Tình trạng CV vào nhóm Zalo</h2>
+      <p className="mt-1 text-sm text-slate-600">Mỗi ngày đúng giờ, {nick ? <b>{nick.name}</b> : "nick Soda"} gửi Tình trạng CV của công ty vào các nhóm đã duyệt bên dưới (đúng mẫu tin AM đang ghim, tin dài thì gửi nhiều phần) và ghim phần đầu. Chỉ nhóm có thay đổi so với lần ghim trước; gửi trong 8:00–21:00, cách nhau 30–60 giây. Người bật lịch là người duyệt các tin này.</p>
+      {!nick ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Chưa cài nick Soda (Trợ lý Zalo) nên chưa ghim được.</p> : !nick.connected ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Nick {nick.name} đang mất kết nối.</p> : null}
+      <div className="mt-3"><CvPinSettingsForm enabled={pinSettings?.enabled === true} time={pinTime}/></div>
+      {pinSettings?.last_run_at ? <p className="mt-2 text-xs text-slate-500">Lần chạy gần nhất {time(pinSettings.last_run_at)}: {pinSettings.last_result} · <Link href="/broadcasts" className="font-semibold text-blue-700 hover:underline">xem ở Gửi nhóm Zalo</Link></p> : null}
+      <div className="mt-3"><CvPinRunButtons/></div>
+
+      <h3 className="mt-5 text-sm font-bold text-slate-900">Nhóm của Soda ↔ công ty <span className="font-normal text-slate-500">· {confirmedCount}/{groupRows.length} nhóm đã duyệt</span></h3>
+      <p className="mt-0.5 text-xs text-slate-500">HireX gợi ý theo tên nhóm; bấm Đúng để duyệt, hoặc gõ tên công ty khác rồi bấm Ghép. Sale/AM của công ty cũng duyệt được ở màn Khách hàng.</p>
+      <datalist id="partner-options">{[...partnerName].map(([id, name]) => <option key={id} value={`${name} #${id}`}/>)}</datalist>
+      <div className="mt-2 max-h-[560px] overflow-y-auto rounded-lg border border-slate-200"><table className="w-full text-sm">
+        <thead className="sticky top-0 bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Nhóm Zalo</th><th className="px-3 py-2">Công ty</th></tr></thead>
+        <tbody>{groupRows.map((group) => <tr key={group.groupId} className="border-t border-slate-100 align-top">
+          <td className="max-w-[280px] px-3 py-2"><span className="block truncate font-medium text-slate-800" title={group.name}>{group.name}</span></td>
+          <td className="px-3 py-2"><div className="space-y-1.5">
+            {group.links.map((link) => <form key={link.partnerId} action={decidePartnerGroup} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="groupId" value={group.groupId}/><input type="hidden" name="partnerId" value={link.partnerId}/><input type="hidden" name="groupName" value={group.name}/>
+              <Link href={`/customers?id=${link.partnerId}`} className="font-semibold text-slate-900 hover:underline">{partnerName.get(link.partnerId) ?? `Khách #${link.partnerId}`}</Link>
+              {link.status === "CONFIRMED" ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Đã duyệt</span> : <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Gợi ý</span>}
+              {link.status !== "CONFIRMED" ? <button name="decision" value="CONFIRMED" className="h-7 rounded-md bg-emerald-600 px-2.5 text-xs font-semibold text-white">Đúng</button> : null}
+              <button name="decision" value="REJECTED" className="h-7 rounded-md px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50">{link.status === "CONFIRMED" ? "Bỏ ghép" : "Không phải"}</button>
+            </form>)}
+            {!group.links.some((link) => link.status === "CONFIRMED") ? <form action={decidePartnerGroup} className="flex items-center gap-1.5">
+              <input type="hidden" name="groupId" value={group.groupId}/><input type="hidden" name="groupName" value={group.name}/><input type="hidden" name="decision" value="CONFIRMED"/>
+              <input name="partnerPick" list="partner-options" placeholder="Gõ tên công ty…" className="h-7 w-56 rounded-md border border-slate-200 px-2 text-xs"/>
+              <button className="h-7 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Ghép</button>
+            </form> : null}
+          </div></td>
+        </tr>)}
+        {!groupRows.length ? <tr><td colSpan={2} className="px-3 py-4 text-center text-xs text-slate-500">Nick Soda chưa có nhóm Zalo nào trong HireX.</td></tr> : null}</tbody>
+      </table></div>
     </section>
 
     <section className={card}>

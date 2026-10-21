@@ -86,3 +86,69 @@ export async function importHumanCodes(_state: State, form: FormData): Promise<S
   revalidatePath("/customers/settings");
   return { ok: true, message: `Đã lưu ${rows.size} mã. Bấm "Cập nhật từ Human" để đổi tên trên danh sách.` };
 }
+
+/** Daily Tình trạng CV pins: on/off and time. Whoever switches it on approves the sends (needs Gửi hàng loạt Zalo too). */
+export async function saveCvPinSettings(_state: State, form: FormData): Promise<State> {
+  const context = await manager();
+  if (!context) return { ok: false, message: "Bạn chưa có quyền cài đặt Khách hàng." };
+  const enabled = form.get("enabled") === "on";
+  if (enabled && !context.permissions.includes("broadcasts.manage")) return { ok: false, message: "Cần thêm quyền \"Gửi hàng loạt Zalo · Tạo và gửi\" để bật lịch ghim." };
+  const [hour, minute] = String(form.get("time") ?? "08:30").split(":").map(Number);
+  if (!Number.isInteger(hour) || hour < 8 || hour > 20 || !Number.isInteger(minute) || minute < 0 || minute > 59) return { ok: false, message: "Giờ ghim phải trong 08:00–20:59." };
+  const db = createPrivilegedClient();
+  const { error } = await db.from("human_cv_pin_settings").upsert({ workspace_id: context.workspaceId, enabled, run_hour: hour, run_minute: minute, ...(enabled ? { enabled_by: context.userId } : {}), updated_at: new Date().toISOString() }, { onConflict: "workspace_id" });
+  if (error) return { ok: false, message: "Chưa lưu được." };
+  revalidatePath("/customers/settings");
+  return { ok: true, message: enabled ? `Đã bật: mỗi ngày ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} Soda ghim Tình trạng CV vào các nhóm đã duyệt (chỉ nhóm có thay đổi).` : "Đã tắt lịch ghim." };
+}
+
+/** Run today's pins now (same rules: approved groups, changed messages only, sent 8:00–21:00). */
+export async function runCvPinsNow(): Promise<State> {
+  const context = await manager();
+  if (!context || !context.permissions.includes("broadcasts.manage")) return { ok: false, message: "Cần quyền Khách hàng · Cài đặt và Gửi hàng loạt Zalo · Tạo và gửi." };
+  const db = createPrivilegedClient();
+  const { data: settings } = await db.from("human_cv_pin_settings").select("enabled_by").eq("workspace_id", context.workspaceId).maybeSingle();
+  if (!settings?.enabled_by) await db.from("human_cv_pin_settings").upsert({ workspace_id: context.workspaceId, enabled: false, enabled_by: context.userId }, { onConflict: "workspace_id" });
+  const { runCvPins } = await import("./cv-pins");
+  const result = await runCvPins(context.workspaceId);
+  revalidatePath("/customers/settings"); revalidatePath("/broadcasts");
+  return { ok: result.ok, message: result.message };
+}
+
+/** Find group suggestions again now (also done after each update from Human). */
+export async function refreshGroupSuggestions(): Promise<State> {
+  const context = await manager();
+  if (!context) return { ok: false, message: "Bạn chưa có quyền cài đặt Khách hàng." };
+  const { suggestPartnerGroups } = await import("./cv-pins");
+  const count = await suggestPartnerGroups(context.workspaceId);
+  revalidatePath("/customers/settings"); revalidatePath("/customers");
+  return { ok: true, message: count ? `Có thêm ${count} gợi ý ghép nhóm.` : "Không có gợi ý mới." };
+}
+
+/** Confirm or reject "this Zalo group is this company's". An admin of Khách hàng, or the company's Sale / AM. */
+export async function decidePartnerGroup(form: FormData) {
+  const context = await customerContext();
+  if (!context) return;
+  const groupId = String(form.get("groupId") ?? "").slice(0, 512);
+  // A company picked by hand in the list ("Tên công ty #12345") or the suggested one.
+  const picked = /#(\d{1,12})\s*$/u.exec(String(form.get("partnerPick") ?? ""))?.[1];
+  const partnerId = Number(picked ?? form.get("partnerId"));
+  const decision = form.get("decision") === "CONFIRMED" ? "CONFIRMED" : "REJECTED";
+  if (!groupId || !Number.isSafeInteger(partnerId)) return;
+  const db = createPrivilegedClient();
+  if (!context.canManage) {
+    const [{ data: partner }, { data: links }] = await Promise.all([
+      db.from("human_partners").select("sale_human_id,am_human_id,am2_human_id").eq("workspace_id", context.workspaceId).eq("partner_id", partnerId).maybeSingle(),
+      db.from("human_user_links").select("human_user_id").eq("workspace_id", context.workspaceId).eq("profile_id", context.userId),
+    ]);
+    const mine = new Set((links ?? []).map((row) => String(row.human_user_id)));
+    if (!partner || ![partner.sale_human_id, partner.am_human_id, partner.am2_human_id].some((id) => id && mine.has(String(id)))) return;
+  }
+  const { data: existing } = await db.from("human_partner_groups").select("group_name").eq("workspace_id", context.workspaceId).eq("group_id", groupId).limit(1).maybeSingle();
+  await db.from("human_partner_groups").upsert({ workspace_id: context.workspaceId, group_id: groupId, partner_id: partnerId, group_name: existing?.group_name ?? (String(form.get("groupName") ?? "").slice(0, 300) || null),
+    status: decision, decided_by: context.userId, decided_at: new Date().toISOString() }, { onConflict: "workspace_id,group_id,partner_id" });
+  // One company per group: confirming this one sets the other suggestions for the group aside.
+  if (decision === "CONFIRMED") await db.from("human_partner_groups").update({ status: "REJECTED", decided_by: context.userId, decided_at: new Date().toISOString() })
+    .eq("workspace_id", context.workspaceId).eq("group_id", groupId).neq("partner_id", partnerId).neq("status", "REJECTED");
+  revalidatePath("/customers/settings"); revalidatePath("/customers");
+}

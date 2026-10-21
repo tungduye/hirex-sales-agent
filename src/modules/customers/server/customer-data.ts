@@ -125,7 +125,16 @@ export async function getCustomer(partnerId: number) {
       .in("contact_id", contactIds).order("last_message_at", { ascending: false, nullsFirst: false }).limit(10)
     : { data: [] };
   const linkRows = (links ?? []) as Array<{ human_user_id: string; profile_id: string | null }>;
-  const report = await reportPromise;
+  const [report, { data: groupRows }, { data: myLinks }] = await Promise.all([
+    reportPromise,
+    db.from("human_partner_groups").select("group_id,group_name,status").eq("workspace_id", context.workspaceId).eq("partner_id", partnerId).neq("status", "REJECTED").limit(50),
+    db.from("human_user_links").select("human_user_id").eq("workspace_id", context.workspaceId).eq("profile_id", context.userId),
+  ]);
+  const mine = new Set((myLinks ?? []).map((row) => String(row.human_user_id)));
+  // Who may confirm this company's Zalo groups: Khách hàng · Cài đặt, or the company's Sale / AM.
+  const canDecideGroups = context.canManage || [customer.sale_human_id, customer.am_human_id, customer.am2_human_id].some((id) => id && mine.has(id));
+  const zaloGroups = ((groupRows ?? []) as Array<{ group_id: string; group_name: string | null; status: string }>).map((row) => ({ groupId: row.group_id, name: row.group_name ?? "Nhóm Zalo", confirmed: row.status === "CONFIRMED" }))
+    .sort((a, b) => Number(b.confirmed) - Number(a.confirmed));
   const cvAddresses = parseCvReport(report?.data).flatMap((list) => list.items.flatMap((item) => item.address ? [item.address] : []));
   // Names of the other coded fields Human sends (xếp hạng Email / Zalo / facebook / linkedin / SĐT, combo UV).
   const codeIds = [...new Set(Object.entries(customer.data ?? {}).flatMap(([key, value]) => /^(rate|rank|type$|address$)/iu.test(key) && value != null ? String(value).split(/[,;]+/u) : []).map((part) => part.trim()).concat(cvAddresses).filter((part) => /^\d{1,12}$/u.test(part)))].slice(0, 80);
@@ -142,7 +151,7 @@ export async function getCustomer(partnerId: number) {
   const accountName = new Map(((accounts ?? []) as Array<{ id: string; display_name: string | null }>).map((row) => [row.id, row.display_name]));
   const members = new Map(linkRows.map((link) => [link.human_user_id, link.profile_id ? profileName.get(link.profile_id) ?? null : null] as const));
   return {
-    report, plainCodes: Object.fromEntries(((codeRows ?? []) as Array<{ master_id: number; name: string }>).map((row) => [String(row.master_id), row.name])) as Record<string, string>,
+    report, zaloGroups, canDecideGroups, plainCodes: Object.fromEntries(((codeRows ?? []) as Array<{ master_id: number; name: string }>).map((row) => [String(row.master_id), row.name])) as Record<string, string>,
     context, customer, member: (id: string | null) => id ? members.get(id) ?? null : null, codes: Object.fromEntries(codes) as Record<string, string>,
     conversations: conversationRows.map((item) => {
       const name = item.metadata?.participantDisplayName ?? item.metadata?.groupName ?? item.subject;

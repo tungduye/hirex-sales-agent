@@ -45,13 +45,15 @@ async function note(db: Db, step: Step, broadcast: Row, target: Row, standalone:
 async function pinMessage(db: Db, step: Step, broadcast: Row, target: Row) {
   const attempt = Number(target.message_pin_attempts ?? 0) + 1;
   let ok = false;
-  const { data: action } = target.outbound_action_id ? await db.from("channel_outbound_actions").select("provider_message_id,status").eq("id", String(target.outbound_action_id)).maybeSingle() : { data: null };
+  // A message in several parts pins its first part.
+  const pinActionId = target.pin_action_id ?? target.outbound_action_id;
+  const { data: action } = pinActionId ? await db.from("channel_outbound_actions").select("provider_message_id,status").eq("id", String(pinActionId)).maybeSingle() : { data: null };
   const messageId = typeof action?.provider_message_id === "string" ? action.provider_message_id : null;
   if (messageId) {
     try {
       const loaded = await loadChannelAdapterByAccountId(step.accountId);
       if (loaded.adapter instanceof ZaloBridgeAdapter)
-        ok = await loaded.adapter.pinGroupNote({ groupId: String(target.group_id), kind: "MESSAGE", text: String(broadcast.text_content), messageId }, `group-broadcast:${step.targetId}:pin:${attempt}`);
+        ok = await loaded.adapter.pinGroupNote({ groupId: String(target.group_id), kind: "MESSAGE", text: String(Array.isArray(target.text_parts) && target.text_parts[0] ? target.text_parts[0] : broadcast.text_content).slice(0, 2000), messageId }, `group-broadcast:${step.targetId}:pin:${attempt}`);
     } catch { ok = false; }
   }
   const last = attempt >= MAX_ATTEMPTS || !messageId;
@@ -66,7 +68,7 @@ export async function runBroadcastTick(now = Date.now()) {
   const broadcasts = (running ?? []) as Row[];
   if (!broadcasts.length) return { steps: 0 };
   const ids = broadcasts.map((row) => String(row.id));
-  const { data: open } = await db.from("zalo_broadcast_targets").select("id,broadcast_id,channel_account_id,position,status,pin_status,message_pin_status,attempts,pin_attempts,message_pin_attempts,done_at,updated_at,group_id,outbound_action_id")
+  const { data: open } = await db.from("zalo_broadcast_targets").select("id,broadcast_id,channel_account_id,position,status,pin_status,message_pin_status,attempts,pin_attempts,message_pin_attempts,done_at,updated_at,group_id,outbound_action_id,text_parts,parts_sent,pin_action_id")
     .in("broadcast_id", ids).or("status.eq.PENDING,and(status.eq.SENT,pin_status.eq.PENDING),and(status.eq.SENT,message_pin_status.eq.PENDING)").order("position").limit(5000);
   const targets = (open ?? []) as Row[];
   if (!targets.length) { await finishBroadcasts(db, ids); return { steps: 0 }; }
@@ -100,7 +102,10 @@ export async function runBroadcastTick(now = Date.now()) {
       continue;
     }
     const attempt = Number(target.attempts ?? 0) + 1;
-    const { data: actionId } = await db.rpc("propose_zalo_broadcast_send_service", { p_workspace_id: workspaceId, p_target_id: step.targetId, p_attempt: attempt });
+    // A group with its own text in parts (Tình trạng CV): this step sends the next part.
+    const parts = Array.isArray(target.text_parts) ? target.text_parts.length : 0;
+    const part = Number(target.parts_sent ?? 0);
+    const { data: actionId } = await db.rpc("propose_zalo_broadcast_send_service", { p_workspace_id: workspaceId, p_target_id: step.targetId, p_attempt: attempt, p_part: part });
     if (typeof actionId !== "string") {
       await db.from("zalo_broadcast_targets").update({ status: "SKIPPED", done_at: new Date().toISOString(), error_code: "NOT_A_GROUP_OR_STOPPED" }).eq("id", step.targetId).eq("status", "PENDING");
       continue;
@@ -113,9 +118,13 @@ export async function runBroadcastTick(now = Date.now()) {
       result = await executeChannelOutboundAction(actionId, registry);
     } catch { result = { status: "UNAVAILABLE" }; }
     const at = new Date().toISOString();
-    if (result.status === "SENT") {
-      await db.from("zalo_broadcast_targets").update({ status: "SENT", done_at: at, attempts: attempt, error_code: null, outbound_action_id: actionId }).eq("id", step.targetId);
-      if (broadcast.pin_message === true) await pinMessage(db, step, broadcast, { ...target, outbound_action_id: actionId });
+    if (result.status === "SENT" && part + 1 < parts) {
+      // More parts to come: the next tick sends the next one; the first part is the one to pin.
+      await db.from("zalo_broadcast_targets").update({ parts_sent: part + 1, attempts: 0, error_code: null, outbound_action_id: actionId, ...(part === 0 ? { pin_action_id: actionId } : {}) }).eq("id", step.targetId);
+    } else if (result.status === "SENT") {
+      const pinActionId = parts > 1 ? target.pin_action_id : actionId;
+      await db.from("zalo_broadcast_targets").update({ status: "SENT", done_at: at, attempts: attempt, error_code: null, outbound_action_id: actionId, ...(parts ? { parts_sent: parts, pin_action_id: pinActionId } : {}) }).eq("id", step.targetId);
+      if (broadcast.pin_message === true) await pinMessage(db, step, broadcast, { ...target, outbound_action_id: actionId, pin_action_id: pinActionId });
       if (broadcast.pin_note === true) await note(db, step, broadcast, target, false);
     } else if (result.status === "DELIVERY_UNKNOWN") {
       await db.from("zalo_broadcast_targets").update({ status: "UNKNOWN", done_at: at, attempts: attempt, error_code: "DELIVERY_UNKNOWN" }).eq("id", step.targetId);

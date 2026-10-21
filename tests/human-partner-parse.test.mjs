@@ -55,3 +55,22 @@ test("đọc Tình trạng CV theo từng danh sách", async () => {
   assert.deepEqual(cvReportCounts(report), { report_waiting: 2, report_sent: 1, report_failed: 0 });
   assert.equal(cvReportCounts(null), null);
 });
+
+test("soạn tin Tình trạng CV giống tin AM ghim trong nhóm", async () => {
+  const { formatCvStatusMessage, splitMessage } = await import("../src/modules/customers/core/partner-parse.ts");
+  const text = formatCvStatusMessage({ data: { waitingList: [], sentList: [
+    { userCode: "RE6980", updateDate: "2026-10-06T03:00:00Z", cv_position: "Brse/PM", cv_skill: "Other", cv_name: "Lê Văn Thành", history: "Scuti(**),KSS Japan", cv_address: "24", statusCv: "AB", statusCv2: "CV gửi" }] } }, { 24: "Hà Nội" });
+  assert.equal(text, "I. CV chờ gửi\nII. CV đã gửi\n  1. [RE6980] - 06/10/2026 - Brse/PM - Other -Lê Văn Thành(Scuti(**), KSS Japan) -Hà Nội- AB - CV gửi----\nIII. Phỏng vấn\nIV. Offer\nV. Onboard\nVI. Failed");
+  assert.deepEqual(splitMessage("aaaa\nbbbb\ncccc", 9), ["aaaa\nbbbb", "cccc"]);
+});
+
+test("tin Tình trạng CV dài: tối đa 3 phần, rút gọn danh sách công ty khi cần", async () => {
+  const { cvStatusParts } = await import("../src/modules/customers/core/partner-parse.ts");
+  const companies = Array.from({ length: 60 }, (_, index) => `Công ty số ${index + 1}`).join(",");
+  const sent = Array.from({ length: 30 }, (_, index) => ({ userCode: `RE${index}`, cv_name: `UV ${index}`, history: companies, updateDate: "2026-10-06T03:00:00Z" }));
+  const parts = cvStatusParts({ data: { sentList: sent } });
+  assert.ok(parts.length <= 3);
+  assert.ok(parts.every((part) => part.length <= 3500));
+  assert.match(parts[0], /^I\. CV chờ gửi\nII\. CV đã gửi/);
+  assert.match(parts.join("\n"), /… \+\d+\)/);
+});

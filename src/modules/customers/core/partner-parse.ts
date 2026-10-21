@@ -167,12 +167,14 @@ export const HUMAN_PARTNER_REPORT_URL = (partnerId: number) => `http://52.220.19
 export interface CvItem {
   name: string; code: string | null; position: string | null; skill: string | null; address: string | null; status: string | null; statusCode: string | null;
   updatedAt: string | null; interviewAt: string | null; companies: string[]; cvId: number | null;
+  /** The record as Human sent it (lists that are not CVs, e.g. chatStatsList, are shown field by field). */
+  raw: Record<string, unknown>;
 }
-const LIST_NAMES: Record<string, string> = { waitingList: "CV chờ gửi", sentList: "CV đã gửi", falseList: "CV fail", offerList: "Offer", oblist: "Onboard", obList: "Onboard", prList: "PR", chatStatsList: "Chat" };
-const LIST_ORDER = ["waitingList", "sentList", "falseList", "offerList", "oblist", "obList", "prList", "chatStatsList"];
+const LIST_NAMES: Record<string, string> = { waitingList: "CV chờ gửi", sentList: "CV đã gửi", falseList: "CV fail", offerList: "Offer", oblist: "Onboard", obList: "Onboard", prList: "Phỏng vấn", chatStatsList: "Chat" };
+const LIST_ORDER = ["waitingList", "sentList", "prList", "offerList", "oblist", "obList", "falseList", "chatStatsList"];
 
 /** Human's CV report ({data:{waitingList, sentList, falseList}}) as named lists of CVs, newest first. */
-export function parseCvReport(value: unknown): Array<{ key: string; label: string; items: CvItem[] }> {
+export function parseCvReport(value: unknown, keepOrder = false): Array<{ key: string; label: string; items: CvItem[] }> {
   const envelope = value as Record<string, unknown> | null;
   const data = (envelope && typeof envelope === "object" && envelope.data && typeof envelope.data === "object" ? envelope.data : envelope) as Record<string, unknown> | null;
   if (!data || typeof data !== "object") return [];
@@ -188,8 +190,8 @@ export function parseCvReport(value: unknown): Array<{ key: string; label: strin
       name: text(item, "cvName", "candidateName", "fullName") ?? "Ứng viên", code: text(item, "userCode"), position: text(item, "cvPosition"), skill: text(item, "cvSkill"), address: text(item, "cvAddress"),
       status: text(item, "statusCv2"), statusCode: text(item, "statusCv"), updatedAt: text(item, "updateDate", "updatedDate"), interviewAt: text(item, "interviewDate"),
       companies: (text(item, "history") ?? "").split(",").map((part) => part.trim()).filter(Boolean).slice(0, 200),
-      cvId: Number.isSafeInteger(Number(text(item, "cvId"))) ? Number(text(item, "cvId")) : null,
-    })).sort((a, b) => (Date.parse(b.updatedAt ?? "") || 0) - (Date.parse(a.updatedAt ?? "") || 0)),
+      cvId: Number.isSafeInteger(Number(text(item, "cvId"))) ? Number(text(item, "cvId")) : null, raw: item,
+    })).sort((a, b) => keepOrder ? 0 : (Date.parse(b.updatedAt ?? "") || 0) - (Date.parse(a.updatedAt ?? "") || 0)),
   }));
 }
 
@@ -198,4 +200,54 @@ export function cvReportCounts(value: unknown) {
   const lists = parseCvReport(value);
   const size = (key: string) => lists.find((list) => list.key === key)?.items.length ?? null;
   return lists.length ? { report_waiting: size("waitingList") ?? 0, report_sent: size("sentList") ?? 0, report_failed: size("falseList") ?? 0 } : null;
+}
+
+/**
+ * The CV status message the AM pins in the company's Zalo group, in the same layout:
+ * "I. CV chờ gửi / II. CV đã gửi / III. Phỏng vấn / IV. Offer / V. Onboard / VI. Failed", each CV as
+ * "1. [RE6980] - 06/10/2026 - Brse/PM - Other -Lê Văn Thành(Scuti(**), KSS Japan, …) -Hà Nội- AB - CV gửi----".
+ */
+export function formatCvStatusMessage(report: unknown, codes: Record<string, string> = {}, maxCompanies = 0) {
+  const lists = parseCvReport(report, true);
+  const sections: Array<[string, string]> = [["waitingList", "CV chờ gửi"], ["sentList", "CV đã gửi"], ["prList", "Phỏng vấn"], ["offerList", "Offer"], ["oblist", "Onboard"], ["falseList", "Failed"]];
+  const roman = ["I", "II", "III", "IV", "V", "VI"];
+  const day = (value: string | null) => {
+    if (!value || !Number.isFinite(Date.parse(value))) return "";
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
+    return parts;
+  };
+  const lines: string[] = [];
+  sections.forEach(([key, title], index) => {
+    lines.push(`${roman[index]}. ${title}`);
+    const items = lists.find((list) => list.key === key || (key === "oblist" && list.key === "obList"))?.items ?? [];
+    items.forEach((item, position) => {
+      const place = item.address ? codes[item.address] ?? item.address : "";
+      const shown = maxCompanies > 0 && item.companies.length > maxCompanies ? [...item.companies.slice(0, maxCompanies), `… +${item.companies.length - maxCompanies}`] : item.companies;
+      const companies = shown.length ? `(${shown.join(", ")})` : "";
+      lines.push(`  ${position + 1}. [${item.code ?? ""}] - ${day(item.updatedAt)} - ${item.position ?? ""} - ${item.skill ?? ""} -${item.name}${companies} -${place}- ${item.statusCode ?? ""} - ${item.status ?? ""}----`);
+    });
+  });
+  return lines.join("\n");
+}
+
+/** Splits a long message at line ends into parts of at most `max` characters (Zalo limits one message). */
+export function splitMessage(text: string, max = 3500) {
+  const parts: string[] = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    const piece = line.length > max ? line.slice(0, max) : line;
+    if (current && current.length + 1 + piece.length > max) { parts.push(current); current = piece; }
+    else current = current ? `${current}\n${piece}` : piece;
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+/** The CV status message in at most 3 parts of 3,500 characters (company lists shortened when needed). */
+export function cvStatusParts(report: unknown, codes: Record<string, string> = {}) {
+  for (const max of [0, 15, 8, 3]) {
+    const parts = splitMessage(formatCvStatusMessage(report, codes, max), 3500);
+    if (parts.length <= 3) return parts;
+  }
+  return splitMessage(formatCvStatusMessage(report, codes, 1), 3500).slice(0, 3);
 }
