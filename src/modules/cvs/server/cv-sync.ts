@@ -2,7 +2,8 @@ import "server-only";
 
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { readHumanApiToken } from "@/modules/human-documents/server/api-sync";
-import { cvFilter, HUMAN_CV_PAGE_SIZE, HUMAN_CV_URL, mapCv, parseCvPage, type MappedCv } from "../core/cv-parse";
+import { parseCvReport } from "@/modules/customers/core/partner-parse";
+import { applicationOf, cvFilter, HUMAN_CV_PAGE_SIZE, HUMAN_CV_URL, learnCodes, mapCv, parseCvPage, type Application, type MappedCv } from "../core/cv-parse";
 
 // Màn CV: copies the CVs of every enabled block from Human (by hand, or every 6 hours from the alerts worker).
 // A failed block keeps its old rows; CVs no longer in any block are hidden only after every block came back.
@@ -41,6 +42,22 @@ async function codeNames(db: ReturnType<typeof createPrivilegedClient>, workspac
   return codes;
 }
 
+/** Learns code names from the stored Tình trạng CV reports and saves the ones the bộ mã does not have yet. */
+async function learnFromReports(db: ReturnType<typeof createPrivilegedClient>, workspaceId: string, rows: Record<string, unknown>[]) {
+  const items: Parameters<typeof learnCodes>[1] = [];
+  for (let from = 0; from < 5000; from += 200) {
+    const { data } = await db.from("human_partner_reports").select("data").eq("workspace_id", workspaceId).not("data", "is", null).range(from, from + 199);
+    for (const report of data ?? []) for (const list of parseCvReport(report.data)) items.push(...list.items);
+    if ((data ?? []).length < 200) break;
+  }
+  const learnt = learnCodes(rows, items);
+  const { data: known } = await db.from("human_master_codes").select("master_id").eq("workspace_id", workspaceId).in("master_id", [...learnt.names.keys()].slice(0, 2000));
+  const have = new Set((known ?? []).map((row) => Number(row.master_id)));
+  const fresh = [...learnt.names].filter(([id]) => !have.has(id)).map(([id, entry]) => ({ workspace_id: workspaceId, master_id: id, name: entry.name.slice(0, 200), kind: `${entry.kind} (tự học)` }));
+  for (let offset = 0; offset < fresh.length; offset += 500) await db.from("human_master_codes").insert(fresh.slice(offset, offset + 500));
+  return learnt;
+}
+
 export async function syncHumanCvs(workspaceId: string, trigger: "MANUAL" | "SCHEDULE", startedBy: string | null): Promise<{ ok: boolean; rows: number; message: string }> {
   if (running.has(workspaceId)) return { ok: false, rows: 0, message: "Đang cập nhật, vui lòng chờ." };
   running.add(workspaceId);
@@ -56,29 +73,47 @@ export async function syncHumanCvs(workspaceId: string, trigger: "MANUAL" | "SCH
     const { data: blocks } = await db.from("human_cv_blocks").select("block_key").eq("workspace_id", workspaceId).eq("enabled", true).order("sort");
     const blockKeys = (blocks ?? []).map((row) => String(row.block_key));
     if (!blockKeys.length) { await finish(false, 0, "NO_BLOCKS"); return { ok: false, rows: 0, message: "Chưa bật khối CV nào trong Cài đặt." }; }
-    const codes = await codeNames(db, workspaceId);
-    const cvs = new Map<number, MappedCv & { block_keys: string[]; history_count: number }>();
+    const fetched: Array<{ blockKey: string; rows: Record<string, unknown>[] }> = [];
     const failed: string[] = [];
     for (const blockKey of blockKeys) {
       try {
-        const rows = await fetchBlock(token, blockKey);
-        const seen = new Set<number>();
-        for (const row of rows) {
-          const mapped = mapCv(row, codes);
-          if (!mapped) continue;
-          seen.add(mapped.cv_id);
-          const previous = cvs.get(mapped.cv_id);
-          // Rows come newest history first: the first one of a CV is kept, the others only counted.
-          if (previous) { previous.history_count += 1; if (!previous.block_keys.includes(blockKey)) previous.block_keys.push(blockKey); continue; }
-          cvs.set(mapped.cv_id, { ...mapped, block_keys: [blockKey], history_count: 1 });
-        }
-        await db.from("human_cv_blocks").update({ last_synced_at: new Date().toISOString(), last_count: seen.size, last_error: null }).eq("workspace_id", workspaceId).eq("block_key", blockKey);
+        fetched.push({ blockKey, rows: await fetchBlock(token, blockKey) });
       } catch (error) {
         const code = error instanceof Error ? error.message : "FAILED";
         failed.push(`${blockKey}: ${code}`);
         await db.from("human_cv_blocks").update({ last_error: code.slice(0, 200) }).eq("workspace_id", workspaceId).eq("block_key", blockKey);
         if (code === "HUMAN_TOKEN_EXPIRED") break;
       }
+    }
+    // Codes Human uses on this list (tình trạng, vị trí, kỹ năng…) get their names from the Tình trạng CV of the companies.
+    const learnt = await learnFromReports(db, workspaceId, fetched.flatMap((block) => block.rows)).catch(() => ({ userCodes: new Map<number, string>() }));
+    const codes = await codeNames(db, workspaceId);
+    const cvs = new Map<number, MappedCv & { block_keys: string[]; history_count: number; applications: Application[] }>();
+    for (const { blockKey, rows } of fetched) {
+      const seen = new Set<number>();
+      for (const row of rows) {
+        const mapped = mapCv(row, codes);
+        if (!mapped) continue;
+        seen.add(mapped.cv_id);
+        const application = applicationOf(row, codes);
+        const previous = cvs.get(mapped.cv_id);
+        // One row per company the CV went to, newest first: the first row gives the CV, the others add companies.
+        if (previous) {
+          previous.history_count += 1;
+          if (!previous.block_keys.includes(blockKey)) previous.block_keys.push(blockKey);
+          if (previous.applications.length < 60 && !previous.applications.some((item) => item.history_id && item.history_id === application.history_id)) previous.applications.push(application);
+          if (mapped.human_created_at && (!previous.human_created_at || mapped.human_created_at < previous.human_created_at)) previous.human_created_at = mapped.human_created_at;
+          continue;
+        }
+        cvs.set(mapped.cv_id, { ...mapped, code: mapped.code ?? learnt.userCodes.get(mapped.cv_id) ?? null, block_keys: [blockKey], history_count: 1, applications: [application] });
+      }
+      await db.from("human_cv_blocks").update({ last_synced_at: new Date().toISOString(), last_count: seen.size, last_error: null }).eq("workspace_id", workspaceId).eq("block_key", blockKey);
+    }
+    for (const cv of cvs.values()) {
+      const names = [...new Set(cv.applications.map((item) => item.partner_name).filter((name): name is string => Boolean(name)))];
+      cv.companies = names.length ? names.join(", ").slice(0, 2000) : cv.companies;
+      cv.partner_name = cv.applications[0]?.partner_name ?? cv.partner_name;
+      cv.search_text = `${cv.search_text} ${names.join(" ").normalize("NFD").replace(/[\u0300-\u036f]/gu, "").replace(/đ/gu, "d").toLowerCase()}`.slice(0, 8000);
     }
     const now = new Date().toISOString();
     const rows = [...cvs.values()].map((cv) => ({ ...cv, workspace_id: workspaceId, active: true, synced_at: now }));

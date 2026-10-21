@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cvFilter, emailKeys, mapCv, named, phoneKey, phoneKeys } from "../src/modules/cvs/core/cv-parse.ts";
+import { applicationOf, cvFilter, emailKeys, learnCodes, mapCv, named, phoneKey, phoneKeys, recName } from "../src/modules/cvs/core/cv-parse.ts";
 
 test("filter body for one block, up to today", () => {
   const body = cvFilter("CV_GOC", "2026-10-21");
@@ -33,4 +33,28 @@ test("a CV row: field names in any case, codes named, raw kept, searchable", () 
 test("coded values: each part named, unknown kept", () => {
   assert.equal(named("7222,999", new Map([[7222, "Brse/PM"]])), "Brse/PM, 999");
   assert.equal(named(null, new Map()), null);
+});
+
+test("the real /cv row: nameCv, Rec = userId with name from empName, one row per company", () => {
+  const codes = new Map([[11002, "CV gửi"], [7222, "Brse/PM"]]);
+  const row = { cvId: 32538, historyId: 49104, nameCv: "Nguyễn Thế Quyền", phone: "0921655858", email: "quyen283hn@gmail.com", userId: 313, empName: "Rec nguồn: JP 1 Tiêu chuẩn: Cường J3",
+    statusCv: 15001, statusCv2: 11002, positionId: 7222, partnerId: 25229, partnerName: "Monstarlab", updatedDate: "2026-10-19 14:49:14.537", changeStatus2Date: "2026-10-20 10:30:17.326", createdDateApplication: "2026-10-16 12:16:00.994" };
+  const cv = mapCv(row, codes);
+  assert.equal(cv.name, "Nguyễn Thế Quyền"); assert.equal(cv.recer_human_id, "313"); assert.equal(cv.recer_name, "Cường J3");
+  assert.equal(cv.status2, "CV gửi"); assert.equal(cv.position, "Brse/PM"); assert.equal(cv.status1, "15001");
+  assert.equal(cv.human_created_at, "2026-10-16T05:16:00.994Z");
+  assert.deepEqual(applicationOf(row, codes), { history_id: 49104, partner_id: 25229, partner_name: "Monstarlab", status1: "15001", status2: "CV gửi", updated_at: "2026-10-19T07:49:14.537Z", status2_at: "2026-10-20T03:30:17.326Z" });
+  assert.equal(recName("Cường J3"), "Cường J3"); assert.equal(recName(null), null);
+});
+
+test("code names learnt from the Tình trạng CV of the same application", () => {
+  const rows = [{ cvId: 1, historyId: 10, statusCv2: 11002, statusCv: 15001, positionId: 7222, skillId: 10077 }, { cvId: 2, historyId: 11, statusCv2: 11002, positionId: 7222 }, { cvId: 3, historyId: 12, statusCv2: 11001 }];
+  const items = [
+    { raw: { historyId: 10 }, status: "CV gửi", statusCode: "AA", position: "Brse/PM", skill: "Other", code: "RE1" },
+    { raw: { history_id: 11 }, status: "CV gửi", statusCode: null, position: "Brse/PM", skill: null, code: null },
+  ];
+  const learnt = learnCodes(rows, items);
+  assert.deepEqual(Object.fromEntries([...learnt.names].map(([id, entry]) => [id, entry.name])), { 11002: "CV gửi", 15001: "AA", 7222: "Brse/PM", 10077: "Other" });
+  assert.equal(learnt.names.get(11002).kind, "Tình trạng CV");
+  assert.deepEqual([...learnt.userCodes], [[1, "RE1"]]);
 });

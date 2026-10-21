@@ -161,8 +161,12 @@ function CvPanel({ detail, closeHref, blockLabel }: { detail: Detail; closeHref:
     </div>
 
     <section className="mt-5">
-      <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><Building2 className="size-4"/>Đã gửi công ty ({companies.length})</h3>
-      {companies.length ? <ul className="mt-2 flex flex-wrap gap-1.5">{companies.map((company, index) => <li key={`${company}-${index}`} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{company}</li>)}</ul> : <p className="mt-1.5 text-xs text-slate-500">{cv.partner_name ?? "Chưa gửi công ty nào."}</p>}
+      <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900"><Building2 className="size-4"/>Đã gửi công ty ({(cv.applications ?? []).length || companies.length})</h3>
+      {(cv.applications ?? []).length ? <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">{cv.applications.map((item, index) => <li key={item.history_id ?? index} className="flex flex-wrap items-baseline gap-x-2 px-2.5 py-1.5 text-sm">
+        {item.partner_id ? <Link href={`/customers?id=${item.partner_id}`} className="min-w-0 flex-1 truncate font-medium text-slate-800 hover:text-blue-700 hover:underline">{item.partner_name ?? `Khách #${item.partner_id}`}</Link> : <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{item.partner_name ?? "—"}</span>}
+        {item.status2 ? <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">{item.status2}</span> : null}
+        <span className="text-[11px] text-slate-500">{day(item.status2_at ?? item.updated_at)}</span>
+      </li>)}</ul> : companies.length ? <ul className="mt-2 flex flex-wrap gap-1.5">{companies.map((company, index) => <li key={`${company}-${index}`} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{company}</li>)}</ul> : <p className="mt-1.5 text-xs text-slate-500">Chưa gửi công ty nào.</p>}
     </section>
 
     <section className="mt-5">

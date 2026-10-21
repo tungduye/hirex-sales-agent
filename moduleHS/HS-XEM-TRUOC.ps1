@@ -11,27 +11,33 @@ $runtime = Join-Path $root 'runtime'
 $info = Join-Path $runtime 'hs-preview.txt'
 
 if ($Install) {
-  $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`""
-  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $me
-  $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-  $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
-  Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-  if (-not (Get-NetFirewallRule -DisplayName 'HireX HS Preview 3005' -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -DisplayName 'HireX HS Preview 3005' -Direction Inbound -Protocol TCP -LocalPort 3005 -RemoteAddress LocalSubnet -Action Allow -Profile Any | Out-Null
-  }
+  "install start $((Get-Date).ToString('o')) user=$([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+  try {
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`""
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $me
+    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force -ErrorAction Stop | Out-Null
+    "task=ok"
+  } catch { "task=FAILED $($_.Exception.Message)" }
+  try {
+    if (-not (Get-NetFirewallRule -DisplayName 'HireX HS Preview 3005' -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName 'HireX HS Preview 3005' -Direction Inbound -Protocol TCP -LocalPort 3005 -RemoteAddress LocalSubnet -Action Allow -Profile Any -ErrorAction Stop | Out-Null
+    }
+    "firewall=ok"
+  } catch { "firewall=FAILED $($_.Exception.Message)" }
   # FFmpeg cho muc Tien ich > Cuoc hop (ghep / nen audio). Cai bang winget neu may chua co.
   $ff = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\ffmpeg.exe'
-  if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath $ff)) {
-    Write-Host 'Dang cai FFmpeg (winget)...'
-    winget install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements
+  if ((Get-Command ffmpeg -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $ff)) { "ffmpeg=already" }
+  else {
+    try { winget install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | Select-Object -Last 5; "ffmpeg=" + $(if (Test-Path -LiteralPath $ff) { "ok $ff" } else { "NOT FOUND after winget" }) }
+    catch { "ffmpeg=FAILED $($_.Exception.Message)" }
   }
-  Start-ScheduledTask -TaskName $task
-  Write-Host ''
-  Write-Host 'XONG: ban xem truoc HireX dang khoi dong (lan dau mat 1-2 phut).' -ForegroundColor Green
-  Start-Sleep -Seconds 4
+  try { Start-ScheduledTask -TaskName $task -ErrorAction Stop; "start=ok" } catch { "start=FAILED $($_.Exception.Message)" }
+  Start-Sleep -Seconds 5
   if (Test-Path -LiteralPath $info) { Get-Content -LiteralPath $info }
-  Write-Host 'Co the dong cua so nay.'
+  "install done $((Get-Date).ToString('o'))"
   return
 }
 

@@ -71,6 +71,13 @@ export function emailKeys(value: string | null | undefined) {
   return [...new Set((value ?? "").toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gu) ?? [])].slice(0, 5);
 }
 
+/** "Rec nguồn: JP 1 Tiêu chuẩn: Cường J3" → "Cường J3" (the Rec's name as HireX members are named). */
+export function recName(value: string | null) {
+  if (!value) return null;
+  const last = value.split(":").at(-1)?.trim();
+  return last && last.length <= 80 ? last : value.slice(0, 80);
+}
+
 export type CodeNames = Map<number, string>;
 /** "7222" or "7222,95016" → "Brse/PM, [Data Rec] IT JP" with the bộ mã; unknown codes stay as they are. */
 export function named(value: string | null, codes: CodeNames) {
@@ -91,11 +98,11 @@ export function mapCv(row: Row, codes: CodeNames = new Map()): MappedCv | null {
   const historyId = Number(field(row, ["historyId", "history_id"]));
   const phone = text(row, ["phone", "phoneNumber", "cvPhone", "mobile", "sdt", "tel"], 200);
   const email = text(row, ["email", "cvEmail", "mail"], 300);
-  const recer = idOf(row, ["recerId", "recer", "recId", "recerUserId"]);
+  const recer = idOf(row, ["recerId", "recer", "recId", "recerUserId", "userId"]);
   const mapped = {
     cv_id: cvId, history_id: Number.isSafeInteger(historyId) && historyId > 0 ? historyId : null,
     code: text(row, ["userCode", "code", "cvCode"], 60),
-    name: text(row, ["cvName", "fullName", "candidateName", "name"], 200),
+    name: text(row, ["nameCv", "cvName", "fullName", "candidateName", "name"], 200),
     phone, email,
     position: named(text(row, ["cvPosition", "positionName", "position", "positionId"], 300), codes),
     skill: named(text(row, ["cvSkill", "skillName", "skill", "skillId"], 300), codes),
@@ -104,19 +111,59 @@ export function mapCv(row: Row, codes: CodeNames = new Map()): MappedCv | null {
     languages: named(text(row, ["foreignLanguages", "language", "languages"], 300), codes),
     status1: named(text(row, ["statusCv1", "statusCv", "status1"], 200), codes),
     status2: named(text(row, ["statusCv2", "status2"], 300), codes),
-    recer_human_id: recer, recer_name: nameOf(row, ["recerId", "recer", "recId"]) ?? text(row, ["recerName", "recName", "recer_name", "userName", "createdByName"], 200),
+    recer_human_id: recer, recer_name: nameOf(row, ["recerId", "recer", "recId"]) ?? recName(text(row, ["empName", "recerName", "recName", "recer_name", "userName"], 200)),
     partner_name: text(row, ["partnerName", "partner_name", "companyName"], 300),
     companies: text(row, ["history", "historyPartner", "companies"], 2000),
     salary: text(row, ["salary", "expectedSalary"], 200),
-    human_created_at: time(row, ["createdDate", "createDate", "created_date", "createdAt", "dateCreate"]),
-    human_updated_at: time(row, ["updateDate", "updatedDate", "update_date", "updatedAt", "lastModifiedDate"]),
+    human_created_at: time(row, ["createdDate", "createDate", "created_date", "createdAt", "dateCreate", "createdDateApplication", "exportDate"]),
+    human_updated_at: time(row, ["updatedDate", "updateDate", "update_date", "updatedAt", "lastModifiedDate"]),
     phone_keys: phoneKeys(phone), email_keys: emailKeys(email),
   };
   // Keep the raw record small enough: long text fields are cut.
   const data: Row = {};
   for (const [key, value] of Object.entries(row).slice(0, 150)) data[key] = typeof value === "string" ? value.slice(0, 2000) : value;
   const values = Object.values(mapped).filter((value): value is string => typeof value === "string" && !/^\d{4}-\d{2}-\d{2}T/u.test(value));
-  const extra = Object.entries(row).flatMap(([key, value]) => /^(description|note|certificates|managementRank)$/iu.test(key) && typeof value === "string" ? [value.slice(0, 1000)] : []);
+  const extra = Object.entries(row).flatMap(([key, value]) => /^(description|descriptionCv|status|note|noteEmail|noteZalo|empName|certificates|managementRank)$/iu.test(key) && typeof value === "string" ? [value.slice(0, 1000)] : []);
   const search_text = fold([cvId, ...values, ...extra, ...mapped.phone_keys].join(" ")).slice(0, 6000);
   return { ...mapped, data, search_text };
+}
+
+/** One company the CV was sent to (a row of Human's /cv list), names from the bộ mã. */
+export interface Application { history_id: number | null; partner_id: number | null; partner_name: string | null; status1: string | null; status2: string | null; updated_at: string | null; status2_at: string | null }
+export function applicationOf(row: Row, codes: CodeNames): Application {
+  const historyId = Number(field(row, ["historyId", "history_id"]));
+  const partnerId = Number(field(row, ["partnerId", "partner_id"]));
+  return {
+    history_id: Number.isSafeInteger(historyId) && historyId > 0 ? historyId : null, partner_id: Number.isSafeInteger(partnerId) && partnerId > 0 ? partnerId : null,
+    partner_name: text(row, ["partnerName", "partner_name"], 200), status1: named(text(row, ["statusCv1", "statusCv"], 200), codes), status2: named(text(row, ["statusCv2"], 300), codes),
+    updated_at: time(row, ["updatedDate", "updateDate"]), status2_at: time(row, ["changeStatus2Date"]),
+  };
+}
+
+/** Names Human gives the codes of the /cv list, learnt from the Tình trạng CV reports (same application = same historyId). */
+export function learnCodes(cvRows: Row[], reportItems: Array<{ raw: Row; status: string | null; statusCode: string | null; position: string | null; skill: string | null; code: string | null }>) {
+  const byHistory = new Map<string, (typeof reportItems)[number]>();
+  for (const item of reportItems) { const id = field(item.raw, ["historyId", "history_id"]); if (id != null) byHistory.set(String(id), item); }
+  const votes = new Map<number, { kind: string; names: Map<string, number> }>();
+  const vote = (code: unknown, name: string | null, kind: string) => {
+    const id = Number(code);
+    if (!Number.isSafeInteger(id) || id <= 0 || !name || /^\d+$/u.test(name)) return;
+    const entry = votes.get(id) ?? { kind, names: new Map<string, number>() };
+    entry.names.set(name, (entry.names.get(name) ?? 0) + 1);
+    votes.set(id, entry);
+  };
+  const userCodes = new Map<number, string>();
+  for (const row of cvRows) {
+    const item = byHistory.get(String(field(row, ["historyId", "history_id"])));
+    if (!item) continue;
+    vote(field(row, ["statusCv2"]), item.status, "Tình trạng CV");
+    vote(field(row, ["statusCv", "statusCv1"]), item.statusCode, "Trạng thái CV");
+    vote(field(row, ["positionId"]), item.position, "Vị trí");
+    vote(field(row, ["skillId"]), item.skill, "Kỹ năng");
+    const cvId = Number(field(row, ["cvId"]));
+    if (item.code && Number.isSafeInteger(cvId)) userCodes.set(cvId, item.code);
+  }
+  const names = new Map<number, { name: string; kind: string }>();
+  for (const [id, entry] of votes) names.set(id, { name: [...entry.names].sort((a, b) => b[1] - a[1])[0][0], kind: entry.kind });
+  return { names, userCodes };
 }

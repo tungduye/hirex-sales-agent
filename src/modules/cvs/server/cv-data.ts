@@ -9,7 +9,7 @@ import { fold } from "@/modules/customers/core/partner-parse";
 // Màn CV (read with the member's session: row level security decides which CVs, by Rec or "Xem tất cả CV").
 
 export const CV_PAGE_SIZE = 50;
-const COLUMNS = "cv_id,history_id,history_count,block_keys,code,name,phone,email,position,skill,skill_tech,location,languages,status1,status2,recer_human_id,recer_name,partner_name,companies,salary,human_created_at,human_updated_at,phone_keys,email_keys";
+const COLUMNS = "cv_id,history_id,history_count,block_keys,code,name,phone,email,position,skill,skill_tech,location,languages,status1,status2,recer_human_id,recer_name,partner_name,companies,salary,human_created_at,human_updated_at,phone_keys,email_keys,applications";
 
 export interface CvFilters { q: string; block: string | null; status1: string | null; status2: string | null; position: string | null; loc: string | null; owner: string | null; page: number }
 export interface CvRow {
@@ -17,6 +17,7 @@ export interface CvRow {
   position: string | null; skill: string | null; skill_tech: string | null; location: string | null; languages: string | null; status1: string | null; status2: string | null;
   recer_human_id: string | null; recer_name: string | null; partner_name: string | null; companies: string | null; salary: string | null;
   human_created_at: string | null; human_updated_at: string | null; phone_keys: string[]; email_keys: string[];
+  applications: Array<{ history_id: number | null; partner_id: number | null; partner_name: string | null; status1: string | null; status2: string | null; updated_at: string | null; status2_at: string | null }>;
 }
 
 export function cvFilters(params: Record<string, string | string[] | undefined>): CvFilters {

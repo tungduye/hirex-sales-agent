@@ -30,7 +30,7 @@ export const cvTools: Record<string, (args: Record<string, unknown>, scope: Scop
     const seen = await scopeOf(scope, args.chi_cua_toi === true);
     if ("error" in seen) return { loi: seen.error };
     const limit = Math.min(Math.max(Number(args.so_luong) || 10, 1), 30);
-    let query = seen.db.from("human_cvs").select("cv_id,code,name,phone,email,position,skill,skill_tech,languages,location,status1,status2,recer_human_id,recer_name,companies,salary,human_created_at,human_updated_at", { count: "exact" })
+    let query = seen.db.from("human_cvs").select("cv_id,code,name,phone,email,position,skill,skill_tech,languages,location,status1,status2,recer_human_id,recer_name,companies,salary,human_created_at,human_updated_at,applications", { count: "exact" })
       .eq("workspace_id", scope.workspaceId).eq("active", true);
     const keyword = str(args.tu_khoa);
     const byContact = Boolean(keyword && (/@/u.test(keyword) || /^[+\d\s.-]{9,}$/u.test(keyword)));
@@ -48,7 +48,9 @@ export const cvTools: Record<string, (args: Record<string, unknown>, scope: Scop
       cv: (data ?? []).map((row) => ({
         ten: row.name, ma: row.code, vi_tri: row.position, ky_nang: [row.skill, row.skill_tech].filter(Boolean).join(" · ") || null, ngoai_ngu: row.languages, dia_diem: row.location,
         trang_thai: [row.status1, row.status2].filter(Boolean).join(" · ") || null, rec: row.recer_human_id ? seen.names.get(String(row.recer_human_id)) ?? row.recer_name ?? `#${row.recer_human_id}` : row.recer_name,
-        luong: row.salary, da_gui_cong_ty: row.companies ? String(row.companies).split(",").map((part) => part.trim()).filter(Boolean).slice(0, 15) : [],
+        luong: row.salary,
+        da_gui_cong_ty: ((row.applications ?? []) as Array<{ partner_name: string | null; status2: string | null; status2_at: string | null; updated_at: string | null }>).slice(0, 15)
+          .map((item) => ({ cong_ty: item.partner_name, tinh_trang: item.status2, ngay: day(item.status2_at ?? item.updated_at) })),
         ...(byContact ? { sdt: row.phone, email: row.email } : {}), tao: day(row.human_created_at), cap_nhat: day(row.human_updated_at), link: `/cvs?id=${row.cv_id}`,
       })),
       ghi_chu: "Màn CV là bản sao CV trên Human (cập nhật mỗi 6 giờ). SĐT/email chỉ đưa khi người dùng tìm theo SĐT/email.",
