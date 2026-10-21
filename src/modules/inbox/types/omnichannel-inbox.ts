@@ -89,6 +89,8 @@ export interface OmnichannelInboxData {
   search?: string;
   /** Tab badges (newest 3,000 conversations of the last 30 days); capped = there were more. */
   viewCounts?: { all: number; waiting: number; mine: number; groups: number; other: number; capped: boolean };
+  /** Only when asked for unread: per account, conversations of people / of robots and Khác not yet read. */
+  accountUnread?: Record<string, { people: number; automated: number }>;
   /** Only when asked for ids: every conversation the filters select (5,001 means "more than 5,000"). */
   matchingIds?: string[];
   /** The member may change conversations (Suối Nguồn · Cập nhật): bulk actions are offered. */

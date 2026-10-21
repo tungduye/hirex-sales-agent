@@ -69,24 +69,24 @@ export function InboxBulkBar(props: {
     } catch { setError("Mất kết nối, vui lòng thử lại."); } finally { setBusy(false); }
   };
 
-  const button = "inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50";
+  const button = "inline-flex h-7 min-w-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50";
   return <div ref={rootRef} className="relative rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5" role="toolbar" aria-label="Thao tác hàng loạt">
     <div className="flex items-center gap-1.5 text-xs">
-      <button type="button" onClick={props.onClear} aria-label="Bỏ chọn" title="Bỏ chọn (Esc)" className="rounded p-0.5 text-slate-500 hover:bg-white hover:text-slate-800"><X className="size-4"/></button>
-      <span className="font-bold text-blue-900">Đã chọn {countText}</span>
-      <span className="ml-auto flex items-center gap-1">
-        {props.target.kind === "rows" && !props.allVisiblePicked && props.visibleCount > count ? <button type="button" onClick={props.onPickVisible} className="font-semibold text-blue-700 hover:underline">Chọn {props.visibleCount} đang hiện</button> : null}
-        {props.target.kind === "rows" ? <button type="button" onClick={props.onPickFilter} disabled={props.pickingFilter} className="font-semibold text-blue-700 hover:underline disabled:opacity-50" title="Mọi hội thoại khớp bộ lọc, tab và tìm kiếm (tối đa 5.000)">{props.pickingFilter ? "Đang đếm…" : "Tất cả theo bộ lọc"}</button> : null}
-      </span>
+      <button type="button" onClick={props.onClear} aria-label="Bỏ chọn" title="Bỏ chọn (Esc)" className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white hover:text-slate-800"><X className="size-4"/></button>
+      <span className="min-w-0 truncate font-bold text-blue-900">Đã chọn {countText}</span>
+      {busy ? <LoaderCircle className="ml-auto size-4 shrink-0 animate-spin text-blue-600" aria-label="Đang làm"/> : null}
     </div>
-    <div className="mt-1 flex flex-wrap items-center gap-0.5">
-      <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_ADD" ? null : "TAG_ADD")} className={button}><Tag className="size-3.5"/>Gắn nhãn</button>
-      <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_REMOVE" ? null : "TAG_REMOVE")} className={button}><TagsIcon className="size-3.5"/>Bỏ nhãn</button>
-      <button type="button" disabled={busy} onClick={() => void run("MARK_READ", [], null)} className={button}><CheckCheck className="size-3.5"/>Đã đọc</button>
-      <button type="button" disabled={busy} onClick={() => void run("MOVE_OTHER", [], null)} className={button} title="Chuyển vào Khác"><FolderInput className="size-3.5"/>Vào Khác</button>
-      <button type="button" disabled={busy} onClick={() => void run("MOVE_PRIMARY", [], null)} className={button} title="Chuyển về Chính"><FolderOutput className="size-3.5"/>Về Chính</button>
-      <button type="button" disabled={busy} onClick={() => setMenu(menu === "ASSIGN" ? null : "ASSIGN")} className={button}><UserRound className="size-3.5"/>Giao cho</button>
-      {busy ? <LoaderCircle className="ml-1 size-4 animate-spin text-blue-600" aria-label="Đang làm"/> : null}
+    {props.target.kind === "rows" ? <div className="mt-0.5 flex flex-wrap gap-x-3 pl-6 text-[11px]">
+      {!props.allVisiblePicked && props.visibleCount > count ? <button type="button" onClick={props.onPickVisible} className="font-semibold text-blue-700 hover:underline">Chọn cả {props.visibleCount} đang hiện</button> : null}
+      <button type="button" onClick={props.onPickFilter} disabled={props.pickingFilter} className="font-semibold text-blue-700 hover:underline disabled:opacity-50" title="Mọi hội thoại khớp bộ lọc, tab và tìm kiếm (tối đa 5.000)">{props.pickingFilter ? "Đang đếm…" : "Chọn tất cả theo bộ lọc"}</button>
+    </div> : null}
+    <div className="mt-1 grid grid-cols-3 gap-0.5">
+      <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_ADD" ? null : "TAG_ADD")} className={button}><Tag className="size-3.5 shrink-0"/>Gắn nhãn</button>
+      <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_REMOVE" ? null : "TAG_REMOVE")} className={button}><TagsIcon className="size-3.5 shrink-0"/>Bỏ nhãn</button>
+      <button type="button" disabled={busy} onClick={() => void run("MARK_READ", [], null)} className={button}><CheckCheck className="size-3.5 shrink-0"/>Đã đọc</button>
+      <button type="button" disabled={busy} onClick={() => void run("MOVE_OTHER", [], null)} className={button} title="Chuyển vào Khác"><FolderInput className="size-3.5 shrink-0"/>Vào Khác</button>
+      <button type="button" disabled={busy} onClick={() => void run("MOVE_PRIMARY", [], null)} className={button} title="Chuyển về Chính"><FolderOutput className="size-3.5 shrink-0"/>Về Chính</button>
+      <button type="button" disabled={busy} onClick={() => setMenu(menu === "ASSIGN" ? null : "ASSIGN")} className={button}><UserRound className="size-3.5 shrink-0"/>Giao cho</button>
     </div>
     {confirm ? <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900" role="alertdialog" aria-label="Xác nhận">
       <p><b>{confirm.text}</b> cho {countText}?</p>

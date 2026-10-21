@@ -249,7 +249,7 @@ function parseCursor(value: string | null | undefined): { at: string; id: string
   return match[1] === "-infinity" || Number.isFinite(Date.parse(match[1].replace(" ", "T"))) ? { at: match[1], id: match[2] } : null;
 }
 
-export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; cursor?: string; mode?: "list" | "counts" | "ids" }): Promise<OmnichannelInboxData> {
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; cursor?: string; mode?: "list" | "counts" | "ids" | "unread" }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -319,6 +319,17 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     : activeAccountIds.filter((id) => { const owner = accounts.find((account) => account.id === id)?.primaryProfileId; return Boolean(owner && selectedOwnerIds.includes(owner)); });
 
   const listAccountIds = selectedAccountIds.length ? selectedAccountIds.filter((id) => ownerAccountIds.includes(id)) : ownerAccountIds;
+  if (filters.mode === "unread") {
+    // Unread conversations per account, for the account picker; asked for only when the filter panel opens.
+    const { data } = await supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds });
+    const accountUnread: Record<string, { people: number; automated: number }> = {};
+    for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown; unread_people?: unknown }>) if (typeof row.channel_account_id === "string") {
+      const all = Number(row.unread) || 0; const people = row.unread_people === undefined ? all : Number(row.unread_people) || 0;
+      // People only: e-mail from robots and the "Khác" folder are counted apart.
+      accountUnread[row.channel_account_id] = { people, automated: all - people };
+    }
+    return { ...emptyData({ selectedChannelType, selectedPage, error: "" }), error: null, accountUnread };
+  }
   if (filters.mode === "ids") {
     // Every conversation the filters and tab select (for "apply to all filter results"), at most 5,000.
     const { data: idData, error: idError } = listAccountIds.length ? await supabase.rpc("inbox_matching_conversation_ids", {
@@ -343,10 +354,6 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     for (const row of (countData ?? []) as Array<{ view?: unknown; total?: unknown; capped?: unknown }>) { if (typeof row.view === "string" && row.view in viewCounts) viewCounts[row.view] = Number(row.total) || 0; if (row.capped === true) capped = true; }
     return { ...emptyData({ selectedChannelType, selectedPage, error: "" }), error: null, viewCounts: { ...viewCounts, capped } as NonNullable<OmnichannelInboxData["viewCounts"]> };
   }
-  // Unread conversations per account, for the account picker (runs alongside the list query).
-  const unreadPromise = Promise.resolve(supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds }))
-    // People only: e-mail from robots and the "Khác" folder are counted apart.
-    .then(({ data }) => { const counts = new Map<string, { people: number; automated: number }>(); for (const row of (data ?? []) as Array<{ channel_account_id?: unknown; unread?: unknown; unread_people?: unknown }>) if (typeof row.channel_account_id === "string") { const all = Number(row.unread) || 0; const people = row.unread_people === undefined ? all : Number(row.unread_people) || 0; counts.set(row.channel_account_id, { people, automated: all - people }); } return counts; }, () => new Map<string, { people: number; automated: number }>());
   // Tags, first-message dates, the tab and search are decided in the database over every conversation
   // (migration 114), then this page's rows are loaded by id.
   const listStartedAt = performance.now();
@@ -454,9 +461,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
         typeof item.channel_account_id === "string" ? [{ subject: typeof item.subject === "string" ? item.subject : null, channelAccountId: item.channel_account_id }] : []));
   }
   const merged = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
-  const unread = await unreadPromise;
   step("merge");
-  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, unreadCount: unread.get(account.id)?.people ?? 0, unreadAutomated: unread.get(account.id)?.automated ?? 0, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
+  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
   return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 

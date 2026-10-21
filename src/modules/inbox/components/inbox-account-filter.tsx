@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import type { OmnichannelInboxAccount } from "../types/omnichannel-inbox";
 
@@ -10,8 +10,17 @@ type Group = { key: string; label: string; accounts: OmnichannelInboxAccount[] }
 const fold = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase().trim();
 
 /** Accounts grouped by main user (mine first), with unread counts; several may be picked. Submits one `account=id1,id2`. */
-export function InboxAccountFilter({ accounts, selected, currentUserId }: { accounts: OmnichannelInboxAccount[]; selected: string[]; currentUserId: string | null }) {
+export function InboxAccountFilter({ accounts: listed, selected, currentUserId }: { accounts: OmnichannelInboxAccount[]; selected: string[]; currentUserId: string | null }) {
   const [chosen, setChosen] = useState(() => new Set(selected));
+  // Unread counts load when the panel opens, so they never slow down the list.
+  const [unread, setUnread] = useState<Record<string, { people: number; automated: number }>>({});
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/inbox/account-unread", { signal: controller.signal }).then((response) => response.ok ? response.json() as Promise<Record<string, { people: number; automated: number }>> : {})
+      .then((value) => setUnread(value)).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const accounts = listed.map((account) => ({ ...account, unreadCount: unread[account.id]?.people ?? 0, unreadAutomated: unread[account.id]?.automated ?? 0 }));
   const [query, setQuery] = useState("");
   const needle = fold(query);
   const shown = accounts.filter((account) => !needle || fold(`${account.displayName} ${account.primaryName ?? ""}`).includes(needle));
