@@ -26,6 +26,9 @@ export function companyAliases(name: string | null, website: string | null): str
     if (mid && mid !== full && mid.includes(" ") && mid.length >= 6) aliases.add(mid);
     const core = full.split(" ").filter((word) => word && !GENERIC.has(word)).join(" ");
     if (core && core !== full && (core.length >= 4 || (core.length === 3 && !core.includes(" "))) && !COMMON.has(core)) aliases.add(core);
+    // The first, distinctive word of a longer name ("sapphire" from "SAPPHIRE STREAM").
+    const first = (core || full).split(" ")[0] ?? "";
+    if ((core || full).includes(" ") && first.length >= 6 && !COMMON.has(first) && !GENERIC.has(first)) aliases.add(first);
   }
   if (website) {
     // The site's own name: "brisasoft" from brisasoft.com; never a generic label ("group" in group.ntt, "jobs", "careers").
@@ -52,7 +55,9 @@ export function matchGroup(groupName: string, companies: ReadonlyArray<MatchComp
     for (const alias of company.aliases ?? companyAliases(company.name, company.website)) {
       // Whole words ("kss" in "kss tri dev"), or a one-word alias glued in the group name ("vnext" in "x1 vnext mai").
       const word = haystack.indexOf(` ${alias} `);
-      const glued = !alias.includes(" ") && alias.length >= 5 ? squashed.indexOf(alias) : -1;
+      // Also with the spaces taken out: "t t design" (T&T Design) is "tt design" in a group name.
+      const flat = alias.replace(/ /gu, "");
+      const glued = flat.length >= (alias.includes(" ") ? 6 : 5) ? squashed.indexOf(flat) : -1;
       if (word < 0 && glued < 0) continue;
       const at = word >= 0 ? haystack.slice(0, word).replace(/ /gu, "").length : glued;
       const score = alias.replace(/ /gu, "").length;

@@ -40,3 +40,9 @@ test("công ty đứng đầu tên nhóm được chọn, không ghép theo tên
   assert.deepEqual(matchGroup("X 1- Vnext-Mai-Se/Brse Tokyo+Se AI-Magnet-00", list).map((item) => item.id), [4]);
   assert.deepEqual(matchGroup("NTQ Consulting JP-Tùng-Pm/Se người Nhật-HS", list).map((item) => item.id), [6]);
 });
+
+test("tên viết liền hoặc chỉ lấy chữ đầu của công ty", () => {
+  const list = [{ id: 1, name: "SAPPHIRE STREAM", website: null }, { id: 2, name: "T&T Design", website: null }];
+  assert.deepEqual(matchGroup("SAPPHIRE -Tùng-Brse/PM JP (Embedded)-Intalent", list).map((item) => item.id), [1]);
+  assert.deepEqual(matchGroup("TT Design-BrSE/PM HN-Tùng-Intalent", list).map((item) => item.id), [2]);
+});
