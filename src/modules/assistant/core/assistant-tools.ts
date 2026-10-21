@@ -629,7 +629,7 @@ function BROADCAST_TOOLS(): AssistantToolDefinition[] {
     label: "Đề xuất gửi nhóm Zalo (nháp)",
     description: "Gửi một tin vào nhóm Zalo (có thể ghim tin đó lên đầu nhóm), và/hoặc thêm ghi chú ở bảng tin nhóm, cho nhiều nhóm từ các nick người dùng được dùng. Nhiều nhóm: chỉ tạo NHÁP sau khi người dùng xác nhận thẻ; việc gửi chỉ bắt đầu khi họ bấm \"Bắt đầu gửi\" trên trang Gửi nhóm Zalo. Riêng nhóm đang chat với Soda (nhom_hien_tai): xác nhận thẻ là gửi/ghim ngay vào nhóm đó. Mỗi nick tối đa 30 nhóm/ngày, cách 90–180 giây, 8:00–21:00.",
     parameters: {
-      type: "object", additionalProperties: false, required: ["ten", "noi_dung", "gui_tin", "ghim", "ghi_chu", "nhom_hien_tai", "nick", "tu_khoa_nhom", "so_nhom_toi_da"],
+      type: "object", additionalProperties: false, required: ["ten", "noi_dung", "gui_tin", "ghim", "ghi_chu", "nhom_hien_tai", "nick", "tu_khoa_nhom", "so_nhom_toi_da", "nhan_nhom", "hang_cong_ty", "khoi_cong_ty"],
       properties: {
         ten: nullableString("Tên đợt gửi, hoặc null (lấy dòng đầu nội dung)."),
         noi_dung: { type: "string", description: "Nội dung tin/ghi chú đúng như người dùng đưa hoặc đã duyệt (tối đa 4.000 ký tự; ghi chú tối đa 2.000)." },
@@ -640,9 +640,12 @@ function BROADCAST_TOOLS(): AssistantToolDefinition[] {
         nick: { type: ["array", "null"], items: { type: "string" }, description: "Tên các nick gửi; null = mọi nick người dùng được dùng đang kết nối." },
         tu_khoa_nhom: nullableString("Chỉ các nhóm có tên chứa từ khoá này (ví dụ \"BrSE\", \"IT HCM\"), hoặc null = mọi nhóm của các nick đó."),
         so_nhom_toi_da: nullableInteger("Giới hạn số nhóm (tối đa 500), hoặc null."),
+        nhan_nhom: { type: ["array", "null"], items: { type: "string" }, description: "\"Thẻ\": chỉ nhóm có một trong các nhãn Suối Nguồn này, hoặc null." },
+        hang_cong_ty: nullableString("Chỉ nhóm đã duyệt ghép với công ty có xếp hạng chứa chữ này (\"Hạng 1\", \"Dự án ưu tiên\", \"Hot Do\"…), hoặc null."),
+        khoi_cong_ty: nullableString("Chỉ nhóm đã duyệt ghép với công ty thuộc khối này (\"Hot Do IT\", \"IT\"…), hoặc null."),
       },
     },
-    args: z.object({ ten: text(200).nullable(), noi_dung: text(4000).min(1), gui_tin: z.boolean().nullable(), ghim: z.boolean().nullable(), ghi_chu: z.boolean().nullable(), nhom_hien_tai: z.boolean().nullable(), nick: z.array(text(120)).max(30).nullable(), tu_khoa_nhom: text(120).nullable(), so_nhom_toi_da: z.number().int().min(1).max(500).nullable() }).strict(),
+    args: z.object({ ten: text(200).nullable(), noi_dung: text(4000).min(1), gui_tin: z.boolean().nullable(), ghim: z.boolean().nullable(), ghi_chu: z.boolean().nullable(), nhom_hien_tai: z.boolean().nullable(), nick: z.array(text(120)).max(30).nullable(), tu_khoa_nhom: text(120).nullable(), so_nhom_toi_da: z.number().int().min(1).max(500).nullable(), nhan_nhom: z.array(text(80)).max(10).nullable(), hang_cong_ty: text(120).nullable(), khoi_cong_ty: text(80).nullable() }).strict(),
   }];
 }
 
@@ -658,13 +661,13 @@ function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
       properties: {
         tu_khoa: nullableString("Tên công ty, email, SĐT, website, địa chỉ hoặc mã khách (có/không dấu), hoặc null."),
         trang_thai: nullableString("Một phần xếp hạng dự án / hạng / xếp hạng AM (ví dụ \"Chờ nhiệm thu\", \"Hạng 1\", \"Doing\"), hoặc null."),
-        khoi: nullableInteger("Mã khối (blockId, ví dụ 36309), hoặc null."),
+        khoi: nullableString("Tên khối (ví dụ \"Hot Do IT\", \"HĐ Khối Nhật\"; \"IT\" = mọi khối IT, \"Hot Do\" = mọi khối Hot Do) hoặc mã khối, hoặc null."),
         chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ khách người hỏi là Sale/AM." },
         chua_gui_email: { type: ["boolean", "null"], description: "true = chỉ khách chưa được gửi CV nào." },
         so_luong: nullableInteger("Số khách trả về (mặc định 10, tối đa 30)."),
       },
     },
-    args: z.object({ tu_khoa: text(120).nullable(), trang_thai: text(120).nullable(), khoi: z.number().int().positive().nullable(), chi_cua_toi: z.boolean().nullable(), chua_gui_email: z.boolean().nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+    args: z.object({ tu_khoa: text(120).nullable(), trang_thai: text(120).nullable(), khoi: text(80).nullable(), chi_cua_toi: z.boolean().nullable(), chua_gui_email: z.boolean().nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
   }, {
     name: "tinh_trang_cv",
     permission: "customers.view",
@@ -676,6 +679,84 @@ function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
     },
     args: z.object({ cong_ty: text(120).min(1) }).strict(),
     maxOutputChars: 16_000,
+  }];
+}
+
+// Soda đợt 1: counts on Khách hàng and on the stored Tình trạng CV of many companies; Suối Nguồn counts; Zalo groups.
+const GROUP_BY = ["HANG", "XEP_HANG_DU_AN", "XEP_HANG_AM", "KHOI", "DIA_DIEM", "SALE", "AM"] as const;
+const CV_KINDS = ["PHONG_VAN", "CHO_GUI", "DA_GUI", "OFFER", "ONBOARD", "FAIL", "TONG_QUAN"] as const;
+function ROUND_ONE_TOOLS(): AssistantToolDefinition[] {
+  const dateArgs = {
+    ky: { type: ["string", "null"], enum: [...KPI_PERIODS, "TAT_CA", null], description: "Khoảng thời gian; null/TAT_CA = không lọc ngày." },
+    tu_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+    den_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+  };
+  const dateZod = { ky: z.enum([...KPI_PERIODS, "TAT_CA"]).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable() };
+  return [{
+    name: "thong_ke_khach_hang",
+    permission: "customers.view",
+    label: "Thống kê khách hàng",
+    description: "Đếm công ty khách (màn Khách hàng, lấy từ Human) theo Hạng (Hạng 1…8), Xếp hạng dự án, Xếp hạng AM, khối, địa điểm, Sale hoặc AM, kèm tổng CV; lọc theo khối (tên: \"IT\", \"Hot Do\", \"Hot Do IT\", \"HĐ Khối Nhật\"…) và chữ trong xếp hạng. Có ky/tu_ngay/den_ngay: chỉ công ty MỚI VÀO khối trong khoảng đó, kèm danh sách — dùng cho \"tuần này có bao nhiêu Hot Do mới\", \"Hot Do lên trong tháng 10\". Dùng cho \"bao nhiêu công ty hạng 1, hạng 2 ngành IT\".",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["khoi", "nhom_theo", "loc", "ky", "tu_ngay", "den_ngay", "chi_cua_toi", "so_luong"],
+      properties: {
+        khoi: nullableString("Tên hoặc mã khối; \"IT\" = mọi khối IT, \"Hot Do\" = mọi khối Hot Do; null = mọi khối."),
+        nhom_theo: { type: ["string", "null"], enum: [...GROUP_BY, null], description: "Đếm theo: HANG (mặc định), XEP_HANG_DU_AN, XEP_HANG_AM, KHOI, DIA_DIEM, SALE, AM." },
+        loc: nullableString("Chỉ công ty có xếp hạng chứa chữ này (ví dụ \"Hạng 1\", \"Dự án ưu tiên\", \"Hot Do\"), hoặc null."),
+        ...dateArgs,
+        chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ khách người hỏi là Sale/AM." },
+        so_luong: nullableInteger("Số công ty mới liệt kê (mặc định 30, tối đa 100)."),
+      },
+    },
+    args: z.object({ khoi: text(80).nullable(), nhom_theo: z.enum(GROUP_BY).nullable(), loc: text(120).nullable(), ...dateZod, chi_cua_toi: z.boolean().nullable(), so_luong: z.number().int().min(1).max(100).nullable() }).strict(),
+    maxOutputChars: 16_000,
+  }, {
+    name: "tong_hop_cv",
+    permission: "customers.view",
+    label: "Tổng hợp Tình trạng CV nhiều công ty",
+    description: "Gom Tình trạng CV (Human) của NHIỀU công ty khách: loai = PHONG_VAN (lịch phỏng vấn theo ngày, vòng PV1/PV2…), CHO_GUI (UV chờ gửi + kỹ năng/vị trí phổ biến), DA_GUI, OFFER, ONBOARD, FAIL, TONG_QUAN (số CV từng loại theo công ty). Lọc theo khối, xếp hạng (ví dụ \"Dự án ưu tiên\"), tên công ty, trạng thái (ví dụ \"PV2\"), khoảng ngày (ngày phỏng vấn với PHONG_VAN, ngày cập nhật với loại khác). Dùng cho \"nay có lịch phỏng vấn gì\", \"tuần này mấy lịch PV2\", \"tóm tắt skill UV chờ gửi\", \"dự án ưu tiên có CV chưa\". Một công ty cụ thể đúng mẫu ghim nhóm → tinh_trang_cv.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["loai", "trang_thai", "ky", "tu_ngay", "den_ngay", "khoi", "loc", "cong_ty", "chi_cua_toi", "tom_tat_ky_nang", "so_luong"],
+      properties: {
+        loai: { type: ["string", "null"], enum: [...CV_KINDS, null], description: "Mặc định PHONG_VAN." },
+        trang_thai: nullableString("Chữ trong trạng thái CV, ví dụ \"PV2\", \"PV1\", \"Chưa chốt lịch\", hoặc null."),
+        ...dateArgs,
+        khoi: nullableString("Tên/mã khối, hoặc null."),
+        loc: nullableString("Chữ trong xếp hạng công ty (\"Dự án ưu tiên\", \"Hạng 1\"…), hoặc null."),
+        cong_ty: nullableString("Tên công ty (một phần), hoặc null."),
+        chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ khách người hỏi là Sale/AM (\"lịch của chị\")." },
+        tom_tat_ky_nang: { type: ["boolean", "null"], description: "true = kèm kỹ năng/vị trí phổ biến (tự có với CHO_GUI)." },
+        so_luong: nullableInteger("Số CV liệt kê (mặc định 40, tối đa 120)."),
+      },
+    },
+    args: z.object({ loai: z.enum(CV_KINDS).nullable(), trang_thai: text(80).nullable(), ...dateZod, khoi: text(80).nullable(), loc: text(120).nullable(), cong_ty: text(120).nullable(), chi_cua_toi: z.boolean().nullable(), tom_tat_ky_nang: z.boolean().nullable(), so_luong: z.number().int().min(1).max(120).nullable() }).strict(),
+    maxOutputChars: 20_000,
+  }, {
+    name: "dem_hoi_thoai",
+    permission: "inbox.view",
+    label: "Đếm hội thoại Suối Nguồn",
+    description: "Đếm hội thoại Suối Nguồn trên các nick người hỏi được xem, theo nick: số hội thoại khách, CHỜ TRẢ LỜI (tin cuối là của khách, như tab Chưa trả lời), chưa đọc, nhóm; lọc kênh (EMAIL, ZALO…), nick, số ngày. nguoi_nhat = true: hội thoại với người Nhật (nhắn chữ tiếng Nhật, email .jp, liên hệ ghi Nhật Bản) kèm danh sách. Dùng cho \"bao nhiêu email khách phản hồi chưa được tiếp\", \"bao nhiêu email người Nhật ở Suối Nguồn\".",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["kenh", "nick", "so_ngay", "nguoi_nhat", "so_luong"],
+      properties: {
+        kenh: { type: ["string", "null"], enum: ["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE", null], description: "Kênh, hoặc null = mọi kênh." },
+        nick: nullableString("Tên nick/hộp thư, hoặc null."),
+        so_ngay: nullableInteger("Hội thoại có tin trong bao nhiêu ngày gần đây (mặc định 30, tối đa 90)."),
+        nguoi_nhat: { type: ["boolean", "null"], description: "true = chỉ hội thoại với người Nhật." },
+        so_luong: nullableInteger("Số hội thoại người Nhật liệt kê (mặc định 15, tối đa 40)."),
+      },
+    },
+    args: z.object({ kenh: z.enum(["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE"]).nullable(), nick: text(120).nullable(), so_ngay: z.number().int().min(1).max(90).nullable(), nguoi_nhat: z.boolean().nullable(), so_luong: z.number().int().min(1).max(40).nullable() }).strict(),
+  }, {
+    name: "nhom_zalo",
+    permission: "inbox.view",
+    label: "Đếm nhóm Zalo",
+    description: "Số nhóm Zalo (HireX đã đồng bộ) của từng nick người hỏi được xem và tổng số nhóm (một nhóm nhiều nick chỉ tính một lần); lọc theo chữ trong tên nhóm; so_luong > 0 thì kèm tên nhóm.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["nick", "tu_khoa", "so_luong"],
+      properties: { nick: nullableString("Tên nick (ví dụ \"Soda\"), hoặc null = mọi nick."), tu_khoa: nullableString("Chữ trong tên nhóm, hoặc null."), so_luong: nullableInteger("Số tên nhóm liệt kê (0 = không liệt kê, tối đa 100).") },
+    },
+    args: z.object({ nick: text(120).nullable(), tu_khoa: text(120).nullable(), so_luong: z.number().int().min(0).max(100).nullable() }).strict(),
   }];
 }
 
@@ -990,6 +1071,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...INBOX_BULK_TOOLS(),
   ...CUSTOMER_TOOLS(),
   ...CAMPAIGN_INSIGHT_TOOLS(),
+  ...ROUND_ONE_TOOLS(),
   ...DOCUMENT_SAVE_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),

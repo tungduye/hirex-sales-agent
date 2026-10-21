@@ -2,7 +2,11 @@ import "server-only";
 
 import { broadcastGroups, broadcastNicks, changeBroadcast, createBroadcast, currentZaloGroup } from "@/modules/broadcasts/server/broadcast-data";
 import { MAX_TARGETS_PER_BROADCAST } from "@/modules/broadcasts/core/broadcast-plan";
+import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { blockLabel, resolveBlocks } from "@/modules/customers/core/customer-stats";
+import { loadBlocks } from "@/modules/assistant/server/assistant-customer-stats";
 import type { ActionContext, Built, Executed } from "@/modules/assistant/server/assistant-proposals";
+import type { GroupOption } from "@/modules/broadcasts/server/broadcast-data";
 
 // Trợ lý card for "Gửi hàng loạt Zalo". Many groups: it only prepares a DRAFT (chosen nicks and groups);
 // nothing is sent until the member opens the page and presses "Bắt đầu gửi". The one group where the member
@@ -39,7 +43,12 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
   if (!chosen.length) return { ok: false, error: wantedNicks.length ? "Không tìm thấy nick đó trong các nick sếp được dùng (hoặc nick đang mất kết nối)." : "Sếp chưa có nick Zalo nào đang kết nối." };
   const keyword = typeof args.tu_khoa_nhom === "string" ? fold(args.tu_khoa_nhom) : "";
   const limit = typeof args.so_nhom_toi_da === "number" ? Math.min(args.so_nhom_toi_da, MAX_TARGETS_PER_BROADCAST) : MAX_TARGETS_PER_BROADCAST;
-  const groups = (await broadcastGroups(context, chosen.map((nick) => nick.id))).filter((group) => !keyword || fold(group.name).includes(keyword)).slice(0, limit);
+  let groups = (await broadcastGroups(context, chosen.map((nick) => nick.id))).filter((group) => !keyword || fold(group.name).includes(keyword));
+  // Groups by their Suối Nguồn tag ("thẻ"), or by the company they are linked to (Khách hàng → Cài đặt, approved links only).
+  const extra: string[] = [];
+  const narrowed = await narrowGroups(groups, args, context, extra);
+  if ("error" in narrowed) return { ok: false, error: narrowed.error };
+  groups = narrowed.groups.slice(0, limit);
   if (!groups.length) return { ok: false, error: "Không có nhóm nào khớp với các nick và từ khoá này." };
   const name = String(args.ten ?? "").trim() || text.split("\n")[0].slice(0, 80);
   return {
@@ -50,6 +59,7 @@ export async function proposeBroadcast(args: Record<string, unknown>, context: A
       lines: [
         `Tên: ${name}`, `${what[0].toUpperCase()}${what.slice(1)} vào ${groups.length} nhóm`,
         `Nick: ${chosen.map((nick) => nick.name).join(", ")}`,
+        ...extra,
         `Ví dụ nhóm: ${groups.slice(0, 5).map((group) => group.name).join("; ")}${groups.length > 5 ? "…" : ""}`,
         "Chỉ tạo nháp. Sếp mở trang Gửi nhóm Zalo kiểm tra rồi bấm Bắt đầu gửi; mỗi nick tối đa 30 nhóm/ngày, cách 90–180 giây, 8:00–21:00.",
       ],
@@ -73,4 +83,44 @@ export async function executeBroadcast(params: Record<string, unknown>, context:
   return result.ok
     ? { ok: true, message: `Đã tạo nháp gửi ${result.groups} nhóm từ ${result.nicks} nick. Sếp mở trang để kiểm tra và bấm Bắt đầu gửi.`, link: `/broadcasts/${result.id}` }
     : { ok: false, message: result.error };
+}
+
+/** Keeps groups with the asked tags (any of them), and/or linked (approved) to companies of the asked Hạng/Xếp hạng/khối. */
+async function narrowGroups(groups: GroupOption[], args: Record<string, unknown>, context: ActionContext, notes: string[]): Promise<{ groups: GroupOption[] } | { error: string }> {
+  const db = createPrivilegedClient();
+  const tags = Array.isArray(args.nhan_nhom) ? (args.nhan_nhom as unknown[]).filter((item): item is string => typeof item === "string" && item.trim() !== "") : [];
+  if (tags.length) {
+    const { data: tagRows } = await db.from("conversation_tags").select("id,name").eq("workspace_id", context.workspaceId);
+    const found = (tagRows ?? []).filter((tag) => tags.some((name) => fold(String(tag.name)) === fold(name)));
+    if (!found.length) return { error: `Không có nhãn ${tags.map((name) => `"${name}"`).join(", ")} trong Suối Nguồn.` };
+    const conversationIds = groups.flatMap((group) => group.accounts.map((account) => account.conversationId));
+    const tagged = new Set<string>();
+    for (let offset = 0; offset < conversationIds.length; offset += 300) {
+      const { data } = await db.from("conversation_tag_links").select("conversation_id").eq("workspace_id", context.workspaceId)
+        .in("tag_id", found.map((tag) => String(tag.id))).in("conversation_id", conversationIds.slice(offset, offset + 300));
+      for (const row of data ?? []) tagged.add(String(row.conversation_id));
+    }
+    groups = groups.filter((group) => group.accounts.some((account) => tagged.has(account.conversationId)));
+    notes.push(`Nhóm có nhãn: ${found.map((tag) => String(tag.name)).join(", ")}`);
+  }
+  const rank = typeof args.hang_cong_ty === "string" && args.hang_cong_ty.trim() ? args.hang_cong_ty.trim() : null;
+  const blockText = typeof args.khoi_cong_ty === "string" && args.khoi_cong_ty.trim() ? args.khoi_cong_ty.trim() : null;
+  if (rank || blockText) {
+    const blocks = await loadBlocks(db, context.workspaceId);
+    const wanted = resolveBlocks(blocks, blockText);
+    if (wanted && !wanted.length) return { error: `Không có khối "${blockText}". Các khối: ${blocks.map(blockLabel).join(", ")}.` };
+    const { data: links } = await db.from("human_partner_groups").select("group_id,partner_id,status").eq("workspace_id", context.workspaceId).in("status", ["CONFIRMED", "SUGGESTED"]);
+    const confirmed = (links ?? []).filter((link) => link.status === "CONFIRMED");
+    if (!confirmed.length) return { error: "Chưa có nhóm Zalo nào được duyệt ghép với công ty, nên chưa chọn nhóm theo hạng/khối được. Duyệt ở Khách hàng → Cài đặt (mục Nhóm của Soda ↔ công ty) hoặc ở ngăn chi tiết công ty." };
+    const partnerIds = [...new Set(confirmed.map((link) => Number(link.partner_id)))];
+    const { data: partners } = await db.from("human_partners").select("partner_id,name,block_ids,project_rank,job_rank,am_rank,am_rank2").eq("workspace_id", context.workspaceId).in("partner_id", partnerIds);
+    const wantedRank = rank ? fold(rank) : null;
+    const keep = new Set((partners ?? []).filter((row) => (!wantedRank || [row.project_rank, row.job_rank, row.am_rank, row.am_rank2].some((value) => value && fold(String(value)).includes(wantedRank)))
+      && (!wanted || ((row.block_ids ?? []) as number[]).some((id) => wanted.some((block) => block.block_id === id)))).map((row) => Number(row.partner_id)));
+    const groupIds = new Set(confirmed.filter((link) => keep.has(Number(link.partner_id))).map((link) => String(link.group_id)));
+    groups = groups.filter((group) => groupIds.has(group.groupId));
+    const pending = (links ?? []).length - confirmed.length;
+    notes.push(`Nhóm của công ty ${[rank ? `xếp hạng "${rank}"` : "", wanted ? `khối ${wanted.map(blockLabel).join(", ")}` : ""].filter(Boolean).join(", ")} (chỉ nhóm đã duyệt ghép${pending ? `; ${pending} nhóm còn chờ duyệt không tính` : ""})`);
+  }
+  return { groups };
 }

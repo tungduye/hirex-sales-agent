@@ -3,6 +3,8 @@ import "server-only";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { cvReportCounts, fold, formatCvStatusMessage, reportFingerprint, splitMessage } from "@/modules/customers/core/partner-parse";
 import { partnerReport } from "@/modules/customers/server/partner-reports";
+import { blockLabel, resolveBlocks } from "@/modules/customers/core/customer-stats";
+import { loadBlocks } from "@/modules/assistant/server/assistant-customer-stats";
 import type { ActionContext } from "@/modules/assistant/server/assistant-proposals";
 
 // "khach_hang": the Khách hàng list (copied from Human), within the member's rights: "Xem tất cả khách", or
@@ -60,7 +62,11 @@ export const customerTools: Record<string, (args: Record<string, unknown>, scope
     if (onlyMine) query = query.or(`sale_human_id.in.(${mine.join(",")}),am_human_id.in.(${mine.join(",")}),am2_human_id.in.(${mine.join(",")})`);
     if (typeof args.tu_khoa === "string" && args.tu_khoa.trim()) query = query.ilike("search_text", `%${fold(args.tu_khoa).replace(/[%_\\]/gu, "")}%`);
     if (typeof args.trang_thai === "string" && args.trang_thai.trim()) { const pattern = `%${args.trang_thai.trim().replace(/[%_\\,()]/gu, "")}%`; query = query.or(`project_rank.ilike.${pattern},am_rank.ilike.${pattern},am_rank2.ilike.${pattern},job_rank.ilike.${pattern}`); }
-    if (Number.isSafeInteger(Number(args.khoi)) && Number(args.khoi) > 0) query = query.contains("block_ids", [Number(args.khoi)]);
+    // Khối by name ("Hot Do IT", "IT", "Hot Do") or code.
+    const blocks = await loadBlocks(db, scope.workspaceId);
+    const wantedBlocks = resolveBlocks(blocks, args.khoi == null ? null : String(args.khoi));
+    if (wantedBlocks && !wantedBlocks.length) return { loi: `Không có khối "${args.khoi}". Các khối: ${blocks.map(blockLabel).join(", ")}.` };
+    if (wantedBlocks) query = query.overlaps("block_ids", wantedBlocks.map((block) => block.block_id));
     if (args.chua_gui_email === true) query = query.or("cv_sent.is.null,cv_sent.eq.0");
     const { data, count, error } = await query.order("partner_id", { ascending: false }).limit(limit);
     if (error) return { loi: "Chưa đọc được danh sách khách hàng." };
@@ -74,7 +80,7 @@ export const customerTools: Record<string, (args: Record<string, unknown>, scope
       khach: (data ?? []).map((row) => ({ ma: row.partner_id, ten: row.name, dia_diem: row.location, website: row.website, xep_hang_du_an: row.project_rank, hang: row.job_rank,
         xep_hang_am: [row.am_rank2, row.am_rank].filter(Boolean).join("; ") || null, sale: names.get(String(row.sale_human_id)) ?? row.sale_human_id, am: names.get(String(row.am_human_id)) ?? row.am_human_id,
         cv: { tong: row.cv_total, da_gui: row.cv_sent, dang_xu_ly: row.cv_processing, offer: row.cv_offer, xong: row.cv_done }, ghi_chu_moi_nhat: row.last_note ? `${row.last_note_at ?? ""} ${row.last_note}`.trim() : null,
-        lien_he: row.contact_name, email: row.email, sdt: row.phone, khoi: row.block_ids, link: `/customers?id=${row.partner_id}` })),
+        lien_he: row.contact_name, email: row.email, sdt: row.phone, khoi: ((row.block_ids ?? []) as number[]).map((id) => blockLabel(blocks.find((block) => block.block_id === id) ?? { block_id: id, name: null })), link: `/customers?id=${row.partner_id}` })),
       link: "/customers",
     };
   },
