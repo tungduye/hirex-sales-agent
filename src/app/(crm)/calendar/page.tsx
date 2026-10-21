@@ -10,10 +10,9 @@ const VN = 7 * 3_600_000;
 const todayNumber = () => vnDay(Date.now());
 
 export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ tuan?: string; pham_vi?: string }> }) {
-  const params = await searchParams;
-  const account = await getAccountContext();
+  const [params, account, isAdmin] = await Promise.all([searchParams, getAccountContext(), isWorkspaceAdmin()]);
   if (!account?.workspaceId) return null;
-  const context = { workspaceId: account.workspaceId, userId: account.userId, permissions: account.permissions, isAdmin: await isWorkspaceAdmin() };
+  const context = { workspaceId: account.workspaceId, userId: account.userId, permissions: account.permissions, isAdmin };
   const picked = params.tuan ? parseVnDay(params.tuan) : null;
   const today = todayNumber();
   const day = picked ?? today;

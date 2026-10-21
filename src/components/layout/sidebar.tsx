@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BarChart3, Bot, FileUser, BriefcaseBusiness, CalendarDays, Send, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, UsersRound, Workflow, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -45,6 +45,9 @@ const settingsNavigation: NavItem[] = [
 /** collapsed: icon-only column (desktop); onToggleCollapsed shows the "Thu gọn / Mở rộng menu" button. */
 export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false, onToggleCollapsed }: { account: AccountContext; workspaceAdmin: boolean; onNavigate?: () => void; collapsed?: boolean; onToggleCollapsed?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
+  // Links are not prefetched on load (twenty screens at once); hovering one prepares it, so the click shows the next screen at once.
+  const warm = (href: string) => { try { router.prefetch(href); } catch { /* prefetch is only a speed-up */ } };
   const allowed = (item: NavItem) => (item.permission === null || account.permissions.includes(item.permission)) && (!item.adminOnly || workspaceAdmin);
   const visible = navigation.filter(allowed);
   const settingsItems = settingsNavigation.filter(allowed);
@@ -85,7 +88,7 @@ export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false
         {visible.map((item) => {
           const active = item.href === activeHref;
           return (
-            <Link prefetch={false} key={item.href} href={item.href} onClick={onNavigate} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} className={cn("flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors", collapsed ? "justify-center px-0" : "px-3", active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-900 hover:text-white")}>
+            <Link prefetch={false} key={item.href} href={item.href} onMouseEnter={() => warm(item.href)} onFocus={() => warm(item.href)} onClick={onNavigate} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} className={cn("flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors", collapsed ? "justify-center px-0" : "px-3", active ? "bg-blue-600 text-white shadow-sm" : "hover:bg-slate-900 hover:text-white")}>
               <item.icon className="size-[18px] shrink-0" />{collapsed ? null : item.label}
             </Link>
           );
@@ -99,7 +102,7 @@ export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false
             <Settings className="size-[18px] shrink-0" />{collapsed ? null : <><span className="flex-1 text-left">Cài đặt</span><ChevronRight className={cn("size-4 text-slate-500 transition-transform", inline && settingsOpen && "rotate-90")} /></>}
           </button>
           {settingsOpen && inline && <div className="space-y-1 pl-4" role="menu">
-            {settingsItems.map((item) => <Link prefetch={false} key={item.href} href={item.href} role="menuitem" onClick={onNavigate} className={itemClass(item.href === activeHref)}><item.icon className="size-[18px] shrink-0" />{item.label}</Link>)}
+            {settingsItems.map((item) => <Link prefetch={false} key={item.href} href={item.href} role="menuitem" onMouseEnter={() => warm(item.href)} onClick={onNavigate} className={itemClass(item.href === activeHref)}><item.icon className="size-[18px] shrink-0" />{item.label}</Link>)}
           </div>}
         </>}
       </nav>
@@ -107,7 +110,7 @@ export function Sidebar({ account, workspaceAdmin, onNavigate, collapsed = false
         className="fixed z-50 w-56 rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-2xl"
         style={{ top: flyoutTop, left: collapsed ? 76 : 268 }}>
         <p className="px-3 pb-1 pt-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Cài đặt</p>
-        {settingsItems.map((item) => <Link prefetch={false} key={item.href} href={item.href} role="menuitem" onClick={() => setSettingsOpen(false)} className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors", item.href === activeHref ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-900 hover:text-white")}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}
+        {settingsItems.map((item) => <Link prefetch={false} key={item.href} href={item.href} role="menuitem" onMouseEnter={() => warm(item.href)} onClick={() => setSettingsOpen(false)} className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors", item.href === activeHref ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-900 hover:text-white")}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}
       </div>}
       {onToggleCollapsed ? <button type="button" onClick={onToggleCollapsed} aria-expanded={!collapsed} title={collapsed ? "Mở rộng menu" : "Thu gọn menu"} className={cn("mx-3 mb-1 flex items-center gap-3 rounded-lg py-2 text-sm font-medium text-slate-400 hover:bg-slate-900 hover:text-white", collapsed ? "mx-2 justify-center px-0" : "px-3")}>{collapsed ? <PanelLeftOpen className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}{collapsed ? <span className="sr-only">Mở rộng menu</span> : "Thu gọn menu"}</button> : null}
       {collapsed ? <div className="m-2 flex justify-center border-t border-slate-800 pt-3"><div className="flex size-9 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white" title={`${account.fullName ?? account.email}`}>{(account.fullName ?? account.email).slice(0, 2).toUpperCase()}</div></div> : <div className="m-3 rounded-xl border border-slate-800 bg-slate-900 p-3">

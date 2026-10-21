@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ChevronDown, KeyRound, Plus, RadioTower, ShieldCheck, UserPlus, Users } from "lucide-react";
-import { AccountPicker } from "@/modules/access/components/account-picker";
+import { MemberAccessList } from "@/modules/access/components/member-access-list";
 import { CreateAccountForm } from "@/modules/access/components/create-account-form";
 import { permissionGroups } from "@/modules/access/core/permission-catalog";
 import { assignProfileAccess, createRole, updateRole } from "@/modules/access/server/role-actions";
@@ -14,10 +14,6 @@ export default async function RolesPage() {
   for (const item of data.permissions) { const set = permissionMap.get(item.role_id) ?? new Set<string>(); set.add(item.permission_key); permissionMap.set(item.role_id, set); }
   const grantMap = new Map<string, Set<string>>();
   for (const item of data.grants) { const set = grantMap.get(item.profile_id) ?? new Set<string>(); set.add(item.channel_account_id); grantMap.set(item.profile_id, set); }
-  const nameOf = new Map(data.profiles.map((profile) => [profile.id, profile.full_name]));
-  const reportsOf = new Map<string, string[]>();
-  for (const profile of data.profiles) if (profile.manager_id) reportsOf.set(profile.manager_id, [...(reportsOf.get(profile.manager_id) ?? []), profile.id]);
-  const below = (id: string) => { const seen = new Set<string>(); const queue = [...(reportsOf.get(id) ?? [])]; while (queue.length) { const next = queue.shift()!; if (seen.has(next)) continue; seen.add(next); queue.push(...(reportsOf.get(next) ?? [])); } return seen; };
 
   return <div className="space-y-7 pb-10">
     <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -49,26 +45,9 @@ export default async function RolesPage() {
 
     <section id="members" className="scroll-mt-24 space-y-4">
       <SectionHeading title="Phân quyền thành viên" description="Chọn vai trò và giới hạn những Email, Facebook hoặc Zalo mà từng người được phép sử dụng." count={`${data.profiles.length} thành viên`}/>
-      <div className="space-y-3">{data.profiles.map((profile) => {
-        const roleName = data.roles.find((role) => role.id === profile.role_id)?.name ?? "Chưa có vai trò";
-        const grantedCount = profile.all_channel_accounts ? data.accounts.length : grantMap.get(profile.id)?.size ?? 0;
-        const primaryCount = data.accounts.filter((item) => item.primary_profile_id === profile.id).length;
-        const reports = reportsOf.get(profile.id) ?? [];
-        const blocked = below(profile.id);
-        const managerName = profile.manager_id ? nameOf.get(profile.manager_id) : null;
-        const pickerAccounts = data.accounts.map((item) => ({ id: item.id, channel: item.channel_type, name: item.display_name || item.external_account_id, owner: item.primary_profile_id && item.primary_profile_id !== profile.id ? nameOf.get(item.primary_profile_id) ?? null : null, free: !item.primary_profile_id }));
-        const primaryIds = data.accounts.filter((item) => item.primary_profile_id === profile.id).map((item) => item.id);
-        return <details key={profile.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-4 sm:p-5 marker:content-none">
-            <div className="flex min-w-0 items-center gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{initials(profile.full_name)}</span><div className="min-w-0"><p className="truncate font-bold text-slate-950">{profile.full_name}</p><p className="truncate text-sm text-slate-500">{profile.email || profile.id}{managerName ? <span className="text-slate-400"> · Quản lý: {managerName}</span> : null}{reports.length ? <span className="text-slate-400"> · Quản lý {reports.length} người</span> : null}</p></div></div>
-            <div className="flex shrink-0 items-center gap-2"><span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 sm:inline">{roleName}</span><span className="hidden rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 sm:inline">{primaryCount} tài khoản chính</span><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{profile.all_channel_accounts ? "Tất cả kênh" : `${grantedCount} kênh`}</span><ChevronDown className="size-5 text-slate-400 transition-transform group-open:rotate-180"/></div>
-          </summary>
-          <form action={assignProfileAccess} className="border-t border-slate-200 bg-slate-50/50 p-5"><input type="hidden" name="profileId" value={profile.id}/><div className="grid gap-5 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,2fr)]">
-            <div className="space-y-4"><label className="block text-sm font-semibold text-slate-700">Vai trò<select name="roleId" defaultValue={profile.role_id} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">{data.roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label><label className="block text-sm font-semibold text-slate-700">Quản lý trực tiếp<select name="managerId" defaultValue={profile.manager_id ?? ""} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"><option value="">— Không có —</option>{data.profiles.filter((other) => other.id !== profile.id && !blocked.has(other.id)).map((other) => <option key={other.id} value={other.id}>{other.full_name}</option>)}</select><span className="mt-1.5 block text-xs font-normal text-slate-500">Người quản lý thấy tài khoản chính của thành viên này ở mục “Team” trong Suối Nguồn.</span></label></div>
-            <div><label className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 font-semibold text-blue-900"><input type="checkbox" name="allAccounts" defaultChecked={profile.all_channel_accounts} className="size-4 accent-blue-600"/> Cho phép truy cập tất cả tài khoản kết nối</label><p className="mt-2 text-xs text-slate-500">Nếu bỏ chọn, thành viên chỉ được sử dụng những tài khoản đánh dấu bên dưới.</p><AccountPicker name="channelAccountId" accounts={pickerAccounts} selected={[...(grantMap.get(profile.id) ?? [])]}/></div>
-          </div><div className="mt-5 border-t border-slate-200 pt-5"><p className="text-sm font-bold text-slate-800">Tài khoản chính</p><p className="mt-1 text-xs text-slate-500">Những tài khoản người này trực tiếp dùng để nhắn tin — hiện ở mục “Của tôi” trong Suối Nguồn. Mỗi tài khoản chỉ có một người dùng chính; chọn ở đây sẽ chuyển từ người cũ sang. Tài khoản chính luôn được cấp quyền truy cập.</p><AccountPicker name="primaryAccountId" accounts={pickerAccounts} selected={primaryIds} ownerNote/></div><div className="mt-5 flex justify-end"><button className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">Lưu phân quyền</button></div></form>
-        </details>;
-      })}</div>
+      <MemberAccessList profiles={data.profiles as Array<{ id: string; full_name: string; email: string; role_id: string; manager_id: string | null; all_channel_accounts: boolean }>} roles={data.roles}
+        accounts={data.accounts as Array<{ id: string; channel_type: string; display_name: string | null; external_account_id: string; primary_profile_id: string | null }>}
+        grants={Object.fromEntries([...grantMap].map(([id, set]) => [id, [...set]]))} action={assignProfileAccess}/>
     </section>
   </div>;
 }
@@ -80,5 +59,4 @@ function RoleForm({ action, role, selected }: { action: (data: FormData) => Prom
 function PermissionMatrix({ selected }: { selected?: Set<string> }) { return <div className="grid gap-3 md:grid-cols-2">{permissionGroups.map((group) => <fieldset key={group.key} className="rounded-xl border border-slate-200 bg-white p-4"><legend className="px-1 text-sm font-bold text-slate-900">{group.label}</legend><div className="mt-2 flex flex-wrap gap-2">{group.actions.map(([key, label]) => { const value = `${group.key}.${key}`; return <label key={value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:border-blue-300 hover:bg-blue-50"><input type="checkbox" name="permission" value={value} defaultChecked={selected?.has(value)} className="size-4 accent-blue-600"/>{label}</label>; })}</div></fieldset>)}</div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="text-sm font-semibold text-slate-700">{label}{children}</label>; }
 function Summary({ icon: Icon, value, label, text }: { icon: typeof ShieldCheck; value: number; label: string; text: string }) { return <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Icon className="size-5"/></span><div><p className="text-2xl font-black text-slate-950">{value}</p><p className="text-sm font-bold text-slate-800">{label}</p><p className="text-xs text-slate-500">{text}</p></div></div>; }
-function initials(value: string) { const parts = value.trim().split(/\s+/u).filter(Boolean); return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0] ?? ""}` : value.slice(0, 2)).toLocaleUpperCase("vi-VN"); }
 const inputClass = "mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";

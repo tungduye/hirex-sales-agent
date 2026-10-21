@@ -98,45 +98,34 @@ export async function listContent(raw: Record<string, string | string[] | undefi
 
   const rows = itemsResult.data as ContentRow[];
   const creatorIds = [...new Set(rows.map((row) => row.created_by))];
-  const names = new Map<string, string>();
-  if (creatorIds.length > 0) {
-    const { data } = await supabase.from("profiles").select("id, full_name").in("id", creatorIds);
-    for (const profile of (data ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
-  }
-
-  const usedIds = new Set<string>();
-  if (rows.length > 0) {
-    const { data } = await supabase.from("content_item_usages").select("content_item_id").in("content_item_id", rows.map((row) => row.id));
-    for (const usage of (data ?? []) as { content_item_id: string }[]) usedIds.add(usage.content_item_id);
-  }
-
-  const posts = new Map<string, ContentListItem["posts"]>();
-  if (rows.length > 0) {
-    const { data } = await supabase.from("content_item_posts").select("id, content_item_id, channel, place, posted_at, posted_by").eq("workspace_id", account.workspaceId)
-      .in("content_item_id", rows.map((row) => row.id)).order("posted_at", { ascending: false }).limit(500);
-    const posterIds = [...new Set((data ?? []).flatMap((post) => typeof post.posted_by === "string" && !names.has(post.posted_by) ? [post.posted_by] : []))];
-    if (posterIds.length) {
-      const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", posterIds);
-      for (const profile of (people ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
-    }
-    for (const post of (data ?? []) as Array<{ id: string; content_item_id: string; channel: string; place: string; posted_at: string; posted_by: string | null }>) {
-      posts.set(post.content_item_id, [...(posts.get(post.content_item_id) ?? []), { id: post.id, channel: post.channel, place: post.place, postedAt: post.posted_at, postedByName: post.posted_by ? names.get(post.posted_by) ?? null : null }]);
-    }
-  }
-  // Job status needs no jobs.view: only whether the job is still open.
+  const rowIds = rows.map((row) => row.id);
   const jobIds = [...new Set(rows.flatMap((row) => row.job_id ? [row.job_id] : []))];
-  const closedJobs = new Set<string>();
-  if (jobIds.length > 0) {
-    const { data } = await createPrivilegedClient().from("recruitment_jobs").select("id, status").eq("workspace_id", account.workspaceId).in("id", jobIds);
-    for (const job of (data ?? []) as { id: string; status: string }[]) if (job.status !== "OPEN") closedJobs.add(job.id);
-  }
-
   const templateIds = [...new Set(rows.flatMap((row) => row.template_id ? [row.template_id] : []))];
-  const templateCodes = new Map<string, string>();
-  if (templateIds.length > 0) {
-    const { data } = await supabase.from("content_templates").select("id, code").in("id", templateIds);
-    for (const template of (data ?? []) as { id: string; code: string }[]) templateCodes.set(template.id, template.code);
+  // The lookups for the shown items are independent: run them together (they used to run one after another).
+  const [creators, usages, postRows, jobs, templates] = await Promise.all([
+    creatorIds.length ? supabase.from("profiles").select("id, full_name").in("id", creatorIds) : Promise.resolve({ data: [] }),
+    rowIds.length ? supabase.from("content_item_usages").select("content_item_id").in("content_item_id", rowIds) : Promise.resolve({ data: [] }),
+    rowIds.length ? supabase.from("content_item_posts").select("id, content_item_id, channel, place, posted_at, posted_by").eq("workspace_id", account.workspaceId)
+      .in("content_item_id", rowIds).order("posted_at", { ascending: false }).limit(500) : Promise.resolve({ data: [] }),
+    // Job status needs no jobs.view: only whether the job is still open.
+    jobIds.length ? createPrivilegedClient().from("recruitment_jobs").select("id, status").eq("workspace_id", account.workspaceId).in("id", jobIds) : Promise.resolve({ data: [] }),
+    templateIds.length ? supabase.from("content_templates").select("id, code").in("id", templateIds) : Promise.resolve({ data: [] }),
+  ]);
+  const names = new Map<string, string>();
+  for (const profile of (creators.data ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
+  const usedIds = new Set(((usages.data ?? []) as { content_item_id: string }[]).map((usage) => usage.content_item_id));
+  const postList = (postRows.data ?? []) as Array<{ id: string; content_item_id: string; channel: string; place: string; posted_at: string; posted_by: string | null }>;
+  const posterIds = [...new Set(postList.flatMap((post) => typeof post.posted_by === "string" && !names.has(post.posted_by) ? [post.posted_by] : []))];
+  if (posterIds.length) {
+    const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", posterIds);
+    for (const profile of (people ?? []) as { id: string; full_name: string | null }[]) if (profile.full_name) names.set(profile.id, profile.full_name);
   }
+  const posts = new Map<string, ContentListItem["posts"]>();
+  for (const post of postList) {
+    posts.set(post.content_item_id, [...(posts.get(post.content_item_id) ?? []), { id: post.id, channel: post.channel, place: post.place, postedAt: post.posted_at, postedByName: post.posted_by ? names.get(post.posted_by) ?? null : null }]);
+  }
+  const closedJobs = new Set(((jobs.data ?? []) as { id: string; status: string }[]).filter((job) => job.status !== "OPEN").map((job) => job.id));
+  const templateCodes = new Map(((templates.data ?? []) as { id: string; code: string }[]).map((template) => [template.id, template.code]));
 
   return {
     items: rows.map((row) => ({

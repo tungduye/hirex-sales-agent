@@ -1,20 +1,23 @@
 /* HireX · vá thêm cho trang gốc v7 — nạp SAU toàn bộ JS gốc (build_ui.py chèn vào cuối trang).
    Chỉ bọc hàm/ACT của bản gốc (như các khối vá rNN), không sửa mã Python gốc.
    1. Tổng quan: bấm bộ phận / owner trong cây → combobox Phạm vi trên cùng nhảy theo.
-   2. Tổng quan: ô chọn trong cây trượt mượt sang dòng mới (transform, tắt dưới html.ca-off).
+   2. Tab Tất cả: mặc định mở Tổng quan; bỏ thanh công cụ riêng — nút Tổng quan/Chi tiết + Xuất Excel nằm ở đầu khung chi tiết.
    3. Tổng quan: tab "Tải riêng" chưa nạp vẫn có số đếm (server gom, không tải dòng về).
-   4. Tổng quan: chọn nhóm tab ngay cạnh chữ "Phạm vi" (Tất cả / Tài khoản / Dữ liệu Marketing…). */
+   4. Tổng quan: tiêu đề cột đầu của cây = bộ chọn nhóm nền tảng (Tất cả nền tảng / Tài khoản / Dữ liệu Marketing…);
+      các dòng bên dưới là phạm vi (Toàn hệ thống › bộ phận › owner) — khớp đúng tên trong combobox Phạm vi.
+   5. Tổng quan: ô chọn trong cây trượt mượt sang dòng mới (không còn nền hover). */
 (() => {
   const LS = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v) } catch (e) { return null } };
 
   /* ── 4. nhóm tab ── */
   let OVG = LS('hx.ovg') || '';
+  const ALLG = 'Tất cả nền tảng';
   const ovGroups = () => tabGroups().map(x => x.g ? { k: 'g:' + x.g, name: x.g, ids: x.ts.map(t => t.id) } : { k: 't:' + x.t.id, name: x.t.name, ids: [x.t.id] });
   const ovAllow = () => { const g = OVG && ovGroups().find(x => x.k === OVG); return g ? new Set(g.ids) : null };
   const setG = k => { OVG = k; LS('hx.ovg', k); renderBody() };
   ACT.hxovg = el => {
     const r = el.getBoundingClientRect();
-    showMenu(r.left, r.bottom + 4, [{ label: 'Tất cả', check: !OVG, fn: () => setG('') }, ...ovGroups().map(g => ({ label: g.name, check: OVG === g.k, fn: () => setG(g.k) }))]);
+    showMenu(r.left, r.bottom + 4, [{ label: ALLG, check: !OVG, fn: () => setG('') }, ...ovGroups().map(g => ({ label: g.name, check: OVG === g.k, fn: () => setG(g.k) }))]);
   };
 
   /* ── 3. tab tải riêng chưa nạp: số đếm gom ở server (ov_lazy) ── */
@@ -63,7 +66,7 @@
     return D;
   };
 
-  /* ── 2. ô chọn trượt: vị trí/kích thước đúng như nền ::before của .ovi.on (theme nào cũng khớp) ── */
+  /* ── 5. ô chọn trong cây trượt mượt sang dòng mới (đúng vị trí/kích thước/màu nền ::before của .ovi.on → theme nào cũng khớp) ── */
   const geo = el => {
     const b = getComputedStyle(el, '::before'), t = parseFloat(b.top) || 0, l = parseFloat(b.left) || 0;
     return { y: el.offsetTop + t, x: el.offsetLeft + l, w: el.offsetWidth - l - (parseFloat(b.right) || 0), h: el.offsetHeight - t - (parseFloat(b.bottom) || 0), bg: b.backgroundColor, rd: b.borderRadius, r0: el.classList.contains('r0') };
@@ -90,7 +93,14 @@
     if (!th || gs.length < 2) return;
     const g = gs.find(x => x.k === OVG);
     th.classList.add('hx-ovgh');
-    th.innerHTML = `Phạm vi<span class="hx-sep">›</span><button class="ovpb hx-ovg" data-a="hxovg" aria-haspopup="true" title="Tổng quan theo nhóm tab">${esc(g ? g.name : 'Tất cả')}${ico('chevd', 13)}</button>`;
+    th.innerHTML = `<button class="ovpb hx-ovg" data-a="hxovg" aria-haspopup="true" title="Đếm theo nhóm nền tảng">${esc(g ? g.name : ALLG)}${ico('chevd', 13)}</button>`;
+  }
+  /* nút Tổng quan/Chi tiết + Xuất Excel: chuyển từ thanh công cụ (đã bỏ) lên đầu khung chi tiết */
+  function tools(m) {
+    const ph = m.querySelector('.ovw:not(.ovsk) .ovph'); if (!ph) return;
+    const g = OVG && ovGroups().find(x => x.k === OVG);
+    if (g && !ph.querySelector('small')) ph.lastElementChild.insertAdjacentHTML('beforeend', `<small>${esc(g.name)}</small>`);
+    ph.insertAdjacentHTML('beforeend', `<div class="hx-ovtools">${ovSw()}<button class="btn icon ghost" data-a="ovxls" title="Xuất Excel" aria-label="Xuất Excel">${ico('download', 16)}</button></div>`);
   }
   /* ô "Dùng chung" của Toàn hệ thống: bản gốc đếm trên dòng đã nạp → tính lại từ cây (gồm tab tải riêng, theo nhóm tab) */
   function kpiShared(m) {
@@ -106,8 +116,19 @@
     ovLazyLoad();
     _ro(m);
     header(m);
+    tools(m);
     kpiShared(m);
     slide(m, g0);
+  };
+
+  /* ── 2. Tổng quan là mặc định; ở chế độ Tổng quan không còn thanh công cụ ── */
+  S.ov = true;
+  const _st = setTab;
+  setTab = function (t) { if (t === 'all' && S.tab !== 'all' && !NAV.ovfix && !NAV.lock) S.ov = true; return _st.apply(this, arguments) };
+  const _rb = renderBar;
+  renderBar = function () {
+    if (ovOn()) { const el = $('#bar'); if (el) { el.innerHTML = ''; el.style.display = 'none' } return }
+    return _rb.apply(this, arguments);
   };
 
   /* ── 1. bấm dòng trong cây → đổi luôn Phạm vi (combobox trên cùng) ── */

@@ -1,22 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
-import { DELIVERY_EVENT_TYPES, summarizeDeliveryEvents, type DeliveryEventType } from "../core/delivery-reporting";
-
-const ACTION_LIMIT = 20_000;
-const PAGE_SIZE = 1_000;
-
-type PageResult<Row> = PromiseLike<{ data: Row[] | null; error: unknown }>;
-async function readAllPages<Row>(page: (from: number, to: number) => PageResult<Row>): Promise<{ data: Row[]; error: unknown }> {
-  const rows: Row[] = [];
-  for (let from = 0; from < ACTION_LIMIT; from += PAGE_SIZE) {
-    const { data, error } = await page(from, Math.min(from + PAGE_SIZE, ACTION_LIMIT) - 1);
-    if (error) return { data: rows, error };
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE_SIZE) break;
-  }
-  return { data: rows, error: null };
-}
+import { summarizeDeliveryEvents } from "../core/delivery-reporting";
 
 export interface ChannelActionCounts { channelType: string; actions: number; sent: number; pending: number; failed: number; unknown: number }
 function emptyCounts(channelType: string): ChannelActionCounts { return { channelType, actions: 0, sent: 0, pending: 0, failed: 0, unknown: 0 }; }
@@ -27,23 +12,23 @@ export async function getChannelDeliveryReport() {
   const account = await getAccountContext();
   if (!account?.workspaceId) return { report: empty, ...none, error: "Không tải được dữ liệu báo cáo." };
   const client = await createClient();
-  // Supabase returns at most 1,000 rows per request, so read in pages (the first version of this
-  // page stopped at exactly 1,000 actions).
-  const [events, actions] = await Promise.all([
-    readAllPages<{ outbound_action_id: unknown; event_type: unknown }>((from, to) => client.from("channel_delivery_events").select("outbound_action_id,event_type").eq("workspace_id", account.workspaceId).not("outbound_action_id", "is", null).order("occurred_at", { ascending: false }).order("id", { ascending: false }).range(from, to)),
-    readAllPages<{ id: unknown; channel_type: unknown; status: unknown }>((from, to) => client.from("channel_outbound_actions").select("id,channel_type,status").eq("workspace_id", account.workspaceId).order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to)),
-  ]);
-  if (events.error || actions.error) return { report: empty, ...none, error: "Báo cáo đa kênh tạm thời không khả dụng." };
-  const normalized = (events.data ?? []).flatMap((row) => typeof row.outbound_action_id === "string" && typeof row.event_type === "string" && DELIVERY_EVENT_TYPES.includes(row.event_type as DeliveryEventType) ? [{ outboundActionId: row.outbound_action_id, eventType: row.event_type as DeliveryEventType }] : []);
+  // Added up in the database (this page used to download up to 20,000 sends and their receipts, page by page).
+  const { data, error } = await client.rpc("channel_delivery_summary");
+  if (error) return { report: empty, ...none, error: "Báo cáo đa kênh tạm thời không khả dụng." };
+  const rows = (data ?? []) as Array<{ kind: string; key: string | null; status: string | null; total: number }>;
+  const eventCount = (type: string) => Number(rows.find((row) => row.kind === "EVENT" && row.key === type)?.total ?? 0);
+  const report = { ...empty, actions: Number(rows.find((row) => row.kind === "EVENT_ACTIONS")?.total ?? 0), accepted: eventCount("ACCEPTED"), delivered: eventCount("DELIVERED"),
+    read: eventCount("READ"), clicked: eventCount("CLICKED"), replied: eventCount("REPLIED"), failed: eventCount("FAILED"), unknown: eventCount("UNKNOWN") };
+  const actions = { data: rows.filter((row) => row.kind === "ACTION").map((row) => ({ channel_type: row.key, status: row.status, total: Number(row.total) })) };
   const channelCounts = new Map<string, ChannelActionCounts>();
-  for (const action of actions.data ?? []) {
+  for (const action of actions.data) {
     if (typeof action.channel_type !== "string" || typeof action.status !== "string") continue;
     const value = channelCounts.get(action.channel_type) ?? emptyCounts(action.channel_type);
-    value.actions += 1;
-    if (action.status === "SENT") value.sent += 1;
-    else if (action.status === "FAILED") value.failed += 1;
-    else if (action.status === "DELIVERY_UNKNOWN") value.unknown += 1;
-    else if (action.status !== "CANCELLED") value.pending += 1;
+    value.actions += action.total;
+    if (action.status === "SENT") value.sent += action.total;
+    else if (action.status === "FAILED") value.failed += action.total;
+    else if (action.status === "DELIVERY_UNKNOWN") value.unknown += action.total;
+    else if (action.status !== "CANCELLED") value.pending += action.total;
     channelCounts.set(action.channel_type, value);
   }
   const byChannel = [...channelCounts.values()].sort((a, b) => b.actions - a.actions);
@@ -51,7 +36,6 @@ export async function getChannelDeliveryReport() {
   // Provider receipts (delivered/read/clicked) only exist when a provider sends them.
   const totals = byChannel.reduce((sum, row) => ({ ...sum, actions: sum.actions + row.actions, sent: sum.sent + row.sent, failed: sum.failed + row.failed, unknown: sum.unknown + row.unknown, pending: sum.pending + row.pending }), emptyCounts("ALL"));
   return {
-    report: summarizeDeliveryEvents(normalized), byChannel, totals, hasProviderEvents: normalized.length > 0,
-    truncated: (actions.data?.length ?? 0) >= ACTION_LIMIT, error: null,
+    report, byChannel, totals, hasProviderEvents: report.actions > 0, truncated: false, error: null,
   };
 }

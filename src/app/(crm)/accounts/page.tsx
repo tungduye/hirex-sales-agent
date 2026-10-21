@@ -12,5 +12,9 @@ export default async function AccountsPage() {
       <KeyRound className="mx-auto mb-3 size-8 text-slate-400"/>Tài khoản của bạn chưa được cấp quyền xem mục Tài nguyên.
     </div>;
   }
-  return <iframe src="/api/hs/accountshs/ui" title="Tài nguyên" className="block h-[calc(100dvh-4rem)] w-full border-0 bg-white lg:h-dvh" />;
+  // Cao = màn hình trừ thanh trên cùng (thanh này chỉ hiện trên điện thoại). CSS viết ngay tại đây để không phụ thuộc file CSS đã build/cache.
+  return <>
+    <style>{"#hs-acc-frame{height:calc(100dvh - 4rem)}@media (min-width:1024px){#hs-acc-frame{height:100dvh}}"}</style>
+    <iframe id="hs-acc-frame" src="/api/hs/accountshs/ui" title="Tài nguyên" className="block w-full border-0 bg-white" />
+  </>;
 }

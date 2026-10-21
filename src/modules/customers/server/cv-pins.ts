@@ -111,7 +111,7 @@ export async function runCvPins(workspaceId: string, now = Date.now()): Promise<
   for (const partnerId of partnerIds) {
     const partner = partnerById.get(partnerId);
     if (!partner) { messages.set(partnerId, null); continue; }
-    const report = await partnerReport(workspaceId, partnerId, reportFingerprint((partner.data ?? {}) as Record<string, unknown>)).catch(() => null);
+    const report = await partnerReport(workspaceId, partnerId, reportFingerprint((partner.data ?? {}) as Record<string, unknown>), { wait: true }).catch(() => null);
     if (!report?.data || report.error) { failed += 1; messages.set(partnerId, null); continue; }
     const parts = cvStatusParts(report.data, codes);
     messages.set(partnerId, { parts, hash: createHash("sha256").update(parts.join("\n")).digest("hex").slice(0, 32) });

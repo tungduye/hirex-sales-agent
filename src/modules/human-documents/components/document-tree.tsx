@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { ChevronRight, FileText, Folder } from "lucide-react";
 import { buildDocumentTree, documentFolderPath, type DocumentFolder, type TreeEntry } from "../core/hierarchy";
 
-export function DocumentTree({ documents, selectedId, query, folderPaths }: { documents: TreeEntry[]; selectedId?: number; query: string; folderPaths?: string[][] }) {
+export function DocumentTree({ compact, selectedId, query, folderPaths }: { compact: { paths: string[][]; docs: Array<[number, string, number]> }; selectedId?: number; query: string; folderPaths?: string[][] }) {
+  const documents = useMemo<TreeEntry[]>(() => compact.docs.map(([id, name, at]) => ({ id, name, group: compact.paths[at]?.at(-1) ?? "", folderPath: compact.paths[at] })), [compact]);
   const tree = useMemo(() => buildDocumentTree(documents, folderPaths), [documents, folderPaths]);
   const selected = documents.find(doc => doc.id === selectedId);
   const selectedPath = selected ? selected.folderPath ?? documentFolderPath(selected.group) : [];

@@ -66,12 +66,12 @@ const timing = (row: Row) => ({
  */
 export async function listOccurrences(context: CalendarContext, options: { from: number; to: number; scope: CalendarScope; personIds?: string[] }) {
   const db = createPrivilegedClient();
-  const members = await loadMembers(db, context.workspaceId);
+  // Members and the week's events do not depend on each other: load them together.
+  const [members, events] = await Promise.all([loadMembers(db, context.workspaceId), loadEvents(db, context.workspaceId, options.from, options.to)]);
   const names = new Map(members.map((member) => [member.id, member.name]));
   const viewer = viewerFor(context, members);
   const scope: CalendarScope = options.scope === "ALL" && !viewer.seesAll ? "TEAM" : options.scope;
   const people = options.personIds?.length ? new Set(options.personIds) : scope === "MINE" ? new Set([context.userId]) : scope === "TEAM" ? viewer.team : null;
-  const events = await loadEvents(db, context.workspaceId, options.from, options.to);
   const out: OccurrenceView[] = [];
   for (const { row, attendees } of events) {
     const createdBy = String(row.created_by);

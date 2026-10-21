@@ -12,8 +12,8 @@ const STALE_MS = 60 * 60 * 1000;
 const running = new Set<string>();
 type Db = ReturnType<typeof createPrivilegedClient>;
 
-async function fetchDetail(token: string, cvId: number) {
-  const response = await fetch(`${HUMAN_CV_URL}/${cvId}`, { redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30_000),
+async function fetchDetail(token: string, cvId: number, timeoutMs = 30_000) {
+  const response = await fetch(`${HUMAN_CV_URL}/${cvId}`, { redirect: "error", cache: "no-store", signal: AbortSignal.timeout(timeoutMs),
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
   if (response.status === 401 || response.status === 403) throw Error("HUMAN_TOKEN_EXPIRED");
   if (!response.ok) throw Error(`HUMAN_HTTP_${response.status}`);
@@ -75,8 +75,13 @@ export async function cvDetail(workspaceId: string, cvId: number) {
   if (fresh) return { detail: row.detail as Record<string, unknown>, fetchedAt: String(row.detail_fetched_at), error: null };
   const token = await readHumanApiToken(workspaceId).catch(() => null);
   if (!token) return { detail: (row.detail as Record<string, unknown> | null) ?? null, fetchedAt: row.detail_fetched_at as string | null, error: "NO_TOKEN" };
+  // A kept copy shows at once; the fresh one is fetched in the background for next time (Human can be slow).
+  if (row.detail) {
+    void fetchDetail(token, cvId).then((detail) => save(db, workspaceId, cvId, row.fingerprint as string | null, detail, null)).catch(() => null);
+    return { detail: row.detail as Record<string, unknown>, fetchedAt: String(row.detail_fetched_at), error: null };
+  }
   try {
-    const detail = await fetchDetail(token, cvId);
+    const detail = await fetchDetail(token, cvId, 8_000);
     await save(db, workspaceId, cvId, row.fingerprint as string | null, detail, null);
     return { detail, fetchedAt: new Date().toISOString(), error: null };
   } catch (error) {

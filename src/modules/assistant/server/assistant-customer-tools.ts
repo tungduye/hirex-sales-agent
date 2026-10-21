@@ -38,7 +38,7 @@ export const customerTools: Record<string, (args: Record<string, unknown>, scope
     const exact = found.find((row) => fold(String(row.name ?? "")) === fold(wanted));
     if (!exact && found.length > 1) return { nhieu_cong_ty: found.map((row) => ({ ma: row.partner_id, ten: row.name })), ghi_chu: "Có nhiều công ty khớp; hỏi lại người dùng muốn công ty nào (hoặc dùng mã)." };
     const company = exact ?? found[0];
-    const report = await partnerReport(scope.workspaceId, Number(company.partner_id), reportFingerprint((company.data ?? {}) as Record<string, unknown>));
+    const report = await partnerReport(scope.workspaceId, Number(company.partner_id), reportFingerprint((company.data ?? {}) as Record<string, unknown>), { wait: true });
     if (!report?.data) return { loi: report?.error === "HUMAN_TOKEN_EXPIRED" ? "Token Human hết hạn, chưa lấy được Tình trạng CV." : "Chưa lấy được Tình trạng CV từ Human." };
     const { data: codeRows } = await db.from("human_master_codes").select("master_id,name").eq("workspace_id", scope.workspaceId).lt("master_id", 1000);
     const text = formatCvStatusMessage(report.data, Object.fromEntries((codeRows ?? []).map((row) => [String(row.master_id), String(row.name)])));

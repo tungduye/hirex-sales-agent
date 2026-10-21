@@ -68,13 +68,23 @@ export async function refreshPartnerReports(workspaceId: string, wanted: Array<{
 }
 
 /** One company's report for the detail panel: the copy, or a fresh one when the copy is missing or older than an hour. */
-export async function partnerReport(workspaceId: string, partnerId: number, fingerprint: string | null) {
+export async function partnerReport(workspaceId: string, partnerId: number, fingerprint: string | null, options: { wait?: boolean } = {}) {
   const db = createPrivilegedClient();
   const { data: copy } = await db.from("human_partner_reports").select("data,fetched_at,error,fingerprint").eq("workspace_id", workspaceId).eq("partner_id", partnerId).maybeSingle();
   const fresh = copy && !copy.error && Date.now() - Date.parse(String(copy.fetched_at)) < STALE_MS && (!fingerprint || copy.fingerprint === fingerprint);
   if (fresh) return { data: copy.data as unknown, fetchedAt: String(copy.fetched_at), error: null };
   const token = await readHumanApiToken(workspaceId).catch(() => null);
   if (!token) return copy ? { data: copy.data as unknown, fetchedAt: String(copy.fetched_at), error: "NO_TOKEN" } : null;
+  // A kept copy (even an hour old) shows at once while a fresh one is fetched in the background; Soda and the pins
+  // pass a fingerprint that changed, and then wait for the new report.
+  const changed = Boolean(fingerprint && copy?.fingerprint && copy.fingerprint !== fingerprint);
+  if (copy?.data != null && !copy.error && !changed && !options.wait) {
+    void fetchReport(token, partnerId).then(async (data) => {
+      await db.from("human_partner_reports").upsert({ workspace_id: workspaceId, partner_id: partnerId, data, fingerprint, fetched_at: new Date().toISOString(), error: null }, { onConflict: "workspace_id,partner_id" });
+      await saveCounts(db, workspaceId, partnerId, data);
+    }).catch(() => null);
+    return { data: copy.data as unknown, fetchedAt: String(copy.fetched_at), error: null };
+  }
   try {
     const data = await fetchReport(token, partnerId);
     const fetchedAt = new Date().toISOString();

@@ -9,14 +9,14 @@ export type CreateAccountState={status:"idle"|"success"|"error";message:string};
 const schema=z.object({
   fullName:z.string().trim().min(2).max(120),
   email:z.email().max(254).transform(value=>value.trim().toLowerCase()),
-  password:z.string().min(12).max(128),
+  password:z.string().min(6).max(128),
   roleId:z.uuid(),
 });
 
 export async function createWorkspaceAccount(_state:CreateAccountState,formData:FormData):Promise<CreateAccountState>{
   const actor=await requirePermission("roles.manage");
   const parsed=schema.safeParse({fullName:formData.get("fullName"),email:formData.get("email"),password:formData.get("password"),roleId:formData.get("roleId")});
-  if(!parsed.success)return {status:"error",message:"Kiểm tra lại tên, email và mật khẩu (ít nhất 12 ký tự)."};
+  if(!parsed.success)return {status:"error",message:"Kiểm tra lại tên, email và mật khẩu (ít nhất 6 ký tự)."};
   const accountIds=[...new Set(formData.getAll("channelAccountId").map(String))];
   if(accountIds.some(id=>!z.uuid().safeParse(id).success))return {status:"error",message:"Danh sách tài khoản kết nối không hợp lệ."};
   const db=createPrivilegedSupabaseClient();

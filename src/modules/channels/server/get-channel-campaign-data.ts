@@ -9,26 +9,16 @@ type CampaignListRow = { id: string; [key: string]: unknown };
 
 async function countCampaignListRows<T extends CampaignListRow>(
   client: Awaited<ReturnType<typeof createClient>>,
-  workspaceId: string,
+  _workspaceId: string,
   rows: T[],
 ) {
+  // One database call for every campaign (it used to be three count requests per campaign).
   const counts = new Map<string, { quantity: number; sent: number; replies: number }>();
-  // Bound concurrent aggregate requests while avoiding downloading recipient rows.
-  for (let offset = 0; offset < rows.length; offset += 10) {
-    const batch = rows.slice(offset, offset + 10);
-    const summaries = await Promise.all(batch.map(async (row) => {
-      const [recipients, sent, replies] = await Promise.all([
-        client.from("channel_campaign_recipients").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("campaign_id", row.id),
-        client.from("channel_campaign_recipient_steps").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("campaign_id", row.id).eq("status", "SENT"),
-        client.from("channel_campaign_recipients").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("campaign_id", row.id).eq("status", "REPLIED"),
-      ]);
-      if (recipients.error || sent.error || replies.error || recipients.count === null || sent.count === null || replies.count === null) {
-        throw new Error("CHANNEL_CAMPAIGN_SUMMARY_UNAVAILABLE");
-      }
-      return [row.id, { quantity: recipients.count, sent: sent.count, replies: replies.count }] as const;
-    }));
-    for (const [id, summary] of summaries) counts.set(id, summary);
-  }
+  if (!rows.length) return counts;
+  const { data, error } = await client.rpc("channel_campaign_list_counts", { p_campaign_ids: rows.map((row) => row.id) });
+  if (error) throw new Error("CHANNEL_CAMPAIGN_SUMMARY_UNAVAILABLE");
+  for (const row of (data ?? []) as Array<{ campaign_id: string; quantity: number; sent: number; replies: number }>)
+    counts.set(row.campaign_id, { quantity: Number(row.quantity), sent: Number(row.sent), replies: Number(row.replies) });
   return counts;
 }
 

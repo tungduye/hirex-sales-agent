@@ -345,7 +345,9 @@
     ".next-man-cv-sua/types/**/*.ts",
     ".next-man-cv-sua/dev/types/**/*.ts",
     ".next-man-cv-sua-2/types/**/*.ts",
-    ".next-man-cv-sua-2/dev/types/**/*.ts"
+    ".next-man-cv-sua-2/dev/types/**/*.ts",
+    ".next-cv-ho-so/types/**/*.ts",
+    ".next-cv-ho-so/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

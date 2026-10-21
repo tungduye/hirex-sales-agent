@@ -6,6 +6,7 @@ import { requireDocumentReader } from "@/modules/access/server/access-control";
 import { decryptCredential } from "@/modules/integrations/gmail/server/credential-encryption";
 import { normalize, documentIndex } from "../core/retrieval";
 import { VersionCache } from "../core/version-cache";
+import { documentFolderPath } from "../core/hierarchy";
 import { loadHirexDocuments } from "./hirex-documents";
 
 type Document = { id: number; name: string; group: string; status: string; groupId?: number; folderPath?: string[] };
@@ -59,11 +60,27 @@ export async function readHumanDocuments(query: string, page: number, selectedId
     importedAt: snapshot.importedAt, total: snapshot.documents.length, matched: matches.length, pages, currentPage,
     groups: [...new Set(snapshot.documents.map(doc => doc.group))].sort((a,b) => a.localeCompare(b,"vi")),
     folderPaths: snapshot.folderPaths,
-    treeDocuments: matches.map(({ id, name, group, groupId, folderPath }) => ({ id, name, group, groupId, folderPath })),
+    // The tree as [id, name, index of its folder path]: folder paths are sent once (the library has thousands of documents).
+    treeDocuments: compactTree(matches),
     documents: matches.slice((currentPage - 1) * 30, currentPage * 30).map(({ id, name, group }) => ({ id, name, group })),
     selected: selected ? { ...selected, status: sanitizeHtml(selected.status, {
       allowedTags: ["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "table", "tbody", "thead", "tr", "td", "th"],
       allowedAttributes: {},
     }) } : null,
   };
+}
+
+/** Documents of the tree in a compact form: each folder path once, each document as [id, name, path index]. */
+function compactTree(documents: Document[]) {
+  const paths: string[][] = [];
+  const index = new Map<string, number>();
+  const docs: Array<[number, string, number]> = [];
+  for (const doc of documents) {
+    const path = doc.folderPath ?? documentFolderPath(doc.group);
+    const key = JSON.stringify(path);
+    let at = index.get(key);
+    if (at === undefined) { at = paths.length; paths.push(path); index.set(key, at); }
+    docs.push([doc.id, doc.name, at]);
+  }
+  return { paths, docs };
 }

@@ -1,9 +1,15 @@
 /* HireX · vá thêm (đi kèm hirex-patch.js) */
+/* cây Phạm vi: bỏ nền hover (dễ nhầm với dòng đang chọn) — chỉ dòng đang chọn có nền */
+.ovtb .ovi:hover::before{background:transparent}
+.ovtb .ovi.on::before,.ovtb .ovi.on:hover::before{background:var(--ui-primary-soft,var(--ui-surface-hover))}
+.ovtb .ovi.r0::before,.ovtb .ovi.r0.on::before,.ovtb .ovi.r0:hover::before{background:transparent}
+/* tiêu đề cột đầu = bộ chọn nhóm nền tảng */
+.ovth .hx-ovgh{display:flex;align-items:center;min-width:0}
+.ovth .hx-ovg{margin:0 0 0 -6px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* công cụ ở đầu khung chi tiết (thay thanh công cụ đã bỏ) */
+.ovph .hx-ovtools{margin-left:auto;display:flex;align-items:center;gap:var(--ui-s2,8px)}
+/* ô chọn trượt (hirex-patch.js · slide) */
 .ovtb{position:relative}
 .hx-ovind{position:absolute;z-index:0;pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),left .24s cubic-bezier(.2,.8,.2,1),width .24s cubic-bezier(.2,.8,.2,1),height .24s cubic-bezier(.2,.8,.2,1);will-change:transform}
 .ovtb.hx-sl .ovi.on::before{background:transparent!important}
-.ovth .hx-ovgh{display:flex;align-items:center;gap:2px;min-width:0}
-.ovth .hx-sep{color:var(--ui-muted);font-weight:500;margin:0 2px}
-.ovth .hx-ovg{margin-right:0;color:var(--ui-primary)}
-.ovth .hx-ovg svg{color:currentColor}
 html.ca-off .hx-ovind{transition:none}
