@@ -79,13 +79,14 @@ export function selectCrossNickSenders(database, accountZaloId, sinceMs) {
  * Group chats of this nick with a usable name. Deplao often knows a group only by its id for some nicks; then the
  * name comes from another of our nicks in the same group (same message id = same group). Recent groups only.
  */
+// A name made only of digits is an id, not a name; a real name may start with a digit ("30/09 - BRISASOFT - BrSE HN").
 export function selectGroupNames(database, accountZaloId, sinceMs) {
   const named = (alias) => `nullif(nullif(trim(${alias}.display_name), ''), ${alias}.contact_id)`;
   return database.prepare(`select g.t thread_id,
-      coalesce((select ${named("c")} from contacts c where c.owner_zalo_id = ? and c.contact_id = g.t and ${named("c")} not glob '[0-9]*'),
+      coalesce((select ${named("c")} from contacts c where c.owner_zalo_id = ? and c.contact_id = g.t and ${named("c")} glob '*[^0-9]*'),
         (select ${named("oc")} from messages m join messages o on o.msg_id = m.msg_id and o.owner_zalo_id <> m.owner_zalo_id
            join contacts oc on oc.owner_zalo_id = o.owner_zalo_id and oc.contact_id = o.thread_id
-         where m.owner_zalo_id = ? and m.thread_id = g.t and coalesce(m.msg_id, '') <> '' and ${named("oc")} not glob '[0-9]*'
+         where m.owner_zalo_id = ? and m.thread_id = g.t and coalesce(m.msg_id, '') <> '' and ${named("oc")} glob '*[^0-9]*'
          order by m.timestamp desc limit 1)) name
     from (select distinct thread_id t from messages where owner_zalo_id = ? and channel = 'zalo' and thread_type = 1 and timestamp > ?) g`)
     .all(accountZaloId, accountZaloId, accountZaloId, sinceMs)

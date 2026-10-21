@@ -67,13 +67,13 @@ test('a group a nick knows only by id is named from its own contacts or from ano
   const db = new DatabaseSync(':memory:');
   db.exec(`create table contacts (owner_zalo_id text, contact_id text, display_name text);
     create table messages (id integer primary key, msg_id text, owner_zalo_id text, thread_id text, thread_type integer, channel text, timestamp integer);
-    insert into contacts values ('MINA','g-own','Nhóm có tên'),('MINA','g-m','22'),('STELLA','g-s','Nick Intalent _ Quản lý'),('MINA','g-x','');
+    insert into contacts values ('MINA','g-own','Nhóm có tên'),('MINA','g-m','22'),('STELLA','g-s','Nick Intalent _ Quản lý'),('MINA','g-x',''),('MINA','44','30/09 - BRISASOFT - BrSE HN - Mai');
     insert into messages(msg_id,owner_zalo_id,thread_id,thread_type,channel,timestamp) values
-      ('1','MINA','g-own',1,'zalo',100),('2','MINA','g-m',1,'zalo',100),('2','STELLA','g-s',1,'zalo',100),('3','MINA','g-x',1,'zalo',100),('4','MINA','person',0,'zalo',100)`);
+      ('1','MINA','g-own',1,'zalo',100),('2','MINA','g-m',1,'zalo',100),('2','STELLA','g-s',1,'zalo',100),('3','MINA','g-x',1,'zalo',100),('4','MINA','person',0,'zalo',100),('5','MINA','44',1,'zalo',100)`);
   db.exec("update messages set thread_id = case thread_id when 'g-own' then '11' when 'g-m' then '22' when 'g-x' then '33' else thread_id end");
   db.exec("update contacts set contact_id = case contact_id when 'g-own' then '11' when 'g-m' then '22' when 'g-x' then '33' else contact_id end where owner_zalo_id='MINA'");
   const rows = selectGroupNames(db, 'MINA', 0).sort((a, b) => a.threadId.localeCompare(b.threadId));
-  assert.deepEqual(rows, [{ threadId: '11', name: 'Nhóm có tên' }, { threadId: '22', name: 'Nick Intalent _ Quản lý' }]);
+  assert.deepEqual(rows, [{ threadId: '11', name: 'Nhóm có tên' }, { threadId: '22', name: 'Nick Intalent _ Quản lý' }, { threadId: '44', name: '30/09 - BRISASOFT - BrSE HN - Mai' }]);
 });
 
 test('copies of one group across nicks share a key through a shared message, even with different names', async () => {

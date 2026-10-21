@@ -37,7 +37,8 @@ export default async function CustomerSettingsPage() {
   const linksByGroup = new Map<string, Array<{ partnerId: number; status: string; score: number }>>();
   for (const row of (groupLinks ?? []) as Array<{ group_id: string; partner_id: number; status: string; score: number }>) linksByGroup.set(row.group_id, [...(linksByGroup.get(row.group_id) ?? []), { partnerId: Number(row.partner_id), status: row.status, score: row.score }]);
   const groupRows = groups.map((group) => ({ ...group, links: (linksByGroup.get(group.groupId) ?? []).sort((a, b) => Number(b.status === "CONFIRMED") - Number(a.status === "CONFIRMED") || b.score - a.score) }))
-    .sort((a, b) => Number(a.links.some((link) => link.status === "CONFIRMED")) - Number(b.links.some((link) => link.status === "CONFIRMED")) || Number(b.links.length > 0) - Number(a.links.length > 0));
+    .sort((a, b) => Number(b.named) - Number(a.named) || Number(a.links.some((link) => link.status === "CONFIRMED")) - Number(b.links.some((link) => link.status === "CONFIRMED")) || Number(b.links.length > 0) - Number(a.links.length > 0));
+  const unnamedCount = groupRows.filter((group) => !group.named).length;
   const confirmedCount = groupRows.filter((group) => group.links.some((link) => link.status === "CONFIRMED")).length;
   const pinTime = `${String(pinSettings?.run_hour ?? 8).padStart(2, "0")}:${String(pinSettings?.run_minute ?? 30).padStart(2, "0")}`;
   // Codes still shown as "Mã 123" on the list (not in the bộ mã yet).
@@ -91,6 +92,7 @@ export default async function CustomerSettingsPage() {
 
       <h3 className="mt-5 text-sm font-bold text-slate-900">Nhóm của Soda ↔ công ty <span className="font-normal text-slate-500">· {confirmedCount}/{groupRows.length} nhóm đã duyệt</span></h3>
       <p className="mt-0.5 text-xs text-slate-500">HireX gợi ý theo tên nhóm; bấm Đúng để duyệt, hoặc gõ tên công ty khác rồi bấm Ghép. Sale/AM của công ty cũng duyệt được ở màn Khách hàng.</p>
+      {unnamedCount ? <p className="mt-1 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{unnamedCount} nhóm HireX chưa biết tên (chỉ biết mã nhóm) nên chưa gợi ý được; chúng nằm cuối danh sách và vẫn ghép tay được. Tên sẽ tự có khi Deplao đồng bộ tên nhóm của nick Soda.</p> : null}
       <datalist id="partner-options">{[...partnerName].map(([id, name]) => <option key={id} value={`${name} #${id}`}/>)}</datalist>
       <div className="mt-2 max-h-[560px] overflow-y-auto rounded-lg border border-slate-200"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Nhóm Zalo</th><th className="px-3 py-2">Công ty</th></tr></thead>

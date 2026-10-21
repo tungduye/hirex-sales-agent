@@ -25,3 +25,18 @@ test("ghép nhóm Zalo với công ty theo tên nhóm", () => {
   assert.deepEqual(matchGroup("Capgemini-Tùng-SE/BrS", companies).map((item) => item.id), [6]);
   assert.deepEqual(matchGroup("R&D - Lõi bộ phận", companies), []);
 });
+
+test("không ghép nhóm chưa có tên, không lấy nhãn chung của website", () => {
+  const ntt = [{ id: 9, name: "NTT Japan", website: "https://group.ntt/en/" }];
+  assert.deepEqual(matchGroup("Zalo group 8480140250463178044", ntt), []);
+  assert.deepEqual(companyAliases("NTT Japan", "https://group.ntt/en/"), ["ntt japan", "ntt"]);
+  assert.deepEqual(matchGroup("NTT Japan - Tùng - BrSE", ntt).map((item) => item.id), [9]);
+});
+
+test("công ty đứng đầu tên nhóm được chọn, không ghép theo tên địa danh", () => {
+  const list = [{ id: 1, name: "SoftRoad Việt Nam", website: null }, { id: 2, name: "Techlead", website: null }, { id: 3, name: "Tokyo tech Lab", website: null },
+    { id: 4, name: "VNEXT SOFTWARE", website: null }, { id: 5, name: "NTQ JP", website: null }, { id: 6, name: "NTQ Consulting Japan", website: null }];
+  assert.deepEqual(matchGroup("Softroad - Mai - Techlead + PM HN - Magnet - 00", list).map((item) => item.id), [1]);
+  assert.deepEqual(matchGroup("X 1- Vnext-Mai-Se/Brse Tokyo+Se AI-Magnet-00", list).map((item) => item.id), [4]);
+  assert.deepEqual(matchGroup("NTQ Consulting JP-Tùng-Pm/Se người Nhật-HS", list).map((item) => item.id), [6]);
+});

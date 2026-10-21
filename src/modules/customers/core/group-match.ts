@@ -8,42 +8,61 @@ export function words(value: string) { return ` ${fold(value).replace(/[^a-z0-9]
 // Legal and generic words dropped from a company name to get its usual short name.
 const GENERIC = new Set(["cong", "ty", "co", "phan", "tnhh", "mtv", "jsc", "joint", "stock", "company", "ltd", "limited", "inc", "corp", "corporation", "group", "vietnam", "viet", "nam",
   "japan", "jp", "vn", "software", "technology", "technologies", "tech", "solutions", "solution", "global", "holdings", "holding", "system", "systems", "consulting", "service", "services", "lab", "labs"]);
-const COMMON = new Set(["shift", "data", "smart", "new", "next", "first", "best", "top", "one", "the", "and", "sale", "dev", "brse", "test", "hot", "team"]);
+const LEGAL_COUNTRY = new Set(["cong", "ty", "co", "phan", "tnhh", "mtv", "jsc", "joint", "stock", "company", "ltd", "limited", "inc", "corp", "corporation", "vietnam", "viet", "nam", "japan", "jp", "vn"]);
+const SITE_WORDS = new Set(["jobs", "careers", "career", "recruit", "about", "corp", "home", "blog", "info", "masothue", "linkedin", "facebook", "google", "github", "topdev", "itviec", "vietnamworks"]);
+/** A name the sync gave a group it only knew by id ("Zalo group 1408…"): not a name. */
+export const PLACEHOLDER_GROUP = /^zalo group\s*[0-9]*$/iu;
+// Words a group name often has for other reasons (place, job, team name): never a company on their own.
+const COMMON = new Set(["shift", "data", "smart", "new", "next", "first", "best", "top", "one", "the", "and", "sale", "sales", "dev", "brse", "test", "hot", "team",
+  "tokyo", "osaka", "fukuoka", "nagoya", "hanoi", "ha noi", "hcm", "saigon", "da nang", "danang", "hue", "techlead", "intalent", "magnet", "hsvn", "human", "hirex", "free"]);
 
 export function companyAliases(name: string | null, website: string | null): string[] {
   const aliases = new Set<string>();
   if (name) {
     const full = words(name).trim();
     if (full.length >= 3) aliases.add(full);
+    // Without the legal form and the country ("ntq consulting" from "NTQ Consulting Japan"), then without any generic word ("ntq").
+    const mid = full.split(" ").filter((word) => word && !LEGAL_COUNTRY.has(word)).join(" ");
+    if (mid && mid !== full && mid.includes(" ") && mid.length >= 6) aliases.add(mid);
     const core = full.split(" ").filter((word) => word && !GENERIC.has(word)).join(" ");
     if (core && core !== full && (core.length >= 4 || (core.length === 3 && !core.includes(" "))) && !COMMON.has(core)) aliases.add(core);
   }
   if (website) {
-    const host = website.toLowerCase().replace(/^[a-z]+:\/\//u, "").replace(/^www\./u, "").split(/[/?#]/u)[0] ?? "";
-    const label = host.split(".")[0]?.replace(/[^a-z0-9]/gu, "") ?? "";
-    if (label.length >= 4 && !COMMON.has(label)) aliases.add(label);
+    // The site's own name: "brisasoft" from brisasoft.com; never a generic label ("group" in group.ntt, "jobs", "careers").
+    const host = website.toLowerCase().replace(/^[a-z]+:\/\//u, "").replace(/^www\d*\./u, "").split(/[/?#:]/u)[0] ?? "";
+    const label = host.split(".").map((part) => part.replace(/[^a-z0-9]/gu, "")).find((part) => part.length >= 4 && !GENERIC.has(part) && !COMMON.has(part) && !SITE_WORDS.has(part)) ?? "";
+    if (label) aliases.add(label);
   }
   return [...aliases];
 }
 
 export interface MatchCompany { id: number; name: string | null; website: string | null }
 
-/** Best companies for one group name (several when equally good), with a score (the matched alias length). */
+/**
+ * Best companies for one group name (several when equally good). The company comes first in the group name
+ * ("Softroad - Mai - Techlead + PM" is Softroad), so the earliest match wins, then the longest.
+ */
 export function matchGroup(groupName: string, companies: ReadonlyArray<MatchCompany & { aliases?: string[] }>): Array<{ id: number; score: number }> {
+  if (!groupName.trim() || PLACEHOLDER_GROUP.test(groupName.trim())) return [];
   const haystack = words(groupName);
   const squashed = haystack.replace(/ /gu, "");
-  let best = 0;
-  let found: Array<{ id: number; score: number }> = [];
+  const hits: Array<{ id: number; score: number; at: number }> = [];
   for (const company of companies) {
-    let score = 0;
+    let best: { score: number; at: number } | null = null;
     for (const alias of company.aliases ?? companyAliases(company.name, company.website)) {
       // Whole words ("kss" in "kss tri dev"), or a one-word alias glued in the group name ("vnext" in "x1 vnext mai").
-      const hit = haystack.includes(` ${alias} `) || (!alias.includes(" ") && alias.length >= 5 && squashed.includes(alias));
-      if (hit) score = Math.max(score, alias.replace(/ /gu, "").length);
+      const word = haystack.indexOf(` ${alias} `);
+      const glued = !alias.includes(" ") && alias.length >= 5 ? squashed.indexOf(alias) : -1;
+      if (word < 0 && glued < 0) continue;
+      const at = word >= 0 ? haystack.slice(0, word).replace(/ /gu, "").length : glued;
+      const score = alias.replace(/ /gu, "").length;
+      if (!best || at < best.at || (at === best.at && score > best.score)) best = { score, at };
     }
-    if (!score) continue;
-    if (score > best) { best = score; found = [{ id: company.id, score }]; }
-    else if (score === best) found.push({ id: company.id, score });
+    if (best) hits.push({ id: company.id, ...best });
   }
-  return found.slice(0, 5);
+  if (!hits.length) return [];
+  const first = Math.min(...hits.map((hit) => hit.at));
+  const early = hits.filter((hit) => hit.at === first);
+  const longest = Math.max(...early.map((hit) => hit.score));
+  return early.filter((hit) => hit.score === longest).slice(0, 5).map(({ id, score }) => ({ id, score }));
 }

@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { metadataName } from "@/modules/assistant/core/assistant-tools";
-import { companyAliases, matchGroup } from "../core/group-match";
+import { PLACEHOLDER_GROUP, companyAliases, matchGroup } from "../core/group-match";
 import { cvStatusParts, reportFingerprint } from "../core/partner-parse";
 import { partnerReport } from "./partner-reports";
 
@@ -26,7 +26,7 @@ async function sodaNick(db: Db, workspaceId: string) {
 /** The Soda nick's Zalo groups (with a name, taken from another nick's copy when Soda's has none). */
 export async function sodaGroups(db: Db, workspaceId: string) {
   const nick = await sodaNick(db, workspaceId);
-  if (!nick) return { nick: null, groups: [] as Array<{ groupId: string; conversationId: string; name: string; lastMessageAt: string | null }> };
+  if (!nick) return { nick: null, groups: [] as Array<{ groupId: string; conversationId: string; name: string; named: boolean; lastMessageAt: string | null }> };
   const rows: Row[] = [];
   for (let page = 0; page < 5; page++) {
     const { data } = await db.from("omnichannel_conversations").select("id,provider_conversation_id,metadata,subject,last_message_at").eq("workspace_id", workspaceId).eq("channel_type", "ZALO").eq("channel_account_id", nick.id)
@@ -35,24 +35,28 @@ export async function sodaGroups(db: Db, workspaceId: string) {
     rows.push(...((data ?? []) as Row[]));
     if ((data ?? []).length < 1000) break;
   }
+  // "Zalo group 1408…" is how the sync names a group it only knew by id: treated as no name.
+  const realName = (value: unknown) => typeof value === "string" && value.trim() && !PLACEHOLDER_GROUP.test(value.trim()) ? value.trim() : "";
+  const nameOf = (row: Row) => realName(metadataName(row.metadata)) || realName(row.subject);
   const groups = rows.filter((row) => typeof row.provider_conversation_id === "string").map((row) => ({ groupId: String(row.provider_conversation_id), conversationId: String(row.id),
-    name: metadataName(row.metadata) || (typeof row.subject === "string" ? row.subject : "") || "", lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null }));
+    name: nameOf(row), lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null }));
   const unnamed = groups.filter((group) => !group.name).map((group) => group.groupId);
   for (let offset = 0; offset < unnamed.length; offset += 200) {
     const { data } = await db.from("omnichannel_conversations").select("provider_conversation_id,metadata,subject").eq("workspace_id", workspaceId).eq("channel_type", "ZALO").in("provider_conversation_id", unnamed.slice(offset, offset + 200));
     for (const row of (data ?? []) as Row[]) {
-      const name = metadataName(row.metadata) || (typeof row.subject === "string" ? row.subject : "");
+      const name = nameOf(row);
       const group = groups.find((item) => item.groupId === row.provider_conversation_id && !item.name);
       if (group && name) group.name = name;
     }
   }
-  return { nick, groups: groups.map((group) => ({ ...group, name: group.name || "Nhóm Zalo" })) };
+  return { nick, groups: groups.map((group) => ({ ...group, named: Boolean(group.name), name: group.name || `Nhóm chưa có tên (${group.groupId})` })) };
 }
 
 /** New suggestions for groups not linked yet (confirmed and rejected pairs are never touched). */
 export async function suggestPartnerGroups(workspaceId: string) {
   const db = createPrivilegedClient();
-  const { groups } = await sodaGroups(db, workspaceId);
+  const { groups: all } = await sodaGroups(db, workspaceId);
+  const groups = all.filter((group) => group.named);
   if (!groups.length) return 0;
   const companies: Array<{ id: number; name: string | null; website: string | null; aliases: string[] }> = [];
   for (let from = 0; from < 20000; from += 1000) {
@@ -63,7 +67,11 @@ export async function suggestPartnerGroups(workspaceId: string) {
   const { data: existing } = await db.from("human_partner_groups").select("group_id,partner_id,status").eq("workspace_id", workspaceId).limit(20000);
   const known = new Set(((existing ?? []) as Row[]).map((row) => `${row.group_id}:${row.partner_id}`));
   const settled = new Set(((existing ?? []) as Row[]).filter((row) => row.status === "CONFIRMED").map((row) => String(row.group_id)));
-  const rows = groups.filter((group) => !settled.has(group.groupId)).flatMap((group) => matchGroup(group.name, companies)
+  const matches = new Map(groups.filter((group) => !settled.has(group.groupId)).map((group) => [group.groupId, matchGroup(group.name, companies)]));
+  // Suggestions that no longer match (a fixed rule, a renamed group, a group without a real name) are removed.
+  const stale = ((existing ?? []) as Row[]).filter((row) => row.status === "SUGGESTED" && !(matches.get(String(row.group_id)) ?? []).some((match) => match.id === Number(row.partner_id)));
+  for (const row of stale) await db.from("human_partner_groups").delete().eq("workspace_id", workspaceId).eq("group_id", String(row.group_id)).eq("partner_id", Number(row.partner_id)).eq("status", "SUGGESTED");
+  const rows = groups.filter((group) => !settled.has(group.groupId)).flatMap((group) => (matches.get(group.groupId) ?? [])
     .filter((match) => !known.has(`${group.groupId}:${match.id}`))
     .map((match) => ({ workspace_id: workspaceId, group_id: group.groupId, partner_id: match.id, group_name: group.name.slice(0, 300), score: match.score, status: "SUGGESTED" })));
   for (let offset = 0; offset < rows.length; offset += 500) await db.from("human_partner_groups").insert(rows.slice(offset, offset + 500));
