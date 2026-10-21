@@ -168,22 +168,27 @@ export interface CvItem {
   name: string; code: string | null; position: string | null; skill: string | null; address: string | null; status: string | null; statusCode: string | null;
   updatedAt: string | null; interviewAt: string | null; companies: string[]; cvId: number | null;
 }
-const LIST_NAMES: Record<string, string> = { waitingList: "CV chờ gửi", sentList: "CV đã gửi", falseList: "CV fail" };
-const LIST_ORDER = ["waitingList", "sentList", "falseList"];
+const LIST_NAMES: Record<string, string> = { waitingList: "CV chờ gửi", sentList: "CV đã gửi", falseList: "CV fail", offerList: "Offer", oblist: "Onboard", obList: "Onboard", prList: "PR", chatStatsList: "Chat" };
+const LIST_ORDER = ["waitingList", "sentList", "falseList", "offerList", "oblist", "obList", "prList", "chatStatsList"];
 
 /** Human's CV report ({data:{waitingList, sentList, falseList}}) as named lists of CVs, newest first. */
 export function parseCvReport(value: unknown): Array<{ key: string; label: string; items: CvItem[] }> {
   const envelope = value as Record<string, unknown> | null;
   const data = (envelope && typeof envelope === "object" && envelope.data && typeof envelope.data === "object" ? envelope.data : envelope) as Record<string, unknown> | null;
   if (!data || typeof data !== "object") return [];
-  const text = (item: Record<string, unknown>, key: string) => { const raw = item[key]; return raw == null || raw === "" ? null : String(raw).trim().slice(0, 500) || null; };
+  // Human mixes cvName / cv_name / cvname: look a field up by its letters only.
+  const text = (item: Record<string, unknown>, ...keys: string[]) => {
+    const wanted = new Set(keys.map((key) => key.toLowerCase().replace(/[^a-z0-9]/gu, "")));
+    for (const [key, raw] of Object.entries(item)) if (wanted.has(key.toLowerCase().replace(/[^a-z0-9]/gu, "")) && raw != null && raw !== "") return String(raw).trim().slice(0, 500) || null;
+    return null;
+  };
   return Object.entries(data).filter(([, list]) => Array.isArray(list)).sort(([a], [b]) => (LIST_ORDER.indexOf(a) + 1 || 99) - (LIST_ORDER.indexOf(b) + 1 || 99)).map(([key, list]) => ({
     key, label: LIST_NAMES[key] ?? key.replace(/([a-z])([A-Z])/gu, "$1 $2"),
     items: (list as unknown[]).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object").map((item) => ({
-      name: text(item, "cvName") ?? "Ứng viên", code: text(item, "userCode"), position: text(item, "cvPosition"), skill: text(item, "cvSkill"), address: text(item, "cvAddress"),
-      status: text(item, "statusCv2"), statusCode: text(item, "statusCv"), updatedAt: text(item, "updateDate"), interviewAt: text(item, "interviewDate"),
-      companies: typeof item.history === "string" ? item.history.split(",").map((part) => part.trim()).filter(Boolean).slice(0, 200) : [],
-      cvId: Number.isSafeInteger(Number(item.cvId)) ? Number(item.cvId) : null,
+      name: text(item, "cvName", "candidateName", "fullName") ?? "Ứng viên", code: text(item, "userCode"), position: text(item, "cvPosition"), skill: text(item, "cvSkill"), address: text(item, "cvAddress"),
+      status: text(item, "statusCv2"), statusCode: text(item, "statusCv"), updatedAt: text(item, "updateDate", "updatedDate"), interviewAt: text(item, "interviewDate"),
+      companies: (text(item, "history") ?? "").split(",").map((part) => part.trim()).filter(Boolean).slice(0, 200),
+      cvId: Number.isSafeInteger(Number(text(item, "cvId"))) ? Number(text(item, "cvId")) : null,
     })).sort((a, b) => (Date.parse(b.updatedAt ?? "") || 0) - (Date.parse(a.updatedAt ?? "") || 0)),
   }));
 }

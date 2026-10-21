@@ -43,13 +43,15 @@ test("bộ lọc gửi đúng khối", () => assert.equal(partnerFilter(36310).b
 test("đọc Tình trạng CV theo từng danh sách", async () => {
   const { parseCvReport, cvReportCounts } = await import("../src/modules/customers/core/partner-parse.ts");
   const report = { code: 200, type: "ok", data: {
-    sentList: [{ cvName: "Lê Văn A", userCode: "RE6980", cvPosition: "Brse/PM", cvSkill: "Other", cvAddress: "24", statusCv: "AB", statusCv2: "CV gửi", updateDate: "2026-10-06T03:00:00Z", history: "Trusted AI, VTI*" }],
+    sentList: [{ cv_name: "Lê Văn A", userCode: "RE6980", cv_position: "Brse/PM", cv_skill: "Other", cv_address: "24", statusCv: "AB", statusCv2: "CV gửi", updateDate: "2026-10-06T03:00:00Z", history: "Trusted AI, VTI*" }],
     waitingList: [{ cvName: "B", updateDate: "2026-10-01T00:00:00Z" }, { cvName: "C", updateDate: "2026-10-05T00:00:00Z" }],
     falseList: [] } };
   const lists = parseCvReport(report);
   assert.deepEqual(lists.map((list) => list.label), ["CV chờ gửi", "CV đã gửi", "CV fail"]);
   assert.equal(lists[0].items[0].name, "C");
   assert.deepEqual(lists[1].items[0].companies, ["Trusted AI", "VTI*"]);
+  assert.equal(lists[1].items[0].name, "Lê Văn A");
+  assert.equal(lists[1].items[0].position, "Brse/PM");
   assert.deepEqual(cvReportCounts(report), { report_waiting: 2, report_sent: 1, report_failed: 0 });
   assert.equal(cvReportCounts(null), null);
 });

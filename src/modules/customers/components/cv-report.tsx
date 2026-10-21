@@ -21,7 +21,7 @@ export function CvReport({ data, codes }: { data: unknown; codes: Record<string,
   const total = lists.reduce((sum, list) => sum + list.items.length, 0);
   if (!total) return <p className="text-xs text-slate-500">Chưa có CV nào cho công ty này.</p>;
   return <div className="space-y-3">
-    <div className="flex flex-wrap gap-1.5">{lists.map((list) => <span key={list.key} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE[list.key] ?? "bg-slate-100 text-slate-700"}`}>{list.label}: {list.items.length}</span>)}</div>
+    <div className="flex flex-wrap gap-1.5">{lists.filter((list) => list.items.length || ["waitingList", "sentList", "falseList"].includes(list.key)).map((list) => <span key={list.key} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE[list.key] ?? "bg-slate-100 text-slate-700"}`}>{list.label}: {list.items.length}</span>)}</div>
     {lists.filter((list) => list.items.length).map((list, index) => <section key={list.key}>
       <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">{["I", "II", "III", "IV", "V"][index] ?? index + 1}. {list.label} ({list.items.length})</h4>
       <ol className="mt-1.5 space-y-1.5">{list.items.map((item, position) => <CvLine key={`${item.cvId ?? item.name}-${position}`} item={item} codes={codes}/>)}</ol>

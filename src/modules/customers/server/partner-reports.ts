@@ -57,6 +57,13 @@ export async function refreshPartnerReports(workspaceId: string, wanted: Array<{
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
+    // Copies fetched before the counts existed: fill the counts from the kept report.
+    const { data: missing } = await db.from("human_partners").select("partner_id").eq("workspace_id", workspaceId).is("report_waiting", null).limit(5000);
+    const ids = (missing ?? []).map((row) => Number(row.partner_id));
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const { data: copies } = await db.from("human_partner_reports").select("partner_id,data").eq("workspace_id", workspaceId).in("partner_id", ids.slice(offset, offset + 100)).not("data", "is", null);
+      for (const copy of copies ?? []) await saveCounts(db, workspaceId, Number(copy.partner_id), copy.data);
+    }
   } finally { running.delete(workspaceId); }
 }
 
