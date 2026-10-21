@@ -91,7 +91,16 @@ export async function syncHumanPartners(workspaceId: string, trigger: "MANUAL" |
     // Human ids no longer Sale/AM of any customer and never linked (e.g. AM rankings read as people by the first version): removed.
     if (!failed.length) {
       const { data: stale } = await db.from("human_user_links").select("human_user_id").eq("workspace_id", workspaceId).is("profile_id", null);
-      const gone = (stale ?? []).map((row) => String(row.human_user_id)).filter((id) => !people.has(id));
+      let gone = (stale ?? []).map((row) => String(row.human_user_id)).filter((id) => !people.has(id));
+      // Rec ids of the CV screen are kept too.
+      if (gone.length) {
+        const recers = new Set<string>();
+        for (let offset = 0; offset < gone.length; offset += 100) {
+          const { data: used } = await db.from("human_cvs").select("recer_human_id").eq("workspace_id", workspaceId).in("recer_human_id", gone.slice(offset, offset + 100)).limit(1000);
+          for (const row of used ?? []) recers.add(String(row.recer_human_id));
+        }
+        gone = gone.filter((id) => !recers.has(id));
+      }
       for (let offset = 0; offset < gone.length; offset += 100) await db.from("human_user_links").delete().eq("workspace_id", workspaceId).is("profile_id", null).in("human_user_id", gone.slice(offset, offset + 100));
     }
     await finish(!failed.length, rows.length, failed.length ? failed.join("; ").slice(0, 500) : null);

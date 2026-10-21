@@ -335,7 +335,9 @@
     ".next-soda-dot-1/types/**/*.ts",
     ".next-soda-dot-1/dev/types/**/*.ts",
     ".next-soda-dot-1-sua/types/**/*.ts",
-    ".next-soda-dot-1-sua/dev/types/**/*.ts"
+    ".next-soda-dot-1-sua/dev/types/**/*.ts",
+    ".next-hs-1021-1635/types/**/*.ts",
+    ".next-hs-1021-1635/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

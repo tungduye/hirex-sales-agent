@@ -23,7 +23,8 @@ test('every tool has a server implementation and a strict schema', () => {
     + readFileSync(new URL('../src/modules/assistant/server/assistant-customer-tools.ts', import.meta.url), 'utf8')
     + readFileSync(new URL('../src/modules/assistant/server/assistant-campaign-tools.ts', import.meta.url), 'utf8')
     + readFileSync(new URL('../src/modules/assistant/server/assistant-customer-stats.ts', import.meta.url), 'utf8')
-    + readFileSync(new URL('../src/modules/assistant/server/assistant-inbox-stats.ts', import.meta.url), 'utf8');
+    + readFileSync(new URL('../src/modules/assistant/server/assistant-inbox-stats.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/modules/assistant/server/assistant-cv-tools.ts', import.meta.url), 'utf8');
   const proposals = readFileSync(new URL('../src/modules/assistant/server/assistant-proposals.ts', import.meta.url), 'utf8');
   for (const tool of ASSISTANT_TOOLS) {
     if (tool.proposal) assert.match(proposals, new RegExp(`\\b${tool.name}: propose`), tool.name);

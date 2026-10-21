@@ -19,7 +19,7 @@ const E = (k: string, d = "") => process.env[k] || d;
 export const C = {
   data: path.resolve(E("HS_RECORD_DIR", path.join(process.cwd(), "runtime", "hs-record"))),
   pub: (E("HS_RECORD_PUBLIC_URL") || E("APP_BASE_URL")).replace(/\/+$/, ""),
-  ffmpeg: E("FFMPEG_PATH", "ffmpeg"),
+  get ffmpeg() { return ffmpegPath(); },
   get key() { return (process.env.OPENAI_API_KEY || "").trim(); },
   text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"), liveModel: E("HS_RECORD_LIVE_TEXT_MODEL"),
   seg: Math.max(300, +E("TRANSCRIBE_SEGMENT_SECONDS", "1800")), br: E("AUDIO_BITRATE", "24k"), slice: Math.max(5000, +E("RECORD_SLICE_MS", "5000")),
@@ -28,6 +28,13 @@ export const C = {
   liveNoise: E("LIVE_NOISE", "near_field"), liveDelay: E("LIVE_DELAY"), liveSilence: +E("LIVE_SILENCE_MS", "800"), liveMaxTurn: +E("LIVE_MAX_TURN_MS", "14000"),
   liveVad: +E("LIVE_VAD_THRESHOLD", ".6"), liveMinLp: +E("LIVE_MIN_LOGPROB", "-1"), liveTranscribe: E("LIVE_TRANSCRIBE_MODEL"),
 };
+/** FFmpeg: FFMPEG_PATH, rồi bản cài bằng winget / choco / runtime\ffmpeg (tìm thấy là dùng ngay, không cần khởi động lại web), cuối cùng "ffmpeg" trong PATH. */
+function ffmpegPath() {
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  const la = process.env.LOCALAPPDATA || "";
+  for (const p of [la && path.join(la, "Microsoft", "WinGet", "Links", "ffmpeg.exe"), "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe", path.join(process.cwd(), "runtime", "ffmpeg", "ffmpeg.exe")]) if (p && fs.existsSync(p)) return p;
+  return "ffmpeg";
+}
 const M = path.join(C.data, "m"), CF = path.join(C.data, "cfg");
 export const TPL = path.join(C.data, "templates");
 

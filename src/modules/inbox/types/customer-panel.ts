@@ -4,6 +4,8 @@ export interface CustomerPanelData {
   tasks: Array<{ id: string; title: string; status: string; dueAt: string | null; assigneeName: string | null }>;
   notes: Array<{ id: string; content: string; authorName: string | null; createdAt: string }>;
   otherConversations: Array<{ id: string; channelType: string; accountName: string | null; subject: string | null; lastMessageAt: string | null }>;
+  /** CVs on Human with the contact's phone / e-mail (only with "CV · Xem", within the member's CVs). */
+  humanCvs: Array<{ cvId: number; name: string | null; position: string | null; status: string | null; companies: number }>;
   can: { editLead: boolean; createContact: boolean; createTask: boolean; updateTask: boolean; addNote: boolean };
 }
 

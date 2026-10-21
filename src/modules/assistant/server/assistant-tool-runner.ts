@@ -26,6 +26,7 @@ import { customerTools } from "@/modules/assistant/server/assistant-customer-too
 import { campaignTools } from "@/modules/assistant/server/assistant-campaign-tools";
 import { customerStatTools } from "@/modules/assistant/server/assistant-customer-stats";
 import { inboxStatTools } from "@/modules/assistant/server/assistant-inbox-stats";
+import { cvTools } from "@/modules/assistant/server/assistant-cv-tools";
 import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
 
 // Every tool here only reads. Data is fetched with the member's own Supabase session (RLS) or
@@ -134,6 +135,8 @@ const runners: Record<string, Runner> = {
   // Soda đợt 1: thống kê khách, Tình trạng CV nhiều công ty, đếm Suối Nguồn, nhóm Zalo.
   ...customerStatTools,
   ...inboxStatTools,
+  // Màn CV (assistant-cv-tools.ts).
+  ...cvTools,
   async tong_quan_crm() {
     const data = await getDashboardData();
     if (data.metricsHaveError) return { loi: "Không tải được số liệu tổng quan." };

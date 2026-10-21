@@ -760,6 +760,46 @@ function ROUND_ONE_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Màn CV (copied from Human): within the member's rights (all CVs, or the ones they are Rec of).
+const CV_GROUPS = ["TINH_TRANG", "TRANG_THAI", "VI_TRI", "KY_NANG", "DIA_DIEM", "REC", "NGOAI_NGU", "KHOI"] as const;
+function CV_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "tim_cv",
+    permission: "cvs.view",
+    label: "Tìm CV",
+    description: "Tìm trong màn CV (CV ứng viên lấy từ Human) theo tên, SĐT, email, mã UV, kỹ năng, công ty đã gửi…; lọc tình trạng, vị trí, chỉ CV của người hỏi (Rec). Trả tổng số khớp và tối đa 30 CV: vị trí, kỹ năng, ngoại ngữ, địa điểm, trạng thái, Rec, công ty đã gửi, link. Người không có quyền xem tất cả chỉ thấy CV mình là Rec.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["tu_khoa", "trang_thai", "vi_tri", "chi_cua_toi", "so_luong"],
+      properties: {
+        tu_khoa: nullableString("Tên, SĐT, email, mã UV, kỹ năng, công ty… (có/không dấu), hoặc null."),
+        trang_thai: nullableString("Chữ trong tình trạng CV, hoặc null."),
+        vi_tri: nullableString("Chữ trong vị trí (BrSE, PM…), hoặc null."),
+        chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ CV người hỏi là Rec." },
+        so_luong: nullableInteger("Số CV trả về (mặc định 10, tối đa 30)."),
+      },
+    },
+    args: z.object({ tu_khoa: text(120).nullable(), trang_thai: text(120).nullable(), vi_tri: text(120).nullable(), chi_cua_toi: z.boolean().nullable(), so_luong: z.number().int().min(1).max(30).nullable() }).strict(),
+    maxOutputChars: 14_000,
+  }, {
+    name: "thong_ke_cv",
+    permission: "cvs.view",
+    label: "Thống kê CV",
+    description: "Đếm CV trong màn CV theo tình trạng, trạng thái, vị trí, kỹ năng, địa điểm, Rec, ngoại ngữ hoặc khối; ky/tu_ngay/den_ngay = chỉ CV tạo trên Human trong khoảng đó (\"tuần này có bao nhiêu CV mới\"); loc = chỉ CV có chữ này (kỹ năng, vị trí, công ty…).",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["nhom_theo", "ky", "tu_ngay", "den_ngay", "loc", "chi_cua_toi"],
+      properties: {
+        nhom_theo: { type: ["string", "null"], enum: [...CV_GROUPS, null], description: "Mặc định TINH_TRANG." },
+        ky: { type: ["string", "null"], enum: [...KPI_PERIODS, "TAT_CA", null], description: "CV tạo trong khoảng này; null/TAT_CA = mọi CV." },
+        tu_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+        den_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+        loc: nullableString("Chỉ CV có chữ này, hoặc null."),
+        chi_cua_toi: { type: ["boolean", "null"], description: "true = chỉ CV người hỏi là Rec." },
+      },
+    },
+    args: z.object({ nhom_theo: z.enum(CV_GROUPS).nullable(), ky: z.enum([...KPI_PERIODS, "TAT_CA"]).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable(), loc: text(120).nullable(), chi_cua_toi: z.boolean().nullable() }).strict(),
+  }];
+}
+
 // Tương tác chiến dịch Zalo / Facebook cá nhân (read only): per owner and per sending nick.
 const INTERACTION_FILTERS = ["TAT_CA", "QUAN_TAM", "KHONG_QUAN_TAM", "CHUA_RO", "CHUA_DOC", "DA_CO_CV", "OWNER_CHUA_TRA_LOI", "OWNER_DA_TRA_LOI"] as const;
 function CAMPAIGN_INSIGHT_TOOLS(): AssistantToolDefinition[] {
@@ -1072,6 +1112,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...CUSTOMER_TOOLS(),
   ...CAMPAIGN_INSIGHT_TOOLS(),
   ...ROUND_ONE_TOOLS(),
+  ...CV_TOOLS(),
   ...DOCUMENT_SAVE_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),

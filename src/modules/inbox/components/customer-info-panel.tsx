@@ -66,6 +66,14 @@ export function CustomerInfoPanel(props: { conversationId: string; displayName: 
 
         <Notes data={data} busy={busy} onAdd={(content) => run(() => addCustomerNote(props.conversationId, content))}/>
 
+        {data.humanCvs?.length ? <section className="space-y-1.5">
+          <p className={sectionTitle}>CV trên Human</p>
+          {data.humanCvs.map((item) => <Link prefetch={false} key={item.cvId} href={`/cvs?id=${item.cvId}`} className="block rounded-[10px] border border-slate-200 px-2.5 py-2 text-[13px] text-slate-900 hover:border-blue-300 hover:bg-blue-50/40">
+            {item.name ?? `CV #${item.cvId}`}{item.position ? ` · ${item.position}` : ""}
+            <span className="block text-xs text-slate-500">{[item.status, item.companies ? `đã gửi ${item.companies} công ty` : ""].filter(Boolean).join(" · ") || `CV #${item.cvId}`}</span>
+          </Link>)}
+        </section> : null}
+
         {data.otherConversations.length ? <section className="space-y-1.5">
           <p className={sectionTitle}>Cùng người ở kênh khác</p>
           {data.otherConversations.map((item) => <Link prefetch={false} key={item.id} href={`/inbox/all/${item.id}`} className="block rounded-[10px] border border-slate-200 px-2.5 py-2 text-[13px] text-slate-900 hover:border-blue-300 hover:bg-blue-50/40">

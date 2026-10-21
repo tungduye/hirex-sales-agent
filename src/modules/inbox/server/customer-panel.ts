@@ -1,6 +1,8 @@
 import "server-only";
 
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { createClient } from "@/lib/supabase/server";
+import { emailKeys, phoneKeys } from "@/modules/cvs/core/cv-parse";
 import { canAccessChannelAccount, getAccessibleChannelAccountIds, hasPermission } from "@/modules/access/server/access-control";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import type { CustomerPanelData } from "../types/customer-panel";
@@ -45,8 +47,10 @@ export async function getCustomerPanel(conversationId: string): Promise<Customer
   const names = new Map(((profileResult.data ?? []) as Array<Record<string, unknown>>).map((row) => [String(row.id), String(row.full_name ?? "")]));
   const accountNames = new Map(((accountResult.data ?? []) as Array<Record<string, unknown>>).map((row) => [String(row.id), String(row.display_name ?? "")]));
 
+  const humanCvs = contactRow ? await cvsOfContact(workspaceId, String(contactRow.id), str(contactRow.phone), str(contactRow.email)).catch(() => []) : [];
+
   return {
-    conversationId,
+    conversationId, humanCvs,
     contact: contactRow ? {
       id: String(contactRow.id), fullName: String(contactRow.full_name ?? ""), jobTitle: str(contactRow.job_title), email: str(contactRow.email), phone: str(contactRow.phone),
       leadStatus: String(contactRow.lead_status ?? "NEW"), companyName: str((companyResult.data as Record<string, unknown> | null)?.name),
@@ -57,4 +61,21 @@ export async function getCustomerPanel(conversationId: string): Promise<Customer
     otherConversations: others.map((row) => ({ id: String(row.id), channelType: String(row.channel_type), accountName: accountNames.get(String(row.channel_account_id)) ?? null, subject: str(row.subject), lastMessageAt: str(row.last_message_at) })),
     can: { editLead: canEditContact, createContact: canCreateContact && canUpdateConversation, createTask: canCreateTask, updateTask: canUpdateTask, addNote: canEditContact || canUpdateConversation },
   };
+}
+
+/** The contact's CVs on Human (Màn CV), matched by phone / e-mail, read with the member's own rights. */
+async function cvsOfContact(workspaceId: string, contactId: string, phone: string | null, email: string | null) {
+  if (!await hasPermission("cvs.view")) return [];
+  const db = createPrivilegedClient();
+  const { data: channels } = await db.from("contact_channels").select("channel_type,channel_value").eq("workspace_id", workspaceId).eq("contact_id", contactId).in("channel_type", ["PHONE", "EMAIL"]).limit(20);
+  const phones = [...new Set([...phoneKeys(phone), ...(channels ?? []).filter((row) => row.channel_type === "PHONE").flatMap((row) => phoneKeys(String(row.channel_value)))])];
+  const emails = [...new Set([...emailKeys(email), ...(channels ?? []).filter((row) => row.channel_type === "EMAIL").flatMap((row) => emailKeys(String(row.channel_value)))])];
+  if (!phones.length && !emails.length) return [];
+  const member = await createClient();
+  const { data } = await member.from("human_cvs").select("cv_id,name,position,status1,status2,companies").eq("workspace_id", workspaceId).eq("active", true)
+    .or([phones.length ? `phone_keys.ov.{${phones.join(",")}}` : "", emails.length ? `email_keys.ov.{${emails.map((value) => `"${value}"`).join(",")}}` : ""].filter(Boolean).join(",")).order("cv_id", { ascending: false }).limit(5);
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    cvId: Number(row.cv_id), name: str(row.name), position: str(row.position), status: str(row.status2) ?? str(row.status1),
+    companies: str(row.companies)?.split(",").filter((part) => part.trim()).length ?? 0,
+  }));
 }
