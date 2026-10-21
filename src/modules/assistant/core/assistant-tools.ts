@@ -679,6 +679,69 @@ function CUSTOMER_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Tương tác chiến dịch Zalo / Facebook cá nhân (read only): per owner and per sending nick.
+const INTERACTION_FILTERS = ["TAT_CA", "QUAN_TAM", "KHONG_QUAN_TAM", "CHUA_RO", "CHUA_DOC", "DA_CO_CV", "OWNER_CHUA_TRA_LOI", "OWNER_DA_TRA_LOI"] as const;
+function CAMPAIGN_INSIGHT_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "tuong_tac_chien_dich",
+    permission: "campaigns.view",
+    label: "Tổng hợp tương tác chiến dịch",
+    description: "Tương tác của chiến dịch Zalo / Facebook cá nhân (UV đã phản hồi tin chiến dịch), TỔNG HỢP THEO OWNER (cột Owner của chiến dịch, ví dụ 204 = Tuấn Rec): số tương tác, owner (nick) đã trả lời UV hay chưa, UV quan tâm / không quan tâm / chưa rõ (theo Luồng Rec, file CV, còn lại AI đọc tin UV), số chuyển hoá thành CV và tỉ lệ; kèm danh sách UV lọc theo loc (tên UV, tin phản hồi, owner đã trả lời sau bao lâu, mức quan tâm và lý do, CV, link hội thoại). Dùng cho \"tổng hợp tương tác theo owner\", \"bao nhiêu tương tác ra CV\", \"lọc UV quan tâm / không quan tâm\", \"UV nào owner chưa trả lời\".",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["ky", "tu_ngay", "den_ngay", "owner", "nick", "chien_dich", "loc", "so_luong"],
+      properties: {
+        ky: { type: ["string", "null"], enum: [...KPI_PERIODS, "TAT_CA", null], description: "Khoảng thời gian UV phản hồi; null/TAT_CA = toàn bộ." },
+        tu_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+        den_ngay: nullableString("YYYY-MM-DD, hoặc null."),
+        owner: nullableString("Owner: mã (\"204\") hoặc tên (\"Tuấn\"), hoặc null = mọi owner."),
+        nick: nullableString("Tên nick gửi (ví dụ \"Xuân Ly\"), hoặc null."),
+        chien_dich: nullableString("Một phần tên chiến dịch, hoặc null."),
+        loc: { type: ["string", "null"], enum: [...INTERACTION_FILTERS, null], description: "Lọc danh sách UV: QUAN_TAM, KHONG_QUAN_TAM, CHUA_RO, CHUA_DOC (AI chưa đọc), DA_CO_CV, OWNER_CHUA_TRA_LOI, OWNER_DA_TRA_LOI; null = tất cả." },
+        so_luong: nullableInteger("Số UV trong danh sách (mặc định 15, tối đa 50)."),
+      },
+    },
+    args: z.object({ ky: z.enum([...KPI_PERIODS, "TAT_CA"]).nullable(), tu_ngay: isoDate.nullable(), den_ngay: isoDate.nullable(), owner: text(80).nullable(), nick: text(120).nullable(), chien_dich: text(160).nullable(), loc: z.enum(INTERACTION_FILTERS).nullable(), so_luong: z.number().int().min(1).max(50).nullable() }).strict(),
+    maxOutputChars: 18_000,
+  }, {
+    name: "tien_do_chien_dich",
+    permission: "campaigns.view",
+    label: "Tiến độ chiến dịch theo tài khoản",
+    description: "Tiến độ chiến dịch Zalo / Facebook cá nhân THEO TỪNG TÀI KHOẢN (nick gửi): đã chạy bao nhiêu UV trên tổng (da_chay/tong), còn chờ, phản hồi và tỉ lệ, lỗi, tốc độ gửi 24 giờ / 7 ngày so với giới hạn ngày, dự kiến số ngày còn lại, số UV phản hồi chưa được trả lời, và goi_y tính sẵn (nick mất kết nối, đứng gửi, chậm, sắp hết data, tỉ lệ phản hồi thấp/cao…). Dùng cho \"tương tác đã chạy được bao nhiêu trên bao nhiêu cho từng tài khoản\" và để đưa ra đề xuất.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["kenh", "nick", "chien_dich", "chi_dang_chay"],
+      properties: {
+        kenh: { type: ["string", "null"], enum: ["TAT_CA", "ZALO", "FACEBOOK_PROFILE", null], description: "Kênh; null = tất cả." },
+        nick: nullableString("Tên nick, hoặc null = mọi nick."),
+        chien_dich: nullableString("Một phần tên chiến dịch, hoặc null."),
+        chi_dang_chay: { type: ["boolean", "null"], description: "true/null = chỉ chiến dịch đang chạy/tạm dừng/đã lên lịch; false = cả chiến dịch đã xong." },
+      },
+    },
+    args: z.object({ kenh: z.enum(["TAT_CA", "ZALO", "FACEBOOK_PROFILE"]).nullable(), nick: text(120).nullable(), chien_dich: text(160).nullable(), chi_dang_chay: z.boolean().nullable() }).strict(),
+    maxOutputChars: 16_000,
+  }];
+}
+
+// "Lưu tài liệu anh vừa nhắn vào mục Tài liệu": a card; confirming keeps the text in Tài liệu HireX › <thư mục>.
+function DOCUMENT_SAVE_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "de_xuat_luu_tai_lieu",
+    permission: "documents.create",
+    proposal: true,
+    label: "Đề xuất lưu vào Tài liệu",
+    description: "Lưu một tài liệu (văn bản) vào mục Tài liệu, thư mục Tài liệu HireX › <thu_muc> (mặc định \"Soda lưu\"); người dùng xác nhận thẻ mới lưu, sau đó tìm/đọc/hỏi được như tài liệu khác. nguon = TIN_VUA_NHAN (chỉ trên Zalo): máy chủ tự lấy NGUYÊN VĂN các tin người dùng vừa gửi ngay trước câu nhờ lưu (gộp các tin dán liền nhau) — dùng cho \"lưu tài liệu anh vừa nhắn/vừa gửi\". nguon = NOI_DUNG: lưu đúng noi_dung (trên web, hoặc khi người dùng đưa nội dung ngay trong câu). File gửi qua Zalo chưa đọc được nội dung.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["nguon", "noi_dung", "tieu_de", "thu_muc"],
+      properties: {
+        nguon: { type: "string", enum: ["TIN_VUA_NHAN", "NOI_DUNG"], description: "TIN_VUA_NHAN (Zalo) hoặc NOI_DUNG." },
+        noi_dung: nullableString("NOI_DUNG: nguyên văn nội dung cần lưu (không tóm tắt, không sửa); TIN_VUA_NHAN: null."),
+        tieu_de: nullableString("Tên tài liệu người dùng nói, hoặc một tên ngắn đúng nội dung; null = lấy dòng đầu."),
+        thu_muc: nullableString("Thư mục người dùng nói (ví dụ \"Quy trình HR\"), hoặc null = \"Soda lưu\"."),
+      },
+    },
+    args: z.object({ nguon: z.enum(["TIN_VUA_NHAN", "NOI_DUNG"]), noi_dung: text(200_000).nullable(), tieu_de: text(200).nullable(), thu_muc: text(120).nullable() }).strict(),
+  }];
+}
+
 // Suối Nguồn bulk actions: the card shows how many conversations match; confirming runs it (undo 10 minutes).
 function INBOX_BULK_TOOLS(): AssistantToolDefinition[] {
   return [{
@@ -926,6 +989,8 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...BROADCAST_TOOLS(),
   ...INBOX_BULK_TOOLS(),
   ...CUSTOMER_TOOLS(),
+  ...CAMPAIGN_INSIGHT_TOOLS(),
+  ...DOCUMENT_SAVE_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

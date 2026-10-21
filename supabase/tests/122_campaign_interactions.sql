@@ -3,6 +3,7 @@ begin;
 create function pg_temp.assert_true(value boolean,label text) returns void language plpgsql as $$begin if value is not true then raise exception 'FAIL: %',label; end if; raise notice 'PASS: %',label; end$$;
 create function pg_temp.fails(statement text) returns boolean language plpgsql as $$begin execute statement; return false; exception when others then return true; end$$;
 grant execute on function pg_temp.fails(text) to authenticated;
+select set_config('request.jwt.claim.role','service_role',true);
 insert into auth.users(id,email) values('99000000-0000-4000-8000-000000002201','a122@test.local');
 insert into public.workspaces(id,name) values('99000000-0000-4000-8000-000000002202','WS 122');
 insert into public.workspace_roles(id,workspace_id,name) values('99000000-0000-4000-8000-000000002203','99000000-0000-4000-8000-000000002202','Role 122');

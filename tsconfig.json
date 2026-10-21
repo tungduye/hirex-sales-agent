@@ -325,7 +325,9 @@
     ".next-khach-hang-cv-dep/types/**/*.ts",
     ".next-khach-hang-cv-dep/dev/types/**/*.ts",
     ".next-ghep-nhom-ten-lien/types/**/*.ts",
-    ".next-ghep-nhom-ten-lien/dev/types/**/*.ts"
+    ".next-ghep-nhom-ten-lien/dev/types/**/*.ts",
+    ".next-hs-1021-1430/types/**/*.ts",
+    ".next-hs-1021-1430/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

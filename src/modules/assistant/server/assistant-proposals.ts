@@ -18,6 +18,7 @@ import {
 import { executeEmailCampaigns, proposeEmailCampaigns } from "@/modules/assistant/server/assistant-proposals-campaigns";
 import { executeBroadcast, proposeBroadcast } from "@/modules/assistant/server/assistant-proposals-broadcast";
 import { executeInboxBulk, proposeInboxBulk } from "@/modules/assistant/server/assistant-proposals-inbox-bulk";
+import { executeSaveDocument, proposeSaveDocument } from "@/modules/assistant/server/assistant-proposals-documents";
 import { executeCancelEvent, executeCreateEvent, executeSetReminder, proposeCancelEvent, proposeCreateEvent, proposeSetReminder } from "@/modules/assistant/server/assistant-proposals-calendar";
 
 // Phase 2 of Trợ lý HireX. A proposal is validated against current data, stored as an
@@ -29,7 +30,7 @@ import { executeCancelEvent, executeCreateEvent, executeSetReminder, proposeCanc
 
 export type ActionKind = "CREATE_TASK" | "SET_LEAD_STATUS" | "CAMPAIGN_CONTROL" | "CREATE_CONTENT" | "AI_RECRUITER_SAFE_STOP" | "SEND_REPLY" | "CREATE_RULE"
   | "CREATE_CONTACT" | "UPDATE_CONTACT" | "ADD_NOTE" | "CREATE_COMPANY" | "UPDATE_COMPANY" | "UPDATE_TASK" | "CREATE_EMAIL_CAMPAIGNS"
-  | "CREATE_EVENT" | "CANCEL_EVENT" | "SET_REMINDER" | "CREATE_BROADCAST" | "BULK_INBOX";
+  | "CREATE_EVENT" | "CANCEL_EVENT" | "SET_REMINDER" | "CREATE_BROADCAST" | "BULK_INBOX" | "SAVE_DOCUMENT";
 /** editableText: the card shows this in a text box; the member's edited version is what runs. */
 export interface ActionPreview { title: string; lines: string[]; warning?: string | null; link?: string | null; editableText?: string; editableKind?: "message" | "note" }
 export interface ActionContext { workspaceId: string; userId: string; permissions: string[]; isAdmin: boolean; /** The Zalo chat (Trợ lý nick) the question came from, if any. */ zaloConversationId?: string | null }
@@ -60,6 +61,7 @@ const PERMISSION: Record<ActionKind, string> = {
   SET_REMINDER: "*",
   CREATE_BROADCAST: "broadcasts.manage",
   BULK_INBOX: "inbox.update",
+  SAVE_DOCUMENT: "documents.create",
 };
 const allowed = (kind: ActionKind, context: ActionContext) => PERMISSION[kind] === "*" || (PERMISSION[kind] === "workspace.admin" ? context.isAdmin : context.permissions.includes(PERMISSION[kind]));
 
@@ -324,6 +326,7 @@ const BUILDERS: Record<string, (args: Record<string, unknown>, context: ActionCo
   de_xuat_cai_nhac_lich: proposeSetReminder,
   de_xuat_nhap_gui_nhom: proposeBroadcast,
   de_xuat_thao_tac_hang_loat: proposeInboxBulk,
+  de_xuat_luu_tai_lieu: proposeSaveDocument,
 };
 
 export const MAX_PROPOSALS_PER_QUESTION = 3;
@@ -509,6 +512,7 @@ const EXECUTORS: Record<ActionKind, (params: Record<string, unknown>, context: A
   SET_REMINDER: executeSetReminder,
   CREATE_BROADCAST: executeBroadcast,
   BULK_INBOX: executeInboxBulk,
+  SAVE_DOCUMENT: executeSaveDocument,
 };
 
 /** Confirms or cancels one of the member's own proposals. Runs it at most once. */

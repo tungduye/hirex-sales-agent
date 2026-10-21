@@ -6,26 +6,41 @@ import { requireDocumentReader } from "@/modules/access/server/access-control";
 import { decryptCredential } from "@/modules/integrations/gmail/server/credential-encryption";
 import { normalize, documentIndex } from "../core/retrieval";
 import { VersionCache } from "../core/version-cache";
+import { loadHirexDocuments } from "./hirex-documents";
 
 type Document = { id: number; name: string; group: string; status: string; groupId?: number; folderPath?: string[] };
 type Snapshot = { importedAt: string; documents: Document[]; folderPaths?: string[][] };
 const snapshots = new VersionCache<Snapshot>();
 
-export async function loadHumanSnapshot() {
+/** The library: the copy imported from Human plus the Tài liệu HireX that members asked Soda to keep. */
+export async function loadHumanSnapshot(): Promise<Snapshot | null> {
   const account = await requireDocumentReader();
   if (!/^[a-zA-Z0-9-]+$/.test(account.workspaceId)) throw new Error("INVALID_WORKSPACE");
+  const [human, local] = await Promise.all([loadHumanFile(account.workspaceId), loadHirexDocuments(account.workspaceId)]);
+  if (!local.documents.length) return human;
+  // Same merged array while neither part changed, so the search index built on it is reused.
+  const cached = merged.get(account.workspaceId);
+  if (cached && cached.human === human && cached.stamp === local.stamp) return cached.snapshot;
+  const snapshot: Snapshot = { importedAt: human?.importedAt ?? new Date().toISOString(), documents: [...(human?.documents ?? []), ...local.documents], folderPaths: human?.folderPaths };
+  merged.set(account.workspaceId, { human, stamp: local.stamp, snapshot });
+  return snapshot;
+}
+
+const merged = new Map<string, { human: Snapshot | null; stamp: string; snapshot: Snapshot }>();
+
+async function loadHumanFile(workspaceId: string): Promise<Snapshot | null> {
   try {
-    const file = join(process.cwd(), "runtime", "human-documents", `${account.workspaceId}.enc`);
+    const file = join(process.cwd(), "runtime", "human-documents", `${workspaceId}.enc`);
     const info = await stat(file);
     const version = `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
-    return await snapshots.get(account.workspaceId, version, async () => {
+    return await snapshots.get(workspaceId, version, async () => {
       const encrypted = await readFile(file, "utf8");
       const after = await stat(file);
       if (`${after.ino}:${after.size}:${after.mtimeMs}:${after.ctimeMs}` !== version) throw new Error("SNAPSHOT_CHANGED_RETRY");
       return JSON.parse(decryptCredential(encrypted)) as Snapshot;
     });
   } catch (error) {
-    snapshots.delete(account.workspaceId);
+    snapshots.delete(workspaceId);
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw new Error("Không đọc được dữ liệu tài liệu. Liên hệ quản trị viên.");
   }
