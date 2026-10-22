@@ -75,6 +75,8 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       controls.enableDamping = true; controls.dampingFactor = 0.08;
       controls.minDistance = 220; controls.maxDistance = 2600; controls.maxPolarAngle = 1.36; controls.minPolarAngle = 0.15;
       controls.autoRotateSpeed = 0.5;
+      // The wheel keeps scrolling the page; Ctrl + wheel zooms the office (and not the browser).
+      controls.enableZoom = false;
       controls.saveState();
       cleanups.push(() => controls.dispose());
 
@@ -146,6 +148,14 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       };
       const onLeave = () => { current = null; shown = false; world.highlight(null); setHover(null); };
       const canvas = renderer.domElement;
+      const onWheel = (event: WheelEvent) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        const offset = camera.position.clone().sub(controls.target).multiplyScalar(Math.exp(event.deltaY * 0.0015));
+        camera.position.copy(controls.target).add(offset.setLength(Math.min(2600, Math.max(220, offset.length()))));
+      };
+      canvas.addEventListener("wheel", onWheel, { passive: false });
+      cleanups.push(() => canvas.removeEventListener("wheel", onWheel));
       canvas.addEventListener("pointermove", onMove); canvas.addEventListener("pointerdown", onDown); canvas.addEventListener("pointerup", onUp); canvas.addEventListener("pointerleave", onLeave);
       cleanups.push(() => { canvas.removeEventListener("pointermove", onMove); canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("pointerleave", onLeave); });
 
@@ -190,7 +200,7 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       <div ref={holder} className={styles.scene3d} />
       {progress ? <div className={styles.scene3dLoading}>{progress}</div> : null}
       {hover ? <div className={styles.tooltip3d} style={{ left: hover.x + 14, top: hover.y + 14 }}><strong>{hover.title}</strong><span>{hover.sub}</span></div> : null}
-      <p className={styles.hint3d}>Kéo chuột trái để xoay · lăn chuột để phóng to · kéo chuột phải để di chuyển · bấm vào phòng để mở · mô hình: Kenney &amp; Quaternius (CC0)</p>
+      <p className={styles.hint3d}>Kéo chuột trái để xoay · Ctrl + lăn chuột (hoặc nút +/−) để phóng to · kéo chuột phải để di chuyển · bấm vào phòng để mở · mô hình: Kenney &amp; Quaternius (CC0)</p>
     </div>
   );
 }

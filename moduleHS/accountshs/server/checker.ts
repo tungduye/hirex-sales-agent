@@ -217,7 +217,7 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
     }
   } catch (e) { J.err_msg = e instanceof Error ? e.message : String(e); }
   finally {
-    if (J.held?.length) { J.phase = "Đang ghi các kết quả còn lại…"; await Promise.all(J.held); }
+    if (J.held?.length) { J.phase = "Đang ghi kết quả vào dữ liệu…"; await Promise.all(J.held); }
     J.running = false; J.ended = now(); J.phase = "";
     const c2 = await cfgGet(cid); c2.last = J.ended;
     try { const mt = m.meta?.(); if (mt && mt.credit != null) c2.credit = mt.credit; } catch { /* */ }
@@ -329,7 +329,7 @@ async function stateCached(only?: string) {
 }
 async function stats(cid: string) {
   const hit = STATS.get(cid);
-  if (hit && Date.now() - hit.at < 20_000) return hit.p;
+  if (hit && Date.now() - hit.at < (JOBS.get(cid)?.running ? 3000 : 20_000)) return hit.p;   // đang chạy: số "hôm nay / Live / Die" theo kịp tiến độ (3 giây)
   const p = statsNow(cid); STATS.set(cid, { at: Date.now(), p }); p.catch(() => STATS.delete(cid));
   return p;
 }

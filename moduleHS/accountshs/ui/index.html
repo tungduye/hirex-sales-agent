@@ -1272,7 +1272,9 @@ input,textarea,select,[contenteditable],[contenteditable] *,.ql-editor,.ql-edito
 .cykp.ok .cyl::before{background:var(--ui-success,#22815d)}.cykp.bad .cyl::before{background:var(--ui-danger,#c64747)}.cykp.warn .cyl::before{background:var(--ui-warning,#b56e15)}
 .cykp.off b{color:var(--ui-muted);font-weight:500}
 .cybar{height:4px;border-radius:2px;background:var(--ui-border);overflow:hidden;margin-top:2px}.cybar i{display:block;height:100%;background:var(--ui-primary)}
-.cyprog{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ui-text-2,#475467);font-variant-numeric:tabular-nums}
+.cyprog{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md,9px);background:var(--ui-surface);font-size:12px;color:var(--ui-text-2,#475467);font-variant-numeric:tabular-nums}.cyprog[hidden]{display:none}
+.cyprog .cypb{flex:none;width:100%}
+.cypt{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;min-width:0}.cypt b{font-size:13px;font-weight:600;color:var(--ui-text)}.cypt .mut{color:var(--ui-muted)}
 .cypb{flex:1;height:6px;border-radius:3px;background:var(--ui-border);overflow:hidden}.cypb i{display:block;height:100%;background:var(--ui-primary);transition:width .3s}
 .cypb.ind i{width:35%;transition:none;animation:cyind 1.1s ease-in-out infinite}@keyframes cyind{0%{margin-left:-35%}100%{margin-left:100%}}
 .cyph{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.cyph .spin1{width:12px;height:12px;border-width:2px}
@@ -4440,6 +4442,7 @@ function cyvDraw(){const el=$('#modal .modal');if(!el||!CYV.open)return;const c=
  el.innerHTML=`<header><span class="ti">${ico(c.info.icon||'shield',16)}</span><h3>${esc(c.info.name)}</h3><div class="grow"></div><button class="btn icon ghost" data-a="mclose" title="Đóng">${ico('x',16)}</button></header>
  <div class="mbody" id="cyv">
   <div class="cyk" id="cyk"></div>
+  <div class="cyprog" id="cyp" hidden></div>
   <div class="cyg">
    <section><h4>Nguồn dữ liệu</h4>
     ${fld('layers','Tab',sel('tab_id',S.meta.tabs.map(x=>opt(x.id,x.name,d.tab_id)),d.tab_id,'{Chọn tab}'))}
@@ -4481,13 +4484,14 @@ function cyvLive(el,c){const s={...c.stats,total:cyvTotal()},j=c.job||{},run=!!j
  const fmtT=ts=>ts?new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'—';
  const k=(l,v,cls='',sub='')=>`<div class="cykp ${cls}"><span class="cyl">${l}</span><b>${v}</b>${sub}</div>`;
  const cov=s.total?Math.min(100,Math.round(s.today/s.total*100)):0;
- const prog=run?(()=>{const tot=j.total||0,pct2=tot?Math.round(j.done/tot*100):0,rate=cyvRate(c),ph=j.phase?`<span class="cyph"><i class="spin1"></i>${esc(j.phase)}</span>`:'';
-  if(!tot)return `<div class="cyprog"><div class="cypb ind"><i></i></div>${ph||'<span>Đang chuẩn bị…</span>'}</div>`;
-  return `<div class="cyprog"><div class="cypb"><i style="width:${pct2}%"></i></div><span>${j.done.toLocaleString('vi')} / ${tot.toLocaleString('vi')} · ${pct2}%${rate?` · ${Math.round(rate*60).toLocaleString('vi')} dòng/phút · còn ~${cyvDur((tot-j.done)/rate)}`:''}</span>${ph}</div>`})():'';
+ const prog=run?(()=>{const tot=j.total||0,pct2=tot?Math.round(j.done/tot*100):0,rate=cyvRate(c),fin=tot&&j.done>=tot,
+   ph=j.phase?`<span class="cyph"><i class="spin1"></i>${esc(j.phase)}</span>`:fin?`<span class="cyph"><i class="spin1"></i>Đang hoàn tất…</span>`:'';
+  if(!tot)return `<div class="cypb ind"><i></i></div><div class="cypt">${ph||'<span class="cyph"><i class="spin1"></i>Đang chuẩn bị…</span>'}</div>`;
+  return `<div class="cypb"><i style="width:${pct2}%"></i></div><div class="cypt"><b>${j.done.toLocaleString('vi')} / ${tot.toLocaleString('vi')}</b><span>${pct2}%</span>${!fin&&rate?`<span class="mut">${Math.round(rate*60).toLocaleString('vi')} dòng/phút</span><span class="mut">còn ~${cyvDur((tot-j.done)/rate)}</span>`:''}${ph}</div>`})():'';
+ const pe=$('#cyp',el);if(pe){pe.hidden=!run;cyvSetH(pe,prog)}
  cyvSetH($('#cyk',el),k('Đã check hôm nay',`${s.today.toLocaleString('vi')}<i> / ${s.total.toLocaleString('vi')}</i>`,'wide',`<div class="cybar"><i style="width:${cov}%"></i></div>`)
   +k('Live',s.live.toLocaleString('vi'),'ok')+k('Die',s.die.toLocaleString('vi'),'bad')+(c.info.results||[]).map(([rk,rl])=>k(esc(rl),(s[rk]||0).toLocaleString('vi'),'ex')).join('')+k('Lỗi',s.error.toLocaleString('vi'),'warn')
-  +k('Lần chạy cuối',fmtT(c.cfg.last))+k('Lần tới',c.cfg.auto?fmtT(c.next):'Tắt',c.cfg.auto?'':'off')
-  +prog);
+  +k('Lần chạy cuối',fmtT(c.cfg.last))+k('Lần tới',c.cfg.auto?fmtT(c.next):'Tắt',c.cfg.auto?'':'off'));
  cyvSetH($('#cyvact',el),run?(j.opt?`<button class="btn pri" disabled><i class="spin1"></i><span>${esc(j.phase||'Đang chuẩn bị…')}</span></button>`:`<button class="btn danger" data-a="cyvstop">${ico('x',16)}<span>Dừng</span></button>`):`<button class="btn pri" data-a="cyvrun" title="Lưu cấu hình và chạy ngay">${ico('zap',16)}<span>Chạy ngay</span></button>`);
  const cr=$('#cycr',el);if(cr)cr.innerHTML=c.meta&&c.meta.credit!=null?`Còn <b>${Number(c.meta.credit).toLocaleString('vi')}</b> lượt`:'';
  const er=$('#cyerr',el);if(er){er.hidden=!j.err_msg;cyvSetH(er,j.err_msg?`${ico('alert',14)}<span>${esc(j.err_msg)}</span>`:'')}
