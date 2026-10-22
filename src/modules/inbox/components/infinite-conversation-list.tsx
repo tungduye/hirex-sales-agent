@@ -266,10 +266,11 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]`}>{tabs.map(([key, label]) => {
         const active = viewMode === key;
         const urgent = key === "waiting";
-        const count = counts ? counts[key] : null;
+        // Numbers only where they mean work to do (Chưa trả lời, Quan trọng): the tabs stay on one line.
+        const count = counts && (key === "waiting" || key === "important") ? counts[key] : null;
         // Chưa trả lời always stands out: red with white text.
         const tone = urgent ? (active ? "bg-rose-600 text-white ring-2 ring-rose-300" : "bg-rose-500 text-white hover:bg-rose-600") : active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100";
-        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-[12.5px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count}{counts?.capped ? "+" : ""}</span> : null}</button>;
+        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-[12.5px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count !== null && count > 999 ? "999+" : count}{counts?.capped && count !== null && count <= 999 ? "+" : ""}</span> : null}</button>;
       })}</div>
       {props.channelChips}
     </div>

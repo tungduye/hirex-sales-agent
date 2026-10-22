@@ -351,7 +351,9 @@
     ".next-toi-uu-toc-do/types/**/*.ts",
     ".next-toi-uu-toc-do/dev/types/**/*.ts",
     ".next-zalo-list-speed/types/**/*.ts",
-    ".next-zalo-list-speed/dev/types/**/*.ts"
+    ".next-zalo-list-speed/dev/types/**/*.ts",
+    ".next-suoi-nguon-dot-1/types/**/*.ts",
+    ".next-suoi-nguon-dot-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
