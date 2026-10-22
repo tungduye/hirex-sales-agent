@@ -382,9 +382,10 @@ begin
       from ahs_links l join v on v.id = l.field_id
         join ahs_accounts a on a.id = l.src join o oa on oa.tab_id = a.tab_id
         join ahs_accounts b on b.id = l.dst join o ob on ob.tab_id = b.tab_id
-        cross join lateral (select btrim(coalesce(a.data->>oa.fid, '')) cur, btrim(coalesce(b.data->>ob.fid, '')) val) x
+        cross join lateral (select lower(btrim(coalesce(a.data->>oa.fid, ''))) cur, lower(btrim(coalesce(b.data->>ob.fid, ''))) v0) x0
+        cross join lateral (select x0.cur, case x0.v0 when 'lâu dài' then 'Lâu dài' when 'tạm thời' then 'Tạm thời' when 'không xác định' then 'Không xác định' end val) x
       where ((s is null and d is null) or l.src = any(s) or l.dst = any(d))
-        and ((x.cur in ('Tạm thời', 'Không xác định') and x.val = 'Lâu dài') or (x.cur = '' and x.val in ('Lâu dài', 'Tạm thời', 'Không xác định')))
+        and ((x.cur in ('tạm thời', 'không xác định') and x.val = 'Lâu dài') or (x.cur = '' and x.val is not null))
       order by a.id, (x.val = 'Lâu dài') desc, (x.val = 'Tạm thời') desc, l.id),
     u as (update ahs_accounts a set data = jsonb_set(a.data, array[c.fid], to_jsonb(c.val)), updated = ts,
             note = case when coalesce(a.note, '') = '' then '' else rtrim(a.note, E'\n') || E'\n' end || dy || ' tự đặt sở hữu ' || c.val || ' · qua ' || c.via || ' ' || c.lab

@@ -2,6 +2,7 @@ import "server-only";
 import { approvedIntroReply, withoutQuestionMarks } from "../core/approved-intro-flow";
 import { initialRecruiterOpening, withFirstGreeting } from "../core/recruiter-opening";
 import { recoverIntroMemory } from "../core/intro-memory";
+import { CV_REQUEST, jobIntroduction, nextJobIntroduction, nextScriptJob, SALARY_QUESTION, salaryFollowup } from "../core/recruiter-script";
 import { introductionQuestion, missingIntroField } from "../core/profile-disclosure-gate";
 import { containsJobDisclosure } from "../core/anonymous-job-preview";
 import { candidateBurst, shapeReply } from "../core/reply-shaping";
@@ -238,7 +239,8 @@ async function processRun(run: {
     }
     const rejectionOverride =
       String(bot.bot_type) === "RECRUITER"
-        ? recruiterRejectionOverride({ text: latestText, lastSaleStage: lastOfferedJob?.sale_stage })
+        // First or second job offered (by how many were offered; the job data may not mark its sale stage).
+        ? recruiterRejectionOverride({ text: latestText, lastSaleStage: offeredJobIds.length >= 2 ? "second_job" : offeredJobIds.length === 1 ? "first_job" : lastOfferedJob?.sale_stage })
         : null;
     const rejectedCompanies = new Set(
       (Array.isArray(profileBase.rejected_companies) ? profileBase.rejected_companies : [])
@@ -280,6 +282,19 @@ async function processRun(run: {
             .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999) || a.external_job_id.localeCompare(b.external_job_id))[0]
         : null;
     let guidedPrimary: string | null = null;
+    // Recruiter chatbot: the approved sample chat's fixed steps (core/recruiter-script.ts), unless the candidate asks
+    // something else (process question, complaint, CV), which the model answers.
+    const isRecruiter = String(bot.bot_type) === "RECRUITER";
+    const scripted = isRecruiter && hasCoreProfile && !rejectionOverride && !result.handoffRequested && !result.stopBot &&
+      !["process_question", "complaint", "cv_shared"].includes(result.intent);
+    const learnedNow = (key: string) => supportedFacts.some((fact) => fact.fieldKey === key);
+    if (scripted && offeredJobIds.length === 0) {
+      const job = nextScriptJob(profileBase, jobs ?? [], offeredJobIds, eligibleJobIds);
+      if (job) {
+        jobMatches = [{ jobId: job.external_job_id, score: 82, matchedReasons: [`Đúng định hướng ${String(profileBase.candidate_type ?? "")}`, `Đúng địa điểm ${String(job.location ?? "")}`], missingFields: [], riskFlags: [] }];
+        guidedPrimary = jobIntroduction(job, profileBase);
+      }
+    }
     if (primaryJob) {
       jobMatches = [
         {
@@ -294,6 +309,14 @@ async function processRun(run: {
       guidedPrimary = `Em có vị trí ${primaryJob.job_title} của ${primaryJob.company_name}, làm việc ở ${primaryJob.location}${salary}. Anh xem hướng này có phù hợp với mình không nhé.`;
     }
     let guidedAlternative: string | null = null;
+    // After the candidate said why the job does not fit: the next job (a second refusal stops the bot above).
+    if (isRecruiter && hasCoreProfile && !rejectionOverride && rejectionKind === "KNOWN_REASON" && offeredJobIds.length === 1 && !result.handoffRequested && !result.stopBot) {
+      const job = nextScriptJob(profileBase, jobs ?? [], offeredJobIds, eligibleJobIds);
+      if (job) {
+        jobMatches = [{ jobId: job.external_job_id, score: 78, matchedReasons: [`Đúng định hướng ${String(profileBase.candidate_type ?? "")}`, `Đúng địa điểm ${String(job.location ?? "")}`], missingFields: [], riskFlags: [] }];
+        guidedAlternative = nextJobIntroduction(job);
+      }
+    }
     if (
       String(bot.bot_type) !== "RECRUITER" &&
       hasCoreProfile &&
@@ -344,7 +367,13 @@ async function processRun(run: {
     const guidedAvailability =
       String(bot.bot_type) !== "RECRUITER" && learnedSalary
         ? availabilityFollowup(profileBase.expected_salary, profileBase.availability, selectedMatchJob?.company_name)
-        : null;
+        : scripted && lastOfferedJob && learnedNow("expected_salary") && !profileBase.availability
+          ? salaryFollowup(profileBase.expected_salary, lastOfferedJob)
+          : null;
+    // Start date known (salary too) → the CV; experience told but no salary → the salary.
+    const guidedCv = scripted && lastOfferedJob && learnedNow("availability") && profileBase.expected_salary && profileBase.cv_received !== true ? CV_REQUEST : null;
+    const guidedSalary = scripted && lastOfferedJob && !profileBase.expected_salary && !learnedNow("expected_salary") &&
+      ["brse_experience", "management_experience", "years_experience", "japanese_client_experience"].some(learnedNow) ? SALARY_QUESTION : null;
     const selectedJobId =
       guidedPrimary || guidedAlternative
         ? (jobMatches[0]?.jobId ?? null)
@@ -359,6 +388,10 @@ async function processRun(run: {
           ? [guidedCollection]
           : guidedAvailability
             ? [guidedAvailability]
+            : guidedCv
+              ? [guidedCv]
+              : guidedSalary
+                ? [guidedSalary]
             : guidedAlternative
               ? [guidedAlternative]
               : result.replyParts;

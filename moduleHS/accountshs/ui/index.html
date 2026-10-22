@@ -2216,13 +2216,10 @@ html.ca-off .hx-busy{animation:none}
   .ovt .hx-rt>.hx-of:empty{display:none}
 }
 
-/* Tổng quan · nút "Cần xem" (Lâu dài mất xác minh) */
-.hx-ovtools .hx-oww{gap:6px;color:var(--ui-text-2)}
-.hx-ovtools .hx-oww svg{color:var(--ui-warning,#f59e0b)}
-.hx-ovtools .hx-oww b{font-weight:600;color:var(--ui-text);font-variant-numeric:tabular-nums}
-.hx-owwp{min-width:240px;max-width:300px}
-.hx-owwp .mi .k{margin-left:auto;color:var(--ui-muted);font-variant-numeric:tabular-nums}
-.hx-owwn{padding:6px 10px 8px;font-size:12px;line-height:1.45;color:var(--ui-muted)}
+/* Báo cáo · Cần xử lý · "Lâu dài nhưng mất xác minh": hàng nút mở bảng lọc sẵn theo nền tảng */
+.hx-owwt{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.hx-owwt .chip{gap:6px}
+.hx-owwt .chip b{font-weight:600;font-variant-numeric:tabular-nums}
 </style><script>/* HireX · chạy TRƯỚC JS gốc (build_ui.py chèn vào <head>).
    1. Mở Tài nguyên = luôn vào Tổng quan (tab Tất cả › Tổng quan, không ô tìm): bản gốc đọc lựa chọn cũ (localStorage) ngay khi chạy
       và vẽ khung lần đầu TRƯỚC khi hirex-patch.js kịp chạy → phải sửa lựa chọn đã lưu từ đây. Phạm vi, bộ lọc từng tab… giữ nguyên.
@@ -6337,8 +6334,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
     const ph = m.querySelector('.ovw:not(.ovsk) .ovph'); if (!ph) return;
     const g = OVG && ovGroups().find(x => x.k === OVG);
     if (g && !ph.querySelector('small')) ph.lastElementChild.insertAdjacentHTML('beforeend', `<small>${esc(g.name)}</small>`);
-    const wn = [...ownWarn().values()].reduce((n, x) => n + x.size, 0);
-    ph.insertAdjacentHTML('beforeend', `<div class="hx-ovtools">${wn ? `<button class="btn sm ghost hx-oww" data-a="hxoww" aria-haspopup="true" title="Dòng Lâu dài nhưng mọi tài nguyên xác minh đang liên kết đều không còn Lâu dài">${ico('alert', 14)}<span>Cần xem</span><b>${wn.toLocaleString('vi')}</b></button>` : ''}${ovSw()}<button class="btn icon ghost" data-a="ovxls" title="Xuất Excel" aria-label="Xuất Excel">${ico('download', 16)}</button></div>`);
+    ph.insertAdjacentHTML('beforeend', `<div class="hx-ovtools">${ovSw()}<button class="btn icon ghost" data-a="ovxls" title="Xuất Excel" aria-label="Xuất Excel">${ico('download', 16)}</button></div>`);
   }
   /* ô "Dùng chung" của Toàn hệ thống: bản gốc đếm trên dòng đã nạp → tính lại từ cây (gồm tab tải riêng, theo nhóm tab) */
   function kpiShared(m) {
@@ -6466,8 +6462,9 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
     savePref(); renderAll();
   };
   /* ── 14b. Tự khớp sở hữu: phần DB (ahs_own_sync + trigger) tự nâng Tạm thời/Không xác định → Lâu dài và điền ô trống theo chuỗi xác minh,
-     không bao giờ tự hạ. Ở đây chỉ tính "Cần xem": dòng Lâu dài có liên kết xác minh (cột liên kết sang tab có trường sở hữu) nhưng không
-     tài nguyên nào còn Lâu dài → nút "Cần xem N" ở Tổng quan, bấm ra từng nền tảng, mở danh sách lọc sẵn (bộ lọc "hxwarn"). */
+     không bao giờ tự hạ. Ở đây chỉ tính "Lâu dài nhưng mất xác minh": dòng Lâu dài có liên kết xác minh (cột liên kết sang tab có trường
+     sở hữu) nhưng không tài nguyên nào còn Lâu dài → 1 mục trong Báo cáo · Cần xử lý (cặp dòng → tài nguyên, nút mở bảng lọc sẵn theo
+     từng nền tảng = bộ lọc "hxwarn", Excel có cột ghi chú tài nguyên). */
   const OWW = { k: null, m: new Map() }, WK = 'hxwarn';
   function ownWarn() {
     if (OWW.k === DVER) return OWW.m;
@@ -6481,24 +6478,40 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
       for (const lf of vf[a.tab_id] || []) { for (const d of out[lf.id] || []) { const b = I.acc[d]; if (!b) continue; any = true; if (val(b) === 'Lâu dài') { ok = true; break } } if (ok) break }
       if (any && !ok) { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) }
     }
-    OWW.k = DVER; OWW.m = m; return m;
+    OWW.k = DVER; OWW.m = m; OWW.vf = vf; OWW.val = val; return m;
   }
   { const _cv = colVals; colVals = function (a, k) { if (k === WK) { const x = ownWarn().get(a.tab_id); return x && x.has(a.id) ? ['1'] : [] } return _cv.apply(this, arguments) } }
   { const _km = kMeta; kMeta = function (k) { return k === WK ? { l: 'Cần xem', i: 'alert' } : _km.apply(this, arguments) } }
   { const _ct = condText; condText = function (c) { return c && c.k === WK ? 'Lâu dài · mất xác minh' : _ct.apply(this, arguments) } }
   { const _fe = ACT.fedit; ACT.fedit = function (el) { if (el && el.dataset.k === WK) return; return _fe.apply(this, arguments) } }
-  ACT.hxoww = el => {
-    const w = ownWarn(), rows = [...w.entries()].filter(([t, x]) => x.size && I.tab[t]).sort((p, q) => q[1].size - p[1].size);
-    openPop(el, `<div class="mh">Lâu dài nhưng mất xác minh</div>` + rows.map(([t, x]) => `<button class="mi" data-a="hxowwgo" data-t="${t}"><span class="t">${esc(I.tab[t].name)}</span><span class="k">${x.size.toLocaleString('vi')}</span></button>`).join('')
-      + `<div class="sep"></div><div class="hx-owwn">Tài nguyên xác minh (email, SĐT…) đang liên kết đều đã Tạm thời / Mất / Không xác định. Hệ thống không tự hạ — xem và sửa tay.</div>`, 'hx-owwp');
-  };
+  /* mở bảng của 1 nền tảng, giữ phạm vi đang xem, lọc sẵn đúng các dòng mất xác minh */
   ACT.hxowwgo = el => {
     const t = +el.dataset.t; if (!I.tab[t]) return;
-    if (typeof closePop === 'function') closePop();
-    ovInfo('all', null, t, false);
     S.fl[t] = [...(S.fl[t] || []).filter(c => c.k !== WK), { k: WK, op: 'in', v: ['1'] }];
-    savePref(); renderAll();
+    setTab(t);
   };
+  const OWT = 'Lâu dài nhưng mất xác minh';
+  const ownLinks = id => { ownWarn(); const a = I.acc[id], out = I.out[id] || {}; return a ? (OWW.vf[a.tab_id] || []).flatMap(f => (out[f.id] || []).filter(d => I.acc[d]).map(d => [f, d])) : [] };
+  { const _rd = reportData; reportData = function () {
+      const D = _rd.apply(this, arguments), w = ownWarn(), inA = new Set(D.A.map(a => a.id)), ids = [], pairs = [];
+      w.forEach(set => set.forEach(id => { if (!inA.has(id)) return; ids.push(id); ownLinks(id).forEach(([, d]) => pairs.push([id, d])) }));
+      D.issues.splice(1, 0, { k: 'own', lv: 'b', ic: 'shield', t: OWT, d: 'Tình trạng sở hữu Lâu dài nhưng mọi SĐT / email xác minh đang liên kết đều đã Tạm thời / Mất / Không xác định. Hệ thống không tự hạ — xem và sửa tay.', ids, pairs });
+      D.issueN += ids.length; return D;
+    } }
+  { const _rr = renderReport; renderReport = function (m) {
+      const r = _rr.apply(this, arguments), w = ownWarn(), box = m.querySelectorAll('.rp-isl > .rp-is')[1];
+      const sc = new Set(scoped().map(a => a.id)), by = [...w.entries()].map(([t, x]) => [t, [...x].filter(i => sc.has(i)).length]).filter(([t, n]) => n && I.tab[t]).sort((p, q) => q[1] - p[1]);
+      const ib = box && box.querySelector('.rp-ib');
+      if (ib && by.length) ib.insertAdjacentHTML('afterbegin', `<div class="hx-owwt">${by.map(([t, n]) => `<button class="chip" data-a="hxowwgo" data-t="${t}" title="Mở bảng ${esc(I.tab[t].name)} lọc sẵn ${n} dòng">${ico(I.tab[t].icon, 12)}<span>${esc(I.tab[t].name)}</span><b>${n.toLocaleString('vi')}</b>${ico('chevr', 12)}</button>`).join('')}</div>`);
+      return r;
+    } }
+  { const _rs = rpSheets; rpSheets = function () {
+      const out = _rs.apply(this, arguments), L = out['Cần xử lý'], D = reportData(), x = D.issues.find(i => i.k === 'own');
+      if (L && x) { let k = 0; const ids = x.ids.slice(0, 5000);
+        L.forEach(row => { if (row[0] !== OWT || k >= ids.length) return; const id = ids[k++];
+          row[6] = 'Xác minh: ' + ownLinks(id).map(([f, d]) => `${f.label} ${I.acc[d].label} (${OWW.val(I.acc[d]) || 'trống'}, ${stOf(I.acc[d])?.label || ''})`).join('; ') }) }
+      return out;
+    } }
   { const _os = ovSheets; ovSheets = function () {
       const out = _os.apply(this, arguments), D = LASTD || ovData(), H = ['Phạm vi', 'Cấp', 'Nền tảng', 'Tổng', 'Live', 'Die', 'Khác', `${ownSel()} · Tổng`, `${ownSel()} · Live`, `${ownSel()} · Die`, `${ownSel()} · Khác`, '% sở hữu'];
       const rows = [H];
