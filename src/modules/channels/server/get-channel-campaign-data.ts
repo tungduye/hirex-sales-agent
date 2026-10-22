@@ -26,20 +26,19 @@ export async function listChannelCampaigns() {
   const account = await getAccountContext();
   if (!account?.workspaceId) return [];
   const client = await createClient();
-  const { data: steps } = await client.from("channel_campaign_steps").select("campaign_id").eq("workspace_id", account.workspaceId).contains("allowed_channels", ["ZALO"]);
-  const campaignIds = [...new Set((steps ?? []).map((step) => step.campaign_id))];
-  if (campaignIds.length === 0) return [];
+  // One request: only campaigns that have a Zalo step (inner join), with their sender nicks.
   const { data } = await client.from("channel_campaigns")
-    .select("id,name,status,created_at,updated_at,started_at,created_by,campaign_type,campaign_type_color,combo_uv,placement,channel_rank,owner_name,channel_campaign_senders(channel_accounts(display_name,external_account_id))")
-    .eq("workspace_id", account.workspaceId).is("archived_at",null).in("id", campaignIds).order("created_at", { ascending: false });
+    .select("id,name,status,created_at,updated_at,started_at,created_by,campaign_type,campaign_type_color,combo_uv,placement,channel_rank,owner_name,channel_campaign_steps!inner(id),channel_campaign_senders(channel_accounts(display_name,external_account_id))")
+    .eq("workspace_id", account.workspaceId).is("archived_at",null).contains("channel_campaign_steps.allowed_channels", ["ZALO"]).order("created_at", { ascending: false });
   const campaignRows = data ?? [];
-  const [summaries, creatorIds] = await Promise.all([
+  if (!campaignRows.length) return [];
+  const creatorIds = [...new Set(campaignRows.filter((row) => !row.owner_name).map((row) => row.created_by))];
+  const [summaries, { data: profiles }] = await Promise.all([
     countCampaignListRows(client, account.workspaceId, campaignRows),
-    Promise.resolve([...new Set(campaignRows.map((row) => row.created_by))]),
+    creatorIds.length
+      ? client.from("profiles").select("id,full_name").eq("workspace_id", account.workspaceId).in("id", creatorIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string }> }),
   ]);
-  const { data: profiles } = creatorIds.length
-    ? await client.from("profiles").select("id,full_name").eq("workspace_id", account.workspaceId).in("id", creatorIds)
-    : { data: [] as Array<{ id: string; full_name: string }> };
   const ownerById = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name]));
   return campaignRows.map((raw) => {
     const summary = summaries.get(raw.id);

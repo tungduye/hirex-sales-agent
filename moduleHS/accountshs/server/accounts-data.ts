@@ -31,6 +31,7 @@ export async function firstStatus(tabId: Id): Promise<Id | null> {
 
 /** Id các tab "tải riêng" (lazy=1) mà trình duyệt CHƯA nạp (lz = danh sách tab đã nạp, cách nhau dấu phẩy). */
 async function lazyExcl(lz = ""): Promise<Id[]> {
+  if (lz === "*") return [];   // dòng thay đổi realtime (feed.ts): lấy mọi tab, trình duyệt tự lọc
   const have = new Set(toIds(lz.split(",")));
   const rows = await run<{ id: Id }[]>(sb().from(T.tabs).select("id").eq("lazy", 1));
   return rows.map((r) => r.id).filter((id) => !have.has(id));
@@ -75,6 +76,19 @@ async function tabCounts(tabs: Id[]): Promise<Map<Id, number>> {
  *  Đọc ver TRƯỚC dữ liệu → bản giữ lại không bao giờ cũ hơn khoá. Meta/thiết bị luôn đọc mới (ghi meta không tăng ver). */
 let dcache: { key: string; accounts: Account[]; links: Link[] } | null = null;
 
+/** dòng + liên kết cho /api/data. Chưa có hàm SQL: liên kết lọc theo chính các dòng vừa đọc (không phải quét lại id + tab của mọi dòng,
+ *  kể cả hàng chục nghìn dòng của tab tải riêng như loadLinks) — đọc dòng và liên kết song song. */
+async function dataRows(ex: Id[]): Promise<{ accounts: Account[]; links: Link[] }> {
+  try {
+    const [accounts, lt] = await Promise.all([loadAccounts(ex, null), run<string>(sb().rpc("ahs_links_json", { p_exclude_tabs: ex, p_only_tab: null }))]);
+    return { accounts, links: parseJsonText<Link[]>(lt) };
+  } catch (e) { if (!isMissing(e)) throw e; }
+  const [accounts, all] = await Promise.all([loadAccounts(ex, null),
+    pages<{ id: Id; src: Id; dst: Id; field_id: Id }>((a, b) => sb().from(T.links).select("id,src,dst,field_id").order("id").range(a, b))]);
+  const ids = new Set(accounts.map((a) => a.id));
+  return { accounts, links: all.filter((l) => ids.has(l.src) && ids.has(l.dst)).map((l) => ({ id: l.id, src: l.src, dst: l.dst, f: l.field_id })) };
+}
+
 /** /api/data — giống get_data_fast(): bỏ dòng của tab tải riêng chưa nạp (kèm số dòng để hiện "+N"). */
 export async function getData(lz = ""): Promise<Snapshot> {
   const ts = now();
@@ -84,7 +98,7 @@ export async function getData(lz = ""): Promise<Snapshot> {
   const hit = key && dcache?.key === key ? dcache : null;
   const [meta, devices, rows, cnt] = await Promise.all([
     getMeta(), getDevices(),
-    hit ?? Promise.all([loadAccounts(ex, null), loadLinks(ex, null)]).then(([accounts, links]) => ({ key, accounts, links })),
+    hit ?? dataRows(ex).then((r) => ({ key, ...r })),
     tabCounts(ex),
   ]);
   if (key) dcache = rows;
@@ -99,17 +113,44 @@ export async function getTabRows(tab: Id, skip = ""): Promise<TabRows> {
   return { accounts, links };
 }
 
+/** /api/tab_chunk — nạp tab "tải riêng" từng phần (dòng mới nhất trước) để bảng hiện ngay phần đầu, phần sau nạp tiếp.
+ *  before = id nhỏ nhất của phần trước (0 = phần đầu); trả kèm mọi liên kết chạm các dòng của phần này (trình duyệt tự bỏ
+ *  liên kết sang tab chưa nạp — phần sau / tab sau sẽ trả lại liên kết đó). next = con trỏ phần sau, null = hết. */
+export async function tabChunk(tab: Id, before: number, n: number) {
+  const lim = Math.min(20000, Math.max(200, Math.trunc(n) || 5000));
+  const accounts = await pages<Account>((a, b) => {
+    const q = sb().from(T.accounts).select(ACC_COLS).eq("tab_id", tab).order("id", { ascending: false }).range(a, b);
+    return before > 0 ? q.lt("id", before) : q;
+  }, lim);
+  const links: Link[] = [], seen = new Set<Id>(), groups = chunks(accounts.map((a) => a.id), 300);
+  type L = { id: Id; src: Id; dst: Id; field_id: Id };
+  const got: L[][] = [];
+  for (const wave of chunks(groups, 6)) got.push(...await Promise.all(wave.map((ch) => {
+    const list = `(${ch.join(",")})`;
+    return pages<L>((a, b) => sb().from(T.links).select("id,src,dst,field_id").or(`src.in.${list},dst.in.${list}`).order("id").range(a, b));
+  })));
+  for (const ch of got) for (const l of ch) if (!seen.has(l.id)) { seen.add(l.id); links.push({ id: l.id, src: l.src, dst: l.dst, f: l.field_id }); }
+  // phần đầu: kèm tổng số dòng của tab (trình duyệt hiện tiến độ "đã về / tổng")
+  const total = before > 0 ? null : ((await sb().from(T.accounts).select("id", { count: "exact", head: true }).eq("tab_id", tab)).count ?? null);
+  return { accounts, links, next: accounts.length === lim ? accounts[accounts.length - 1].id : null, total };
+}
+
+/** Lùi 2 giây khi tính delta: dòng đang ghi dở đúng lúc tính (đã có updated nhưng chưa commit) không bao giờ bị sót; trùng thì trình duyệt gộp. */
+const DELTA_OVERLAP = 2;
 /** /api/delta — chỉ dòng đổi từ `since` + dòng đã xoá (tomb) + liên kết liên quan. */
 export async function getDelta(since: number, lz = ""): Promise<Delta> {
   const ts = now();
   const ex = await lazyExcl(lz);
-  const [rows, meta, devices, tomb] = await Promise.all([
+  const [rows, meta, devices, tomb, gone] = await Promise.all([
     pages<Account>((a, b) => {
-      const q = sb().from(T.accounts).select("*").gte("updated", since - 0.01).order("id").range(a, b);
+      const q = sb().from(T.accounts).select("*").gte("updated", since - DELTA_OVERLAP).order("id").range(a, b);
       return ex.length ? q.not("tab_id", "in", `(${ex.join(",")})`) : q;
     }),
     getMeta(), getDevices(),
-    pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - 0.01).order("id").order("ts").range(a, b)),
+    pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - DELTA_OVERLAP).order("id").order("ts").range(a, b)),
+    // dòng vừa đổi sang một tab "tải riêng" mà trình duyệt chưa nạp: báo như đã xoá khỏi trình duyệt
+    // (không thì bản cũ vẫn nằm ở tab cũ; khi mở tab tải riêng đó, dòng sẽ về cùng tab)
+    ex.length ? pages<{ id: Id }>((a, b) => sb().from(T.accounts).select("id").gte("updated", since - DELTA_OVERLAP).in("tab_id", ex).order("id").range(a, b)) : Promise.resolve([] as { id: Id }[]),
   ]);
   // đọc theo trang trong lúc có ghi: dòng có thể lặp (không bao giờ sót) → bỏ trùng
   const accounts = [...new Map(rows.map((r) => [r.id, r])).values()];
@@ -118,7 +159,7 @@ export async function getDelta(since: number, lz = ""): Promise<Delta> {
     const list = `(${ch.join(",")})`;
     return pages<{ id: Id; src: Id; dst: Id; field_id: Id }>((a, b) => sb().from(T.links).select("id,src,dst,field_id").or(`src.in.${list},dst.in.${list}`).order("id").range(a, b));
   }))) for (const l of ch) if (!seen.has(l.id)) { seen.add(l.id); links.push({ id: l.id, src: l.src, dst: l.dst, f: l.field_id }); }
-  return { meta, devices, accounts, links, deleted: [...new Set(tomb.map((r) => r.id))], ts, delta: 1 };
+  return { meta, devices, accounts, links, deleted: [...new Set([...tomb.map((r) => r.id), ...gone.map((r) => r.id)])], ts, delta: 1 };
 }
 
 /** Phiên bản dữ liệu (ahs_ver.n) — đổi khi bất kỳ máy nào ghi accounts/links. */

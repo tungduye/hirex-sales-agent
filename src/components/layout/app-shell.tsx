@@ -10,6 +10,8 @@ import { AccountSetupRequired } from "@/modules/identity/components/account-setu
 import { AssistantPanel } from "@/modules/assistant/components/assistant-panel";
 import { AlertBell } from "@/modules/assistant/components/alert-bell";
 import type { AccountContext } from "@/types/account";
+// Tài nguyên (moduleHS): AccountsHS chạy sẵn ở nền, mở /accounts là có ngay.
+import { HsAccountsHost } from "../../../moduleHS/accountshs/host";
 
 const SIDEBAR_KEY = "hirex.sidebarCollapsed";
 
@@ -65,6 +67,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
       </div>
     </div>
     {account.configurationComplete && <AssistantPanel account={account} workspaceAdmin={workspaceAdmin} />}
+    <HsAccountsHost enabled={account.configurationComplete && account.permissions.includes("accounts.view")} />
     </AccountProvider>
   );
 }

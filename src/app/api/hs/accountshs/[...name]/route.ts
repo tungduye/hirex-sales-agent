@@ -6,7 +6,7 @@ type Ctx = { params: Promise<{ name: string[] }> };
 
 export async function GET(req: Request, ctx: Ctx) {
   const { name } = await ctx.params;
-  return handleGet(name.join("/"), new URL(req.url).searchParams);
+  return handleGet(name.join("/"), new URL(req.url).searchParams, req);
 }
 export async function POST(req: Request, ctx: Ctx) {
   const { name } = await ctx.params;

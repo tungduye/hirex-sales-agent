@@ -43,22 +43,31 @@ export async function orMissing<R>(p: Promise<R>, fallback: () => R | Promise<R>
   try { return await p; } catch (e) { if (isMissing(e)) return fallback(); throw e; }
 }
 /** ahs_ver.n + 1 — để bộ đệm (Cú vọ, client) biết có thay đổi. Có migration thì trigger tự tăng; tăng thêm cũng vô hại. */
+/** feed.ts đăng ký vào đây: ghi xong là đẩy thay đổi cho mọi trình duyệt ngay, không chờ nhịp hỏi. */
+export const BUMP: { fn: null | (() => void) } = { fn: null };
 export async function bumpVer() {
   const r = await run<{ n: number } | null>(sb().from(T.ver).select("n").eq("id", 1).maybeSingle()).catch(() => null);
   if (r) await run(sb().from(T.ver).update({ n: Number(r.n) + 1 }).eq("id", 1)).catch(() => undefined);
+  BUMP.fn?.();
 }
 
 /** PostgREST trả tối đa max_rows (supabase/config.toml: 1000) dòng mỗi lần → đọc hết theo trang. `q` phải sắp theo khoá duy nhất; `max` = giới hạn tổng. */
 export const PAGE = 1000;
 export async function pages<R>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>, max = Infinity): Promise<R[]> {
-  const out: R[] = [];
-  for (let from = 0; from < max; from += PAGE) {
-    const n = Math.min(PAGE, max - from), rows = await run<R[]>(q(from, from + n - 1));
-    out.push(...rows);
-    if (rows.length < n) break;
+  // trang đầu đọc 1 mình (bảng nhỏ chỉ tốn 1 lượt); còn nữa thì đọc 4 trang song song mỗi đợt, giữ đúng thứ tự
+  const n0 = Math.min(PAGE, max), out = await run<R[]>(q(0, n0 - 1));
+  if (out.length < n0) return out;
+  for (let from = PAGE; from < max; from += PAGE * WAVE) {
+    const part: Array<Promise<{ rows: R[]; n: number }>> = [];
+    for (let k = 0; k < WAVE && from + k * PAGE < max; k++) {
+      const f = from + k * PAGE, n = Math.min(PAGE, max - f);
+      part.push(run<R[]>(q(f, f + n - 1)).then((rows) => ({ rows, n })));
+    }
+    for (const { rows, n } of await Promise.all(part)) { out.push(...rows); if (rows.length < n) return out; }
   }
   return out;
 }
+const WAVE = 4;
 
 /** select * from <t> order by pos,id — thứ tự chuẩn của mọi bảng meta. */
 export function allOrdered<R>(t: TableKey, order: "pos" | "id" = "pos"): Promise<R[]> {

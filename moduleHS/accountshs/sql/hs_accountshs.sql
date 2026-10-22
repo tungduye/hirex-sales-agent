@@ -314,3 +314,12 @@ returns table(t bigint, d bigint, o bigint, s bigint, n bigint, nn bigint) langu
 $f$;
 revoke all on function ahs_ov_counts(bigint[], double precision, double precision) from public, anon, authenticated;
 grant execute on function ahs_ov_counts(bigint[], double precision, double precision) to service_role;
+
+-- Realtime: máy chủ HireX nghe ahs_ver đổi qua Supabase Realtime (chỉ server, khoá service role) để đẩy thay đổi cho trình duyệt ngay.
+do $b$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'ahs_ver') then
+    execute 'alter publication supabase_realtime add table public.ahs_ver';
+  end if;
+end $b$;

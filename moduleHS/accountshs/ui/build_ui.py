@@ -42,8 +42,9 @@ def hirex(h):
 # Vá thêm của HireX (ui/hirex-patch.css + .js): nạp sau CSS/JS gốc, chỉ bọc hàm của bản gốc
 PJ = open(os.path.join(OUT, 'hirex-patch.js'), encoding='utf8').read()
 PC = open(os.path.join(OUT, 'hirex-patch.css'), encoding='utf8').read()
+PB = open(os.path.join(OUT, 'hirex-boot.js'), encoding='utf8').read()   # chạy trước JS gốc (dựng khung ngay)
 assert H.count('</body></html>') == 1 and '</head>' in H
-H = H.replace('</head>', '<style id="hx-patch">' + PC + '</style></head>', 1).replace('</body></html>', '<script>' + PJ + '</script></body></html>')
+H = H.replace('</head>', '<style id="hx-patch">' + PC + '</style><script>' + PB + '</script></head>', 1).replace('</body></html>', '<script>' + PJ + '</script></body></html>')
 
 for name, h in (('index.html', H), ('owl.html', OP)):
     h = hirex(h)

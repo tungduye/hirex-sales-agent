@@ -1,6 +1,6 @@
 import "server-only";
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { HsError, bumpVer, log, requireHs, type Level } from "./db";
 import * as D from "./accounts-data";
@@ -12,12 +12,15 @@ import { checkerHandle } from "./checker";
 import { owlAutoHandle } from "./owl-auto";
 import { crmHandle } from "./crm";
 import { themeCss, themePreview, themesList } from "./themes";
+import { eventsResponse } from "./feed";
 import { cyvTick } from "./checker";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Giao diện gốc của v7.py (ui/index.html, ui/owl.html — dựng bằng ui/build_ui.py), bản chạy thật nạp 1 lần rồi giữ trong bộ nhớ; bản xem trước đọc lại mỗi lần. */
 const UI = new Map<string, Promise<string>>();
+const ETAG = new Map<string, string>();
+const etagOf = (s: string) => { let t = ETAG.get(s); if (!t) { if (ETAG.size > 4) ETAG.clear(); t = `"${createHash("sha1").update(s).digest("base64url").slice(0, 20)}"`; ETAG.set(s, t); } return t; };
 const uiPage = (f: string) => { if (process.env.NODE_ENV !== "production") UI.delete(f); if (!UI.has(f)) UI.set(f, readFile(path.join(process.cwd(), "moduleHS", "accountshs", "ui", f), "utf8").catch((e) => { UI.delete(f); throw e; })); return UI.get(f)!; };
 
 /* Một cửa cho mọi /api/hs/accountshs/<name> — giữ đúng tên đường dẫn + hình dạng JSON của v7.py (do_GET / do_POST / ROUTES):
@@ -54,13 +57,24 @@ const fail = (e: unknown) => {
   return json({ error: err.message }, err.status);
 };
 
-export async function handleGet(name: string, qs: URLSearchParams): Promise<Response> {
+export async function handleGet(name: string, qs: URLSearchParams, req?: Request): Promise<Response> {
   try {
     const q = (k: string, d = "") => qs.get(k) ?? d;
     if (name.startsWith("cyv/")) { await requireHs("view"); return json(...(await checkerHandle("GET", name.slice(4), qs, null))); }
     if (name.startsWith("owl/")) { await requireHs("view"); return json(...(await owlAutoHandle("GET", name.slice(4), qs, null))); }
     if (name.startsWith("crm/")) { await requireHs("view"); return json(...(await crmHandle("GET", name.slice(4), qs, null))); }
-    if (name === "ui" || name === "owl-page") { await requireHs("view"); return new NextResponse(await uiPage(name === "ui" ? "index.html" : "owl.html"), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }); }
+    if (name === "ui" || name === "owl-page") {
+      // trang ~850 KB: trình duyệt giữ bản đã tải, mỗi lần mở chỉ hỏi lại (ETag) → không đổi thì 304, khỏi tải lại
+      await requireHs("view");
+      const html = await uiPage(name === "ui" ? "index.html" : "owl.html"), tag = etagOf(html);
+      const h = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-cache", ETag: tag };
+      if (req?.headers.get("if-none-match") === tag) return new NextResponse(null, { status: 304, headers: h });
+      return new NextResponse(html, { headers: h });
+    }
+    if (name === "crm-sdt") {   // trang đối soát 1 lần: tab SĐT = danh sách SĐT kéo từ CRM (ui/crm-sdt.html), chỉ Quản trị
+      await requireHs("manage");
+      return new NextResponse(await uiPage("crm-sdt.html"), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    }
     if (name === "themes") { await requireHs("view"); return json({ themes: await themesList() }); }
     if (name.startsWith("theme-preview/")) { await requireHs("view"); const img = await themePreview(name.slice(14).replace(/\.jpg$/, "")); return img ? new NextResponse(img as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "max-age=86400" } }) : json({ error: "not found" }, 404); }
     if (name.startsWith("theme/")) { await requireHs("view"); const c = await themeCss(name.slice(6).replace(/\.css$/, "")); return c === null ? json({ error: "not found" }, 404) : file(c, "text/css; charset=utf-8"); }
@@ -70,8 +84,10 @@ export async function handleGet(name: string, qs: URLSearchParams): Promise<Resp
       case "meta": return json({ meta: await D.getMeta(), devices: await D.getDevices(), ts: 0 });
       case "data": return json(await D.getData(q("lz")));
       case "delta": return json(await D.getDelta(parseFloat(q("since", "0")) || 0, q("lz")));
+      case "tab_chunk": return json(await D.tabChunk(Number(q("tab", "0")), Number(q("before", "0")), Number(q("n", "5000"))));
       case "tab_rows": return json(await D.getTabRows(Number(q("tab", "0")), q("skip")));
       case "ver": return json({ ver: await D.dataVersion() });
+      case "events": return eventsResponse();
       case "backups": await requireHs("manage"); return json(await B.backupsInfo());
       case "logs": return json(await D.getLogs(q("q"), q("limit", "300")));
       case "hist": return json(await D.histGet(Number(q("id", "0")) || 0));
@@ -135,13 +151,16 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     if (!route) return json({ error: "not found" }, 404);
     const [level, fn] = route;
     await requireHs(level);
-    const detail = await R.auditDetail(name, b);
-    if (R.needsSnap(name, b)) await B.snapshot();
+    // thao tác hàng loạt rất lớn được trình duyệt chia lô (hx_batch = {i, of, n}): chụp bản an toàn ở lô đầu, ghi nhật ký 1 lần ở lô cuối (đủ số dòng)
+    const hb = b.hx_batch && typeof b.hx_batch === "object" ? (b.hx_batch as { i: number; of: number; n: number }) : null;
+    delete b.hx_batch;
+    const detail = hb ? `${Number(hb.n) || 0} dòng` : await R.auditDetail(name, b);
+    if ((!hb || Number(hb.i) === 0) && R.needsSnap(name, b)) await B.snapshot(!!hb);
     const r = (await fn(b)) as Record<string, unknown> | undefined;
     const act = name === "account" ? (b.id ? "account_edit" : "account_add") : name;
     const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
     const ln = n(b.ids) || n(b.items) || ((name === "bulk" || name === "device_bulk") && r ? Number(r.created ?? 0) + Number(r.updated ?? 0) : 1);
-    if (!NO_LOG.has(name)) await log(act, ln, detail);
+    if (!NO_LOG.has(name) && (!hb || Number(hb.i) === Number(hb.of) - 1)) await log(act, hb ? Number(hb.n) || ln : ln, detail);
     if (!READ_ONLY.has(name)) await bumpVer();   // Python tăng ahs_ver sau mỗi lần ghi (DB của bản Python không có trigger tăng)
     B.autoBackupIfDue().catch((e) => console.error("[accountshs] auto backup", e));
     return json(r ?? { ok: 1 });

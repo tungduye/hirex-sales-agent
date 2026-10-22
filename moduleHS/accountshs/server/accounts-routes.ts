@@ -29,26 +29,42 @@ const idsWhere = async (t: "accounts" | "devices", col: string, val: Id) =>
 const PCOLS = new Set(["data", "note", "status_id", "owner_id", "dept_id", "device_id", "updated"]);
 let noPatchFn = false;
 /** ghi patch từng dòng: các dòng cùng một patch gộp thành 1 lệnh (≤ 500 id);
- *  patch lẻ (mỗi dòng một khác) gửi theo lô 500 qua ahs_patch_accounts, chưa có hàm thì ghi từng dòng. */
+ *  patch lẻ (mỗi dòng một khác) gửi theo lô 500 qua ahs_patch_accounts, chưa có hàm thì upsert theo lô (upsertPatches). */
 async function updateIds(ps: Map<Id, Patch>) {
   const g = new Map<string, Id[]>();
   for (const [i, p] of ps) { const k = j(p); (g.get(k) ?? g.set(k, []).get(k)!).push(i); }
   const one: Patch[] = [], jobs: Array<readonly [Patch, Id[]]> = [];
   for (const [k, ids] of g) {
     const p = JSON.parse(k) as Patch;
-    if (ids.length === 1 && !noPatchFn && Object.keys(p).every((c) => PCOLS.has(c))) one.push({ ...p, id: ids[0] });
+    if (ids.length === 1 && Object.keys(p).every((c) => PCOLS.has(c))) one.push({ ...p, id: ids[0] });
     else for (const ch of chunks(ids, 500)) jobs.push([p, ch]);
   }
+  const left: Patch[] = [];
   for (const ch of chunks(one, 500)) {
-    if (noPatchFn) { for (const { id, ...p } of ch) jobs.push([p, [Number(id)]]); continue; }
+    if (noPatchFn) { left.push(...ch); continue; }
     try { await run(sb().rpc("ahs_patch_accounts", { p_rows: ch })); }
     catch (e) {
       if (!isMissing(e)) throw e;
-      noPatchFn = true;
-      for (const { id, ...p } of ch) jobs.push([p, [Number(id)]]);
+      noPatchFn = true; left.push(...ch);
     }
   }
   await pool(jobs, ([p, ch]) => run(sb().from(T.accounts).update(p).in("id", ch)));
+  if (left.length) await upsertPatches(left);
+}
+/** Chưa có hàm SQL ahs_patch_accounts: thay vì 1 lệnh / dòng (19.000 dòng = 19.000 lượt), đọc dòng hiện tại theo lô 500,
+ *  gộp patch rồi ghi đè cả lô bằng 1 lệnh upsert (trigger lịch sử vẫn chạy như UPDATE). Dòng bị xoá trong lúc đó
+ *  (có trong ahs_tomb sau lúc đọc) thì xoá lại → không bao giờ "hồi sinh" dòng đã xoá. */
+async function upsertPatches(list: Patch[]) {
+  const cols = "id,tab_id,dept_id,owner_id,status_id,device_id,note,data,created,updated";
+  await pool(chunks(list, 500), async (ch) => {
+    const ids = ch.map((p) => Number(p.id)), t0 = now();
+    const cur = new Map((await run<Account[]>(sb().from(T.accounts).select(cols).in("id", ids))).map((r) => [r.id, r]));
+    const rows = ch.filter((p) => cur.has(Number(p.id))).map((p) => ({ ...cur.get(Number(p.id))!, ...p }));
+    if (!rows.length) return;
+    await run(sb().from(T.accounts).upsert(rows, { onConflict: "id" }));
+    const gone = (await run<{ id: Id }[]>(sb().from(T.tomb).select("id").in("id", rows.map((r) => r.id)).gte("ts", t0 - 1))).map((r) => r.id);
+    if (gone.length) await run(sb().from(T.accounts).delete().in("id", gone));
+  }, 4);
 }
 
 async function exists(t: keyof typeof T, id: Id | null): Promise<boolean> {

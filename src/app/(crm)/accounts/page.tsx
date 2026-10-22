@@ -12,9 +12,10 @@ export default async function AccountsPage() {
       <KeyRound className="mx-auto mb-3 size-8 text-slate-400"/>Tài khoản của bạn chưa được cấp quyền xem mục Tài nguyên.
     </div>;
   }
-  // Cao = màn hình trừ thanh trên cùng (thanh này chỉ hiện trên điện thoại). CSS viết ngay tại đây để không phụ thuộc file CSS đã build/cache.
+  // Iframe AccountsHS do HsAccountsHost (moduleHS/accountshs/host.tsx, gắn trong app-shell) giữ sẵn ở nền và đặt khít vào ô này
+  // → mở mục Tài nguyên là có ngay. Cao = màn hình trừ thanh trên cùng (thanh này chỉ hiện trên điện thoại).
   return <>
-    <style>{"#hs-acc-frame{height:calc(100dvh - 4rem)}@media (min-width:1024px){#hs-acc-frame{height:100dvh}}"}</style>
-    <iframe id="hs-acc-frame" src="/api/hs/accountshs/ui" title="Tài nguyên" className="block w-full border-0 bg-white" />
+    <style>{"#hs-acc-slot{height:calc(100dvh - 4rem)}@media (min-width:1024px){#hs-acc-slot{height:100dvh}}"}</style>
+    <div id="hs-acc-slot" className="w-full bg-white" />
   </>;
 }

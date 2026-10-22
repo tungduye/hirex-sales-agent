@@ -12,7 +12,7 @@ import { isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { docxText, normText, xlsxText } from "./office";
 import {
   C, LANGS, TPL, VOICES, err, refresh, cleanTitle, safeId, fmtT, esc, slugify, lang, langs, st, nextId, dir, fp, save, upd, bySid, need, chunks, has, prune, rj,
-  styles, saveStyles, pubStyles, topics, saveTopics, glossary, saveGlossary, settings, saveSettings, type HsErr, type Meta, type Settings,
+  styles, saveStyles, pubStyles, topics, saveTopics, glossary, saveGlossary, company, saveCompany, settings, saveSettings, type HsErr, type Meta, type Settings,
 } from "./data";
 import {
   FILES, applyStyle, deepText, dropEcho, fail, ffmpegVersion, finalize, fixGloss, isEcho, liveIns, liveInput, liveToken, meetingOpts, newSession, prepare, processMeeting,
@@ -37,6 +37,7 @@ const GET: Record<string, (c: Ctx) => unknown> = {
   styles: ({ q }) => { const v = q.get("kind") === "voice", c = styles(v); return ok({ config: v ? c : pubStyles(c) }); },
   topics: () => ok({ config: topics() }),
   glossary: () => ok({ config: glossary() }),
+  company: () => ok({ config: company() }),
   archive: () => {
     prune(); const s = st();
     const f = (m: Meta, k: string) => (m.files?.[k as keyof Meta["files"]] ? { id: m.slug + ":" + k, slug: m.slug, k, name: `${m.slug}_${FILES[k](m)[2]}`, mime: FILES[k](m)[1] } : null);
@@ -131,6 +132,11 @@ const POST: Record<string, (c: Ctx) => unknown> = {
     const i = cfg.topics.findIndex((t) => t.id === id); if (i < 0) cfg.topics.push(row); else cfg.topics[i] = row; saveTopics(cfg); return ok({ id, config: cfg });
   },
   topic_delete: ({ f }) => { const cfg = topics(), id = safeId(f.id); if (!cfg.topics.some((t) => t.id === id)) throw err("bad_request", 422); cfg.topics = cfg.topics.filter((t) => t.id !== id); saveTopics(cfg); return ok({ config: cfg }); },
+  company_save: ({ f }) => {
+    const cap = (v: unknown, n: number) => String(v || "").replace(/\r/g, "").trim().slice(0, n);
+    const c = { version: 1, name: cleanTitle(f.name, 120) || "Công ty", context: cap(f.context, 4000), people: cap(f.people, 4000) };
+    saveCompany(c); return ok({ config: c });
+  },
   glossary_save: ({ f }) => {
     let raw: unknown; try { raw = JSON.parse(f.items || "[]"); } catch { throw err("bad_request", 422); } if (!Array.isArray(raw)) throw err("bad_request", 422);
     const items = (raw as { heard?: unknown; text?: unknown }[]).slice(0, 300).map((i) => ({ heard: String(i?.heard || "").trim().slice(0, 80), text: String(i?.text || "").trim().slice(0, 80) })).filter((i) => i.heard && i.text);
@@ -196,7 +202,7 @@ const POST: Record<string, (c: Ctx) => unknown> = {
     const cur = settings(), s: Settings = { ...cur, zaloNotify: f.notify === "1", zaloMeeting: f.meeting === "1", zaloTts: f.tts === "1", account_id: safeId(f.account_id), account_name: cleanTitle(f.account_name, 120), conversation_id: safeId(f.conversation_id), group_name: cleanTitle(f.group_name, 200), workspace_id: workspaceId, by: userId };
     saveSettings(s); return ok();
   },
-  zalo_test: async () => { await zaloSend("Cuộc họp (HireX): kết nối Zalo hoạt động.", "test"); return ok(); },
+  zalo_test: async () => ok({ result: await zaloSend("Cuộc họp (HireX): kết nối Zalo hoạt động.", "Gửi thử", 45000) }),
   delete: ({ f }) => {
     const m = bySid(safeId(f.session_id)); if (!m) throw err("no_chunks", 404); if (st().run.has(m.id)) throw err("busy", 409);
     fs.rmSync(dir(m.slug), { recursive: true, force: true }); st().meta.delete(m.slug); return ok();

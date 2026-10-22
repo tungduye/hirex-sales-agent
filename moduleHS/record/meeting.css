@@ -556,3 +556,9 @@ to{opacity:1;transform:none}
 .hs-rec .vw-page ul{list-style:disc}.hs-rec .vw-page ol{list-style:decimal}
 /* Khung trong HireX: chiếm hết vùng nội dung, nền như bản gốc */
 .hs-rec{height:100%;min-height:0;overflow:auto;position:relative}
+/* ô tìm trong menu chọn (nhóm Zalo) */
+.hs-rec .pop .msrch{position:sticky;top:-4px;z-index:1;display:flex;align-items:center;gap:6px;margin:-4px -4px 4px;padding:8px 10px;background:var(--ui-surface);border-bottom:1px solid var(--ui-border);color:var(--ui-muted)}
+.hs-rec .pop .msrch input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;color:var(--ui-text)}
+.hs-rec .pop .mi[hidden]{display:none}
+/* bộ nhận dạng phụ đề (Google / OpenAI) */
+.hs-rec .lp-h .lpe{display:inline-flex;align-items:center;gap:2px;height:26px;padding:0 6px;font-size:12px;color:var(--ui-muted)}

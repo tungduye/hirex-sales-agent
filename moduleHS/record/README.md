@@ -31,7 +31,7 @@ Bên ngoài `moduleHS/` có 5 chỗ nối:
 | `http.createServer`, `?action=`, cổng 3101 | Route handler `/api/hs/record` (giữ nguyên tên action và JSON) |
 | `ADMIN_PASSWORD` (Basic auth) + CSRF | Đăng nhập HireX (mọi thành viên), chặn POST khác origin; Cài đặt Zalo chỉ Quản trị viên |
 | `.env` riêng, `OPENAI_API_KEY` riêng | Key `OPENAI_API_KEY` của HireX; Responses API qua `src/lib/openai/responses.ts` |
-| Zalo đăng nhập QR riêng (zca-js) | Nick Zalo đã kết nối trong HireX, gửi qua hàng gửi chuẩn (`channel_outbound_actions`) vào nhóm chọn trong Cài đặt › Zalo |
+| Zalo đăng nhập QR riêng (zca-js) | Nick Zalo đã kết nối trong HireX, gửi bằng **Gửi hàng loạt Zalo** của HireX (chế độ gửi ngay 1 nhóm, người duyệt = Quản trị viên đã cài đặt) vào nhóm chọn trong Cài đặt › Zalo; worker Zalo gửi trong ~20 giây, mỗi lần gửi hiện trong Gửi hàng loạt |
 | `data/` cạnh `server.js` | `runtime/hs-record/` (đã gitignore; đổi được bằng `HS_RECORD_DIR`) |
 | Link `/f/<slug>`, `/d/<slug>/<loại>` | Trang xem `/m/<slug>[/<loại>]`, tải file `/api/hs/record/d/<slug>/<loại>?dl=1` (công khai) |
 | Tải file lên 1 lần (≤ 512 MB) | Tải từng phần 16 MB (HireX giới hạn mỗi request ~26 MB) |
@@ -46,3 +46,12 @@ Bên ngoài `moduleHS/` có 5 chỗ nối:
 - **Link gửi Zalo** dùng `APP_BASE_URL` (hoặc `HS_RECORD_PUBLIC_URL`).
 - **Micro** chỉ chạy trên HTTPS hoặc localhost. Trang `app.hirexmkt.online` đã dùng HTTPS.
 - **Chuyển dữ liệu cũ**: chép thư mục `data/` của meeting-hub vào `runtime/hs-record/`, gồm `m/`, `cfg/`, `templates/`.
+
+## Bối cảnh công ty
+Cài đặt › **Công ty** (`runtime/hs-record/cfg/company.json`): bối cảnh + danh sách thành viên (Tên — vai trò / phòng ban).
+Dùng cho mọi cuộc họp: câu đầu của bối cảnh + tên thành viên đi vào prompt/keywords phiên âm; toàn bộ đi vào ngữ cảnh viết biên bản (không chép nguyên văn).
+
+## Phụ đề trực tiếp
+- Mặc định: bộ nhận dạng của trình duyệt (`SpeechRecognition`: Chrome → máy chủ Google, Edge → Microsoft). Chữ hiện ngay khi nói, tự sửa khi chốt câu; câu chốt qua `live_tr` (sửa Từ vựng + dịch). Phiên tự ngắt thì mở lại ngay.
+- Không hỗ trợ / bị chặn / lỗi mạng liên tục → tự chuyển OpenAI realtime. Đổi tay ở nút "Google / OpenAI" trên khung phụ đề.
+- Biên bản vẫn phiên âm lại từ file ghi âm đầy đủ sau cuộc họp.

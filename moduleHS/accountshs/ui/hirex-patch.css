@@ -13,3 +13,14 @@
 .hx-ovind{position:absolute;z-index:0;pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),left .24s cubic-bezier(.2,.8,.2,1),width .24s cubic-bezier(.2,.8,.2,1),height .24s cubic-bezier(.2,.8,.2,1);will-change:transform}
 .ovtb.hx-sl .ovi.on::before{background:transparent!important}
 html.ca-off .hx-ovind{transition:none}
+/* số của tab "Tải riêng" chưa nạp (lấy từ máy chủ) */
+#tb em.hx-lz{opacity:.75}
+/* nạp ngầm tab Tải riêng: không hiện thanh tải */
+html.hx-bg #ldbar{display:none!important}
+/* thẻ tiến độ thao tác hàng loạt (dùng lại kiểu thẻ tải của bản gốc) */
+.ldw.hx-op{z-index:60}
+.ldw.hx-op.hx-ok .ldw-p,.ldw.hx-op.hx-ok .ldw-ph{color:var(--ui-success)}
+.ldw.hx-op.hx-err .ldw-ph{color:var(--ui-danger)}
+.ldw.hx-op.hx-err .ldw-f{background:var(--ui-danger)}
+.ldw.hx-op.hx-spin .ldw-f{transform:scaleX(.35);animation:hxop 1.1s ease-in-out infinite alternate}
+@keyframes hxop{from{transform:translateX(-35%) scaleX(.35)}to{transform:translateX(100%) scaleX(.35)}}

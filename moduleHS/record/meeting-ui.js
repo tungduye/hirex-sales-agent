@@ -125,28 +125,42 @@ function toast(msg, o = {}) {
   setTimeout(close, o.ms || (o.action ? 12000 : 6000)); return close;
 }
 
+/* tin gần nhất của nhóm: "5 phút", "3 giờ", "2 ngày", "12/10" */
+function ago(iso) {
+  const t = iso ? Date.parse(iso) : NaN; if (!Number.isFinite(t)) return '';
+  const m = Math.max(0, (Date.now() - t) / 60000);
+  return m < 60 ? Math.round(m) + ' phút' : m < 1440 ? Math.round(m / 60) + ' giờ' : m < 10080 ? Math.round(m / 1440) + ' ngày' : new Date(t).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+}
 /* ---------- Popover menu (thay <select>) ---------- */
 let MENU = null;
 function menu(anchor, items, o = {}) {
   if (MENU) { const same = MENU.anchor === anchor; MENU.close(); if (same) return; }
   const p = document.createElement('div'); p.className = 'pop'; p.setAttribute('role', 'menu');
-  p.innerHTML = items.map((it, i) => it.sep ? '<div class="sep"></div>' : it.head ? `<div class="mh">${esc(it.head)}</div>`
+  p.innerHTML = (o.search ? `<div class="msrch">${ico('search', 14)}<input type="search" placeholder="${esc(o.search)}" aria-label="${esc(o.search)}"></div>` : '') + items.map((it, i) => it.sep ? '<div class="sep"></div>' : it.head ? `<div class="mh">${esc(it.head)}</div>`
     : `<button type="button" class="mi${it.on ? ' on' : ''}${it.danger ? ' danger' : ''}" data-i="${i}" role="menuitem"${it.disabled ? ' disabled' : ''}${it.title ? ` title="${esc(it.title)}"` : ''}>${it.icon ? ico(it.icon, 16) : ''}<span class="t">${esc(it.label)}</span>${it.em ? `<em>${esc(it.em)}</em>` : ''}${it.on ? `<span class="ck">${ico('check', 14)}</span>` : ''}</button>`).join('');
   ROOT.append(p);
   const r = anchor.getBoundingClientRect(), w = Math.max(o.w || 0, r.width, 200); p.style.minWidth = Math.min(w, innerWidth - 16) + 'px';
   const pw = p.offsetWidth, ph = p.offsetHeight; let x = o.right ? r.right - pw : r.left, y = r.bottom + 4;
   if (y + ph > innerHeight - 8) y = Math.max(8, r.top - ph - 4); x = Math.max(8, Math.min(x, innerWidth - pw - 8));
   p.style.left = x + 'px'; p.style.top = y + 'px';
-  const btns = [...p.querySelectorAll('.mi:not(:disabled)')]; let hl = btns.findIndex(b => b.classList.contains('on'));
+  let btns = [...p.querySelectorAll('.mi:not(:disabled)')], hl = btns.findIndex(b => b.classList.contains('on'));
+  const sIn = p.querySelector('.msrch input');
+  if (sIn) sIn.oninput = () => {   // lọc theo tên, không phân biệt dấu
+    const q = noMark(sIn.value.trim());
+    p.querySelectorAll('.mi').forEach(b => { b.hidden = !!q && !noMark(b.textContent).includes(q); });
+    btns = [...p.querySelectorAll('.mi:not(:disabled):not([hidden])')]; hl = -1; btns.forEach(b => b.classList.remove('hl'));
+  };
   const L = pushLay({ anchor, close() { p.remove(); dropLay(L); removeEventListener('pointerdown', out, true); removeEventListener('keydown', key, true); if (MENU === L) MENU = null; anchor.setAttribute('aria-expanded', 'false'); } });
   const out = e => { if (!p.contains(e.target) && !anchor.contains(e.target)) L.close(); };
   const key = e => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); hl = (hl + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length; btns.forEach((b, i) => b.classList.toggle('hl', i === hl)); btns[hl]?.focus(); }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && btns.length) { e.preventDefault(); hl = (hl + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length; btns.forEach((b, i) => b.classList.toggle('hl', i === hl)); btns[hl]?.focus(); }
+    else if (e.key === 'Enter' && sIn && document.activeElement === sIn && btns[0]) { e.preventDefault(); btns[0].click(); }
     else if (e.key === 'Tab') L.close();
   };
   p.onclick = e => { const b = e.target.closest('.mi'); if (!b) return; const it = items[+b.dataset.i]; L.close(); it.fn?.(); };
   addEventListener('pointerdown', out, true); addEventListener('keydown', key, true);
-  anchor.setAttribute('aria-expanded', 'true'); MENU = L; (btns[hl] || btns[0])?.focus({ preventScroll: true });
+  anchor.setAttribute('aria-expanded', 'true'); MENU = L; (sIn || btns[hl] || btns[0])?.focus({ preventScroll: true });
+  if (sIn && btns[hl]) btns[hl].scrollIntoView({ block: 'nearest' });
   return L;
 }
 
@@ -215,7 +229,7 @@ function renderApp() {
   </section>
   <section class="rc-b" id="pTts" hidden></section>
  </main>
- <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="dot" id="liveDot"></span><button type="button" class="in cb srcb" data-a="srcPick" aria-haspopup="menu" title="Ngôn ngữ đang nói (gợi ý cho nhận dạng)">${ico('mic', 13)}<span id="srcLbl">${srcLabel()}</span>${ico('chevd', 13)}</button><div class="seg" id="liveLang" role="radiogroup" aria-label="Ngôn ngữ phụ đề">${[['src', 'Gốc'], ['vi', 'VI'], ['en', 'EN'], ['ja', 'JA']].map(([k, l]) => `<button type="button" data-a="liveLang" data-v="${k}" role="radio" title="${k === 'src' ? 'Lời nói gốc' : 'Dịch sang ' + LANG[k]}">${l}</button>`).join('')}</div><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
+ <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="dot" id="liveDot"></span><button type="button" class="in cb srcb" data-a="srcPick" aria-haspopup="menu" title="Ngôn ngữ đang nói (gợi ý cho nhận dạng)">${ico('mic', 13)}<span id="srcLbl">${srcLabel()}</span>${ico('chevd', 13)}</button><div class="seg" id="liveLang" role="radiogroup" aria-label="Ngôn ngữ phụ đề">${[['src', 'Gốc'], ['vi', 'VI'], ['en', 'EN'], ['ja', 'JA']].map(([k, l]) => `<button type="button" data-a="liveLang" data-v="${k}" role="radio" title="${k === 'src' ? 'Lời nói gốc' : 'Dịch sang ' + LANG[k]}">${l}</button>`).join('')}</div><span class="grow"></span><button type="button" class="btn ghost sm lpe" data-a="liveEng" aria-haspopup="menu" title="Bộ nhận dạng phụ đề trực tiếp"><span>${useG() ? 'Google' : 'OpenAI'}</span>${ico('chevd', 12)}</button><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
  </div><div id="toast"></div><input type="file" id="fAudio" hidden accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.ogg,.opus,.aac,.flac,.amr,.wma,.mp4,.webm,.mkv,.mov"><input type="file" id="fTpl" hidden>`;
   $('#ttl').oninput = e => { S.title = e.target.value; S.named = !!e.target.value.trim(); };
   $('#ttl').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
@@ -523,9 +537,59 @@ const dropLine = l => { if (!l) return; LV.lines.delete(l.k); const i = RT.q.ind
 function liveToggle() {
   const want = S.live && (S.st === 'rec' || S.st === 'paused') && R.stream;
   if (!want) { liveStop(); renderLive(); return; }
+  if (useG()) { if (S.st === 'rec') gStart(); else gStop(); renderLive(); return; }
   if (RT.failed) { if (S.st === 'rec' && !LV.cur) liveCycle(); } else if (!RT.ws && !RT.busy) rtStart();
   renderLive();
 }
+/* ---------- Bộ nhận dạng của trình duyệt (Chrome: máy chủ Google · Edge: Microsoft) — mặc định ----------
+   Chữ hiện ngay khi đang nói và tự sửa lại khi nghe hết câu (interim → final), giống phụ đề Google Meet / YouTube.
+   Mỗi câu chốt đi qua live_tr (sửa theo Từ vựng + dịch). Trình duyệt tự ngắt phiên sau ~1 phút hoặc khi im lâu → mở lại ngay.
+   Không có (Firefox), bị chặn hoặc lỗi mạng liên tục → tự chuyển sang OpenAI realtime như trước.
+   Bản ghi âm đầy đủ vẫn phiên âm lại sau cuộc họp (chính xác hơn, có Từ vựng/Công ty) — phụ đề chỉ để theo dõi trực tiếp. */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const GS = { r: null, map: null, err: 0, dead: false };
+const srLang = () => ({ vi: 'vi-VN', 'vi,en': 'vi-VN', en: 'en-US', ja: 'ja-JP' })[S.src] || 'vi-VN';
+const useG = () => !!SR && !GS.dead && LS.get('liveEng', 'google') !== 'openai';
+const capF = t => t ? t.charAt(0).toLocaleUpperCase('vi') + t.slice(1) : t;
+function gFinal(l) { if (!l || l.done || !l.text.trim()) { if (l && !l.text.trim()) dropLine(l); return; } l.part = 0; l.done = 1; l.c = 1; rtTranslate(l); }
+function gStart() {
+  if (GS.r || !SR) return;
+  let r; try { r = new SR(); } catch { GS.dead = true; liveToggle(); return; }
+  r.lang = srLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  const map = new Map(); GS.r = r; GS.map = map;
+  r.onresult = e => {
+    GS.err = 0;
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i], txt = String(res[0]?.transcript || '').replace(/\s+/g, ' ').trim();
+      let l = map.get(i);
+      if (!l) { if (!txt) continue; l = newLine(); map.set(i, l); }
+      if (l.done) continue;
+      l.text = capF(txt); l.part = res.isFinal ? 0 : 1;
+      if (res.isFinal) gFinal(l);
+    }
+    renderLive();
+  };
+  r.onerror = e => {
+    if (['not-allowed', 'service-not-allowed', 'language-not-supported', 'bad-grammar'].includes(e.error)) { GS.dead = true; console.warn('Phụ đề trình duyệt không dùng được:', e.error); }
+    else if (e.error === 'network' || e.error === 'audio-capture') GS.err++;
+  };
+  r.onend = () => {
+    for (const l of map.values()) gFinal(l);                    // câu đang dở khi phiên tự ngắt: chốt luôn, không mất chữ
+    if (GS.r !== r) { renderLive(); return; }
+    GS.r = null; GS.map = null; renderLive();
+    if (!(S.live && S.st === 'rec' && R.stream)) return;
+    if (GS.err > 6) GS.dead = true;
+    if (GS.dead) { liveToggle(); return; }                      // → OpenAI realtime
+    setTimeout(() => { if (!GS.r && S.live && S.st === 'rec' && useG()) gStart(); }, GS.err ? Math.min(4000, 400 * GS.err) : 0);
+  };
+  try { r.start(); } catch { GS.r = null; GS.map = null; }
+}
+function gStop() { const r = GS.r; GS.r = null; if (r) { try { r.stop(); } catch { /* đã dừng */ } } }
+ACT.liveEng = b => menu(b, [
+  { label: 'Google (trình duyệt)', em: SR ? 'Nhanh, sửa chữ theo câu' : 'Trình duyệt không hỗ trợ', disabled: !SR, on: useG(), fn: () => setEng('google') },
+  { label: 'OpenAI', em: 'Realtime', on: !useG(), fn: () => setEng('openai') },
+], { w: 280, right: 1 });
+function setEng(v) { LS.set('liveEng', v); if (v === 'google') GS.dead = false; liveStop(); renderLive(); liveToggle(); const el = $('[data-a=liveEng] span'); if (el) el.textContent = useG() ? 'Google' : 'OpenAI'; }
 const RT_WORKLET = `class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('pcm-tap',T)`;
 const rtSend = o => { try { if (RT.ws?.readyState === 1) RT.ws.send(JSON.stringify(o)); } catch { /* bỏ qua */ } };
 async function rtStart() {
@@ -542,7 +606,7 @@ async function rtStart() {
     const ws = new WebSocket(t.url, ['realtime', 'openai-insecure-api-key.' + t.token, ...(t.beta ? ['openai-beta.realtime-v1'] : [])]);
     await new Promise((ok, no) => { const to = setTimeout(() => no(new Error('ws_timeout')), 8000); ws.onopen = () => { clearTimeout(to); ok(); }; ws.onerror = () => { clearTimeout(to); no(new Error('ws_error')); }; });
     if (!R.stream || !(S.st === 'rec' || S.st === 'paused')) { ws.close(); rtStop(true); return; }
-    RT.ws = ws; RT.retry = 0; RT.mode = t.mode || 'vad'; RT.cfg = { hold: t.hold || 800, maxTurn: t.maxTurn || 14000, minLp: t.minLp ?? -1 }; RT.rot = Date.now() + 50 * 60000; RT.open = null; RT.q = []; vadReset();
+    RT.ws = ws; RT.retry = 0; RT.mode = t.mode || 'vad'; RT.cfg = { hold: Math.max(900, t.hold || 900), maxTurn: t.maxTurn || 14000, minLp: t.minLp ?? -1 }; RT.rot = Date.now() + 50 * 60000; RT.open = null; RT.q = []; vadReset();
     ws.onmessage = e => { try { rtMsg(JSON.parse(e.data)); } catch { /* bỏ qua */ } };
     ws.onclose = () => { if (RT.ws !== ws) return; RT.ws = null; if ((S.st === 'rec' || S.st === 'paused') && S.live && RT.retry++ < 5) setTimeout(liveToggle, 400 * RT.retry); else if (S.st === 'rec' && S.live && !RT.got) rtFail('closed'); };
     const pre = RT.pre; RT.pre = null; for (const a of pre) ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: a }));
@@ -577,7 +641,7 @@ function vadStep(rms) {
 function rtSpeechStart() { if (!RT.open && !RT.q.length) RT.q.push(newLine()); renderLive(); }
 function rtEndTurn() {
   const l = RT.open || RT.q[0];
-  if (RT.mode === 'live' && l && !l.text && RT.v.spoke < 300) { rtSend({ type: 'input_audio_buffer.clear' }); dropLine(l); return; }
+  if (RT.mode === 'live' && l && !l.text && RT.v.spoke < 300) { dropLine(l); return; }   // giữ âm thanh trong buffer: gộp vào câu sau, không xoá (trước đây mất các từ ngắn)
   rtSend({ type: 'input_audio_buffer.commit' });
   if (l) { l.c = 1; RT.open = null; if (/[.!?。！？…]\s*$/.test(l.text.trim())) rtTranslate(l); setTimeout(() => { if (!l.done && !l.text && LV.lines.has(l.k)) dropLine(l); }, 8000); }
   if (Date.now() > RT.rot && RT.ws) { RT.rot = Infinity; setTimeout(() => { if (RT.ws && !RT.v.on) { rtStop(true); liveToggle(); } else RT.rot = 0; }, 2500); }
@@ -635,7 +699,7 @@ function rtStop(now) {
   }
   RT.open = null; RT.q = []; vadReset();
 }
-function liveStop() { rtStop(); clearTimeout(LV.tm); LV.tm = 0; const r = LV.cur; LV.cur = null; if (r) r._peak = LV.peak; try { if (r && r.state !== 'inactive') r.stop(); } catch { /* đã dừng */ } }
+function liveStop() { gStop(); rtStop(); clearTimeout(LV.tm); LV.tm = 0; const r = LV.cur; LV.cur = null; if (r) r._peak = LV.peak; try { if (r && r.state !== 'inactive') r.stop(); } catch { /* đã dừng */ } }
 /* ---------- Dự phòng: cắt đoạn ~3 giây → máy chủ phiên âm + dịch ---------- */
 function liveCycle() {
   if (!S.live || S.st !== 'rec' || !R.stream) { LV.cur = null; return; }
@@ -670,7 +734,8 @@ function lineHtml(l) {
 function renderLive() {
   const box = $('#live'); if (!box) return; box.classList.toggle('big', LV.big);
   ROOT.querySelectorAll('#liveLang [data-v]').forEach(b => { const on = b.dataset.v === S.live; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
-  $('#liveDot').className = 'dot ' + (S.st === 'rec' ? (RT.v?.on ? 'rec' : 'rec pulse') : S.st === 'paused' ? 'warn' : '');
+  const eg = $('[data-a=liveEng] span'); if (eg) eg.textContent = useG() ? 'Google' : 'OpenAI';
+  $('#liveDot').className = 'dot ' + (S.st === 'rec' ? (GS.r || RT.v?.on ? 'rec' : 'rec pulse') : S.st === 'paused' ? 'warn' : '');
   const b = $('#liveB'), ks = [...LV.lines.keys()].sort((a, c) => c - a).slice(0, 200), keep = new Set(ks);
   if (!ks.length) { if (b.dataset.e !== '1') { b.innerHTML = `<div class="live-e">${ico('captions', 30)}</div>`; b.dataset.e = '1'; LV.dom.clear(); } return; }
   if (b.dataset.e === '1') { b.innerHTML = ''; b.dataset.e = ''; }
@@ -686,7 +751,7 @@ function renderLive() {
 ACT.liveClear = () => { for (const l of LV.lines.values()) l.req?.abort(); LV.lines.clear(); LV.dom.clear(); RT.ids.clear(); RT.q = []; RT.open = null; renderLive(); };
 ACT.liveLang = b => { S.live = b.dataset.v; LS.set('live', S.live); renderLive(); rtFill(); };
 ACT.srcPick = b => menu(b, SRCS.map(([v, l]) => ({ label: l, em: SRC_EM[v], on: v === S.src, fn: () => setSrc(v) })), { w: 230 });
-function setSrc(v) { if (v === S.src) return; S.src = v; LS.set('src', v); const el = $('#srcLbl'); if (el) el.textContent = srcLabel(); renderLive(); if (RT.ws) { rtStop(true); RT.retry = 0; liveToggle(); } }
+function setSrc(v) { if (v === S.src) return; S.src = v; LS.set('src', v); const el = $('#srcLbl'); if (el) el.textContent = srcLabel(); renderLive(); if (GS.r) { gStop(); setTimeout(liveToggle, 300); } if (RT.ws) { rtStop(true); RT.retry = 0; liveToggle(); } }
 ACT.liveBig = async () => {
   const el = $('#live');
   if (document.fullscreenElement) { await document.exitFullscreen().catch(() => {}); return; }
@@ -1106,7 +1171,7 @@ async function renderPub() {
 }
 /* ================= Cài đặt: Mẫu biên bản · Từ vựng · Chủ đề · Giọng đọc · Zalo ================= */
 const CF = { m: null, p: 'topic', dirty: false, opts: {}, ed: null, sel: {}, voc: null, vq: '' };
-const PANES = [['topic', 'book', 'Chủ đề họp'], ['tpl', 'file', 'Mẫu báo cáo'], ['vocab', 'type', 'Từ vựng'], ['zalo', 'chat', 'Zalo'], ['voice', 'volume', 'Giọng đọc']];
+const PANES = [['topic', 'book', 'Chủ đề họp'], ['tpl', 'file', 'Mẫu báo cáo'], ['vocab', 'type', 'Từ vựng'], ['company', 'users', 'Công ty'], ['zalo', 'chat', 'Zalo'], ['voice', 'volume', 'Giọng đọc']];
 const Z = { s: {}, tm: 0, t: null };
 async function zaloState() { try { const d = await get('zalo_state'); Z.s = d; } catch { /* bỏ qua */ } return Z.s; }
 async function guard() { if (!CF.dirty) return true; if (!await confirmBox('Bỏ thay đổi?', 'Thay đổi chưa lưu sẽ mất.', 'Bỏ thay đổi')) return false; CF.dirty = false; return true; }
@@ -1124,7 +1189,7 @@ function showPane(p) {
   CF.p = p; CF.dirty = false; CF.ed = null; clearInterval(Z.tm);
   const cnt = { tpl: S.styles?.styles.length, vocab: vocabCount(), topic: S.topics?.length };
   $('#cNav').innerHTML = PANES.map(([k, ic, l]) => `<button type="button" class="mi${k === p ? ' on' : ''}" data-p="${k}">${ico(ic, 16)}<span class="t">${l}</span>${cnt[k] != null ? `<em>${cnt[k]}</em>` : ''}</button>`).join('');
-  ({ tpl: paneTpl, vocab: paneVocab, topic: paneTopic, voice: paneVoice, zalo: paneZalo })[p] ? ({ tpl: paneTpl, vocab: paneVocab, topic: paneTopic, voice: paneVoice, zalo: paneZalo })[p]() : paneTopic();
+  ({ tpl: paneTpl, vocab: paneVocab, topic: paneTopic, voice: paneVoice, zalo: paneZalo, company: paneCompany })[p] ? ({ tpl: paneTpl, vocab: paneVocab, topic: paneTopic, voice: paneVoice, zalo: paneZalo, company: paneCompany })[p]() : paneTopic();
 }
 const markDirty = () => { CF.dirty = true; const b = $('#cSave'); if (b) b.disabled = false; };
 
@@ -1175,6 +1240,22 @@ function paneVocab() {
   };
 }
 
+/* ---------- Công ty: bối cảnh + thành viên → phiên âm nghe đúng tên, biên bản ghi đúng vai trò / phòng ban ---------- */
+async function paneCompany() {
+  $('#cMain').innerHTML = `<div class="vw-msg">${ico('loader', 18, 'spin')}</div>`;
+  let c; try { c = (await get('company')).config; } catch (er) { $('#cMain').innerHTML = `<div class="vw-msg">${esc(errText(er))}</div>`; return; }
+  if (CF.p !== 'company') return;
+  const m = pane('Công ty', `<button type="button" class="btn pri" id="cSave" data-c="save" disabled>Lưu</button>`,
+    `<div class="fld"><label for="coN">Tên công ty</label><input class="in" id="coN" value="${esc(c.name || '')}" maxlength="120"></div>
+    <div class="fld"><label for="coC">Bối cảnh <span class="mut">· lĩnh vực, sản phẩm, phòng ban, thuật ngữ hay dùng</span></label><textarea class="in" id="coC" style="min-height:170px;resize:vertical">${esc(c.context || '')}</textarea></div>
+    <div class="fld"><label for="coP">Thành viên <span class="mut">· mỗi dòng: Tên — vai trò / phòng ban</span></label><textarea class="in" id="coP" spellcheck="false" style="min-height:220px;resize:vertical">${esc(c.people || '')}</textarea><span class="hint">Dùng cho mọi cuộc họp: phiên âm nghe đúng tên người, biên bản ghi đúng người và phòng ban. Không chép vào biên bản.</span></div>`);
+  m.oninput = () => markDirty();
+  m.onclick = async e => {
+    if (!e.target.closest('[data-c=save]')) return; const b = $('#cSave'); b.disabled = true;
+    try { await post('company_save', { name: $('#coN').value, context: $('#coC').value, people: $('#coP').value }); CF.dirty = false; toast('Đã lưu', { ok: 1, ms: 2000 }); } catch (er) { toast('Không lưu được: ' + errText(er)); b.disabled = false; }
+  };
+}
+
 /* ---------- Giọng đọc (tab Đọc văn bản) ---------- */
 function paneVoice() {
   const L = T.vcfg?.styles || [];
@@ -1220,9 +1301,9 @@ function zaloPaint() {
     const b = e.target.closest('[data-c]'); if (!b) return; const c = b.dataset.c;
     try {
       if (c === 'save') await zaloSave();
-      else if (c === 'test') { if (CF.dirty) await zaloSave(); b.disabled = true; await post('zalo_test', {}, 90000); toast('Đã gửi tin thử', { ok: 1, ms: 2500 }); b.disabled = false; }
+      else if (c === 'test') { if (CF.dirty) await zaloSave(); b.disabled = true; msg('Đang gửi…'); const r = await post('zalo_test', {}, 90000); msg(''); toast(r.result === 'SENT' ? 'Đã gửi tin thử' : 'Đã xếp hàng — tin sẽ tới nhóm trong ít phút', { ok: 1, ms: 3000 }); b.disabled = false; }
       else if (c === 'nick') { if (!t) return msg('Đang tải danh sách nick…'); if (!t.nicks.length) return msg('Chưa có nick Zalo nào bạn được dùng trong HireX'); menu(b, t.nicks.map(n => ({ label: n.name, icon: 'user', em: n.connected ? '' : 'Mất kết nối', on: n.id === E.acc, fn: () => { if (n.id === E.acc) return; Object.assign(E, { acc: n.id, accName: n.name, conv: '', group: '' }); markDirty(); Z.t = null; zaloPaint(); zaloLoad(); } })), { w: 280, right: 1 }); }
-      else if (c === 'pick') { if (!t) return msg('Đang tải danh sách nhóm…'); if (!t.groups.length) return msg('Nick này chưa có nhóm Zalo nào trong HireX'); menu(b, t.groups.map(g => ({ label: g.name, icon: 'users', on: g.id === E.conv, fn: () => { E.conv = g.id; E.group = g.name; markDirty(); zaloPaint(); } })), { w: 320, right: 1 }); }
+      else if (c === 'pick') { if (!t) return msg('Đang tải danh sách nhóm…'); if (!t.groups.length) return msg('Nick này chưa có nhóm Zalo nào trong HireX'); menu(b, t.groups.map(g => ({ label: g.name, icon: 'users', em: ago(g.at), on: g.id === E.conv, fn: () => { E.conv = g.id; E.group = g.name; markDirty(); zaloPaint(); } })), { w: 340, right: 1, search: 'Tìm nhóm…' }); }
     } catch (er) { b.disabled = false; msg(er.detail || errText(er)); }
   };
 }

@@ -73,7 +73,7 @@ async function visibleBroadcastIds(db: Db, context: BroadcastContext): Promise<s
   const accessible = await getAccessibleChannelAccountIds();
   const [own, used] = await Promise.all([
     db.from("zalo_broadcasts").select("id").eq("workspace_id", context.workspaceId).eq("created_by", context.userId).limit(500),
-    accessible === null ? Promise.resolve({ data: null }) : accessible.length ? db.from("zalo_broadcast_targets").select("broadcast_id").eq("workspace_id", context.workspaceId).in("channel_account_id", accessible).limit(5000) : Promise.resolve({ data: [] }),
+    accessible === null ? Promise.resolve({ data: null }) : accessible.length ? db.rpc("zalo_broadcast_ids_for_accounts", { p_workspace_id: context.workspaceId, p_account_ids: accessible }) : Promise.resolve({ data: [] }),
   ]);
   if (used.data === null) return null;
   return [...new Set([...((own.data ?? []) as Row[]).map((row) => String(row.id)), ...((used.data ?? []) as Row[]).map((row) => String(row.broadcast_id))])];
@@ -89,18 +89,19 @@ export async function listBroadcasts(context: BroadcastContext, onlyId?: string)
   const { data } = await query;
   const rows = (data ?? []) as Row[];
   if (!rows.length) return [];
-  const [{ data: targets }, { data: people }] = await Promise.all([
-    db.from("zalo_broadcast_targets").select("broadcast_id,status,pin_status,message_pin_status").eq("workspace_id", context.workspaceId).in("broadcast_id", rows.map((row) => String(row.id))).limit(50_000),
+  const [{ data: counts }, { data: people }] = await Promise.all([
+    db.rpc("zalo_broadcast_target_counts", { p_workspace_id: context.workspaceId, p_broadcast_ids: rows.map((row) => String(row.id)) }),
     db.from("profiles").select("id,full_name").eq("workspace_id", context.workspaceId).in("id", [...new Set(rows.map((row) => String(row.created_by)))]),
   ]);
   const names = new Map(((people ?? []) as Row[]).map((row) => [String(row.id), String(row.full_name ?? "")]));
+  const countsById = new Map(((counts ?? []) as Row[]).map((row) => [String(row.broadcast_id), row]));
   return rows.map((row) => {
-    const mine = ((targets ?? []) as Row[]).filter((target) => target.broadcast_id === row.id);
+    const tally = countsById.get(String(row.id));
+    const n = (key: string) => Number(tally?.[key] ?? 0);
     return {
       id: String(row.id), name: String(row.name), status: String(row.status), sendMessage: row.send_message === true, pinMessage: row.pin_message === true, pinNote: row.pin_note === true,
       createdAt: String(row.created_at), createdBy: names.get(String(row.created_by)) ?? "", approvedAt: typeof row.approved_at === "string" ? row.approved_at : null,
-      total: mine.length, sent: mine.filter((target) => target.status === "SENT").length, failed: mine.filter((target) => ["FAILED", "UNKNOWN"].includes(String(target.status))).length,
-      waiting: mine.filter((target) => target.status === "PENDING").length, pinned: mine.filter((target) => target.pin_status === "PINNED").length, pinnedMessages: mine.filter((target) => target.message_pin_status === "PINNED").length,
+      total: n("total"), sent: n("sent"), failed: n("failed"), waiting: n("waiting"), pinned: n("pinned"), pinnedMessages: n("pinned_messages"),
       canManage: can(context, "manage") && (row.created_by === context.userId || context.isAdmin), textContent: String(row.text_content), dailyCapPerNick: Number(row.daily_cap_per_nick),
     };
   });

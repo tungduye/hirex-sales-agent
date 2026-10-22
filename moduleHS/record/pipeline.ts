@@ -11,7 +11,7 @@ import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
 import { docx, xlsx, cleanHtml, xlsxText, normText, docxOutline, fillDocx, docxHtml, fillXlsx, xlsxSheets, type Sheet } from "./office";
 import {
   C, LANGS, TPL, err, cleanTitle, safeId, fmtT, fmtDur, esc, slugBase, slugify, lang, langs, isLang, st, nextId, dir, fp, save, upd, chunks, has, jobSet, rename,
-  styles, topics, glossary, settings, type Gloss, type HsErr, type Lang, type Meta, type Style,
+  styles, topics, glossary, settings, company, companyNames, type Gloss, type HsErr, type Lang, type Meta, type Style,
 } from "./data";
 import { zaloSend } from "./zalo";
 
@@ -50,8 +50,9 @@ export const aiTitle = async (text: string) => {
 /* ============ prompt biên bản (giữ nguyên từ bản gốc) ============ */
 function summaryPrompt(m: Meta, transcript: string, tpl = "") {
   const gl = (m.glossary || []).filter((g) => g.heard && g.text), mode = m.fmt === "excel" ? (tpl ? "xfill" : "excel") : tpl ? "wfill" : "word";
-  const ctx = [m.topic_name && "Chủ đề họp: " + m.topic_name, m.topic_context && "Ngữ cảnh:\n" + m.topic_context, m.topic_content && "Bộ content cần đối chiếu:\n" + m.topic_content, m.topic_main && "Nội dung chính cần bám sát:\n" + m.topic_main].filter(Boolean).join("\n\n");
-  const common = "Viết bằng tiếng Việt (transcript có thể là tiếng Việt, tiếng Anh hoặc tiếng Nhật; giữ nguyên tên riêng, thuật ngữ). NGỮ CẢNH CHỦ ĐỀ chỉ giúp hiểu đúng thuật ngữ, tên riêng và phạm vi; không chép nguyên văn ngữ cảnh vào kết quả và không coi đó là điều đã được nói trong cuộc họp. TỪ VỰNG: nếu transcript có cách nói/viết ở vế trái thì ghi theo vế phải. Không bịa tên, số liệu, deadline, người phụ trách hay quyết định. ";
+  const co = company();
+  const ctx = [co.context && `Bối cảnh công ty (${co.name}):\n` + co.context, co.people && "Thành viên công ty (tên — vai trò / phòng ban):\n" + co.people, m.topic_name && "Chủ đề họp: " + m.topic_name, m.topic_context && "Ngữ cảnh:\n" + m.topic_context, m.topic_content && "Bộ content cần đối chiếu:\n" + m.topic_content, m.topic_main && "Nội dung chính cần bám sát:\n" + m.topic_main].filter(Boolean).join("\n\n");
+  const common = "Viết bằng tiếng Việt (transcript có thể là tiếng Việt, tiếng Anh hoặc tiếng Nhật; giữ nguyên tên riêng, thuật ngữ). NGỮ CẢNH CHỦ ĐỀ (gồm bối cảnh công ty và danh sách thành viên) chỉ giúp hiểu đúng thuật ngữ, tên riêng, vai trò, phòng ban và phạm vi: tên người nghe gần giống một thành viên thì ghi đúng như danh sách, kèm phòng ban khi cần; không liệt kê người không phát biểu hoặc không được nhắc tới vào Thành phần tham dự; không chép nguyên văn ngữ cảnh vào kết quả và không coi đó là điều đã được nói trong cuộc họp. TỪ VỰNG: nếu transcript có cách nói/viết ở vế trái thì ghi theo vế phải. Không bịa tên, số liệu, deadline, người phụ trách hay quyết định. ";
   const titleRule = (json: boolean) => m.auto ? (json ? 'Trường "title" là tên cuộc họp ngắn gọn 3 đến 8 từ, tiếng Việt, không ký tự đặc biệt. ' : "Dòng đầu tiên của kết quả phải là đúng một comment HTML dạng <!--TITLE: tên cuộc họp ngắn gọn 3 đến 8 từ, tiếng Việt, không ký tự đặc biệt--> rồi mới đến HTML. ") : json ? 'Trường "title" để chuỗi rỗng. ' : "";
   const I = {
     word: "Bạn là thư ký cuộc họp doanh nghiệp, viết BIÊN BẢN CUỘC HỌP theo văn phong hành chính: khách quan, đúng diễn biến, câu hoàn chỉnh, ngắn gọn. Chỉ dùng thông tin trong transcript. " + common
@@ -95,13 +96,15 @@ export function isEcho(text: string, gl: Gloss[] | undefined, prompt = "") {
   const p = NORM(prompt); return t.length >= 4 && p.includes(t);
 }
 const kwClean = (s: string) => String(s || "").replace(/[<>\r\n]/g, " ").replace(/\s+/g, " ").trim();
-const glTerms = (gl: Gloss[]) => [...new Set((gl || []).map((g) => kwClean(g.text)).filter(Boolean))].slice(0, 60);
+const glTerms = (gl: Gloss[]) => [...new Set([...(gl || []).map((g) => kwClean(g.text)), ...companyNames()].filter(Boolean))].slice(0, 60);
+/** 1 câu bối cảnh cho model phiên âm (câu đầu của Cài đặt › Công ty). */
+const coLine = () => { const c = company(); return kwClean((c.context || "").split("\n")[0]).slice(0, 220); };
 /** Ngữ cảnh ngắn cho model nhận dạng (theo ngôn ngữ đang nói); KHÔNG liệt kê thuật ngữ ở đây (đã gửi qua keywords) để model không đọc lại. */
 function livePrompt(m: Meta, l: string = "vi") {
   const tp = m.topic_name ? kwClean(m.topic_name) : "", ctx = kwClean(m.topic_context || "").slice(0, 260);
   if (l === "en") return (tp ? `Business meeting: ${tp}. ${ctx}` : "Business meeting.").trim().slice(0, 400);
   if (l === "ja") return (tp ? `会議「${tp}」。${ctx}` : "ビジネス会議。").trim().slice(0, 400);
-  return (tp ? `Cuộc họp "${tp}". ${ctx}` : "Cuộc họp doanh nghiệp.").trim().slice(0, 400);
+  return ((tp ? `Cuộc họp "${tp}". ${ctx}` : "Cuộc họp nội bộ công ty.") + " " + coLine()).trim().slice(0, 400);
 }
 /** Bỏ ký tự thuộc hệ chữ không có trong ngôn ngữ đang nói (model đôi khi lẫn Hangul/Thái vào tiếng Việt); dòng không còn chữ thì bỏ. */
 const SCRIPTS: Record<Lang, string[]> = { vi: ["Latin"], en: ["Latin"], ja: ["Latin", "Han", "Hiragana", "Katakana"] };
@@ -219,7 +222,7 @@ export const FILES: Record<string, (m: Meta) => [string, string, string]> = {
 const link = (m: Meta, kind = "") => `${C.pub || m.base}/m/${m.slug}${kind ? "/" + kind : ""}`;
 async function notify(m: Meta, rows: [string, string][]) {
   const s = settings(); if (!s.zaloNotify || !(m.kind === "tts" ? s.zaloTts : s.zaloMeeting) || !s.conversation_id) return;
-  try { await zaloSend(rows.map(([k, v]) => `${k}: ${v}`).join("\n"), `record:${m.id}:${m.slug}`); upd(m, { notify: "ok" }); }
+  try { const r = await zaloSend(rows.map(([k, v]) => `${k}: ${v}`).join("\n"), m.title || m.slug, 30000); upd(m, { notify: r === "SENT" ? "ok" : "queued" }); }
   catch (e) { const msg = e instanceof Error ? e.message : String(e); console.error("[Cuộc họp] Zalo:", msg); upd(m, { notify: "Lỗi Zalo: " + msg }); }
 }
 /** useFile=false: bỏ qua file định dạng, AI viết biên bản Word theo mô tả của mẫu. */
@@ -258,7 +261,9 @@ export async function processMeeting(m: Meta) {
   const pd = fp(s(), "parts"); fs.rmSync(pd, { recursive: true, force: true }); fs.mkdirSync(pd);
   const [c2, o2] = await ff(["-y", "-loglevel", "error", "-i", audio, "-map", "0:a:0", "-c", "copy", "-f", "segment", "-segment_time", String(C.seg), "-reset_timestamps", "1", path.join(pd, "part_%03d.mp3")]);
   const pf = fs.readdirSync(pd).sort(); if (c2 || !pf.length) throw err("ffmpeg_split", 400, o2.slice(-300));
-  const gl = m.glossary || [], prompt = [`Cuộc họp doanh nghiệp${m.src_lang && isLang(m.src_lang) ? " bằng " + LANGS[m.src_lang].ai : ""}.`, m.topic_name && `Chủ đề: ${m.topic_name}.`, m.topic_context && m.topic_context.replace(/\s+/g, " ").slice(0, 400), gl.length && `Thuật ngữ thường gặp: ${gl.map((g) => g.text).join(", ")}.`].filter(Boolean).join(" ");
+  const gl = m.glossary || [], names = companyNames(), terms = [...new Set(gl.map((g) => g.text))];
+  const prompt = [`Cuộc họp nội bộ${m.src_lang && isLang(m.src_lang) ? " bằng " + LANGS[m.src_lang].ai : ""}.`, coLine(), m.topic_name && `Chủ đề: ${m.topic_name}.`, m.topic_context && m.topic_context.replace(/\s+/g, " ").slice(0, 300),
+    names.length && `Người tham gia có thể gồm: ${names.slice(0, 20).join(", ")}.`, terms.length && `Thuật ngữ thường gặp: ${terms.slice(0, 40).join(", ")}.`].filter(Boolean).join(" ");
   const texts: string[] = [];
   for (const f of pf) { const t = dropEcho(await transcribe(path.join(pd, f), m.src_hint ?? m.src_lang, prompt), gl, prompt); if (t) texts.push(t); }
   if (!texts.length) throw err("no_transcript");
