@@ -10,7 +10,6 @@ import * as A from "./attachments";
 import * as AI from "./owl";
 import { checkerHandle } from "./checker";
 import { owlAutoHandle } from "./owl-auto";
-import { crmHandle } from "./crm";
 import { themeCss, themePreview, themesList } from "./themes";
 import { eventsResponse } from "./feed";
 import { cyvTick } from "./checker";
@@ -64,7 +63,6 @@ export async function handleGet(name: string, qs: URLSearchParams, req?: Request
     const q = (k: string, d = "") => qs.get(k) ?? d;
     if (name.startsWith("cyv/")) { await requireHs("view"); return json(...(await checkerHandle("GET", name.slice(4), qs, null))); }
     if (name.startsWith("owl/")) { await requireHs("view"); return json(...(await owlAutoHandle("GET", name.slice(4), qs, null))); }
-    if (name.startsWith("crm/")) { await requireHs("view"); return json(...(await crmHandle("GET", name.slice(4), qs, null))); }
     if (name === "ui" || name === "owl-page") {
       // trang ~850 KB: trình duyệt giữ bản đã tải, mỗi lần mở chỉ hỏi lại (ETag) → không đổi thì 304, khỏi tải lại
       await requireHs("view");
@@ -131,7 +129,6 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
       return file(await B.writeXlsx({ [sheet]: rows }, true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `owl_${stamp()}.xlsx`);
     }
     if (name.startsWith("owl/")) { await requireHs("edit"); const body = Buffer.from(await req.arrayBuffer()), r = await SRC.run({ src: "owl", name: "Cú vọ tự động" }, () => owlAutoHandle("POST", name.slice(4), qs, body)); await bumpVer(); return json(...r); }
-    if (name.startsWith("crm/")) { await requireHs("edit"); const body = Buffer.from(await req.arrayBuffer()), r = await SRC.run({ src: "crm", name: "CRM" }, () => crmHandle("POST", name.slice(4), qs, body)); await bumpVer(); return json(...r); }
     if (name === "att_upload") { await requireHs("edit"); return json(await A.attSave(qs.get("name") ?? "file", Buffer.from(await req.arrayBuffer()))); }
     if (name === "backup_upload") {
       await requireHs("manage");

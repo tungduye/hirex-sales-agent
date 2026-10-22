@@ -2,13 +2,13 @@ import "server-only";
 
 import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb, SRC } from "./db";
 import { snapshot } from "./backup";
-import { ALL_METAS, Abort, MOD_MAP, NODE_FALLBACK, WORKER_IDS, type CheckOut, type CheckerMeta, type CheckerMod } from "./checker-mods";
+import { ALL_METAS, FB_CHECKERS, MOD_MAP, NODE_FALLBACK, WORKER_IDS, type CheckOpt, type CheckOut, type CheckerMeta, type CheckerMod } from "./checker-mods";
 import type { Id } from "../types";
 
 /* Vọng gác (checker/) — khung chạy trong HireX.
    · Checker thuần (Telegram / Gmail / Proxy) chạy NGAY trong tiến trình Node (server/checker-mods.ts).
-   · Checker cần curl_cffi (FB / FB Page / Bài đăng FB) → tạo job trong ahs_jobs cho worker Python chạy,
-     worker ghi kết quả thô vào ahs_jobs.result; Next đọc lại và ÁP DỤNG (_apply/_apply_x + ahs_cyv_checks).
+   · FB / FB Page / Bài đăng FB cũng chạy NGAY trong Node (checker-fb.ts · checker-fbpost.ts — port của checkfb*.py, kiểm chứng khớp Python bằng máy chủ Facebook giả).
+     Chỉ khi đặt AHS_CYV_ENGINE=python và worker Python còn sống mới giao job cho worker (ahs_jobs.result → Next đọc lại và ÁP DỤNG, như cũ).
    API giữ đúng core.py: GET /state · POST /cfg · /run · /stop. */
 
 type Cfg = Record<string, unknown>;
@@ -19,7 +19,7 @@ const nz = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, 
 
 /* ───────── worker Python: nhịp sống (dòng ahs_jobs kind='worker', worker cập nhật `started` vài giây/lần) ───────── */
 const WORKER_TTL = 60;
-/** Worker còn chạy không (nhịp gần nhất ≤ 60 giây). Dùng chung cho Vọng gác / CRM / Cú vọ tự động. */
+/** Worker còn chạy không (nhịp gần nhất ≤ 60 giây). Dùng chung cho Vọng gác / Cú vọ tự động. */
 export async function workerAlive(): Promise<boolean> {
   const r = await orMissing(run<{ started: number | null } | null>(sb().from("ahs_jobs").select("started").eq("kind", "worker").order("started", { ascending: false }).limit(1).maybeSingle()), () => null);
   return Boolean(r?.started && now() - Number(r.started) < WORKER_TTL);
@@ -59,11 +59,12 @@ async function partFields(cfg: Cfg, cid: string): Promise<Record<string, Id>> {
   }
   return out;
 }
-async function targets(cfg: Cfg, ids: Id[] | null, onlyUnchecked: boolean, cid: string): Promise<Array<{ id: Id; value: string }>> {
+async function targets(cfg: Cfg, ids: Id[] | null, onlyUnchecked: boolean, cid: string, sink?: { rows?: Array<{ id: Id; data: Record<string, unknown> }> }): Promise<Array<{ id: Id; value: string }>> {
   if (!cfg.tab_id || !cfg.field_id) return [];
   const m = MOD_MAP[cid]; const pf = Object.keys(await partFields(cfg, cid)).length ? await partFields(cfg, cid) : {};
   const comp = m?.compose && Object.keys(pf).length ? m.compose : null;
   const rows = await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b));   // đọc theo trang (max_rows 1000)
+  if (sink) sink.rows = rows;
   const want = ids ? new Set(ids) : null;
   let done = new Set<Id>();
   if (onlyUnchecked) { const dr = await pages<{ acc_id: Id }>((a, b) => sb().from(T.cyv_checks).select("acc_id").eq("ck", cid).gte("ts", today0()).order("id").range(a, b)); done = new Set(dr.map((r) => r.acc_id)); }
@@ -171,16 +172,22 @@ async function applyOneNow(cid: string, cfg: Cfg, xf: Record<string, Id | null>,
 }
 
 /* ───────── job trong tiến trình (checker thuần) ───────── */
-interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string }
+interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string; phase?: string; snap?: Promise<unknown>; held?: Array<Promise<unknown>> }
 const JOBS = new Map<string, NodeJob>();
 
-async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>, mod?: CheckerMod) {
+async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>, mod?: CheckerMod, rows?: Array<{ id: Id; data: Record<string, unknown> }>) {
   const m = mod ?? MOD_MAP[cid], meta = m.CHECKER, J = JOBS.get(cid)!;
   const xon = (meta.extra || []).filter((e) => cfg["xf_" + e.k] !== "").map((e) => e.k);
-  const opt = { timeout: Number(cfg.timeout) || 10, proxy: String(cfg.proxy || ""), url: String(cfg.url || meta.url || ""), x: (cfg.x as Record<string, string>) || {}, xon, stopped: () => J.stop };
-  const xf: Record<string, Id | null> = {};
-  for (const e of meta.extra || []) if (xon.includes(e.k)) { try { xf[e.k] = await xfield(cid, cfg, e); } catch { xf[e.k] = null; } }
   const threads = Math.max(1, Math.min(Number(cfg.threads) || 10, 64));
+  const opt: CheckOpt = { timeout: Number(cfg.timeout) || 10, proxy: String(cfg.proxy || ""), url: String(cfg.url || meta.url || ""), x: (cfg.x as Record<string, string>) || {}, xon, stopped: () => J.stop, threads };
+  const xf: Record<string, Id | null> = {};
+  J.phase = "Đang chuẩn bị cột và dữ liệu có sẵn…";
+  for (const e of meta.extra || []) if (xon.includes(e.k)) { try { xf[e.k] = await xfield(cid, cfg, e); } catch { xf[e.k] = null; } }
+  // cột skip_filled (vd Tên FB): đọc sẵn giá trị đang có để checker bỏ qua dòng đã đủ + dọn giá trị rác (_preload_extra của core.py)
+  let have: Record<number, Record<string, string>> = {};
+  try { have = await preloadExtra(cid, cfg, meta, xon, items.map((i) => i.id), rows, () => J.snap); } catch (e) { J.err_msg = "Không đọc được cột tên có sẵn: " + (e instanceof Error ? e.message : String(e)); }
+  const optOf = (id: Id): CheckOpt => (have[id] ? { ...opt, have: have[id] } : opt);
+  J.phase = "";
   try {
     if (m.check_batch) {
       const bs = meta.batch || items.length || 1;
@@ -196,11 +203,11 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
       const workers = Array.from({ length: Math.min(threads, items.length) }, async () => {
         for (;;) { if (J.stop) return; const idx = i++; if (idx >= items.length) return; const it = items[idx];
           let r: CheckOut; const t0 = Date.now();
-          try { r = await m.check!(it.value, opt); } catch (e) { r = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
+          try { r = await m.check!(it.value, optOf(it.id)); } catch (e) { r = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
           // Die kéo theo tự khớp sở hữu (có thể hạ cả chuỗi xuống Mất) → kiểm lại 1 lần sau 1,5 giây cho chắc; lần 2 không Die thì không ghi Die
           if (r.res === "die" && !J.stop) {
             await new Promise((ok) => setTimeout(ok, 1500));
-            let r2: CheckOut; try { r2 = await m.check!(it.value, opt); } catch (e) { r2 = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
+            let r2: CheckOut; try { r2 = await m.check!(it.value, optOf(it.id)); } catch (e) { r2 = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
             r = r2.res === "die" ? { ...r, info: r.info + " · đã kiểm 2 lần" } : r2.res === "live" ? r2 : { res: "error", info: "Die chưa chắc (lần 2: " + r2.info + ") — giữ nguyên trạng thái" };
           }
           await consume(cid, cfg, xf, J, m, it, r, Date.now() - t0);
@@ -210,10 +217,12 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
     }
   } catch (e) { J.err_msg = e instanceof Error ? e.message : String(e); }
   finally {
-    J.running = false; J.ended = now();
+    if (J.held?.length) { J.phase = "Đang ghi các kết quả còn lại…"; await Promise.all(J.held); }
+    J.running = false; J.ended = now(); J.phase = "";
     const c2 = await cfgGet(cid); c2.last = J.ended;
     try { const mt = m.meta?.(); if (mt && mt.credit != null) c2.credit = mt.credit; } catch { /* */ }
     await cfgSet(cid, c2);
+    STATS.delete(cid); STATE.clear();                                              // số liệu "hôm nay" đã đổi → lần hỏi tới tính lại
     if (J.changed) await bumpVer();
     const oi = J.changed ? await ownImpact(J.started) : 0;
     await log("cyv_" + cid, J.done, `Vọng gác ${meta.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${oi ? ` · sở hữu đổi theo ${oi}` : ""}${J.by === "auto" ? " (định kỳ)" : ""}`).catch(() => undefined);
@@ -223,7 +232,9 @@ async function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: 
   if (J.stop) return;
   J.done++; J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   J.recent.unshift({ id: it.id, v: m.show ? m.show(it.value) : it.value, res: r.res, info: r.info, ms, ts: now() }); J.recent.length = Math.min(J.recent.length, 60);
-  try { if (await applyOne(cid, cfg, xf, { id: it.id, res: r.res, info: r.info, extra: r.extra })) { J.changed++; await bumpSoon(); } } catch { /* lỗi ghi 1 dòng: bỏ qua */ }
+  const apply = async () => { try { if (await applyOne(cid, cfg, xf, { id: it.id, res: r.res, info: r.info, extra: r.extra })) { J.changed++; await bumpSoon(); } } catch { /* lỗi ghi 1 dòng: bỏ qua */ } };
+  if (J.snap) { if (!J.phase) J.phase = "Đang sao lưu an toàn — kết quả sẽ ghi ngay khi xong…"; (J.held ??= []).push(J.snap.then(apply)); return; }   // check vẫn chạy tiếp; chưa ghi dòng nào trước khi bản an toàn xong
+  await apply();
 }
 /** ahs_ver + 1 khi có dòng đổi (để client/Cú vọ thấy), tối đa 1 lần / 3 giây trong lúc chạy */
 let lastBump = 0;
@@ -238,7 +249,7 @@ async function createWorkerJob(cid: string, cfg: Cfg, items: Array<{ id: Id; val
   await run(sb().from("ahs_jobs").insert({ kind: "cyv", payload, status: "queued", progress: { done: 0, total: items.length, applied: 0 }, created: now(), by: "cyv:" + cid }));
 }
 /** _preload_extra của core.py: cột skip_filled → đọc sẵn giá trị đang có (checker bỏ qua dòng đã đủ) + dọn giá trị rác (junk→'') cả tab; giá trị 'stale' giữ nguyên nhưng buộc đọc lại (trả ''). */
-async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: string[], aids: Id[]): Promise<Record<number, Record<string, string>>> {
+async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: string[], aids: Id[], preRows?: Array<{ id: Id; data: Record<string, unknown> }>, beforeWrite?: () => Promise<unknown> | undefined): Promise<Record<number, Record<string, string>>> {
   const exs = (meta.extra || []).filter((e) => e.skip_filled && xon.includes(e.k));
   if (!exs.length || !cfg.tab_id) return {};
   const fids: Array<[string, string, RegExp | null, RegExp | null]> = [];
@@ -246,14 +257,19 @@ async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: strin
   if (!fids.length) return {};
   const want = new Set(aids); const out: Record<number, Record<string, string>> = {};
   const ts = now();
-  for (const r of await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b))) {
+  for (const r of preRows ?? await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b))) {
     const d = { ...(r.data || {}) }; let ch = false;
     for (const [k, fid, jr, sr] of fids) {
       let v = String(d[fid] ?? "");
       if (v && jr && jr.test(v)) { d[fid] = ""; v = ""; ch = true; }
       if (want.has(r.id)) (out[r.id] ??= {})[k] = v && sr && sr.test(v) ? "" : v;
     }
-    if (ch) await run(sb().from(T.accounts).update({ data: d, updated: ts }).eq("id", r.id));
+    if (ch) {
+      if (beforeWrite) await beforeWrite();                                           // ghi (dọn rác) chỉ sau khi bản sao lưu an toàn xong
+      // dọn rác: đọc lại dòng NGAY trước khi ghi (rows có thể đã cũ vài giây → không đè sửa của người dùng)
+      const fr = preRows ? await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", r.id).maybeSingle()) : { data: r.data };
+      if (fr) { const d2 = { ...(fr.data || {}) }; let c2 = false; for (const [, fid, jr] of fids) { const v = String(d2[fid] ?? ""); if (v && jr && jr.test(v)) { d2[fid] = ""; c2 = true; } } if (c2) await run(sb().from(T.accounts).update({ data: d2, updated: ts }).eq("id", r.id)); }
+    }
   }
   return out;
 }
@@ -300,12 +316,15 @@ async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
    mỗi lần đọc cấu hình + đếm thống kê của ~6 bộ check trên toàn bảng → nhiều người mở là máy chủ nghẽn (request 10–30 giây).
    Giờ: thống kê nhớ 20 giây / bộ check; cả trạng thái dùng chung cho mọi người (đang chạy: 0,8 giây, nghỉ: 3 giây); lưu cấu hình / chạy / dừng → tính lại ngay. */
 const STATS = new Map<string, { at: number; p: Promise<{ total: number; today: number; live: number; die: number; error: number; runs_today: number }> }>();
-let STATE: { at: number; p: Promise<{ checkers: unknown[]; now: number }> } | null = null;
-function stateReset() { STATE = null; STATS.clear(); }
-async function stateCached() {
-  const t = Date.now(), ttl = [...JOBS.values()].some((j) => j.running) ? 800 : 3000;
-  if (STATE && t - STATE.at < ttl) return STATE.p;
-  const p = state(); STATE = { at: t, p }; p.catch(() => { STATE = null; });
+const STATE = new Map<string, { at: number; p: Promise<{ checkers: unknown[]; now: number }> }>();
+/** lưu cấu hình → tính lại thống kê của đúng bộ check đó; chạy / dừng chỉ làm mới trạng thái (thống kê không đổi vì thao tác này) */
+function stateReset(cid?: string, withStats = false) { STATE.clear(); if (withStats) { if (cid) STATS.delete(cid); else STATS.clear(); } }
+/** only = id 1 bộ check: giao diện đang theo dõi lượt chạy chỉ cần hỏi bộ đó (nhẹ hơn ~7 lần), 1 giây/lần */
+async function stateCached(only?: string) {
+  const t = Date.now(), key = only || "*", ttl = [...JOBS.values()].some((j) => j.running) ? 800 : 3000;
+  const hit = STATE.get(key);
+  if (hit && t - hit.at < ttl) return hit.p;
+  const p = state(only); STATE.set(key, { at: t, p }); p.catch(() => { if (STATE.get(key)?.p === p) STATE.delete(key); });
   return p;
 }
 async function stats(cid: string) {
@@ -320,34 +339,34 @@ async function statsNow(cid: string) {
     () => ({ total: 0, today: 0, live: 0, die: 0, error: 0, runs_today: 0 }));
   return s;
 }
-async function state() {
+async function state(only?: string) {
   // các checker độc lập → đọc song song (tuần tự mỗi lần poll mất vài giây trên Supabase thật)
-  const out = await Promise.all(ALL_METAS.map(async (meta) => {
+  const out = await Promise.all(ALL_METAS.filter((m) => !only || m.id === only).map(async (meta) => {
     const cid = meta.id; const c = await cfgGet(cid);
     // FB / FB Page có thể chạy trong máy chủ (không có worker) → lượt mới nhất (máy chủ hoặc worker) là lượt hiển thị
-    const nj = JOBS.get(cid) || null, wj = WORKER_IDS.has(cid) ? await drainWorkerJob(cid) : null;
+    const nj = JOBS.get(cid) || null, wj = FB_CHECKERS.has(cid) ? await drainWorkerJob(cid) : null;
     const J: NodeJob | null = nj && (!wj || nj.running || nj.started >= (wj.started || 0)) ? nj : wj ?? nj;
     const nxt = c.auto ? Number(c.last || 0) + Math.max(5, Number(c.every) || 60) * 60 : 0;
     const m = MOD_MAP[cid]; let mt: Record<string, unknown> = {}; try { mt = m?.meta?.() || {}; } catch { mt = {}; }
     if (mt.credit == null && c.credit != null) mt.credit = c.credit;
-    const job = J ? { running: J.running, total: J.total, done: J.done, live: J.live, die: J.die, error: J.error, changed: J.changed, started: J.started, ended: J.ended, recent: J.recent, err_msg: J.err_msg } : {};
+    const job = J ? { running: J.running, phase: J.phase || "", total: J.total, done: J.done, live: J.live, die: J.die, error: J.error, changed: J.changed, started: J.started, ended: J.ended, recent: J.recent, err_msg: J.err_msg } : {};
     // cấu hình trỏ tới cột / trạng thái đã xoá → hiện ngay trong khung checker (ô báo lỗi sẵn có của giao diện), không đợi lúc chạy
-    const iss = c.tab_id ? await cfgIssues(cid, c).catch(() => null) : null, warn = iss ? [...iss.fatal, ...iss.warn] : [];
+    const iss = c.tab_id && !J?.running ? await cfgIssues(cid, c).catch(() => null) : null, warn = iss ? [...iss.fatal, ...iss.warn] : [];
     const job2 = warn.length && !(J && J.running) && !(job as { err_msg?: string }).err_msg ? { ...job, err_msg: "Cần chọn lại: " + warn.join(" · ") } : job;
     return { id: cid, info: { ...meta }, cfg: c, stats: await stats(cid), meta: mt, job: job2, next: nxt, issues: warn };
   }));
-  return { checkers: out, now: now() };
+  return { checkers: out, now: now(), ...(only ? { partial: true } : {}) };
 }
-async function start(cid: string, ids: Id[] | null, scope?: string) {
+async function start(cid: string, ids: Id[] | null, scope?: string, wait = false) {
   const meta = metaOf(cid); if (!meta) throw new HsError("Checker không tồn tại");
   const node = JOBS.get(cid); if (node?.running) throw new HsError("Đang chạy - chờ xong hoặc bấm Dừng");
-  // Facebook / FB Page / Bài đăng FB: có worker Python đang sống → giao worker (đọc được cả tên); chưa có worker → FB / FB Page chạy
-  // ngay trong máy chủ (Graph, chỉ Live / Die), Bài đăng FB báo rõ cần worker — không còn tạo việc "đang chờ" mãi không ai làm.
+  // Facebook / FB Page / Bài đăng FB chạy ngay trong máy chủ (bản TS của checkfb*.py — đọc cả tên / số bình luận).
+  // Chỉ khi đặt AHS_CYV_ENGINE=python và có worker Python đang sống thì mới giao worker; worker chưa bật vẫn chạy bản TS, không treo "đang chờ".
   const alive = WORKER_IDS.has(cid) ? await workerAlive() : false;
   if (WORKER_IDS.has(cid) && alive) { const w = await activeWorkerJob(cid); if (w && (w.status === "queued" || w.status === "running")) throw new HsError("Đang chạy - chờ xong hoặc bấm Dừng"); }
   if (WORKER_IDS.has(cid) && !alive) {
     await dropStaleWorkerJobs(cid);
-    if (!NODE_FALLBACK[cid]) throw new HsError(`${meta.name} cần worker Python (đọc trang như trình duyệt) — worker chưa chạy trên máy chủ. Bật worker (worker/hs-accountshs-worker.py) rồi chạy lại.`);
+    if (!NODE_FALLBACK[cid]) throw new HsError(`${meta.name} cần worker Python — worker chưa chạy trên máy chủ.`);
   }
   const c = await cfgGet(cid);
   if (!c.tab_id || !c.field_id) throw new HsError("Chưa chọn tab và trường " + (meta.value || "giá trị"));
@@ -355,42 +374,64 @@ async function start(cid: string, ids: Id[] | null, scope?: string) {
   const iss = await cfgIssues(cid, c);
   if (iss.fatal.length) throw new HsError(`Vọng gác ${meta.name} — cần chọn lại: ${iss.fatal.join(" · ")}`);
   const sc = scope || String(c.scope || "all");
-  const items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid);
-  if (!items.length) throw new HsError("Không có dòng nào cần check");
-  if (items.length > 50) await snapshot().catch(() => undefined);                  // core.start(): chụp bản an toàn trước lượt lớn
-  if (WORKER_IDS.has(cid) && alive) { await createWorkerJob(cid, c, items); return { ok: 1, total: items.length }; }
-  const J: NodeJob = { cid, running: true, stop: false, total: items.length, done: 0, live: 0, die: 0, error: 0, changed: 0, started: now(), ended: 0, by: "manual", recent: [], scope: sc };
+  const mod = WORKER_IDS.has(cid) ? NODE_FALLBACK[cid] : undefined;
+  if (WORKER_IDS.has(cid) && alive) {                                              // giao worker Python: giữ cách cũ (đọc danh sách rồi xếp hàng)
+    const items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid);
+    if (!items.length) throw new HsError("Không có dòng nào cần check");
+    if (items.length > 50) await snapshot().catch(() => undefined);
+    await createWorkerJob(cid, c, items); return { ok: 1, total: items.length };
+  }
+  // Chạy trong Node: trả lời NGAY, phần nặng (đọc cả bảng, sao lưu an toàn, chuẩn bị cột) chạy nền và báo qua job.phase — giao diện không bị đơ.
+  const J: NodeJob = { cid, running: true, stop: false, total: sc === "selected" && ids ? ids.length : 0, done: 0, live: 0, die: 0, error: 0, changed: 0, started: now(), ended: 0, by: wait ? "auto" : "manual", recent: [], scope: sc, phase: "Đang đọc danh sách dòng…" };
   JOBS.set(cid, J);
-  void runNodeJob(cid, c, items, WORKER_IDS.has(cid) ? NODE_FALLBACK[cid] : undefined);
-  return { ok: 1, total: items.length, mode: WORKER_IDS.has(cid) ? "server" : "node" };
+  const ready = (async () => {
+    const sink: { rows?: Array<{ id: Id; data: Record<string, unknown> }> } = {};
+    let items: Array<{ id: Id; value: string }>;
+    try { items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid, sink); }
+    catch (e) { throw new Error("Không đọc được danh sách dòng: " + (e instanceof Error ? e.message : String(e))); }
+    if (!items.length) throw new HsError("Không có dòng nào cần check");
+    J.total = items.length;
+    if (items.length > 50) { const sp = snapshot().catch(() => undefined); J.snap = sp; void sp.then(() => { if (J.snap === sp) { J.snap = undefined; if ((J.phase || "").startsWith("Đang sao lưu")) J.phase = ""; } }); }                 // core.start(): chụp bản an toàn trước lượt lớn — chạy song song, ghi dòng đầu tiên chỉ sau khi xong
+    return { items, rows: sink.rows };
+  })();
+  void ready.then(
+    async ({ items, rows }) => { if (J.stop) { J.running = false; J.ended = now(); J.phase = ""; STATE.clear(); return; } await runNodeJob(cid, c, items, mod, rows); },
+    (e) => { if (wait && e instanceof HsError) { if (JOBS.get(cid) === J) JOBS.delete(cid); STATE.clear(); return; }   // tick: không có gì để check → không để lại báo lỗi
+      J.err_msg = e instanceof Error ? e.message : String(e); J.running = false; J.ended = now(); J.phase = ""; STATE.clear(); },
+  );
+  if (wait) { const r = await ready; return { ok: 1, total: r.items.length, mode: WORKER_IDS.has(cid) ? "server" : "node" }; }   // tick định kỳ: cần biết "không có gì để check" để dời lịch
+  ready.catch(() => undefined);
+  return { ok: 1, total: J.total, mode: WORKER_IDS.has(cid) ? "server" : "node", prepare: true };
 }
 async function stop(cid: string) {
   const J = JOBS.get(cid); if (J) J.stop = true;
-  if (WORKER_IDS.has(cid)) await run(sb().from("ahs_jobs").update({ status: "stopped", finished: now() }).eq("kind", "cyv").eq("payload->>cid", cid).in("status", ["queued", "running"]));
+  if (FB_CHECKERS.has(cid)) await run(sb().from("ahs_jobs").update({ status: "stopped", finished: now() }).eq("kind", "cyv").eq("payload->>cid", cid).in("status", ["queued", "running"]));
   return { ok: 1 };
 }
 
 const CFG_KEYS = [...Object.keys(DEF)];
-export async function checkerHandle(method: "GET" | "POST", path: string, _qs: URLSearchParams, raw: Buffer | null): Promise<[unknown, number?]> {
+/** lưu cấu hình (chỉ các khoá hợp lệ của bộ check) — dùng cho POST /cfg và POST /run kèm cfg */
+async function saveCfg(cid: string, incoming: unknown) {
+  const meta = metaOf(cid); if (!meta) throw new HsError("Checker không tồn tại");
+  const c = await cfgGet(cid);
+  const keys = [...CFG_KEYS, ...(meta.results || []).map((r) => r[0]), ...(meta.extra || []).map((e) => "xf_" + e.k), ...(meta.parts || []).map((p) => "pf_" + p.k)];
+  const inc = (incoming || {}) as Record<string, unknown>;
+  for (const k of keys) if (k in inc && k !== "last") c[k] = inc[k];
+  if (typeof c.x !== "object" || c.x === null) c.x = {};
+  c.threads = Math.max(1, Math.min(Number(c.threads) || 10, 64));
+  c.timeout = Math.max(2, Math.min(Number(c.timeout) || 10, 60));
+  c.every = Math.max(5, Number(c.every) || 60);
+  await cfgSet(cid, c);
+}
+export async function checkerHandle(method: "GET" | "POST", path: string, qs: URLSearchParams, raw: Buffer | null): Promise<[unknown, number?]> {
   try {
-    if (method === "GET" && path === "state") return [await stateCached()];
-    stateReset();
+    if (method === "GET" && path === "state") return [await stateCached(qs.get("id") || undefined)];
     const b = raw && raw.length ? (JSON.parse(raw.toString("utf8")) as Record<string, unknown>) : {};
     const cid = String(b.id || "");
-    if (path === "cfg") {
-      const meta = metaOf(cid); if (!meta) throw new HsError("Checker không tồn tại");
-      const c = await cfgGet(cid);
-      const keys = [...CFG_KEYS, ...(meta.results || []).map((r) => r[0]), ...(meta.extra || []).map((e) => "xf_" + e.k), ...(meta.parts || []).map((p) => "pf_" + p.k)];
-      const inc = (b.cfg || {}) as Record<string, unknown>;
-      for (const k of keys) if (k in inc && k !== "last") c[k] = inc[k];
-      if (typeof c.x !== "object" || c.x === null) c.x = {};
-      c.threads = Math.max(1, Math.min(Number(c.threads) || 10, 64));
-      c.timeout = Math.max(2, Math.min(Number(c.timeout) || 10, 60));
-      c.every = Math.max(5, Number(c.every) || 60);
-      await cfgSet(cid, c);
-      return [{ ok: 1 }];
-    }
-    if (path === "run") return [await start(cid, Array.isArray(b.ids) ? (b.ids as Id[]) : null, b.scope as string | undefined)];
+    stateReset(cid, path === "cfg");
+    if (path === "cfg") { await saveCfg(cid, b.cfg); return [{ ok: 1 }]; }
+    if (path === "run") { if (b.cfg) { await saveCfg(cid, b.cfg); stateReset(cid, true); } }   // "Chạy ngay" gửi kèm cấu hình: lưu + chạy trong 1 lượt gọi
+    if (path === "run") return [await start(cid, Array.isArray(b.ids) ? (b.ids as Id[]) : null, b.scope as string | undefined)];   // trả lời ngay; đọc danh sách / sao lưu / chạy tiếp tục nền (job.phase)
     if (path === "stop") return [await stop(cid)];
     return [{ error: "not found" }, 404];
   } catch (e) {
@@ -408,7 +449,7 @@ export async function cyvTick(): Promise<string[]> {
     const cid = meta.id, c = await cfgGet(cid);
     if (!c.auto || JOBS.get(cid)?.running) continue;
     if (now() - Number(c.last || 0) < Math.max(5, Number(c.every) || 60) * 60) continue;
-    try { await start(cid, null); started.push(cid); }
+    try { await start(cid, null, undefined, true); started.push(cid); }
     catch { c.last = now(); await cfgSet(cid, c); }                   // không có gì để check → dời lịch như bản gốc
   }
   return started;

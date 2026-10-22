@@ -3,7 +3,6 @@
 """Worker cho AccountsHS trong HireX — chạy các việc cần curl_cffi / giả lập trình duyệt mà Node không làm được:
     · 'cyv'  : check live Facebook / FB Page / Bài đăng FB  (worker/checkfb.py · checkfbpage.py · checkfbpost.py)
     · 'owl'  : thu thập bài đăng Page                        (worker/owl_postfb.py)
-    · 'crm'  : kéo dữ liệu CRM về + nạp vào các tab           (worker/crm.py · crm_parse.py)
 
 Cách chạy (Windows host, như các worker khác của HireX):
     python moduleHS/accountshs/worker/hs-accountshs-worker.py          # đọc SUPABASE_DB_URL trong .env.local
@@ -267,45 +266,7 @@ def run_owl(conn, job):
     jset(conn, jid, status=('stopped' if ctx._stop else 'done'), finished=time.time())
 
 
-# ───────── 'crm': fetch + nạp (dùng crm.py qua shim psycopg) ─────────
-def run_crm(conn, job):
-    from _pgshim import PgApp  # noqa
-    jid, p = job['id'], job['payload']
-    app = PgApp(db_url())          # kết nối RIÊNG (loader jsonb→text) — không đụng conn dùng chung của worker
-    crm = load_mod('crm.py')
-    crm.APP = app
-    # crm_parse được crm.py tự nạp tương đối; đảm bảo cùng thư mục worker/ nằm trong sys.path (đã thêm ở main)
-    def progress(phase, done=0, total=0, err=''):
-        jset(conn, jid, progress={'phase': phase, 'done': done, 'total': total, 'err': err, 'ts': time.time()})
-    try:
-        rows = p.get('rows')
-        if rows is None:
-            c = crm.cfg_get()
-            if not (c.get('token') or '').strip():
-                raise ValueError('Chưa có token CRM')
-            progress('Đang lấy dữ liệu')
-            rows = crm.fetch_all(c, lambda n, t: progress('Đang lấy dữ liệu', n, t))
-        if p.get('fetch_only'):
-            jset(conn, jid, status='done', result={'rows': len(rows)}, progress={'phase': 'Đã lấy', 'done': len(rows), 'total': len(rows), 'ts': time.time()}, finished=time.time())
-            return
-        progress('Đang nạp', 0, len(rows))
-        res = crm.run_import(rows, 'file' if p.get('rows') is not None else 'api', bool(p.get('force')))
-        jset(conn, jid, status='done', result=res, progress={'phase': 'Xong', 'done': res.get('rows', 0), 'total': res.get('rows', 0), 'ts': time.time()}, finished=time.time())
-        app.close()
-    except Exception as e:  # noqa
-        try:
-            app.close()
-        except Exception:
-            pass
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        traceback.print_exc()
-        jset(conn, jid, status='failed', progress={'phase': 'Lỗi', 'err': str(e), 'ts': time.time()}, finished=time.time())
-
-
-DISPATCH = {'cyv': run_cyv, 'owl': run_owl, 'crm': run_crm}
+DISPATCH = {'cyv': run_cyv, 'owl': run_owl}
 
 
 TICK_EVERY = 300                       # gọi /api/hs/accountshs/internal/tick mỗi 5 phút (sao lưu tự động, Vọng gác định kỳ, dọn lịch sử)

@@ -3,10 +3,13 @@ import "server-only";
 import net from "node:net";
 import tls from "node:tls";
 
+import { FB_JUNK, fbMod, fbpageMod } from "./checker-fb";
+import { fbpostMod } from "./checker-fbpost";
+
 /* Vọng gác — các checker chạy THUẦN trong Node (không cần curl_cffi): Telegram · Gmail · Proxy.
    Port từ checker/checktelegram.py · checkgmail.py · checkproxy.py. Giữ nguyên CHECKER meta + kết quả
-   ('live' | 'die' | 'error', ghi chú, [số liệu thêm]). Checker cần curl_cffi (FB / FB Page / Bài đăng FB)
-   KHÔNG ở đây — chúng được đẩy sang worker Python (xem server/checker.ts + worker/). */
+   ('live' | 'die' | 'error', ghi chú, [số liệu thêm]). Facebook / FB Page / Bài đăng FB ở checker-fb.ts · checker-fbpost.ts
+   (cùng khung chạy; worker Python chỉ còn là phương án dự phòng, xem AHS_CYV_ENGINE). */
 
 export type CheckRes = "live" | "die" | "error" | string;
 export interface CheckOut { res: CheckRes; info: string; extra?: Record<string, unknown> }
@@ -19,12 +22,16 @@ export interface CheckerMeta {
   parts?: Array<{ k: string; label: string; icon?: string; match?: string[] }>;
   results?: Array<[string, string]>;
   desc?: string; threads?: number; timeout?: number; batch?: number; no_proxy?: boolean; url?: string;
-  /** true = cần worker Python (curl_cffi); UI vẫn hiện nhưng chạy qua hàng đợi job. */
+  /** (cũ) true = cần worker Python (curl_cffi) */
   worker?: boolean;
 }
 export interface CheckOpt {
   timeout?: number; proxy?: string; url?: string; x?: Record<string, string>; xon?: string[];
   stopped?: () => boolean;
+  /** số luồng của lượt chạy (checker tự chỉnh các "cổng" giới hạn tốc độ theo đó) */
+  threads?: number;
+  /** giá trị đang có ở các cột skip_filled (k → giá trị) — checker bỏ qua dòng đã đủ */
+  have?: Record<string, string>;
 }
 export interface CheckerMod {
   CHECKER: CheckerMeta;
@@ -386,73 +393,20 @@ const proxy: CheckerMod = {
   },
 };
 
-/* checker chạy trong worker (curl_cffi) — chỉ khai báo META (giống CHECKER của checkfb*.py) để UI hiện; chạy = tạo job. */
-/** JUNK của checkfb.py: tên "rác" Facebook trả khi bị chặn / trang trung gian → không ghi vào cột tên. */
-export const FB_JUNK = String.raw`^\s*(redirecting|đang chuyển hướng|log in|log into|login|sign up|sign in|đăng nhập|đăng ký|facebook\s*$|security check|kiểm tra bảo mật|`
-  + String.raw`error\b|lỗi\b|page not found|content not found|something went wrong|you must log in|you're temporarily|bạn tạm thời|`
-  + String.raw`this content isn|nội dung này hiện|this page isn|trang này hiện|oops|sorry|xin lỗi|checkpoint|connect with|kết nối với)|log in or sign up|đăng nhập hoặc đăng ký`;
-const FB_FIELDS = [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn · giúp đọc tên ổn định hơn" }, { k: "refresh", label: "Đọc lại tên", ph: "Trống = chỉ đọc ô tên còn trống · 1 = đọc lại tất cả" }];
-const fbWorker: CheckerMeta[] = [
-  { id: "fb", name: "Facebook", icon: "facebook", value: "UID Facebook", worker: true, hint_tab: ["facebook", "fb", "via", "clone"], hint_field: ["uid", "id facebook", "id fb", "fb id", "id"], fields: FB_FIELDS,
-    extra: [{ k: "name", label: "Tên FB", type: "text", icon: "user", match: ["ten fb", "ten facebook", "ten tai khoan", "fb name", "ten", "name", "ho ten"], hint: "Profile: Tên · Page: Page (Tên) · chỉ ghi khi Live", skip_filled: true, junk: FB_JUNK, stale: String.raw`\s\|\s` }],
-    desc: "Graph picture: có ảnh thật = Live · ảnh trống (rsrc.php, không có height) = Die · bị giới hạn / lỗi = giữ nguyên. Live thì mở facebook.com/<uid> đọc tên.", threads: 5, timeout: 12 },
-  { id: "fbpage", name: "FB Page", icon: "flag", value: "UID Page", worker: true, hint_tab: ["fb page", "fanpage", "page"], hint_field: ["uid page", "page id", "id page", "uid", "id"], fields: FB_FIELDS,
-    extra: [{ k: "name", label: "Tên Page", type: "text", icon: "flag", match: ["ten page", "ten fanpage", "ten trang", "page name", "ten", "name"], hint: "Page: Tên · lẫn profile: Profile (Tên) · chỉ ghi khi Live", skip_filled: true, junk: FB_JUNK, stale: String.raw`\s\|\s` }],
-    desc: "Giống Facebook (Graph picture + đọc tên Page từ facebook.com/<id> khi Live).", threads: 5, timeout: 12 },
-  { id: "fbpost", name: "Bài đăng FB", icon: "note", value: "UID bài viết", worker: true, hint_tab: ["bai dang fb", "bai dang", "post fb", "fb post", "bai viet"], hint_field: ["uid bai viet", "uid bai dang", "post id", "id bai viet", "uid", "link bai viet", "link"],
-    fields: [{ k: "cookie", label: "Cookie", secret: true, ph: "Tùy chọn · giúp đọc bài ổn định hơn" }],
-    extra: [{ k: "comments", label: "Số bình luận", type: "number", icon: "chat", match: ["so binh luan", "binh luan", "so comment", "comment", "comments", "so cmt", "cmt"], hint: "Ghi khi bài Live" }], threads: 5, timeout: 15 },
-];
+/* ───────── Facebook · FB Page · Bài đăng FB ─────────
+   Port 1:1 của worker/checkfb.py · checkfbpage.py · checkfbpost.py → chạy ngay trong máy chủ (server/checker-fb.ts, checker-fbpost.ts), đọc được cả tên.
+   Muốn quay về worker Python (curl_cffi): đặt AHS_CYV_ENGINE=python — khi đó việc đi qua hàng đợi ahs_jobs như trước, worker chưa bật thì máy chủ vẫn tự chạy bản TS. */
+export { FB_JUNK };
 
-/* ───────── Facebook / FB Page chạy ngay trong máy chủ (khi chưa có worker Python) ─────────
-   Live / Die giống hệt checkfb.py: graph.facebook.com/<uid>/picture?redirect=false (API JSON thường, không cần curl_cffi):
-   có "height" / ảnh thật = Live · ảnh trống rsrc.php = Die · 400/404 = Die · bị giới hạn (mã 4/17/32/341/613, 403/429) / lỗi mạng = giữ nguyên.
-   Đọc tên (facebook.com/<uid>) cần giả trình duyệt → chỉ worker làm; chế độ này không ghi tên. */
-const FB_UAS = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"];
-const FB_RATE = new Set([4, 17, 32, 341, 613]);
-const fbUid = (v: string) => (/(\d{5,20})/.exec(String(v || "")) || [])[1] || "";
-async function fbGraph(uid: string, opt: CheckOpt): Promise<CheckOut | null> {
-  const r = await fetch(`https://graph.facebook.com/${uid}/picture?redirect=false&type=normal`, {
-    headers: { "User-Agent": FB_UAS[Math.floor(Math.random() * FB_UAS.length)], Accept: "application/json" },
-    signal: AbortSignal.timeout(Math.max(3, Number(opt.timeout) || 12) * 1000) });
-  const code = r.status; let j: { error?: { code?: number }; data?: { height?: number; url?: string } } = {};
-  try { j = JSON.parse((await r.text()).slice(0, 20000) || "{}"); } catch { j = {}; }
-  if (j.error) {
-    if (FB_RATE.has(Number(j.error.code)) || code === 429 || code === 403) return { res: "error", info: "Facebook giới hạn tốc độ (giảm luồng / dùng proxy)" };
-    if (code === 400 || code === 404) return { res: "die", info: "Die · UID không tồn tại" };
-    return null;
-  }
-  const d = j.data;
-  if (code === 200 && d && typeof d === "object") {
-    const url = String(d.url || "");
-    if (d.height || (url && !url.includes("rsrc.php"))) return { res: "live", info: "Live" };
-    if (url.includes("rsrc.php")) return { res: "die", info: "Die · không khả dụng" };
-  }
-  if (code === 400 || code === 404) return { res: "die", info: "Die · " + code };
-  return null;
-}
-const fbNode = (meta: CheckerMeta): CheckerMod => ({
-  CHECKER: meta,
-  async check(value, opt) {
-    const uid = fbUid(value); if (!uid) return { res: "error", info: "UID không hợp lệ" };
-    let why = "";
-    for (let i = 0; i < 2; i++) {                                                   // lỗi mạng → thử lại 1 lần
-      if (opt.stopped?.()) return { res: "error", info: "Đã dừng" };
-      try { const r = await fbGraph(uid, opt); if (r) return r.res === "live" ? { ...r, info: "Live (chế độ máy chủ · chưa đọc tên)" } : r; why = "Graph không rõ"; }
-      catch (e) { why = e instanceof Error ? (e.name === "TimeoutError" ? "hết thời gian chờ" : e.message.slice(0, 60)) : "lỗi mạng"; }
-      await new Promise((ok) => setTimeout(ok, 500));
-    }
-    return { res: "error", info: why || "lỗi mạng" };
-  },
-});
-/** checker worker nào chạy được ngay trong máy chủ khi worker Python chưa bật (Bài đăng FB cần giả trình duyệt → không có) */
-export const NODE_FALLBACK: Record<string, CheckerMod> = Object.fromEntries(
-  fbWorker.filter((m) => m.id === "fb" || m.id === "fbpage").map((m) => [m.id, fbNode(m)]));
-
-export const MODS: CheckerMod[] = [gmail, proxy, telegram];
-export const WORKER_METAS = fbWorker;
+export const MODS: CheckerMod[] = [fbMod, fbpageMod, fbpostMod, gmail, proxy, telegram];
+export const cyvEngine = (): "node" | "python" => ((process.env.AHS_CYV_ENGINE || "node").trim().toLowerCase() === "python" ? "python" : "node");
+/** các checker Facebook (có thể từng chạy qua worker Python → vẫn đọc nốt kết quả worker để lại) */
+export const FB_CHECKERS = new Set(["fb", "fbpage", "fbpost"]);
+const FB_IDS = FB_CHECKERS;
+/** checker nào đang giao cho worker Python (chỉ khi AHS_CYV_ENGINE=python) */
+export const WORKER_IDS = { has: (id: string) => cyvEngine() === "python" && FB_IDS.has(id) };
+/** checker chạy được ngay trong máy chủ khi worker Python chưa bật */
+export const NODE_FALLBACK: Record<string, CheckerMod> = Object.fromEntries(MODS.filter((m) => FB_IDS.has(m.CHECKER.id)).map((m) => [m.CHECKER.id, m]));
 export const MOD_MAP: Record<string, CheckerMod> = Object.fromEntries(MODS.map((m) => [m.CHECKER.id, m]));
-export const WORKER_IDS = new Set(fbWorker.map((m) => m.id));
-/** META của mọi checker (node + worker), theo thứ tự hiển thị = thứ tự file check*.py của bản gốc. */
-export const ALL_METAS: CheckerMeta[] = [...fbWorker, ...MODS.map((m) => m.CHECKER)];
+/** META của mọi checker, theo thứ tự hiển thị = thứ tự file check*.py của bản gốc. */
+export const ALL_METAS: CheckerMeta[] = MODS.map((m) => m.CHECKER);

@@ -1274,6 +1274,8 @@ input,textarea,select,[contenteditable],[contenteditable] *,.ql-editor,.ql-edito
 .cybar{height:4px;border-radius:2px;background:var(--ui-border);overflow:hidden;margin-top:2px}.cybar i{display:block;height:100%;background:var(--ui-primary)}
 .cyprog{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ui-text-2,#475467);font-variant-numeric:tabular-nums}
 .cypb{flex:1;height:6px;border-radius:3px;background:var(--ui-border);overflow:hidden}.cypb i{display:block;height:100%;background:var(--ui-primary);transition:width .3s}
+.cypb.ind i{width:35%;transition:none;animation:cyind 1.1s ease-in-out infinite}@keyframes cyind{0%{margin-left:-35%}100%{margin-left:100%}}
+.cyph{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.cyph .spin1{width:12px;height:12px;border-width:2px}
 @media(max-width:860px){.cyk{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}.cykp.wide{grid-column:1/-1}}
 .cyg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .cyg section{border:1px solid var(--ui-border);border-radius:var(--ui-radius-md,9px);padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--ui-surface)}
@@ -1662,34 +1664,6 @@ html:not(.th-on) .thpk{display:none}
 .thpi{flex:none;width:52px;height:32px;border-radius:5px;overflow:hidden;border:1px solid var(--ui-border);background:var(--ui-surface-hover)}
 .thpi img{display:block;width:100%;height:100%;object-fit:cover;object-position:left top}
 
-/* ===== CRM ===== */
-#foot .crmb{gap:7px;color:var(--ui-text-2,#475467);font-weight:500}
-#foot .crmb em{font-style:normal;font-size:12px;color:var(--ui-primary-dark);font-variant-numeric:tabular-nums}
-#foot .crmb.run{background:var(--ui-primary-soft);color:var(--ui-primary-dark)}
-.modal.crm{width:520px;max-width:calc(100vw - 24px)}
-.crm-b{display:flex;flex-direction:column;gap:12px}
-.crm-a{display:flex;align-items:center;gap:8px}
-.crm-f{display:flex;align-items:center;gap:8px;color:var(--ui-text-2,#475467);font-size:12.5px;cursor:pointer}
-.crm-p{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ui-text-2,#475467)}
-.crm-bar{height:4px;border-radius:2px;background:var(--ui-border,#e4e7ec);overflow:hidden}
-.crm-bar i{display:block;height:100%;background:var(--ui-primary,#2563eb);transition:width .25s}
-.crm-e{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--ui-border,#e4e7ec);border-radius:8px;color:#b42318;font-size:12.5px}
-.crm-t{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.crm-t>div{border:1px solid var(--ui-border,#e4e7ec);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
-.crm-t b{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
-.crm-t span{font-size:11.5px;color:var(--ui-text-2,#475467)}
-.crm-l{display:flex;flex-direction:column;border:1px solid var(--ui-border,#e4e7ec);border-radius:8px;overflow:hidden}
-.crm-r{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--ui-border,#e4e7ec)}
-.crm-r:last-child{border-bottom:0}
-.crm-n{flex:1}
-.crm-r b{font-variant-numeric:tabular-nums;font-weight:600}
-.crm-r em{font-style:normal;font-size:11.5px;color:var(--ui-text-2,#475467);min-width:150px;text-align:right}
-.crm-w{padding:8px 10px;border:1px solid var(--ui-border,#e4e7ec);border-radius:8px;color:#b54708;font-size:12.5px}
-.crm-w summary{display:flex;gap:8px;align-items:center;cursor:pointer;list-style:none}
-.crm-w>div{margin-top:8px;display:flex;flex-direction:column;gap:4px;color:var(--ui-text-2,#475467);max-height:160px;overflow:auto}
-.crm-k{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--ui-text-2,#475467)}
-.crm-i{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--ui-border,#e4e7ec);border-radius:8px;font-size:12.5px;color:var(--ui-text-2,#475467)}
-.crm-em{padding:18px 0}
 /* ===== Nhập hàng loạt v2 ===== */
 .bs.w{color:#b54708;border-color:currentColor}
 .brep:empty{display:none}
@@ -4397,28 +4371,53 @@ Object.assign(ACT,{
 /* ===== Vọng gác: góc dưới trái — các tiện ích check live (Facebook; sau này Email, WhatsApp… chỉ cần thêm checker/checkXXX.py) ===== */
 const CYV={st:null,t:0,open:null,sel:{}};
 function cyvBtn(){const cs=CYV.st?.checkers||[],run=cs.filter(c=>c.job&&c.job.running),td=cs.reduce((n,c)=>n+(c.stats?.today||0),0);
- return `<button class="btn sm ghost cyvb ${run.length?'run':''} ${CYV.st?'':'wait'}" data-a="cyvmenu" title="Vọng gác — check live${td?' · hôm nay đã check '+td.toLocaleString('vi'):''}">${ico('shield',15)}<span>Vọng gác</span>${run.length?`<i class="spin1"></i><em>${run.map(c=>`${c.job.done}/${c.job.total}`).join(' · ')}</em>`:td?`<em>${td.toLocaleString('vi')}</em>`:''}</button>`}
-async function cyvLoad(){try{const r=await fetch('/api/hs/accountshs/cyv/state');if(!r.ok)throw 0;CYV.st=await r.json()}catch(e){CYV.st={checkers:[],off:1}}
- const was=CYV.running,now=(CYV.st.checkers||[]).some(c=>c.job&&c.job.running);CYV.running=now;
+ return `<button class="btn sm ghost cyvb ${run.length?'run':''} ${CYV.st?'':'wait'}" data-a="cyvmenu" title="Vọng gác — check live${td?' · hôm nay đã check '+td.toLocaleString('vi'):''}">${ico('shield',15)}<span>Vọng gác</span>${run.length?`<i class="spin1"></i><em>${run.map(c=>c.job.total?`${c.job.done}/${c.job.total}`:'…').join(' · ')}</em>`:td?`<em>${td.toLocaleString('vi')}</em>`:''}</button>`}
+/* Trạng thái Vọng gác: đang có lượt chạy thì chỉ hỏi ĐÚNG bộ check đó (nhẹ hơn ~7 lần), 15 giây mới hỏi đủ lại; nhấn "Chạy ngay" hiện trạng thái "đang chuẩn bị" ngay, không chờ máy chủ. */
+CYV.busy={};CYV.smp={};
+function cyvEff(){const cs=CYV.st?.checkers||[];
+ cs.forEach(c=>{const b=CYV.busy[c.id];if(!b)return;const j=c.job||{};
+  if(j.running){delete CYV.busy[c.id];return}                                           /* máy chủ đã nhận việc → dùng trạng thái thật */
+  if(b.posted){delete CYV.busy[c.id];if(j.err_msg&&!j.total&&!j.done)toast(j.err_msg,'err');return}   /* chạy không được (vd không có dòng nào) → báo ngay */
+  c.job={running:true,opt:1,phase:'Đang gửi lệnh chạy…',total:0,done:0,recent:[],err_msg:''}});
+ return cs}
+function cyvRate(c){const j=c.job||{},a=CYV.smp[c.id]=CYV.smp[c.id]||[];
+ if(!j.running||!j.total||j.opt){CYV.smp[c.id]=[];return 0}
+ const t=Date.now();if(!a.length||a[a.length-1].d!==j.done)a.push({t,d:j.done});while(a.length>10)a.shift();
+ const f=a[0],l=a[a.length-1];return l.t-f.t>=3000&&l.d>f.d?(l.d-f.d)/((l.t-f.t)/1000):0}
+function cyvDur(sec){sec=Math.max(1,Math.round(sec));if(sec<60)return sec+' giây';const m=Math.round(sec/60);if(m<60)return m+' phút';return Math.floor(m/60)+' giờ '+(m%60)+' phút'}
+function cyvPaint(){const cs=cyvEff(),now=cs.some(c=>c.job&&c.job.running);CYV.running=now;
  const b=$('#foot .cyvb');if(b)b.outerHTML=cyvBtn();if(CYV.open)cyvDraw();
- if(POP&&POP.classList.contains('cyvp')&&POP._cyv!==JSON.stringify(CYV.st.checkers||[]))cyvMenuFill(POP);
- if(was&&!now){await load(true);renderAll()}
- clearTimeout(CYV.t);CYV.t=setTimeout(cyvLoad,now?1000:CYV.open?4000:30000)}
+ if(POP&&POP.classList.contains('cyvp')&&POP._cyv!==JSON.stringify(cs))cyvMenuFill(POP);return now}
+async function cyvLoad(){
+ const cs0=CYV.st?.checkers||[],watch=[...new Set([...cs0.filter(c=>c.job&&c.job.running&&!c.job.opt).map(c=>c.id),...Object.keys(CYV.busy)])];
+ const full=!CYV.st||CYV.st.off||!watch.length||Date.now()-(CYV.full||0)>15000;
+ try{
+  if(full){const r=await fetch('/api/hs/accountshs/cyv/state');if(!r.ok)throw 0;CYV.st=await r.json();CYV.full=Date.now()}
+  else{const rs=await Promise.all(watch.map(id=>fetch('/api/hs/accountshs/cyv/state?id='+encodeURIComponent(id)).then(r=>{if(!r.ok)throw 0;return r.json()})));
+   rs.forEach(d=>{const n=(d.checkers||[])[0];if(!n)return;const i=CYV.st.checkers.findIndex(c=>c.id===n.id);if(i>=0)CYV.st.checkers[i]=n;else CYV.st.checkers.push(n)})}
+ }catch(e){if(full||!CYV.st)CYV.st={checkers:[],off:1}}
+ const was=CYV.running,now=cyvPaint();
+ if(was&&!now){CYV.full=0;await load(true);renderAll()}
+ clearTimeout(CYV.t);CYV.t=setTimeout(cyvLoad,now?(Object.keys(CYV.busy).length||(CYV.st.checkers||[]).some(c=>c.job&&c.job.running&&!c.job.total)?500:1000):CYV.open?4000:30000)}
 Object.assign(ACT,{
  /* mở ngay bằng số liệu đã tải ngầm (không chờ máy chủ đếm), rồi cập nhật tại chỗ */
  cyvmenu(el){if(POP&&POP.classList.contains('cyvp')){closePop();return}el=$('#foot .cyvb')||el;
   const p=openPop(el,cyvMenuHtml(),'cyvp');p._cyv=JSON.stringify(CYV.st?.checkers||[]);p.addEventListener('click',e=>{const b=e.target.closest('[data-ck]');if(!b)return;closePop();cyvOpen(b.dataset.ck)});
   cyvLoad()},
  async cyvsave(){await cyvSave(true)},
- async cyvrun(el){await cyvSave(false);const sc=$('#cyv [data-cf=scope]')?.value||'all';
-  try{await api('cyv/run',{id:CYV.open,scope:sc,ids:sc==='selected'?[...S.sel]:null})}catch(e){}cyvLoad()},
+ async cyvrun(el){const id=CYV.open;if(!id||CYV.busy[id])return;
+  CYV.busy[id]={t:Date.now(),posted:false,ph:1};cyvPaint();                              /* nút đổi ngay thành "Đang gửi lệnh chạy…" — không chờ máy chủ */
+  try{cyvRead();const sc=$('#cyv [data-cf=scope]')?.value||'all';
+   await api('cyv/run',{id,cfg:CYV.draft,scope:sc,ids:sc==='selected'?[...S.sel]:null})}catch(e){delete CYV.busy[id]}   /* lưu cấu hình + chạy trong 1 lượt gọi */
+  if(CYV.busy[id])CYV.busy[id].posted=true;
+  await cyvLoad()},
  async cyvstop(){try{await api('cyv/stop',{id:CYV.open})}catch(e){}cyvLoad()}});
 function cyvMenuFill(p){p.innerHTML=cyvMenuHtml();p._cyv=JSON.stringify(CYV.st?.checkers||[]);
  const a=$('#foot .cyvb'),r=p.getBoundingClientRect();if(a&&r.bottom>innerHeight-8)p.style.top=Math.max(8,a.getBoundingClientRect().top-r.height-6)+'px'}
 function cyvMenuHtml(){const st=CYV.st,cs=st?.checkers||[];
  const soon=[['mail','Email'],['whatsapp','WhatsApp']].filter(([ic])=>!cs.some(c=>c.info.icon===ic));
  return `<div class="mh">Vọng gác</div>`+(!st?`<div class="mi dis"><i class="spin1"></i><span class="t">Đang tải…</span></div>`:st.off?`<div class="ph pad">Chưa nạp được thư mục checker/</div>`:'')
-  +cs.map(c=>{const s=c.stats||{},j=c.job||{};return `<button class="mi cyvi" data-ck="${c.id}">${ico(c.info.icon||'shield',16)}<span class="t">${esc(c.info.name)}<small>${j.running?`Đang chạy ${j.done}/${j.total}`:`Hôm nay ${(s.today||0).toLocaleString('vi')}/${(s.total||0).toLocaleString('vi')}${c.cfg.auto?' · định kỳ':''}`}</small></span>${j.running?'<i class="spin1"></i>':ico('chevr',14,'r')}</button>`}).join('')
+  +cs.map(c=>{const s=c.stats||{},j=c.job||{};return `<button class="mi cyvi" data-ck="${c.id}">${ico(c.info.icon||'shield',16)}<span class="t">${esc(c.info.name)}<small>${j.running?(j.total?`Đang chạy ${j.done}/${j.total}`:esc(j.phase||'Đang chuẩn bị…')):`Hôm nay ${(s.today||0).toLocaleString('vi')}/${(s.total||0).toLocaleString('vi')}${c.cfg.auto?' · định kỳ':''}`}</small></span>${j.running?'<i class="spin1"></i>':ico('chevr',14,'r')}</button>`}).join('')
   +(st?soon.map(([ic,n])=>`<div class="mi dis">${ico(ic,16)}<span class="t">${n}<small>Sắp có</small></span></div>`).join(''):'')}
 const cyvC=()=>(CYV.st?.checkers||[]).find(c=>c.id===CYV.open);
 function cyvOpen(id){CYV.open=id;const c=cyvC();CYV.draft=JSON.parse(JSON.stringify(c.cfg));
@@ -4476,25 +4475,30 @@ function cyvDraw(){const el=$('#modal .modal');if(!el||!CYV.open)return;const c=
  <footer><button class="btn outline" data-a="cyvsave" title="Lưu cấu hình">${ico('save',16)}<span>Lưu</span></button><div class="grow"></div><span id="cyvact"></span></footer>`;
  cyvLive(el,c)}
 function cyvTotal(){const d=CYV.draft;if(!d||!d.tab_id||!d.field_id)return 0;let n=0;S.accs.forEach(a=>{if(a.tab_id==d.tab_id&&String(a.data[d.field_id]??'').trim())n++});return n}
+/* chỉ ghi lại DOM khi nội dung đổi: khỏi dựng lại nút / danh sách mỗi giây (nút bị thay giữa lúc bấm = mất cú nhấp, trình duyệt giật) */
+function cyvSetH(n,h){if(n&&n._h!==h){n._h=h;n.innerHTML=h}}
 function cyvLive(el,c){const s={...c.stats,total:cyvTotal()},j=c.job||{},run=!!j.running,pct=run&&j.total?Math.round(j.done/j.total*100):0;
  const fmtT=ts=>ts?new Date(ts*1000).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'—';
  const k=(l,v,cls='',sub='')=>`<div class="cykp ${cls}"><span class="cyl">${l}</span><b>${v}</b>${sub}</div>`;
  const cov=s.total?Math.min(100,Math.round(s.today/s.total*100)):0;
- $('#cyk',el).innerHTML=k('Đã check hôm nay',`${s.today.toLocaleString('vi')}<i> / ${s.total.toLocaleString('vi')}</i>`,'wide',`<div class="cybar"><i style="width:${cov}%"></i></div>`)
+ const prog=run?(()=>{const tot=j.total||0,pct2=tot?Math.round(j.done/tot*100):0,rate=cyvRate(c),ph=j.phase?`<span class="cyph"><i class="spin1"></i>${esc(j.phase)}</span>`:'';
+  if(!tot)return `<div class="cyprog"><div class="cypb ind"><i></i></div>${ph||'<span>Đang chuẩn bị…</span>'}</div>`;
+  return `<div class="cyprog"><div class="cypb"><i style="width:${pct2}%"></i></div><span>${j.done.toLocaleString('vi')} / ${tot.toLocaleString('vi')} · ${pct2}%${rate?` · ${Math.round(rate*60).toLocaleString('vi')} dòng/phút · còn ~${cyvDur((tot-j.done)/rate)}`:''}</span>${ph}</div>`})():'';
+ cyvSetH($('#cyk',el),k('Đã check hôm nay',`${s.today.toLocaleString('vi')}<i> / ${s.total.toLocaleString('vi')}</i>`,'wide',`<div class="cybar"><i style="width:${cov}%"></i></div>`)
   +k('Live',s.live.toLocaleString('vi'),'ok')+k('Die',s.die.toLocaleString('vi'),'bad')+(c.info.results||[]).map(([rk,rl])=>k(esc(rl),(s[rk]||0).toLocaleString('vi'),'ex')).join('')+k('Lỗi',s.error.toLocaleString('vi'),'warn')
   +k('Lần chạy cuối',fmtT(c.cfg.last))+k('Lần tới',c.cfg.auto?fmtT(c.next):'Tắt',c.cfg.auto?'':'off')
-  +(run?`<div class="cyprog"><div class="cypb"><i style="width:${pct}%"></i></div><span>${j.done.toLocaleString('vi')} / ${j.total.toLocaleString('vi')} · ${pct}%</span></div>`:'');
- $('#cyvact',el).innerHTML=run?`<button class="btn danger" data-a="cyvstop">${ico('x',16)}<span>Dừng</span></button>`:`<button class="btn pri" data-a="cyvrun" title="Lưu cấu hình và chạy ngay">${ico('zap',16)}<span>Chạy ngay</span></button>`;
+  +prog);
+ cyvSetH($('#cyvact',el),run?(j.opt?`<button class="btn pri" disabled><i class="spin1"></i><span>${esc(j.phase||'Đang chuẩn bị…')}</span></button>`:`<button class="btn danger" data-a="cyvstop">${ico('x',16)}<span>Dừng</span></button>`):`<button class="btn pri" data-a="cyvrun" title="Lưu cấu hình và chạy ngay">${ico('zap',16)}<span>Chạy ngay</span></button>`);
  const cr=$('#cycr',el);if(cr)cr.innerHTML=c.meta&&c.meta.credit!=null?`Còn <b>${Number(c.meta.credit).toLocaleString('vi')}</b> lượt`:'';
- const er=$('#cyerr',el);if(er){er.hidden=!j.err_msg;er.innerHTML=j.err_msg?`${ico('alert',14)}<span>${esc(j.err_msg)}</span>`:''}
+ const er=$('#cyerr',el);if(er){er.hidden=!j.err_msg;cyvSetH(er,j.err_msg?`${ico('alert',14)}<span>${esc(j.err_msg)}</span>`:'')}
  const R=j.recent||[];$('#cyrs',el).textContent=R.length?`${R.length} dòng mới nhất${run?'':' · lần chạy trước'}`:'';
- $('#cyrl',el).innerHTML=R.length?R.map(r=>{const a=I.acc[r.id];return `<div class="cyrr"><span class="cyst ${r.res}">${r.res==='live'?'Live':r.res==='die'?'Die':r.res==='error'?'Lỗi':esc(((c.info.results||[]).find(x=>x[0]===r.res)||[,r.res])[1])}</span><b>${esc(r.v)}</b><span class="mut">${esc(a?.label!==r.v?a?.label||'':'')}</span><div class="grow"></div><em>${esc(r.info)}</em><em>${r.ms}ms</em></div>`}).join(''):`<div class="ph pad">${ico('inbox',18)}<span>Chưa có lần chạy nào trong phiên này</span></div>`}
+ cyvSetH($('#cyrl',el),R.length?R.map(r=>{const a=I.acc[r.id];return `<div class="cyrr"><span class="cyst ${r.res}">${r.res==='live'?'Live':r.res==='die'?'Die':r.res==='error'?'Lỗi':esc(((c.info.results||[]).find(x=>x[0]===r.res)||[,r.res])[1])}</span><b>${esc(r.v)}</b><span class="mut">${esc(a?.label!==r.v?a?.label||'':'')}</span><div class="grow"></div><em>${esc(r.info)}</em><em>${r.ms}ms</em></div>`}).join(''):`<div class="ph pad">${ico('inbox',18)}<span>Chưa có lần chạy nào trong phiên này</span></div>`)}
 function cyvRead(){const el=$('#cyv');if(!el)return;const d=CYV.draft;
  $$('[data-cf]',el).forEach(x=>{const k=x.dataset.cf;let v=x.value;if(['tab_id','field_id','threads','every'].includes(k))v=v===''?null:+v;else if(k==='timeout')v=+v;else if(k==='target')v=v==='status'?'status':+v;
   else if(k==='live'||k==='die'||(cyvC()?.info.results||[]).some(r=>r[0]===k))v=v===''?null:(d.target==='status'?+v:v);
   else if(k.startsWith('xf_'))v=v===''||v==='auto'?v:+v;else if(k.startsWith('pf_'))v=v===''?'':+v;d[k]=v});
  d.x=d.x||{};$$('[data-cfx]',el).forEach(x=>{d.x[x.dataset.cfx]=x.value.trim()})}
-async function cyvSave(quiet){cyvRead();try{await api('cyv/cfg',{id:CYV.open,cfg:CYV.draft});if(quiet!==false&&quiet)toast('Đã lưu')}catch(e){}await cyvLoad()}
+async function cyvSave(quiet,noLoad){cyvRead();try{await api('cyv/cfg',{id:CYV.open,cfg:CYV.draft});if(quiet!==false&&quiet)toast('Đã lưu')}catch(e){}if(!noLoad)await cyvLoad()}
 Object.assign(ACT,{cyvauto(el){CYV.draft.auto=!CYV.draft.auto;el.classList.toggle('on',CYV.draft.auto)}});
 document.addEventListener('change',e=>{const x=e.target;if(!x.dataset||x.dataset.cf===undefined||!CYV.open||!$('#cyv'))return;const k=x.dataset.cf;cyvRead();
  if(k==='tab_id'){const t=I.tab[CYV.draft.tab_id];CYV.draft.field_id=t?.fields[0]?.id??null;CYV.draft.target='status';CYV.draft.live=CYV.draft.die=null}
@@ -5171,56 +5175,6 @@ function thPopHtml(){return `<div class="thpl">${(TH.list||[]).map(t=>`<button c
 ACT.thpick=async el=>{await thList();if(!TH.list.length)return;openPop(el,thPopHtml(),'thpop');POP&&POP.querySelector('.mi.on')?.scrollIntoView({block:'center'})};
 ACT.thset=()=>{closePop();ACT.settings({dataset:{}});SET.sec='theme';drawSettings()};
 addEventListener('ahs:theme',()=>{if(typeof POP!=='undefined'&&POP&&POP.classList.contains('thpop')){const sc=POP.querySelector('.thpl')?.scrollTop;POP.innerHTML=thPopHtml();const l=POP.querySelector('.thpl');if(l&&sc)l.scrollTop=sc}});
-
-/* ===== CRM: đồng bộ dữ liệu từ hệ thống chat-stats (module crm/) ===== */
-const CRM={st:null,open:false,t:0,was:false,force:false,msg:''};
-const crmIc=()=>IC.database?'database':'layers';
-function crmBtn(){const J=CRM.st&&CRM.st.job,run=J&&J.running;
- return `<button class="btn sm ghost crmb ${run?'run':''}" data-a="crm" title="CRM — đồng bộ dữ liệu">${ico(crmIc(),15)}<span>CRM</span>${run?`<i class="spin1"></i><em>${J.done||0}/${J.total||'…'}</em>`:''}</button>`}
-{const _rf=renderFoot;renderFoot=function(){const r=_rf.apply(this,arguments);const f=$('#foot');if(f&&!f.querySelector('.crmb')){const g=f.querySelector('.grow');g?g.insertAdjacentHTML('beforebegin',crmBtn()):f.insertAdjacentHTML('afterbegin',crmBtn())}return r}}
-async function crmLoad(){
- try{const r=await fetch('/api/hs/accountshs/crm/state');CRM.st=r.ok?await r.json():null}catch(e){CRM.st=null}
- const J=CRM.st&&CRM.st.job,run=!!(J&&J.running);
- const b=$('#foot .crmb');if(b)b.outerHTML=crmBtn();
- const sg=JSON.stringify(CRM.st);if(CRM.open&&sg!==CRM.sig){CRM.sig=sg;crmDraw()}
- clearTimeout(CRM.t);if(run||CRM.open)CRM.t=setTimeout(crmLoad,run?600:5000);
- if(CRM.was&&!run){CRM.was=false;if(J&&!J.err){await load(true);renderAll()}}
- CRM.was=run}
-async function crmPost(p,b){const r=await fetch('/api/hs/accountshs/crm/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const d=await r.json().catch(()=>({}));if(!r.ok){toast(d.error||'Lỗi','err');throw new Error(d.error||'')}return d}
-const CRMK={fb:'Facebook',page:'FB Page',phone:'SIM',email:'Email',li:'LinkedIn',device:'Thiết bị'};
-function crmTabs(res){const C=res.created||{},D=res.derived||{},U=res.updated||{},T=res.totals||{};
- const names=[...new Set([...Object.keys(C),...Object.keys(D),...Object.keys(U),...Object.keys(res.distinct||{})])].filter(n=>S.meta.tabs.some(x=>x.name===n));
- const row=n=>{const t=S.meta.tabs.find(x=>x.name===n);return `<div class="crm-r"><span class="ci" style="--c:${t?t.color:'#667085'}">${ico(t?t.icon:'layers',13)}</span><span class="crm-n">${esc(n)}</span><b title="Tài khoản của tab sau khi nạp">${(T[n]||0).toLocaleString('vi')}</b><em>${[C[n]?'+'+C[n]+' từ bản ghi':'',D[n]?'+'+D[n]+' suy ra':'',U[n]?U[n]+' cập nhật':''].filter(Boolean).join(' · ')}</em></div>`};
- return names.map(row).join('')}
-function crmDraw(){const el=$('#modal .modal');if(!el||!CRM.open)return;
- const st=CRM.st||{cfg:{url:'',has_token:false},job:{},last:null},J=st.job||{},run=!!J.running,L=st.last;
- const keep=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.cf;
- const pct=J.total?Math.min(100,Math.round(J.done*100/J.total)):0;
- const sum=o=>Object.values(o||{}).reduce((x,y)=>x+y,0),N=v=>(v||0).toLocaleString('vi');
- const tiles=L?`<div class="crm-t"><div><b>${N(L.rows)}</b><span>Bản ghi CRM</span></div><div><b>${N(sum(L.created)+sum(L.derived))}</b><span>Tài khoản mới</span></div><div><b>${N(L.links)}</b><span>Liên kết</span></div><div><b>${N(L.devices)}</b><span>Thiết bị</span></div></div>
-  <div class="crm-k">${Object.entries(L.kinds||{}).map(([k,v])=>`<span>${N(v)} ${esc(CRMK[k]||k)}</span>`).join('')}</div>`:'';
- const cl=L&&L.cleaned&&L.cleaned.rows?`<div class="crm-i">${ico('refresh',14)}<span>Đã dọn ${N(L.cleaned.rows)} dòng của bản nhập cũ rồi nạp lại theo cấu trúc mới (đã sao lưu trước khi dọn)</span></div>`:'';
- const warn=L&&(L.warn||[]).length?`<details class="crm-w"><summary>${ico('alert',14)}<span>${L.warn.length} điểm cần xem lại</span></summary><div>${L.warn.map(w=>`<div>${esc(w)}</div>`).join('')}</div></details>`:'';
- el.innerHTML=`<header><span class="ti" style="--c:#0284c7">${ico(crmIc(),16)}</span><h3>CRM</h3><div class="grow"></div><button class="btn icon ghost" data-a="mclose">${ico('x',16)}</button></header>
- <div class="mbody crm-b">
-  <div class="fld"><label>${ico('link',13)}</label><input class="in" data-cf="url" value="${esc(st.cfg.url||'')}" spellcheck="false"></div>
-  <div class="fld"><label>${ico('key',13)}</label><input class="in" type="password" data-cf="token" placeholder="${st.cfg.has_token?'•••••••• (đã lưu)':'Bearer token'}" autocomplete="off"></div>
-  <div class="crm-a"><button class="btn pri" data-a="crmsync" ${run?'disabled':''}>${ico('refresh',15)}<span>Đồng bộ</span></button><button class="btn outline icon" data-a="crmfile" title="Nhập từ file JSON" ${run?'disabled':''}>${ico('upload',15)}</button><input type="file" id="crmfile" accept=".json,.txt,application/json" hidden><div class="grow"></div><label class="crm-f" title="Bỏ qua bản ghi chưa đổi: tắt. Bật để nạp lại toàn bộ"><button class="sw ${CRM.force?'on':''}" data-a="crmforce" aria-pressed="${CRM.force}"></button><span>Nạp lại tất cả</span></label></div>
-  ${run?`<div class="crm-p"><div class="crm-bar"><i style="width:${pct}%"></i></div><span>${esc(J.phase||'')} · ${(J.done||0).toLocaleString('vi')}/${J.total?J.total.toLocaleString('vi'):'…'}</span></div>`:''}
-  ${J.err?`<div class="crm-e">${ico('alert',14)}<span>${esc(J.err)}</span></div>`:''}
-  ${tiles}${cl}${L?`<div class="crm-l">${crmTabs(L)}</div>`:`<div class="empty crm-em">${ico(crmIc(),22)}<div>Chưa đồng bộ lần nào</div></div>`}${warn}
- </div>`;
- if(keep){const n=el.querySelector(`[data-cf="${keep}"]`);if(n)n.focus()}}
-Object.assign(ACT,{
- async crm(){CRM.open=true;CRM.sig='';openModal(crmDraw,false,'crm');const m=$('#modal');if(m)m.addEventListener('change',crmCfg);await crmLoad()},
- crmforce(){CRM.force=!CRM.force;crmDraw()},
- crmfile(){const f=$('#crmfile');if(f)f.click()},
- async crmsync(){await crmGo({})}});
-async function crmCfg(e){const t=e.target;if(t.id==='crmfile'){const x=t.files[0];t.value='';if(!x)return;let d;try{d=JSON.parse(await x.text())}catch(er){toast('File không phải JSON','err');return}await crmGo({rows:d});return}if(!t.dataset||!t.dataset.cf)return;const b={};b[t.dataset.cf]=t.value;try{await crmPost('cfg',b);if(t.dataset.cf==='token')t.value='';await crmLoad()}catch(x){}}
-async function crmGo(b){const c=$('#modal [data-cf=url]'),k=$('#modal [data-cf=token]');if(c||k){const o={};if(c)o.url=c.value;if(k&&k.value)o.token=k.value;await crmPost('cfg',o)}
- b.force=CRM.force;try{await crmPost('sync',b)}catch(e){return}CRM.was=true;await crmLoad()}
-{const _cm=closeModal;closeModal=function(){CRM.open=false;return _cm.apply(this,arguments)}}
-crmLoad();
 
 /* ===== Nhập hàng loạt v2: cột con của dòng liên kết · bổ sung an toàn · kiểm tra trước · đoán cột ===== */
 {const _tl=tokLabel,_ti=tokIcon,_mt=matchTok;
@@ -7125,7 +7079,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
   };
 
   /* ── 10. tải đúng chỗ, đúng lúc ──
-     · Vọng gác / CRM chạy xong: bản gốc tải lại TOÀN BỘ (~20.000+ dòng, khung tải đè lên trang) dù đang ở Tổng quan.
+     · Vọng gác chạy xong: bản gốc tải lại TOÀN BỘ (~20.000+ dòng, khung tải đè lên trang) dù đang ở Tổng quan.
        Thay đổi đã về qua thời gian thực (SSE) → chỉ cần lấy phần thay đổi (delta) im lặng, vẽ lại lúc người dùng rảnh.
      · Dòng giả (khung tải bảng) chỉ hiện khi màn đang xem thật sự là BẢNG; Tổng quan / Sơ đồ / Báo cáo / Thiết bị không bao giờ có dòng giả.
        Chuyển tab trong lúc tải: dòng giả theo bảng mới hoặc tắt. */
@@ -7135,7 +7089,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
       if (HX.soft && !HX.inBg) { HX.inBg = 1; try { bgRender() } finally { HX.inBg = 0 } return }
       return _ra.apply(this, arguments);
     } }
-  for (const nm of ['cyvLoad', 'crmLoad']) {
+  for (const nm of ['cyvLoad']) {
     const f = window[nm]; if (typeof f !== 'function') continue;
     window[nm] = async function () { HX.soft++; try { return await f.apply(this, arguments) } finally { HX.soft-- } };
   }

@@ -865,7 +865,7 @@
   };
 
   /* ── 10. tải đúng chỗ, đúng lúc ──
-     · Vọng gác / CRM chạy xong: bản gốc tải lại TOÀN BỘ (~20.000+ dòng, khung tải đè lên trang) dù đang ở Tổng quan.
+     · Vọng gác chạy xong: bản gốc tải lại TOÀN BỘ (~20.000+ dòng, khung tải đè lên trang) dù đang ở Tổng quan.
        Thay đổi đã về qua thời gian thực (SSE) → chỉ cần lấy phần thay đổi (delta) im lặng, vẽ lại lúc người dùng rảnh.
      · Dòng giả (khung tải bảng) chỉ hiện khi màn đang xem thật sự là BẢNG; Tổng quan / Sơ đồ / Báo cáo / Thiết bị không bao giờ có dòng giả.
        Chuyển tab trong lúc tải: dòng giả theo bảng mới hoặc tắt. */
@@ -875,7 +875,7 @@
       if (HX.soft && !HX.inBg) { HX.inBg = 1; try { bgRender() } finally { HX.inBg = 0 } return }
       return _ra.apply(this, arguments);
     } }
-  for (const nm of ['cyvLoad', 'crmLoad']) {
+  for (const nm of ['cyvLoad']) {
     const f = window[nm]; if (typeof f !== 'function') continue;
     window[nm] = async function () { HX.soft++; try { return await f.apply(this, arguments) } finally { HX.soft-- } };
   }
