@@ -48,8 +48,19 @@ export async function proposeRemoveGroupMembers(args: Record<string, unknown>, c
   }
   const { data: memberRows } = await db.from("zalo_group_members").select("member_id,display_name,role").eq("workspace_id", context.workspaceId).eq("channel_account_id", bot.id).eq("group_id", group.groupId).limit(5000);
   const members: Member[] = ((memberRows ?? []) as Row[]).map((row) => ({ id: String(row.member_id), name: String(row.display_name ?? ""), role: Number(row.role ?? 0) }));
-  if (!members.length) return { ok: false, error: `HireX chưa có danh sách thành viên nhóm “${group.name}” (chờ lần đồng bộ thành viên tới).` };
   const byId = new Map(members.map((member) => [member.id, member]));
+  // Zalo gives each nick its own ids for the same group and the same people. Our nicks in this group are the nicks
+  // whose copy of the chat shares its zaloGroupKey (set by the member sync); Soda removes them by the id Soda sees
+  // for them: the same id, or the member with the nick's name in Soda's member list.
+  const { data: botCopy } = await db.from("omnichannel_conversations").select("metadata").eq("workspace_id", context.workspaceId).eq("channel_account_id", bot.id).eq("provider_conversation_id", group.groupId).maybeSingle();
+  const groupKey = typeof (botCopy?.metadata as Row | null)?.zaloGroupKey === "string" ? String((botCopy?.metadata as Row).zaloGroupKey) : null;
+  const { data: copies } = groupKey
+    ? await db.from("omnichannel_conversations").select("channel_account_id").eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO").eq("metadata->>zaloGroupKey", groupKey)
+    : await db.from("omnichannel_conversations").select("channel_account_id").eq("workspace_id", context.workspaceId).eq("channel_type", "ZALO").eq("provider_conversation_id", group.groupId);
+  const nicksInGroup = new Set(((copies ?? []) as Row[]).map((row) => String(row.channel_account_id)));
+  const membersByName = new Map<string, Member[]>();
+  for (const member of members) membersByName.set(fold(member.name), [...(membersByName.get(fold(member.name)) ?? []), member]);
+  const unmatched: string[] = [];
 
   // Who: our nicks by Bộ phận of their main user, our nicks by name, and/or people by their name in the group.
   const departments = list(args.bo_phan).map(fold);
@@ -71,12 +82,16 @@ export async function proposeRemoveGroupMembers(args: Record<string, unknown>, c
       const byDepartment = departments.length > 0 && department !== "" && departments.includes(fold(department));
       const byName = nickNames.some((wantedName) => fold(name).includes(wantedName));
       if (!byDepartment && !byName) continue;
-      const member = byId.get(uid);
-      if (member) chosen.set(uid, { ...member, name: member.name || name, why: byDepartment ? `nick ${department}` : "nick" });
+      const sameName = membersByName.get(fold(name)) ?? [];
+      // By name only when this nick really is in the group (another person may carry the same name).
+      const member = byId.get(uid) ?? (sameName.length === 1 && (!groupKey || nicksInGroup.has(String(account.id))) ? sameName[0] : undefined);
+      if (member) chosen.set(member.id, { ...member, name: member.name || name, why: byDepartment ? `nick ${department}` : "nick" });
+      else if (nicksInGroup.has(String(account.id))) unmatched.push(name);
       else if (byName) notInGroup.push(name);
     }
   }
   const missingPeople: string[] = [];
+  if (people.length && !members.length) return { ok: false, error: `HireX chưa có danh sách thành viên nhóm “${group.name}” nên chưa tìm được người theo tên (chờ lần đồng bộ thành viên tới).` };
   for (const person of people) {
     const key = fold(person);
     const exact = members.filter((member) => fold(member.name) === key);
@@ -90,11 +105,12 @@ export async function proposeRemoveGroupMembers(args: Record<string, unknown>, c
   const protectedPeople = [...chosen.values()].filter((member) => member.role === 1 || member.role === 2);
   for (const member of protectedPeople) chosen.delete(member.id);
   const targets = [...chosen.values()].sort((a, b) => a.name.localeCompare(b.name, "vi"));
-  if (!targets.length) return { ok: false, error: `Không có ai cần xoá trong nhóm “${group.name}”${protectedPeople.length ? ` (${protectedPeople.map((member) => member.name).join(", ")} là trưởng/phó nhóm, ${bot.name} không xoá được)` : ""}${missingPeople.length ? `; không thấy: ${missingPeople.join(", ")}` : ""}.` };
+  if (!targets.length) return { ok: false, error: `Không có ai cần xoá trong nhóm “${group.name}”${protectedPeople.length ? ` (${protectedPeople.map((member) => member.name).join(", ")} là trưởng/phó nhóm, ${bot.name} không xoá được)` : ""}${unmatched.length ? `; nick có trong nhóm nhưng ${bot.name} chưa thấy trong danh sách thành viên: ${unmatched.join(", ")}` : ""}${missingPeople.length ? `; không thấy: ${missingPeople.join(", ")}` : ""}.` };
   if (targets.length > MAX_REMOVALS) return { ok: false, error: `Danh sách có ${targets.length} người, mỗi lần xoá tối đa ${MAX_REMOVALS}. Sếp chia nhỏ giúp em.` };
   const notes = [
     protectedPeople.length ? `Giữ lại (trưởng/phó nhóm, không xoá được): ${protectedPeople.map((member) => member.name).join(", ")}.` : "",
     notInGroup.length ? `Không có trong nhóm: ${notInGroup.join(", ")}.` : "",
+    unmatched.length ? `Có trong nhóm nhưng ${bot.name} chưa thấy trong danh sách thành viên (chờ đồng bộ, hoặc tên trong nhóm khác tên nick): ${unmatched.join(", ")}.` : "",
     missingPeople.length ? `Không thấy trong nhóm: ${missingPeople.join(", ")}.` : "",
   ].filter(Boolean);
   return {
