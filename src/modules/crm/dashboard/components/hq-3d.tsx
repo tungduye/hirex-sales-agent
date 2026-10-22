@@ -176,14 +176,24 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       // Hover / click on rooms, people, Soda and the robot.
       const raycaster = new THREE.Raycaster();
       const pointer = new THREE.Vector2();
+      const projected = new THREE.Vector3();
       let down: { x: number; y: number } | null = null;
       let current: RoomKey | null = null, shown = false;
       const pickAt = (event: PointerEvent) => {
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
         raycaster.setFromCamera(pointer, camera);
-        const heads = raycaster.intersectObjects(people.pickables(), false);
-        const hits = heads.length ? heads : raycaster.intersectObjects(world.pickables, false);
+        // People are small on screen: take the nearest head within 28 px instead of an exact hit.
+        const mouseX = event.clientX - rect.left, mouseY = event.clientY - rect.top;
+        let nearest: Three.Object3D | null = null, nearestDistance = 28;
+        for (const head of people.pickables()) {
+          head.getWorldPosition(projected).project(camera);
+          if (projected.z > 1) continue;
+          const distance = Math.hypot(((projected.x + 1) / 2) * rect.width - mouseX, ((1 - projected.y) / 2) * rect.height - mouseY);
+          if (distance < nearestDistance) { nearestDistance = distance; nearest = head; }
+        }
+        if (nearest) return { pick: nearest.userData.pick as Pick, room: null, rect };
+        const hits = raycaster.intersectObjects(world.pickables, false);
         const hit = hits.find((item) => item.object.userData.pick);
         return hit ? { pick: hit.object.userData.pick as Pick, room: (hit.object.userData.room as RoomKey | undefined) ?? null, rect } : null;
       };
