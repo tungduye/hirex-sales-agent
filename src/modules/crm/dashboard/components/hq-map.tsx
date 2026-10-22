@@ -10,7 +10,7 @@ import styles from "@/modules/crm/dashboard/components/hq.module.css";
 // Zoom and rotate are local to this browser; every room opens the matching screen.
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
-const SCENE_W = 760, SCENE_H = 670, BASE_W = 1060, BASE_H = 600;
+const SCENE_W = 760, SCENE_H = 670, BASE_W = 1030, BASE_H = 590;
 const ROTATIONS = [-45, 45, 135, 225];
 const ZOOMS = [0.7, 0.85, 1, 1.15, 1.3, 1.5];
 type Box = { left: number; top: number; width: number; height: number };
