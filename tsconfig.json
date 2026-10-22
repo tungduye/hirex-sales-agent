@@ -377,7 +377,9 @@
     ".next-suoi-nguon-tab-xanh/types/**/*.ts",
     ".next-suoi-nguon-tab-xanh/dev/types/**/*.ts",
     ".next-tong-quan-hq-muc-1/types/**/*.ts",
-    ".next-tong-quan-hq-muc-1/dev/types/**/*.ts"
+    ".next-tong-quan-hq-muc-1/dev/types/**/*.ts",
+    ".next-tong-quan-hq-chinh-sua/types/**/*.ts",
+    ".next-tong-quan-hq-chinh-sua/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -8,7 +8,7 @@ import { listChannelCampaigns } from "@/modules/channels/server/get-channel-camp
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { teamOf } from "@/modules/inbox/core/inbox-scope";
 
-// HireX HQ (màn Tổng quan, mức 1): the live numbers of the company in one place. Every part follows the
+// HireX HQ (màn Tổng quan, mức 1 + 2): the live numbers of the company in one place. Every part follows the
 // member's rights: no inbox numbers without "Suối Nguồn · Xem", no CVs without "CV · Xem", and the team list
 // shows everyone only to admins / people who may view roles (otherwise the member and the people they manage).
 
@@ -16,10 +16,12 @@ export type HqFloor = "ALL" | "REC" | "SALE";
 export interface HqKpi { key: string; label: string; value: number | null; note: string; href: string; tone: "alert" | "info" | "meet" | "plain" }
 export interface HqRoom { key: string; name: string; meta: string; href: string; tone: "cyan" | "red" | "violet" | "green" }
 export interface HqFeedItem { kind: string; tone: "info" | "alert" | "meet" | "plain"; text: string; at: string; href: string | null }
-export interface HqMember { id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number }
+export interface HqMember { id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null; seat: "REC" | "SALE" | "MEET" | null }
+/** The numbers drawn on the office map (null = the member may not see that part). */
+export interface HqStats { waiting: number | null; tagged: number | null; sent: number | null; replies: number | null; running: number | null; aiActive: number | null; cvToday: number | null; meetingsToday: number }
 export interface HqData {
   fullName: string | null; floor: HqFloor; liveNicks: number | null; nextMeetingAt: string | null; nextMeetingTitle: string | null;
-  kpis: HqKpi[]; rooms: HqRoom[]; feed: HqFeedItem[]; team: HqMember[]; canSeeTeam: boolean;
+  kpis: HqKpi[]; rooms: HqRoom[]; feed: HqFeedItem[]; team: HqMember[]; canSeeTeam: boolean; stats: HqStats;
 }
 
 type Row = Record<string, unknown>;
@@ -41,9 +43,9 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   const now = Date.now(), dayStart = startOfVnDay(now), since30 = new Date(now - 30 * 86_400_000).toISOString();
   const [isAdmin, accessible, { data: profileRows }] = await Promise.all([
     isWorkspaceAdmin(), getAccessibleChannelAccountIds(),
-    db.from("profiles").select("id,full_name,department,manager_id").eq("workspace_id", account.workspaceId),
+    db.from("profiles").select("id,full_name,department,manager_id,avatar_url").eq("workspace_id", account.workspaceId),
   ]);
-  const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null }));
+  const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null, avatarUrl: typeof row.avatar_url === "string" && row.avatar_url.startsWith("https://") ? row.avatar_url : null }));
   const departmentOf = new Map(profiles.map((person) => [person.id, person.department]));
   const seesAll = isAdmin || can("roles.view");
   const visiblePeople = seesAll ? new Set(profiles.map((person) => person.id)) : teamOf(account.userId, profiles.map((person) => ({ id: person.id, managerId: person.managerId })));
@@ -170,10 +172,11 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
       const replying = typingNow.has(person.id);
       const status = meeting ? { status: "Đang họp", tone: "meet" as const } : waiting >= 100 ? { status: "Cần xem", tone: "alert" as const } : replying ? { status: "Đang nhắn", tone: "busy" as const } : { status: "—", tone: "idle" as const };
       const doing = [meeting ? `Họp: ${meeting}` : replying ? "Đang trả lời tin" : null, inboxData ? `${waiting.toLocaleString("vi-VN")} chưa trả lời` : null].filter(Boolean).join(" · ") || "Chưa có hoạt động";
-      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, ...status };
+      const seat = meeting ? "MEET" as const : /\brec\b/u.test(fold(person.department)) ? "REC" as const : /\bsale\b/u.test(fold(person.department)) ? "SALE" as const : null;
+      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, seat, ...status };
     })
     .sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "vi"))
-    .slice(0, 30);
+    .slice(0, 40);
 
   const kpis: HqKpi[] = [
     { key: "waiting", label: "Chưa trả lời", value: inboxData?.waiting ?? null, note: inboxData ? `${inboxData.tagged.toLocaleString("vi-VN")} nhóm tag mình · 30 ngày` : "Cần quyền Suối Nguồn", href: "/inbox/all?view=waiting", tone: "alert" },
@@ -196,5 +199,10 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     fullName: account.fullName ?? null, floor, liveNicks: inboxData?.liveNicks ?? null,
     nextMeetingAt: calendarData.next ? new Date(calendarData.next.start).toISOString() : null, nextMeetingTitle: calendarData.next?.title ?? null,
     kpis, rooms, feed: feedItems, team, canSeeTeam: seesAll || visiblePeople.size > 1,
+    stats: {
+      waiting: inboxData?.waiting ?? null, tagged: inboxData?.tagged ?? null, sent: campaignData?.sent ?? null, replies: campaignData?.replies ?? null,
+      running: campaignData || broadcastRunning !== null ? (campaignData?.running ?? 0) + (broadcastRunning ?? 0) : null,
+      aiActive, cvToday: cvToday?.today ?? null, meetingsToday: calendarData.today,
+    },
   };
 }

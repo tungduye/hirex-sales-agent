@@ -2,10 +2,12 @@ import "server-only";
 
 import { HsError, T, now, pages, run, sb } from "./db";
 import { queuedNote } from "./checker";
+import { enqueueOwl, owlEngine, owlHeal, owlTracked } from "./owl-run";
 import type { Id } from "../types";
 
 /* Cú vọ tự động (owl/) — thu thập dữ liệu ngoài (bài đăng Page…) rồi đồng bộ vào tab.
-   Việc thu thập cần curl_cffi + token FB → chạy ở worker Python (owl/owl_postfb.py) qua ahs_jobs (kind 'owl').
+   Việc thu thập chạy ngay trong máy chủ Node (owl-run.ts → owl-job.ts → owl-postfb.ts, port 1:1 của worker/owl_postfb.py) qua ahs_jobs (kind 'owl');
+   đặt AHS_OWL_ENGINE=python để quay lại cách cũ (chỉ xếp hàng, chờ worker Python).
    Next: boot (kịch bản + tab + owner), sources (giải cookie/nguồn), run (tạo job), job (đọc tiến trình),
    stop, sync (ghi kết quả vào tab — thuần DB, làm tại đây). Port của owl/owl.py (handle + sync_rows). */
 
@@ -160,16 +162,18 @@ async function apiRun(b: Record<string, unknown>) {
   if (!sources.length) throw new HsError("Không có nguồn hợp lệ");
   const payload = { script: s.id, defaults: s.defaults, sources, params: (b.params as Record<string, unknown>) || {} };
   const r = await run<{ id: Id }>(sb().from("ahs_jobs").insert({ kind: "owl", payload, status: "queued", progress: { status: "Chờ worker…", done: false, rows: [], logs: [] }, created: now(), by: "owl:" + s.id }).select("id").single());
+  if (owlEngine() === "node") enqueueOwl(r.id);                                      // Node nhận việc ngay; worker Python (nếu có) không bao giờ chạy đôi
   return { job: String(r.id), n: sources.length };
 }
 async function apiJob(qs: URLSearchParams) {
   const id = Number(qs.get("id") || 0); if (!id) return { error: "job?" };
-  const row = await run<{ status: string; progress: Record<string, unknown> } | null>(sb().from("ahs_jobs").select("status,progress").eq("id", id).maybeSingle());
+  let row = await run<{ status: string; by: string | null; progress: Record<string, unknown> } | null>(sb().from("ahs_jobs").select("status,by,progress").eq("id", id).maybeSingle());
   if (!row) return { error: "job?" };
+  if (await owlHeal({ id, ...row })) row = (await run<typeof row>(sb().from("ahs_jobs").select("status,by,progress").eq("id", id).maybeSingle())) ?? row;
   const p = row.progress || {}; const rows = Array.isArray(p.rows) ? (p.rows as unknown[]) : []; const frm = Number(qs.get("from") || 0);
   const done = ["done", "failed", "stopped"].includes(row.status);
   const logs = Array.isArray(p.logs) ? [...(p.logs as unknown[])] : [];
-  const note = await queuedNote(row.status);                                         // queued mà chưa có worker → thêm 1 dòng nhật ký (không treo)
+  const note = owlTracked(id) ? "" : await queuedNote(row.status);                   // queued mà chưa có ai nhận → thêm 1 dòng nhật ký (không treo)
   if (note && !logs.some((l) => (l as { msg?: string }).msg === note)) logs.push({ t: "", msg: note, kind: "warn" });
   return { status: note ? "Chờ worker…" : String(p.status || row.status), done, paused: row.status === "paused", total: rows.length, rows: rows.slice(frm), logs };
 }

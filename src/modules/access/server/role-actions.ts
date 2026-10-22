@@ -51,7 +51,10 @@ export async function assignProfileAccess(formData:FormData){
   for(let step=safeManager,hops=0;step&&hops<200;step=bossOf.get(step)??null,hops++){if(step===profile.id){safeManager=null;break;}}
   // Bộ phận (Sale, Rec…): Soda counts Suối Nguồn by it.
   const department=String(formData.get("department")??"").replace(/\s+/gu," ").trim().slice(0,60)||null;
-  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts,manager_id:safeManager,department}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
+  // Ảnh đại diện (HireX HQ map): an https image link, empty = initials.
+  const avatarRaw=String(formData.get("avatarUrl")??"").trim();
+  const avatar_url=/^https:\/\/\S+$/u.test(avatarRaw)&&avatarRaw.length<=1000?avatarRaw:null;
+  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts,manager_id:safeManager,department,avatar_url}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
   // Tài khoản chính: each account has one main user; ticking one here takes it over from whoever had it.
   const primaryIds=formData.getAll("primaryAccountId").map(String).filter(value=>uuid.safeParse(value).success);
   const {data:validPrimary}=primaryIds.length?await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).in("id",primaryIds):{data:[] as Array<{id:string}>};

@@ -1,21 +1,16 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Bot, Building2, CalendarClock, FileText, Inbox, Radio, Sparkles, Users } from "lucide-react";
 import type { HqData, HqMember } from "@/modules/crm/dashboard/server/hq-data";
 import { HqAutoRefresh, HqClock, HqCount, HqCountdown } from "@/modules/crm/dashboard/components/hq-live";
+import { HqAvatar, HqMap } from "@/modules/crm/dashboard/components/hq-map";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 
 // HireX HQ, mức 1: the live control-room view of Tổng quan (KPIs, rooms, what is happening, the team).
-// Mức 2 turns the rooms into a 2.5D office map with Zalo avatars.
+// Mức 2: the rooms are a 2.5D office map (hq-map.tsx) with the members at their desks.
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
-const ROOM_ICONS = { soda: Sparkles, inbox: Inbox, tower: Radio, rec: Users, sale: Building2, meeting: CalendarClock, ai: Bot, cv: FileText } as const;
-const ROOM_TONE = { cyan: null, red: styles.roomRed, violet: styles.roomViolet, green: styles.roomGreen } as const;
 const PILL = { alert: styles.alert, info: styles.info, meet: styles.meet, plain: styles.plain, busy: styles.busy, idle: styles.idle } as const;
 const KPI_PILL = { alert: "Cần xử lý", info: "Human", meet: "Lịch hẹn", plain: "Zalo" } as const;
-const AV_RING = { busy: null, alert: styles.avAlert, meet: styles.avMeet, idle: styles.avIdle } as const;
-const AV_COLORS = ["#A5F3FC", "#C7D2FE", "#BAE6FD", "#DDD6FE", "#99F6E4", "#E0E7FF", "#FBCFE8", "#FDE68A"];
-const avatarColor = (id: string) => AV_COLORS[Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % AV_COLORS.length];
 const FLOORS = [["ALL", "/", "Toàn công ty"], ["REC", "/?tang=rec", "Tầng Rec"], ["SALE", "/?tang=sale", "Tầng Sale"]] as const;
 
 function teamNote(team: HqMember[]) {
@@ -25,7 +20,6 @@ function teamNote(team: HqMember[]) {
 }
 
 export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
-  const inboxRoom = data.rooms.find((room) => room.key === "inbox");
   return (
     <div className={styles.hq}>
       <HqAutoRefresh />
@@ -61,26 +55,7 @@ export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
         ))}
       </section>
 
-      <section className={cx(styles.glass, styles.floor)} aria-label="Các phòng">
-        <div className={cx(styles.row, styles.floorHead)}>
-          <strong className={styles.panelTitle}>Các phòng</strong>
-          <span className={styles.floorHint}>Bấm vào phòng để mở màn tương ứng</span>
-        </div>
-        <div className={styles.rooms}>
-          {data.rooms.map((room) => {
-            const Icon = ROOM_ICONS[room.key as keyof typeof ROOM_ICONS] ?? Sparkles;
-            const busyInbox = room.key === "inbox" && inboxRoom && !/^0 /u.test(inboxRoom.meta) && inboxRoom.meta !== "—";
-            return (
-              <Link key={room.key} href={room.href} prefetch={false} className={cx(styles.room, ROOM_TONE[room.tone])}>
-                <Icon className={styles.roomIcon} size={18} aria-hidden="true" />
-                {busyInbox ? <><span className={styles.ring} /><span className={cx(styles.dot, styles.f1)} /><span className={cx(styles.dot, styles.f2)} /><span className={cx(styles.dot, styles.f3)} /></> : null}
-                <span className={styles.roomName}>{room.name}</span>
-                <span className={cx(styles.roomMeta, styles.mono)}>{room.meta}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
+      <HqMap rooms={data.rooms} team={data.team} stats={data.stats} floor={data.floor} />
 
       <section className={styles.lower}>
         <div className={cx(styles.glass, styles.panel)}>
@@ -101,7 +76,7 @@ export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
           <div className={styles.scroll}>
           {data.team.length ? data.team.map((person) => (
             <div key={person.id} className={styles.item}>
-              <span className={cx(styles.av, AV_RING[person.tone])} style={{ background: avatarColor(person.id) }} aria-hidden="true">{person.initials}</span>
+              <span className={styles.teamAv} aria-hidden="true"><HqAvatar person={person} size={28} /></span>
               <span className={styles.who}>
                 <span className={styles.whoName}>{person.name}{person.department ? <span className={styles.whoRole}>{person.department}</span> : null}</span>
                 <span className={styles.whoDoing}>{person.doing}</span>
