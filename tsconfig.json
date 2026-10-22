@@ -365,7 +365,9 @@
     ".next-soda-dem-suoi-nguon-sua/types/**/*.ts",
     ".next-soda-dem-suoi-nguon-sua/dev/types/**/*.ts",
     ".next-soda-out-thanh-vien-nhom/types/**/*.ts",
-    ".next-soda-out-thanh-vien-nhom/dev/types/**/*.ts"
+    ".next-soda-out-thanh-vien-nhom/dev/types/**/*.ts",
+    ".next-soda-out-nhom-sua/types/**/*.ts",
+    ".next-soda-out-nhom-sua/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
