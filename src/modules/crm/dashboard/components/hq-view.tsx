@@ -36,15 +36,15 @@ export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
           </span>
           <div style={{ display: "flex", flexDirection: "column" }}>
             <strong className={styles.title}>HireX HQ</strong>
-            <span className={styles.subtitle}>Xin chào, {data.fullName ?? "bạn"} · Tổng quan</span>
+            <span className={styles.subtitle}>Xin chào, {data.fullName ?? "bạn"}</span>
           </div>
         </div>
         <nav className={styles.row} aria-label="Tầng" style={{ flexWrap: "wrap", gap: 6 }}>
           {FLOORS.map(([key, href, label]) => <Link key={key} href={href} className={cx(styles.chip, data.floor === key && styles.chipOn)} aria-current={data.floor === key ? "page" : undefined}>{label}</Link>)}
         </nav>
         <div className={styles.spacer} />
-        {data.liveNicks !== null ? <span className={cx(styles.chip, styles.chipLive)}><span className={styles.pulse} />Live · {data.liveNicks} nick Zalo đang kết nối</span> : null}
-        {data.nextMeetingAt ? <span className={styles.chip} title={data.nextMeetingTitle ?? undefined}>Lịch kế tiếp sau <HqCountdown at={data.nextMeetingAt} className={cx(styles.mono, styles.strong)} /></span> : <span className={styles.chip}>Không còn lịch hôm nay</span>}
+        {data.liveNicks !== null ? <span className={cx(styles.chip, styles.chipLive)} title="Số nick Zalo đang kết nối"><span className={styles.pulse} />Live · {data.liveNicks} nick Zalo</span> : null}
+        {data.nextMeetingAt ? <span className={styles.chip} title={data.nextMeetingTitle ?? undefined}>Lịch kế tiếp sau <HqCountdown at={data.nextMeetingAt} className={cx(styles.mono, styles.strong)} /></span> : <span className={styles.chip}>Hết lịch hôm nay</span>}
         <HqClock className={cx(styles.chip, styles.mono, styles.strong)} />
       </header>
 
@@ -98,6 +98,7 @@ export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
             <strong className={styles.panelTitle}>Đội ngũ</strong>
             <span className={styles.panelNote}>{teamNote(data.team)}</span>
           </div>
+          <div className={styles.scroll}>
           {data.team.length ? data.team.map((person) => (
             <div key={person.id} className={styles.item}>
               <span className={cx(styles.av, AV_RING[person.tone])} style={{ background: avatarColor(person.id) }} aria-hidden="true">{person.initials}</span>
@@ -105,9 +106,10 @@ export function HqView({ data, brief }: { data: HqData; brief?: ReactNode }) {
                 <span className={styles.whoName}>{person.name}{person.department ? <span className={styles.whoRole}>{person.department}</span> : null}</span>
                 <span className={styles.whoDoing}>{person.doing}</span>
               </span>
-              <span className={cx(styles.pill, PILL[person.tone])}>{person.status}</span>
+              {person.tone === "idle" ? null : <span className={cx(styles.pill, PILL[person.tone])}>{person.status}</span>}
             </div>
           )) : <p className={styles.empty}>Chưa có thành viên ở tầng này (gán Bộ phận ở Vai trò và phân quyền).</p>}
+          </div>
         </div>
       </section>
 

@@ -375,7 +375,9 @@
     ".next-ai-rec-theo-kich-ban/types/**/*.ts",
     ".next-ai-rec-theo-kich-ban/dev/types/**/*.ts",
     ".next-suoi-nguon-tab-xanh/types/**/*.ts",
-    ".next-suoi-nguon-tab-xanh/dev/types/**/*.ts"
+    ".next-suoi-nguon-tab-xanh/dev/types/**/*.ts",
+    ".next-tong-quan-hq-muc-1/types/**/*.ts",
+    ".next-tong-quan-hq-muc-1/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

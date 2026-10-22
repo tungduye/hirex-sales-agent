@@ -82,8 +82,9 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
 
   const cvs = (async () => {
     if (!can("cvs.view") && !can("cvs.view_all")) return null;
-    const { count } = await supabase.from("human_cvs").select("id", { count: "exact", head: true }).eq("workspace_id", account.workspaceId).gte("human_created_at", dayStart.toISOString());
-    return count ?? 0;
+    const since = (from: Date) => supabase.from("human_cvs").select("id", { count: "exact", head: true }).eq("workspace_id", account.workspaceId).gte("human_created_at", from.toISOString());
+    const [{ count: today }, { count: twoDays }] = await Promise.all([since(dayStart), since(new Date(dayStart.getTime() - 86_400_000))]);
+    return { today: today ?? 0, yesterday: Math.max(0, (twoDays ?? 0) - (today ?? 0)) };
   })();
 
   const campaigns = (async () => {
@@ -176,7 +177,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
 
   const kpis: HqKpi[] = [
     { key: "waiting", label: "Chưa trả lời", value: inboxData?.waiting ?? null, note: inboxData ? `${inboxData.tagged.toLocaleString("vi-VN")} nhóm tag mình · 30 ngày` : "Cần quyền Suối Nguồn", href: "/inbox/all?view=waiting", tone: "alert" },
-    { key: "cv", label: "CV mới hôm nay", value: cvToday, note: cvToday === null ? "Cần quyền CV" : "Từ Human", href: "/cvs", tone: "info" },
+    { key: "cv", label: "CV mới hôm nay", value: cvToday?.today ?? null, note: cvToday === null ? "Cần quyền CV" : `Hôm qua ${cvToday.yesterday.toLocaleString("vi-VN")} · Human cập nhật mỗi 6 giờ`, href: "/cvs", tone: "info" },
     { key: "meet", label: "Lịch hẹn hôm nay", value: calendarData.today, note: `${calendarData.interviews} phỏng vấn`, href: "/calendar", tone: "meet" },
     { key: "replies", label: "Phản hồi chiến dịch Zalo", value: campaignData?.replies ?? null, note: campaignData ? `+${campaignData.repliesToday} hôm nay · ${campaignData.sent.toLocaleString("vi-VN")} tin gửi` : "Cần quyền Chiến dịch", href: "/campaigns/omnichannel", tone: "plain" },
   ];
@@ -189,7 +190,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     { key: "sale", name: "Phòng Sale", meta: `${peopleIn(/\bsale\b/u)} người`, href: "/?tang=sale", tone: "violet" },
     { key: "meeting", name: "Phòng họp", meta: `${calendarData.today} lịch hôm nay`, href: "/calendar", tone: "violet" },
     { key: "ai", name: "Bàn AI Recruiter", meta: aiActive === null ? "—" : `${aiActive} UV đang tư vấn`, href: "/settings/ai-recruiter", tone: "green" },
-    { key: "cv", name: "Kho CV", meta: cvToday === null ? "—" : `${cvToday} mới`, href: "/cvs", tone: "cyan" },
+    { key: "cv", name: "Kho CV", meta: cvToday === null ? "—" : `${cvToday.today} mới hôm nay`, href: "/cvs", tone: "cyan" },
   ];
   return {
     fullName: account.fullName ?? null, floor, liveNicks: inboxData?.liveNicks ?? null,

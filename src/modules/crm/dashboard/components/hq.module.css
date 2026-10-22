@@ -19,7 +19,7 @@
 .title { font-size: 16px; letter-spacing: .02em; font-weight: 700; }
 .subtitle { font-size: 11.5px; color: var(--hq-muted); }
 .spacer { flex: 1 1 20px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; border: 1px solid rgba(129, 140, 248, .3); background: rgba(15, 23, 46, .6); color: #C7D2FE; text-decoration: none; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid rgba(129, 140, 248, .3); background: rgba(15, 23, 46, .6); color: #C7D2FE; text-decoration: none; white-space: nowrap; }
 a.chip:hover { border-color: rgba(165, 243, 252, .7); color: #fff; }
 .chipOn { background: #2563EB; border-color: #3B82F6; color: #fff; }
 .chipLive { color: #A7F3D0; border-color: rgba(52, 211, 153, .4); }
@@ -65,7 +65,8 @@ a.chip:hover { border-color: rgba(165, 243, 252, .7); color: #fff; }
 @keyframes flow { 0% { left: -10px; opacity: 0; } 15% { opacity: 1; } 100% { left: 85%; opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .pulse, .ring, .dot { animation: none; } .room:hover, .kpi:hover { transform: none; } }
 
-.lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; }
+.lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
+.scroll { max-height: 400px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(129, 140, 248, .35) transparent; }
 @media (max-width: 520px) { .lower { grid-template-columns: 1fr; } }
 .panel { padding: 14px 16px; min-width: 0; }
 .panelHead { justify-content: space-between; margin-bottom: 4px; }
@@ -86,3 +87,10 @@ a.item:hover { background: rgba(34, 211, 238, .05); }
 .whoDoing { font-size: 11.5px; color: var(--hq-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brief { padding: 14px 16px; }
 .briefBody { margin-top: 10px; border-radius: 12px; overflow: hidden; color: #0f172a; }
+@media (max-width: 640px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .kpi { padding: 12px; }
+  .kVal { font-size: 24px; }
+  .kpi .pill { display: none; }
+  .header .chip { font-size: 12px; }
+}
