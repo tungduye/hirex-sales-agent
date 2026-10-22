@@ -114,9 +114,18 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
     const departments = list(args.bo_phan).map(fold);
     const states = list(args.trang_thai);
     const channels = list(args.kenh);
-    const days = Number(args.so_ngay) > 0 ? Math.min(Number(args.so_ngay), 365) : null;
+    const by = typeof args.chia_theo === "string" ? args.chia_theo : "TONG";
+    const groupName = typeof args.ten_nhom_the === "string" && args.ten_nhom_the.trim() ? args.ten_nhom_the.trim() : null;
+    const groupTags = by === "THI_TRUONG" ? markets : by === "NHOM_THE" && groupName ? tags.filter((tag) => tag.group && fold(tag.group) === fold(groupName)) : [];
+    if (by === "NHOM_THE" && !groupTags.length) return { loi: groupName ? `Chưa có nhãn nào trong nhóm thẻ "${groupName}".` : "Cần ten_nhom_the khi chia theo nhóm thẻ.", cac_nhom_the: [...new Set(tags.map((tag) => tag.group).filter(Boolean))] };
+    // Questions about tags read only the conversations carrying them (all time); the rest: the last 30 days, like the tab numbers.
+    const tagScope = wantedTags.length ? wantedTags.flatMap((tag) => tag.ids) : wantedMarkets.length ? wantedMarkets.flatMap((market) => market.ids)
+      : by === "THE" ? tags.map((tag) => tag.id) : by === "THI_TRUONG" || by === "NHOM_THE" ? groupTags.map((tag) => tag.id) : [];
+    if ((by === "THE" || by === "THI_TRUONG") && !tagScope.length) return { loi: by === "THE" ? "Suối Nguồn chưa có nhãn nào." : "Chưa nhãn nào được xếp vào nhóm thẻ \"Thị trường\" (Suối Nguồn → Nhãn → Nhóm thẻ)." };
+    const byTag = tagScope.length > 0;
+    const days = Number(args.so_ngay) > 0 ? Math.min(Number(args.so_ngay), 365) : byTag ? null : 30;
     const supabase = await createClient();
-    const { data, error } = await supabase.rpc("inbox_conversation_facts", { p_account_ids: [...accounts.keys()], p_channel_types: channels.length ? channels : null, p_since: days ? new Date(Date.now() - days * 86_400_000).toISOString() : null });
+    const { data, error } = await supabase.rpc("inbox_conversation_facts", { p_account_ids: [...accounts.keys()], p_channel_types: channels.length ? channels : null, p_since: days ? new Date(Date.now() - days * 86_400_000).toISOString() : null, p_tag_ids: byTag ? [...new Set(tagScope)] : null });
     if (error) return { loi: "Chưa đếm được Suối Nguồn, thử lại sau." };
     const facts = ((data ?? []) as FactRow[]).filter((row) => !row.is_other);
     // Owner: the person the conversation is given to; not given = the main user of the nick.
@@ -134,10 +143,6 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
     });
     if (ownerNames.length && !rows.length && ![...people.values()].some((person) => ownerNames.some((name) => fold(person.name).includes(name))))
       return { loi: `Không có người tên "${list(args.owner).join(", ")}".` };
-    const by = typeof args.chia_theo === "string" ? args.chia_theo : "TONG";
-    const groupName = typeof args.ten_nhom_the === "string" && args.ten_nhom_the.trim() ? args.ten_nhom_the.trim() : null;
-    const groupTags = by === "THI_TRUONG" ? markets : by === "NHOM_THE" && groupName ? tags.filter((tag) => tag.group && fold(tag.group) === fold(groupName)) : [];
-    if (by === "NHOM_THE" && !groupTags.length) return { loi: groupName ? `Chưa có nhãn nào trong nhóm thẻ "${groupName}".` : "Cần ten_nhom_the khi chia theo nhóm thẻ.", cac_nhom_the: [...new Set(tags.map((tag) => tag.group).filter(Boolean))] };
     const keysOf = (row: FactRow): string[] => {
       const owner = ownerOf(row); const person = owner ? people.get(owner) : null;
       if (by === "OWNER") return [person?.name || "(chưa có owner)"];
@@ -155,7 +160,7 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
       buckets.set(key, entry);
     }
     return {
-      pham_vi: `${days ? `hội thoại có tin trong ${days} ngày gần đây` : "mọi hội thoại (tối đa 20.000 hội thoại mới nhất)"} trên ${accounts.size} nick sếp được xem`,
+      pham_vi: `${days ? `hội thoại có tin trong ${days} ngày gần đây${Number(args.so_ngay) > 0 ? "" : " (mặc định, giống số trên các tab)"}` : "mọi thời gian, chỉ các hội thoại có nhãn được hỏi"} trên ${accounts.size} nick sếp được xem`,
       dieu_kien: { trang_thai: states.length ? states.join(" hoặc ") : "tất cả", owner: list(args.owner), bo_phan: list(args.bo_phan), nhan: wantedTags.map((tag) => tag.name), thi_truong: wantedMarkets.map((market) => market.name), kenh: channels.map((channel) => CHANNEL[channel] ?? channel) },
       tong: { hoi_thoai: rows.length, chua_tra_loi: rows.filter(waiting).length, quan_trong: rows.filter((row) => row.is_important).length, nhom_zalo: rows.filter((row) => row.is_group).length },
       ...(by !== "TONG" ? { chia_theo: by, bang: [...buckets.values()].sort((a, b) => b.hoi_thoai - a.hoi_thoai).slice(0, 50) } : {}),

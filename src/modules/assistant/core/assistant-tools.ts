@@ -763,7 +763,7 @@ function ROUND_ONE_TOOLS(): AssistantToolDefinition[] {
         kenh: { type: ["array", "null"], items: { type: "string", enum: ["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE"] }, description: "Kênh (Mail = EMAIL), null = mọi kênh." },
         chia_theo: { type: "string", enum: ["TONG", "OWNER", "BO_PHAN", "THE", "THI_TRUONG", "NHOM_THE", "KENH", "NICK"], description: "Cách chia bảng kết quả." },
         ten_nhom_the: nullableString("Tên nhóm thẻ khi chia_theo NHOM_THE (ví dụ \"Vị trí\"), còn lại null."),
-        so_ngay: nullableInteger("Chỉ hội thoại có tin trong bao nhiêu ngày gần đây, null = mọi hội thoại."),
+        so_ngay: nullableInteger("Chỉ hội thoại có tin trong bao nhiêu ngày gần đây; null = mặc định (30 ngày như số trên tab; hỏi theo nhãn/thị trường thì mọi thời gian)."),
       },
     },
     args: z.object({
