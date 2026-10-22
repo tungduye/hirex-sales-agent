@@ -27,7 +27,9 @@ async function pool<X>(xs: X[], fn: (x: X) => Promise<unknown>, n = 8) {
 const idsWhere = async (t: "accounts" | "devices", col: string, val: Id) =>
   (await pages<{ id: Id }>((a, z) => sb().from(T[t]).select("id").eq(col, val).order("id").range(a, z))).map((r) => r.id);
 const PCOLS = new Set(["data", "note", "status_id", "owner_id", "dept_id", "device_id", "updated"]);
-let noPatchFn = false;
+/** DB chưa có hàm SQL → dùng đường dự phòng; 10 phút sau thử lại (chạy SQL xong không cần khởi động lại máy chủ). */
+let noPatchAt = 0;
+const noPatchFn = () => Date.now() - noPatchAt < 600_000;
 /** ghi patch từng dòng: các dòng cùng một patch gộp thành 1 lệnh (≤ 500 id);
  *  patch lẻ (mỗi dòng một khác) gửi theo lô 500 qua ahs_patch_accounts, chưa có hàm thì upsert theo lô (upsertPatches). */
 async function updateIds(ps: Map<Id, Patch>) {
@@ -41,11 +43,11 @@ async function updateIds(ps: Map<Id, Patch>) {
   }
   const left: Patch[] = [];
   for (const ch of chunks(one, 500)) {
-    if (noPatchFn) { left.push(...ch); continue; }
+    if (noPatchFn()) { left.push(...ch); continue; }
     try { await run(sb().rpc("ahs_patch_accounts", { p_rows: ch })); }
     catch (e) {
       if (!isMissing(e)) throw e;
-      noPatchFn = true; left.push(...ch);
+      noPatchAt = Date.now(); left.push(...ch);
     }
   }
   await pool(jobs, ([p, ch]) => run(sb().from(T.accounts).update(p).in("id", ch)));
@@ -74,10 +76,10 @@ async function upsertPatches(list: Patch[]) {
    · Chưa có hàm: đọc dòng theo lô 1.000 (6 lô song song), vá ở đây, ghi đè cả lô bằng 1 lệnh upsert; dòng bị xoá trong lúc đó không bao giờ "sống lại".
    Trigger lịch sử (ahs_acc_hist) giữ bản cũ của mọi dòng đổi trong cả 2 cách. updated = lúc ghi từng lô. */
 type MergeItem = { id: Id; set?: Record<string, string>; del?: string[]; note?: string; note_add?: string; status_id?: Id | null; owner_id?: Id | null; dept_id?: Id; device_id?: Id | null };
-let noMergeFn = false;
+let noMergeAt = 0;
 async function mergeWrite(items: MergeItem[]): Promise<number> {
   if (!items.length) return 0;
-  if (!noMergeFn) {
+  if (Date.now() - noMergeAt > 600_000) {
     const parts = chunks(items, 2500);
     let n = 0, first = true;
     try {
@@ -85,7 +87,7 @@ async function mergeWrite(items: MergeItem[]): Promise<number> {
       n += Number(await run(sb().rpc("ahs_rows_merge", { p_items: parts[0], p_ts: now() }))) || 0; first = false;
       await pool(parts.slice(1), async (ch) => { n += Number(await run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: now() }))) || 0; }, 4);
       return n;
-    } catch (e) { if (!first || !isMissing(e)) throw e; noMergeFn = true; }
+    } catch (e) { if (!first || !isMissing(e)) throw e; noMergeAt = Date.now(); }
   }
   return mergeFallback(items);
 }

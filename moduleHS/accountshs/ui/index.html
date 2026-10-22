@@ -2143,11 +2143,15 @@ html.ca-off .hx-busy{animation:none}
 .ovt td.hx-o[data-a]{cursor:pointer}
 .ovt td.hx-ok{color:var(--ui-text-2)}
 .ovt th.hx-o,.ovt td.hx-o{width:auto;white-space:nowrap}
-.ovt .hx-rt{display:inline-grid;grid-template-columns:4.8ch var(--rtb,6ch);column-gap:5px;align-items:baseline;font-variant-numeric:tabular-nums}
-.ovt .hx-rt>b{text-align:right;font-weight:650;color:var(--ui-text-2)}
+.ovt th.hx-o,.ovt td.hx-o{text-align:center}
+.ovt .hx-rt{display:grid;grid-template-columns:minmax(0,1fr) 4.6ch minmax(0,1fr);column-gap:5px;align-items:baseline;font-variant-numeric:tabular-nums}
+.ovt td.hx-o:has(.hx-rt){min-width:calc(var(--rtb,7ch) * 2 + 4.6ch + 10px)}
+.ovt .hx-rt>b{grid-column:2;text-align:center}
+.ovt .hx-rt>.hx-of{grid-column:3}
+.ovt .hx-rt>b{font-weight:400;color:var(--ui-text-2)}
 .ovt td.g .hx-rt>b{color:var(--ui-success)}
 .ovt td.b .hx-rt>b{color:var(--ui-danger)}
-.ovt .hx-rt>b.z,.ovt td.g .hx-rt>b.z,.ovt td.b .hx-rt>b.z{color:var(--ui-muted);font-weight:400}
+.ovt .hx-rt>b.z,.ovt td.g .hx-rt>b.z,.ovt td.b .hx-rt>b.z{color:var(--ui-muted)}
 .ovt .hx-rt .hx-of{text-align:left;color:var(--ui-muted);font-size:11px;font-weight:400}
 .hx-ownb{display:inline-flex;align-items:center;gap:6px;height:24px;max-width:100%;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--ui-muted);
   font:inherit;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;white-space:nowrap}
@@ -2185,7 +2189,7 @@ html.ca-off .hx-busy{animation:none}
   .ovtw2{padding:12px 8px 16px}
   .ovt th.tr{width:auto;padding-right:8px}
 }
-@media(max-width:1340px) and (min-width:1101px){.ovw{grid-template-columns:minmax(330px,350px) minmax(0,1fr)}}
+@media(max-width:1440px) and (min-width:1101px){.ovw{grid-template-columns:minmax(330px,350px) minmax(0,1fr)}}
 /* máy tính bảng ngang / laptop nhỏ: cây Phạm vi lên trên, bảng nền tảng đủ rộng bên dưới (như điện thoại) */
 @media(max-width:1100px) and (min-width:901px){.ovw{grid-template-columns:1fr;grid-template-rows:minmax(0,38%) minmax(0,1fr)}}
 @media(max-width:600px){
@@ -2201,6 +2205,15 @@ html.ca-off .hx-busy{animation:none}
   .ovkc span{font-size:10px}
   .ovkc em{font-size:11px}
   .ovt tr.hx-og .hx-og1 .hx-ownb>span{display:none}
+}
+@media(max-width:1300px) and (min-width:1101px){.ovt{font-size:12.5px}.ovt th,.ovt td{padding:0 5px}}
+/* màn hình ≤ 1760px (laptop, tablet, điện thoại): % ở giữa ô, (số/tổng) nhỏ ngay dưới, cùng căn giữa → cột hẹp, bảng vẫn vừa khung */
+@media(max-width:1760px){
+  .ovt td.hx-o:has(.hx-rt){min-width:0}
+  .ovt .hx-rt{grid-template-columns:1fr;line-height:1.2}
+  .ovt .hx-rt>b,.ovt .hx-rt>.hx-of{grid-column:1;text-align:center}
+  .ovt .hx-rt>.hx-of{font-size:10.5px}
+  .ovt .hx-rt>.hx-of:empty{display:none}
 }
 </style><script>/* HireX · chạy TRƯỚC JS gốc (build_ui.py chèn vào <head>).
    1. Mở Tài nguyên = luôn vào Tổng quan (tab Tất cả › Tổng quan, không ô tìm): bản gốc đọc lựa chọn cũ (localStorage) ngay khi chạy
@@ -6393,9 +6406,9 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
         const by = x ? x.by : {}, nm = tb ? tb.name : '';
         const tip0 = `${nm} · ${ownSel()}: ${nf0(n)} / ${nf0(all)} (${Math.round(p)}%)\n` + ownVals().filter(v => by[v]).map(v => `${OWNS.includes(v) ? '✓' : '  '} ${ownLab(v)}: ${nf0(by[v])}`).join('\n');
         const pc = (v, of) => of ? Math.round(v / of * 100) : 0;
-        // % nổi bật (căn phải) · "số/tổng" nhỏ, mờ (căn trái): 2 cột cố định đo theo số dài nhất cả bảng → mọi dòng thẳng hàng
-        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length), of
-          ? `<span class="hx-rt"><b class="${v ? '' : 'z'}">${pc(v, of)}%</b><small class="hx-of">${nf0(v)}/${nf0(of)}</small></span>`
+        // "%  (số/tổng)": % cột cố định căn phải, "(số/tổng)" cột cố định căn trái (đo theo số dài nhất cả bảng), cả cụm căn giữa dưới tiêu đề cột
+        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length + 2), of
+          ? `<span class="hx-rt"><b>${pc(v, of)}%</b><small class="hx-of">(${nf0(v)}/${nf0(of)})</small></span>`
           : `<span class="hx-rt"><b class="z">–</b><small class="hx-of"></small></span>`);
         const c = (h, cls, v, of, lab) => `<td class="hx-o hx-r ${cls}" data-a="hxowngo" data-t="${tid}" data-h="${h}" title="${esc(`${nm} · ${lab}: ${nf0(v)} / ${nf0(of)} (${pc(v, of)}%) thuộc ${ownSel().toLowerCase()} — bấm để mở danh sách`)}">${rt(v, of)}</td>`;
         html = `<td class="hx-o hx-o0" data-a="hxowngo" data-t="${tid}" data-h="" title="${esc(tip0)}">${rt(n, all)}</td>`

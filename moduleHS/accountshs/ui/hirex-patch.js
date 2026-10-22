@@ -194,9 +194,9 @@
         const by = x ? x.by : {}, nm = tb ? tb.name : '';
         const tip0 = `${nm} · ${ownSel()}: ${nf0(n)} / ${nf0(all)} (${Math.round(p)}%)\n` + ownVals().filter(v => by[v]).map(v => `${OWNS.includes(v) ? '✓' : '  '} ${ownLab(v)}: ${nf0(by[v])}`).join('\n');
         const pc = (v, of) => of ? Math.round(v / of * 100) : 0;
-        // % nổi bật (căn phải) · "số/tổng" nhỏ, mờ (căn trái): 2 cột cố định đo theo số dài nhất cả bảng → mọi dòng thẳng hàng
-        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length), of
-          ? `<span class="hx-rt"><b class="${v ? '' : 'z'}">${pc(v, of)}%</b><small class="hx-of">${nf0(v)}/${nf0(of)}</small></span>`
+        // "%  (số/tổng)": % cột cố định căn phải, "(số/tổng)" cột cố định căn trái (đo theo số dài nhất cả bảng), cả cụm căn giữa dưới tiêu đề cột
+        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length + 2), of
+          ? `<span class="hx-rt"><b>${pc(v, of)}%</b><small class="hx-of">(${nf0(v)}/${nf0(of)})</small></span>`
           : `<span class="hx-rt"><b class="z">–</b><small class="hx-of"></small></span>`);
         const c = (h, cls, v, of, lab) => `<td class="hx-o hx-r ${cls}" data-a="hxowngo" data-t="${tid}" data-h="${h}" title="${esc(`${nm} · ${lab}: ${nf0(v)} / ${nf0(of)} (${pc(v, of)}%) thuộc ${ownSel().toLowerCase()} — bấm để mở danh sách`)}">${rt(v, of)}</td>`;
         html = `<td class="hx-o hx-o0" data-a="hxowngo" data-t="${tid}" data-h="" title="${esc(tip0)}">${rt(n, all)}</td>`
