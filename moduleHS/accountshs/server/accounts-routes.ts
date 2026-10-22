@@ -588,15 +588,25 @@ export async function tabPk(b: Body) {
   await bumpVer();
   return { ok: 1 };
 }
-/** màu từng giá trị của 1 trường Danh sách: colors = {giá trị: "#rrggbb"}; colors rỗng → về màu mặc định */
+/** kiểu hiện giá trị của 1 trường Danh sách (chỉ ghi phần được gửi):
+ *  colors = {giá trị: "#rrggbb"} · icons = {giá trị: tên icon} · mode = "text" | "both" | "icon". Rỗng → về mặc định. */
 export async function optColors(b: Body) {
   const fid = num(b.field_id);
   if (!fid || !(await exists("fields", fid))) throw bad("Trường không tồn tại");
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(dataOf(b.colors))) { const c = str(v).trim().toLowerCase(); if (String(k).trim() && /^#[0-9a-f]{6}$/.test(c)) out[String(k).trim().slice(0, 200)] = c; }
-  const oc = await getJsonSetting<Record<string, Record<string, string>>>("opt_colors", {});
-  if (Object.keys(out).length) oc[String(fid)] = out; else delete oc[String(fid)];
-  await setSetting("opt_colors", JSON.stringify(oc));
+  const put = async (key: string, raw: unknown, ok: (v: string) => boolean) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(dataOf(raw))) { const c = str(v).trim(); if (String(k).trim() && ok(c)) out[String(k).trim().slice(0, 200)] = c; }
+    const all = await getJsonSetting<Record<string, Record<string, string>>>(key, {});
+    if (Object.keys(out).length) all[String(fid)] = out; else delete all[String(fid)];
+    await setSetting(key, JSON.stringify(all));
+  };
+  if ("colors" in b) await put("opt_colors", b.colors, (c) => /^#[0-9a-fA-F]{6}$/.test(c));
+  if ("icons" in b) await put("opt_icons", b.icons, (c) => /^[a-z0-9_]{1,30}$/.test(c));
+  if ("mode" in b) {
+    const m = str(b.mode), all = await getJsonSetting<Record<string, string>>("opt_mode", {});
+    if (["text", "both", "icon"].includes(m)) all[String(fid)] = m; else delete all[String(fid)];
+    await setSetting("opt_mode", JSON.stringify(all));
+  }
   await bumpVer();
   return { ok: 1 };
 }

@@ -34,3 +34,25 @@ html.hx-bg #ldbar{display:none!important}
 .hx-ocp .hx-ocr em{font-style:normal;font-size:11.5px;margin-left:auto}
 .hx-ocp .hx-oce{padding:6px 10px;font-size:12.5px}
 .srow .hx-ocb{flex:none}
+
+/* ── 11b. giá trị Danh sách có icon ── */
+.tag.hx-oc{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
+.tag.hx-oc>svg{flex:none}
+.tag.hx-oi{padding:2px 4px}
+.hx-ocp .hx-ocm{display:flex;gap:4px;padding:2px 8px 8px}
+.hx-ocp .hx-ocm .chip{padding:3px 9px;font-size:12px}
+.hx-ocp .hx-icb{flex:none}
+.hx-icg{display:grid;grid-template-columns:repeat(8,30px);gap:4px;padding:4px 8px 8px}
+.hx-icg button{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;border-radius:var(--ui-radius-sm,6px);background:none;cursor:pointer;color:var(--ui-text-2,#475467)}
+.hx-icg button:hover,.hx-icg button.on{background:var(--ui-primary-soft);border-color:var(--ui-primary-line)}
+.pop.hx-ocp{max-width:340px}
+
+/* ── 12. Cài đặt: thanh Lưu + kéo thả ── */
+.modal>.hx-sefoot{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--ui-border,var(--bd));flex:none}
+.hx-sefoot .hx-sen{font-size:12.5px}
+.srow>.hx-drag{display:inline-grid;place-items:center;width:24px;height:30px;flex:none;border-radius:var(--ui-radius-sm,6px);color:var(--ui-muted);cursor:grab;touch-action:none}
+.srow>.hx-drag:hover{background:var(--ui-surface-hover);color:var(--ui-text)}
+.srow.hx-dz{transition:transform .16s cubic-bezier(.2,.8,.2,1)}
+.srow.hx-lift{position:relative;z-index:5;background:var(--x-surface,#fff);box-shadow:0 8px 20px -10px rgb(16 24 40 / 40%);border-radius:var(--ui-radius-sm,8px);transition:none}
+body.hx-dragging,body.hx-dragging *{cursor:grabbing!important;user-select:none}
+html.ca-off .srow.hx-dz{transition:none}

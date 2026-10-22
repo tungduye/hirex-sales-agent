@@ -33,6 +33,8 @@ export interface OmnichannelInboxConversation {
   isPinned: boolean;
   /** Ghim trong cá nhân (only the signed-in member). */
   isMyPin: boolean;
+  /** A Zalo group tagged my nick ("@Tên nick" / "@All") at this time and the nick has not written since. */
+  mentionPendingAt: string | null;
   /** Quan trọng tab. */
   isImportant: boolean;
   /** Phiên bản AI chosen for this conversation (null = the nick's bot). */

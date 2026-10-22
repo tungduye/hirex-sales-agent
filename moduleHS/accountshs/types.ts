@@ -37,6 +37,10 @@ export interface Meta {
   tab_pk: Record<string, Id>;
   /** màu giá trị của trường Danh sách người dùng đã đặt: {field_id: {giá trị: "#rrggbb"}} (chưa đặt → màu mặc định trong giao diện) */
   opt_colors: Record<string, Record<string, string>>;
+  /** icon từng giá trị Danh sách: {field_id: {giá trị: tên icon}} */
+  opt_icons: Record<string, Record<string, string>>;
+  /** cách hiện giá trị Danh sách trên bảng: "text" | "both" (icon + chữ) | "icon" (chỉ icon) */
+  opt_mode: Record<string, string>;
 }
 /** /api/data */
 export interface Snapshot { meta: Meta; devices: Device[]; accounts: Account[]; links: Link[]; ts: Epoch }

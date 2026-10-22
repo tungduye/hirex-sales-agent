@@ -185,12 +185,12 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   const matches = (item: OmnichannelInboxConversation) => viewMode === "groups" ? item.isGroup
     : viewMode === "important" ? item.isImportant
     : viewMode === "other" ? !item.isGroup && isOther(item)
-    : viewMode === "waiting" ? !item.isGroup && !isOther(item) && item.latestDirection === "INBOUND"
+    : viewMode === "waiting" ? (!item.isGroup && !isOther(item) && item.latestDirection === "INBOUND") || (item.isGroup && item.mentionPendingAt !== null)
     : viewMode === "mine" ? (!isOther(item) || searching) && props.currentUserId !== null && (item.assignedTo === props.currentUserId || (!item.isGroup && item.assignedTo === null))
     : !item.isGroup && (!isOther(item) || searching);
   // "Chưa trả lời": longest wait first. Elsewhere: pinned (for everyone or just me) first, then newest.
   const visible = conversations.filter(matches).sort((a, b) => viewMode === "waiting"
-    ? (Date.parse(a.lastInboundAt ?? a.lastMessageAt ?? "") || 0) - (Date.parse(b.lastInboundAt ?? b.lastMessageAt ?? "") || 0)
+    ? (Date.parse(waitingSince(a) ?? "") || 0) - (Date.parse(waitingSince(b) ?? "") || 0)
     : Number(b.isPinned || b.isMyPin) - Number(a.isPinned || a.isMyPin));
   // A page may hold no row for this tab (the server stops looking after a while): keep loading until a few show.
   useEffect(() => {
@@ -263,14 +263,14 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
         onPickVisible={() => { setFilterPick(null); setPicked(new Set(visible.map((item) => item.id))); }} onPickFilter={() => void pickFilter()} pickingFilter={pickingFilter} onClear={clearPick}
         onTagCreated={(tag) => setCreatedTags((current) => [...current, tag])} onDone={onBulkDone}/> : null}
       {lastBulk && !bulkTarget ? <BulkUndoNotice done={lastBulk} onClose={() => setLastBulk(null)} onUndone={() => { setLastBulk(null); countCache.clear(); window.dispatchEvent(new Event(INBOX_REFRESH_EVENT)); }}/> : null}
-      <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]`}>{tabs.map(([key, label]) => {
+      <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-nowrap items-center gap-0.5 overflow-x-auto [scrollbar-width:none]`}>{tabs.map(([key, label]) => {
         const active = viewMode === key;
         const urgent = key === "waiting";
         // Numbers only where they mean work to do (Chưa trả lời, Quan trọng): the tabs stay on one line.
-        const count = counts && (key === "waiting" || key === "important") ? counts[key] : null;
+        const count = counts && (key === "waiting" || key === "important") && counts[key] > 0 ? counts[key] : null;
         // Chưa trả lời always stands out: red with white text.
         const tone = urgent ? (active ? "bg-rose-600 text-white ring-2 ring-rose-300" : "bg-rose-500 text-white hover:bg-rose-600") : active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100";
-        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-[12.5px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count !== null && count > 999 ? "999+" : count}{counts?.capped && count !== null && count <= 999 ? "+" : ""}</span> : null}</button>;
+        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[12px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count !== null && count > 999 ? "999+" : count}</span> : null}</button>;
       })}</div>
       {props.channelChips}
     </div>
@@ -287,6 +287,9 @@ export function conversationDisplayName(item: { contactName: string | null; part
   return contact ?? participant ?? (item.channelType === "EMAIL" ? item.senderExternalId : null) ?? "Khách chưa rõ tên";
 }
 
+/** Since when a row waits: a group from the unanswered tag, a one-to-one chat from the customer's last message. */
+function waitingSince(item: OmnichannelInboxConversation) { return item.isGroup ? item.mentionPendingAt : item.lastInboundAt ?? item.lastMessageAt; }
+
 /** "chờ 3 giờ" with a colour: grey under 2 hours, amber from 2 hours, red from 1 day. */
 export function waitBadge(lastInboundAt: string | null, now: number): { text: string; className: string } | null {
   const since = lastInboundAt ? Date.parse(lastInboundAt) : Number.NaN;
@@ -302,7 +305,9 @@ const LOGO_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] as const
 function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged, pick, menu }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string, value?: string | null) => void; pick: { picked: boolean; picking: boolean; toggle: (range: boolean) => void } | null; menu: MenuContext }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
-  const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
+  // Groups: only a tag of my nick that is still unanswered makes the row wait.
+  const waiting = conversation.isGroup ? (conversation.mentionPendingAt ? waitBadge(conversation.mentionPendingAt, now) : null)
+    : conversation.latestDirection === "INBOUND" ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
   const badgeChannel = (LOGO_CHANNELS as readonly string[]).includes(conversation.channelType) ? conversation.channelType : "EMAIL";
   const [menuOpen, setMenuOpen] = useState(false);
   const avatar = conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>;
@@ -317,7 +322,7 @@ function ConversationRow({ conversation, selected, tags, filters, now, draft = n
       onClick={(event) => { event.preventDefault(); event.stopPropagation(); setMenuOpen((open) => !open); }}
       className="block rounded-full outline-none ring-blue-400 transition hover:ring-2 focus-visible:ring-2">{avatar}</button><span className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
     <div className="min-w-0 flex-1">
-      <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600" aria-label="Ghim trong tất cả"/> : null}{conversation.isMyPin ? <Pin className="mr-1 inline size-3 text-violet-600" aria-label="Ghim trong cá nhân"/> : null}{conversation.isImportant ? <Star className="mr-1 inline size-3 fill-amber-400 text-amber-500" aria-label="Quan trọng"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
+      <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600" aria-label="Ghim trong tất cả"/> : null}{conversation.isMyPin ? <Pin className="mr-1 inline size-3 text-violet-600" aria-label="Ghim trong cá nhân"/> : null}{conversation.isImportant ? <Star className="mr-1 inline size-3 fill-amber-400 text-amber-500" aria-label="Quan trọng"/> : null}{label}</span>{waiting ? <span title={conversation.isGroup ? "Nick của mình được tag trong nhóm, chưa trả lời" : undefined} className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold ${conversation.isGroup ? "bg-rose-600 text-white" : waiting.className}`}>{conversation.isGroup ? `@ tag · ${waiting.text}` : waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
       <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{draft && !selected ? <><span className="font-semibold text-rose-600">Nháp: </span>{draft}</> : <>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</>}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
       {conversationTags.length ? <div className="mt-1 flex gap-1 overflow-hidden">{conversationTags.slice(0, 3).map((tag) => <span key={tag.id} className="max-w-24 truncate rounded-full border px-1.5 py-0.5 text-[9px]" style={{ borderColor: tag.color ?? "#94a3b8" }}>{tag.name}</span>)}</div> : null}

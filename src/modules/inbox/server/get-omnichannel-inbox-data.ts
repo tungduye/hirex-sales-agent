@@ -28,6 +28,7 @@ interface AccountRow {
   operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown; primary_profile_id?: unknown;
 }
 interface ConversationRow {
+  mention_pending_at?: unknown;
   id: unknown; channel_account_id: unknown; channel_type: unknown; contact_id: unknown; subject: unknown;
   provider_conversation_id: unknown; status: unknown; takeover_mode: unknown; assigned_to: unknown; last_message_at: unknown; unread_count: unknown; metadata: unknown;
 }
@@ -382,7 +383,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const contactNames = new Map<string, string>();
   const tagIdsByConversation = new Map<string, string[]>();
   const proposedByConversation = new Map<string, Array<{ id: string; text: string | null; proposedBy: string }>>();
-  const conversationColumns = "id,channel_account_id,channel_type,contact_id,subject,provider_conversation_id,status,takeover_mode,assigned_to,last_message_at,unread_count,metadata";
+  const conversationColumns = "id,channel_account_id,channel_type,contact_id,subject,provider_conversation_id,status,takeover_mode,assigned_to,last_message_at,unread_count,metadata,mention_pending_at";
   // The rows and everything shown on them only need the ids: one round trip for all of it.
   const [rowResult, { data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, { data: zaloGroupData }, { data: myPinData }] = pageIds.length ? await Promise.all([
     Promise.resolve(supabase.from("omnichannel_conversations").select(`${conversationColumns},contacts(full_name)`).eq("workspace_id", accountContext.workspaceId).in("id", pageIds))
@@ -431,6 +432,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       takeoverMode: row.takeover_mode as OmnichannelInboxConversation["takeoverMode"], assignedTo: typeof row.assigned_to === "string" ? row.assigned_to : null,
       lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null, unreadCount: row.unread_count as number,
       isPinned: preference(row.metadata,"appPinned"), isMyPin: myPins.has(row.id), isImportant: preference(row.metadata,"important"), aiBotId: aiBotOf(row.metadata),
+      mentionPendingAt: typeof row.mention_pending_at === "string" ? row.mention_pending_at : null,
       isMuted: preference(row.metadata,"muted"), folder: conversationFolder(row.metadata),
       latestText: safeInboxPreview(row.channel_type === "ZALO" ? zaloProviderDisplayText(typeof message?.text_content === "string" ? message.text_content : null) : typeof message?.text_content === "string" ? message.text_content : null),
       latestDirection: message?.direction === "INBOUND" || message?.direction === "OUTBOUND" ? message.direction : null,

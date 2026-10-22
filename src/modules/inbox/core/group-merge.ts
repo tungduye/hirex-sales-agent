@@ -20,6 +20,7 @@ export interface GroupCopy {
   /** Quan trọng / Ghim trong cá nhân: true when any copy has it. */
   isImportant?: boolean;
   isMyPin?: boolean;
+  mentionPendingAt?: string | null;
   latestText: string | null;
   latestDirection: "INBOUND" | "OUTBOUND" | null;
   senderExternalId: string | null;
@@ -107,6 +108,7 @@ export function mergeGroupCopies<T extends GroupCopy>(items: readonly T[], lastO
       isPinned: copies.some((copy) => copy.isPinned),
       isImportant: copies.some((copy) => copy.isImportant === true),
       isMyPin: copies.some((copy) => copy.isMyPin === true),
+      mentionPendingAt: copies.reduce<string | null>((value, copy) => later(value, copy.mentionPendingAt ?? null), null),
       groupKey: key,
       copyIds: ordered.map((copy) => copy.id),
       copyAccountIds: ordered.map((copy) => copy.channelAccountId),
