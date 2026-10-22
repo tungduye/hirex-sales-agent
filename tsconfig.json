@@ -371,7 +371,9 @@
     ".next-ai-rec-luon-chao/types/**/*.ts",
     ".next-ai-rec-luon-chao/dev/types/**/*.ts",
     ".next-ai-rec-gioi-thieu-job/types/**/*.ts",
-    ".next-ai-rec-gioi-thieu-job/dev/types/**/*.ts"
+    ".next-ai-rec-gioi-thieu-job/dev/types/**/*.ts",
+    ".next-ai-rec-theo-kich-ban/types/**/*.ts",
+    ".next-ai-rec-theo-kich-ban/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -254,7 +254,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     clearPick(); setLastBulk(done); countCache.clear();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   };
-  const tabs: Array<[ViewMode, string]> = [["all", "All"], ["mine", "Của tôi"], ["groups", "Nhóm"], ["waiting", "Chưa trả lời"], ["important", "Quan trọng"]];
+  const tabs: Array<[ViewMode, string]> = [["all", "All"], ["mine", "Của tôi"], ["groups", "Nhóm"], ["important", "Quan trọng"], ["waiting", "Chưa trả lời"]];
   const menuContext: MenuContext = { profiles: props.profiles ?? [], canUpdate: props.canUpdate ?? false, canDelete: props.canDelete ?? false };
   return <div className="min-h-0 flex flex-1 flex-col">
     <div className="relative flex shrink-0 flex-col gap-2.5 border-b border-slate-100 px-3.5 pb-2.5 pt-2.5">
@@ -269,8 +269,9 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
         // Numbers only where they mean work to do (Chưa trả lời, Quan trọng): the tabs stay on one line.
         const count = counts && (key === "waiting" || key === "important") && counts[key] > 0 ? counts[key] : null;
         // Chưa trả lời always stands out: red with white text.
-        const tone = urgent ? (active ? "bg-rose-600 text-white ring-2 ring-rose-300" : "bg-rose-500 text-white hover:bg-rose-600") : active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100";
-        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[12px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count !== null && count > 999 ? "999+" : count}</span> : null}</button>;
+        // Selected tab: blue like the "All kênh" chip. Chưa trả lời stands out by its red number only.
+        const tone = active ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100";
+        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[12px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-rose-600 text-white" : active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>{count !== null && count > 999 ? "999+" : count}</span> : null}</button>;
       })}</div>
       {props.channelChips}
     </div>
