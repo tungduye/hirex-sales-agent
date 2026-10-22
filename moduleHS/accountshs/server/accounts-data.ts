@@ -269,6 +269,22 @@ export async function getLogs(qs: string, limit: number | string): Promise<{ row
   const rows = await pages<LogRow>((a, b) => sb().from(T.logs).select("*").or(`act.ilike.${esc(like)},detail.ilike.${esc(like)}`).order("id", { ascending: false }).range(a, b), lim);
   return { rows };
 }
+export type OwnLogRow = { id: Id; ts: number; acc_id: Id | null; tab_id: Id | null; kind: string; old: string | null; new: string | null; src: string; by_name: string | null; cause: string | null; origin: string | null };
+/** Nhật ký "Tình trạng sở hữu" (bảng ahs_own_log do trigger ghi — sql hs_accountshs): mới nhất trước, trang theo id (before).
+ *  f = nguồn: user (người dùng sửa) · match (tự khớp theo xác minh) · vonggac (Vọng gác đổi trạng thái + các lần tự khớp do nó) · crm · khac.
+ *  Chưa chạy SQL (chưa có bảng) → rỗng, ready = false. */
+export async function getOwnLog(f: string, kind: string, tab: string, before: string, limit: string): Promise<{ rows: OwnLogRow[]; ready: boolean }> {
+  const lim = Math.max(1, Math.min(parseInt(limit || "300", 10) || 300, 2000));
+  let q = sb().from("ahs_own_log").select("*").order("id", { ascending: false }).limit(lim);
+  if (f === "user" || f === "match") q = q.eq("src", f);
+  else if (f === "vonggac" || f === "crm") q = q.or(`src.eq.${f},origin.eq.${f}`);
+  else if (f === "khac") q = q.in("src", ["khac", "owl"]);
+  if (kind === "own" || kind === "status") q = q.eq("kind", kind);
+  if (Number(tab)) q = q.eq("tab_id", Number(tab));
+  if (Number(before)) q = q.lt("id", Number(before));
+  try { return { rows: await run<OwnLogRow[]>(q), ready: true }; }
+  catch (e) { if (/ahs_own_log|does not exist|schema cache/i.test(String((e as Error).message))) return { rows: [], ready: false }; throw e; }
+}
 /** giá trị trong bộ lọc PostgREST: bọc dấu nháy kép (thoát \ và ") để dấu phẩy/ngoặc không phá cú pháp. */
 const esc = (v: string) => `"${v.replace(/[\\"]/g, "\\$&")}"`;
 

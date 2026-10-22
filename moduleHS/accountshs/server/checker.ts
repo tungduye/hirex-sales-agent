@@ -1,6 +1,6 @@
 import "server-only";
 
-import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb } from "./db";
+import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb, SRC } from "./db";
 import { snapshot } from "./backup";
 import { ALL_METAS, Abort, MOD_MAP, WORKER_IDS, type CheckOut, type CheckerMeta } from "./checker-mods";
 import type { Id } from "../types";
@@ -120,6 +120,9 @@ async function applyExtra(aid: Id, extra: Record<string, unknown> | undefined, t
 }
 /** áp 1 kết quả: ghi lịch sử cyv_checks + cập nhật trạng thái/cột. Trả về có đổi dữ liệu không. */
 async function applyOne(cid: string, cfg: Cfg, xf: Record<string, Id | null>, out: { id: Id; res: string; info: string; extra?: Record<string, unknown> }): Promise<boolean> {
+  return SRC.run({ src: "vonggac", name: "Vọng gác" }, () => applyOneNow(cid, cfg, xf, out));   // nhật ký sở hữu: đổi trạng thái do Vọng gác
+}
+async function applyOneNow(cid: string, cfg: Cfg, xf: Record<string, Id | null>, out: { id: Id; res: string; info: string; extra?: Record<string, unknown> }): Promise<boolean> {
   const ts = now();
   await run(sb().from(T.cyv_checks).insert({ ck: cid, acc_id: out.id, ts, res: out.res, info: String(out.info || "").slice(0, 120) }));
   const a1 = await applyRes(cfg, out.id, out.res, ts); const a2 = await applyExtra(out.id, out.extra, ts, xf);

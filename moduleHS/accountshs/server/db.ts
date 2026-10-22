@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { createClient } from "@supabase/supabase-js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
@@ -15,8 +16,27 @@ export const T = {
 } as const;
 export type TableKey = keyof typeof T;
 
-let cached: ReturnType<typeof createPrivilegedClient> | null = null;
-export function sb() { return (cached ??= createPrivilegedClient()); }
+/** Nguồn của lệnh ghi đang chạy (người dùng / Vọng gác / CRM / Cú vọ tự động). Đi kèm mọi request tới PostgREST qua header
+ *  x-ahs-src + x-ahs-user → trigger "Tình trạng sở hữu" (sql: ahs_f_own_u, ahs_own_sync) ghi nhật ký ahs_own_log đúng ai / cái gì đổi. */
+export type WriteSrc = { src: "user" | "vonggac" | "crm" | "owl"; name?: string | null };
+export const SRC = new AsyncLocalStorage<WriteSrc>();
+const hsFetch: typeof fetch = (input, init) => {
+  const s = SRC.getStore(); if (!s) return fetch(input, init);
+  const h = new Headers(init?.headers); h.set("x-ahs-src", s.src);
+  if (s.name) h.set("x-ahs-user", encodeURIComponent(s.name).slice(0, 400));
+  return fetch(input, { ...init, headers: h });
+};
+const env = (k: "NEXT_PUBLIC_SUPABASE_URL" | "SUPABASE_SECRET_KEY") => { const v = process.env[k]?.trim(); if (!v) throw new Error(`Missing required server configuration: ${k}`); return v; };
+/** = createPrivilegedClient() của HireX (cùng URL / khoá service role / auth tắt) + fetch gắn nguồn ghi ở trên. */
+const mk = () => createClient(env("NEXT_PUBLIC_SUPABASE_URL"), env("SUPABASE_SECRET_KEY"), {
+  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }, global: { fetch: hsFetch } });
+let cached: ReturnType<typeof mk> | null = null;
+export function sb() { return (cached ??= mk()); }
+/** chạy fn với nguồn ghi = người dùng đang đăng nhập (route của trình duyệt) */
+export async function asUser<R>(fn: () => Promise<R>): Promise<R> {
+  const who = await accountCtx().catch(() => null);
+  return SRC.run({ src: "user", name: who?.fullName ?? who?.email ?? null }, fn);
+}
 
 export const now = (): Epoch => Date.now() / 1000;
 export const j = (o: unknown) => JSON.stringify(o);

@@ -244,55 +244,118 @@
     if (sts.length) S.st = new Set(sts);
     savePref(); renderAll();
   };
-  /* ── 14b. Tự khớp sở hữu: phần DB (ahs_own_sync + trigger) tự nâng Tạm thời/Không xác định → Lâu dài và điền ô trống theo chuỗi xác minh,
-     không bao giờ tự hạ. Ở đây chỉ tính "Lâu dài nhưng mất xác minh": dòng Lâu dài có liên kết xác minh (cột liên kết sang tab có trường
-     sở hữu) nhưng không tài nguyên nào còn Lâu dài → 1 mục trong Báo cáo · Cần xử lý (cặp dòng → tài nguyên, nút mở bảng lọc sẵn theo
-     từng nền tảng = bộ lọc "hxwarn", Excel có cột ghi chú tài nguyên). */
-  const OWW = { k: null, m: new Map() }, WK = 'hxwarn';
-  function ownWarn() {
-    if (OWW.k === DVER) return OWW.m;
+  /* ── 14b. Tự khớp sở hữu (phần chính ở DB: ahs_own_sync + trigger, sql hs_accountshs). Quy tắc chung mọi nền tảng:
+       dòng có liên kết xác minh (cột liên kết sang tab cũng có "Tình trạng sở hữu") → Lâu dài nếu còn ≥ 1 tài nguyên Lâu dài chưa Die;
+       Tạm thời nếu chỉ còn tài nguyên sống không Lâu dài; Mất nếu mọi tài nguyên đã Die / Mất. Hai chiều, lan theo chuỗi.
+     Ở trình duyệt (Báo cáo · Cần xử lý):
+       · "Sở hữu lệch xác minh": giá trị đang lưu ≠ giá trị suy ra từ tài nguyên đang liên kết (sửa tay đè, hoặc DB chưa bật tự khớp);
+       · "Lâu dài · chỉ còn 1 xác minh": 1 tài nguyên chết là rớt Tạm thời / Mất → nên thêm xác minh dự phòng.
+     Mỗi mục: cặp dòng → tài nguyên, nút mở bảng lọc sẵn theo nền tảng (bộ lọc hxwarn / hxone), Excel có ghi chú tài nguyên.
+     Nhật ký sở hữu (ahs_own_log, route own_log): ai / cái gì đổi — người dùng, tự khớp, Vọng gác, CRM — lọc theo nguồn, loại, nền tảng. */
+  const OWW = { k: null }, WK = 'hxwarn', W1 = 'hxone';
+  const ownDead = b => { const st = b && I.status[b.status_id]; return !!st && /^(die|chết|dead)$/i.test(String(st.label || '').trim()) };
+  function ownCalc() {
+    if (OWW.k === DVER) return OWW;
     ownField(0);
-    const m = new Map(), vf = {}, val = b => { const g = b && OWF.m[b.tab_id]; return g ? String((b.data && b.data[g.id]) || '').trim() : null };
+    const vf = {}, val = b => { const g = b && OWF.m[b.tab_id]; return g ? String((b.data && b.data[g.id]) || '').trim() : null };
     Object.keys(OWF.m).forEach(t => { const tb = I.tab[t]; vf[t] = tb ? tb.fields.filter(f => f.type === 'link' && OWF.m[f.link_tab]) : [] });
+    const warn = new Map(), one = new Map(), want = {}, put = (m, a) => { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) };
     for (const a of S.accs) {
-      if (val(a) !== 'Lâu dài') continue;
-      const out = I.out[a.id]; if (!out) continue;
-      let any = false, ok = false;
-      for (const lf of vf[a.tab_id] || []) { for (const d of out[lf.id] || []) { const b = I.acc[d]; if (!b) continue; any = true; if (val(b) === 'Lâu dài') { ok = true; break } } if (ok) break }
-      if (any && !ok) { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) }
+      const f = OWF.m[a.tab_id], out = f && I.out[a.id]; if (!out) continue;
+      let any = false, rk = 0, n2 = 0;
+      for (const lf of vf[a.tab_id] || []) for (const d of out[lf.id] || []) {
+        const b = I.acc[d]; if (!b) continue; any = true;
+        const v = (val(b) || '').toLowerCase(), dead = ownDead(b), r = v === 'lâu dài' && !dead ? 2 : !dead && v !== 'mất' ? 1 : 0;
+        if (r === 2) n2++; if (r > rk) rk = r;
+      }
+      if (!any) continue;
+      const w = rk === 2 ? 'Lâu dài' : rk === 1 ? 'Tạm thời' : 'Mất'; want[a.id] = w;
+      if ((val(a) || '').toLowerCase() !== w.toLowerCase()) put(warn, a);
+      else if (w === 'Lâu dài' && n2 === 1) put(one, a);
     }
-    OWW.k = DVER; OWW.m = m; OWW.vf = vf; OWW.val = val; return m;
+    return Object.assign(OWW, { k: DVER, warn, one, want, vf, val });
   }
-  { const _cv = colVals; colVals = function (a, k) { if (k === WK) { const x = ownWarn().get(a.tab_id); return x && x.has(a.id) ? ['1'] : [] } return _cv.apply(this, arguments) } }
-  { const _km = kMeta; kMeta = function (k) { return k === WK ? { l: 'Cần xem', i: 'alert' } : _km.apply(this, arguments) } }
-  { const _ct = condText; condText = function (c) { return c && c.k === WK ? 'Lâu dài · mất xác minh' : _ct.apply(this, arguments) } }
-  { const _fe = ACT.fedit; ACT.fedit = function (el) { if (el && el.dataset.k === WK) return; return _fe.apply(this, arguments) } }
-  /* mở bảng của 1 nền tảng, giữ phạm vi đang xem, lọc sẵn đúng các dòng mất xác minh */
+  const ownWarn = () => ownCalc().warn;   // giữ tên cũ cho phần còn lại
+  const FKEY = { [WK]: ['Sở hữu lệch', 'lệch xác minh', 'warn'], [W1]: ['Lâu dài', 'chỉ còn 1 xác minh', 'one'] };
+  { const _cv = colVals; colVals = function (a, k) { if (FKEY[k]) { const x = ownCalc()[FKEY[k][2]].get(a.tab_id); return x && x.has(a.id) ? ['1'] : [] } return _cv.apply(this, arguments) } }
+  { const _km = kMeta; kMeta = function (k) { return FKEY[k] ? { l: FKEY[k][0], i: 'shield' } : _km.apply(this, arguments) } }
+  { const _ct = condText; condText = function (c) { return c && FKEY[c.k] ? FKEY[c.k][1] : _ct.apply(this, arguments) } }
+  { const _fe = ACT.fedit; ACT.fedit = function (el) { if (el && FKEY[el.dataset.k]) return; return _fe.apply(this, arguments) } }
+  /* mở bảng của 1 nền tảng, giữ phạm vi đang xem, lọc sẵn đúng các dòng của mục */
   ACT.hxowwgo = el => {
-    const t = +el.dataset.t; if (!I.tab[t]) return;
-    S.fl[t] = [...(S.fl[t] || []).filter(c => c.k !== WK), { k: WK, op: 'in', v: ['1'] }];
+    const t = +el.dataset.t, k = el.dataset.k || WK; if (!I.tab[t]) return;
+    S.fl[t] = [...(S.fl[t] || []).filter(c => !FKEY[c.k]), { k, op: 'in', v: ['1'] }];
     setTab(t);
   };
-  const OWT = 'Lâu dài nhưng mất xác minh';
-  const ownLinks = id => { ownWarn(); const a = I.acc[id], out = I.out[id] || {}; return a ? (OWW.vf[a.tab_id] || []).flatMap(f => (out[f.id] || []).filter(d => I.acc[d]).map(d => [f, d])) : [] };
+  const OWT = 'Sở hữu lệch xác minh', OW1 = 'Lâu dài · chỉ còn 1 xác minh';
+  const ownLinks = id => { const C = ownCalc(), a = I.acc[id], out = I.out[id] || {}; return a ? (C.vf[a.tab_id] || []).flatMap(f => (out[f.id] || []).filter(d => I.acc[d]).map(d => [f, d])) : [] };
+  const ownIssue = (D, key, k, lv, t, d) => {
+    const inA = new Set(D.A.map(a => a.id)), ids = [], pairs = [];
+    ownCalc()[key].forEach(set => set.forEach(id => { if (!inA.has(id)) return; ids.push(id); ownLinks(id).forEach(([, x]) => pairs.push([id, x])) }));
+    return { k, lv, ic: 'shield', t, d, ids, pairs };
+  };
   { const _rd = reportData; reportData = function () {
-      const D = _rd.apply(this, arguments), w = ownWarn(), inA = new Set(D.A.map(a => a.id)), ids = [], pairs = [];
-      w.forEach(set => set.forEach(id => { if (!inA.has(id)) return; ids.push(id); ownLinks(id).forEach(([, d]) => pairs.push([id, d])) }));
-      D.issues.splice(1, 0, { k: 'own', lv: 'b', ic: 'shield', t: OWT, d: 'Tình trạng sở hữu Lâu dài nhưng mọi SĐT / email xác minh đang liên kết đều đã Tạm thời / Mất / Không xác định. Hệ thống không tự hạ — xem và sửa tay.', ids, pairs });
-      D.issueN += ids.length; return D;
+      const D = _rd.apply(this, arguments);
+      const a = ownIssue(D, 'warn', 'own', 'b', OWT, 'Tình trạng sở hữu đang lưu khác với giá trị suy ra từ email / SĐT xác minh đang liên kết (Lâu dài nếu còn ≥ 1 xác minh Lâu dài sống; Tạm thời nếu chỉ còn xác minh sống khác; Mất nếu tất cả đã Die / Mất). Thường do sửa tay đè lên.');
+      const b = ownIssue(D, 'one', 'own1', 'w', OW1, 'Đang Lâu dài nhờ đúng 1 email / SĐT — tài nguyên đó Die là tự rớt Tạm thời / Mất. Nên thêm xác minh dự phòng.');
+      D.issues.splice(1, 0, a, b); D.issueN += a.ids.length + b.ids.length; return D;
     } }
+  const OL = { f: '', kind: '', tab: 0, rows: [], ready: true, more: false, key: '', busy: false, v: null };
+  const OLF = [['', 'Tất cả'], ['user', 'Người dùng'], ['match', 'Tự khớp'], ['vonggac', 'Vọng gác'], ['crm', 'CRM'], ['khac', 'Khác']];
+  const OLK = [['', 'Sở hữu + trạng thái'], ['own', 'Sở hữu'], ['status', 'Trạng thái']];
+  const OLS = { user: 'Người dùng', match: 'Tự khớp', vonggac: 'Vọng gác', crm: 'CRM', owl: 'Cú vọ tự động', khac: 'Khác' };
+  const olQ = before => `own_log?f=${OL.f}&kind=${OL.kind}&tab=${OL.tab || ''}&limit=200${before ? '&before=' + before : ''}`;
+  async function olLoad(more) {
+    if (OL.busy) return; OL.busy = true;
+    try {
+      const r = await api(olQ(more && OL.rows.length ? OL.rows[OL.rows.length - 1].id : 0));
+      OL.rows = more ? OL.rows.concat(r.rows || []) : (r.rows || []); OL.ready = r.ready !== false; OL.more = (r.rows || []).length >= 200;
+      OL.key = OL.f + '|' + OL.kind + '|' + OL.tab; OL.v = DVER;
+    } catch (e) { } finally { OL.busy = false }
+    olDraw();
+  }
+  const olName = s => { try { return decodeURIComponent(s) } catch (e) { return s } };
+  function olDraw() {
+    const box = document.getElementById('hx-olog'); if (!box) return;
+    const seg = (arr, cur, a) => `<div class="rp-seg">${arr.map(([k, l]) => `<button class="${String(cur) === String(k) ? 'on' : ''}" data-a="${a}" data-k="${k}">${l}</button>`).join('')}</div>`;
+    ownField(0);
+    const tabs = Object.keys(OWF.m).map(Number).filter(t => I.tab[t]);
+    const tsel = `<div class="rp-seg">${[[0, 'Mọi nền tảng'], ...tabs.map(t => [t, I.tab[t].name])].map(([k, l]) => `<button class="${+OL.tab === +k ? 'on' : ''}" data-a="hxolt" data-k="${k}">${esc(l)}</button>`).join('')}</div>`;
+    const row = x => {
+      const a = x.acc_id && I.acc[x.acc_id], who = x.by_name ? olName(x.by_name) : '';
+      const src = x.src === 'match' ? 'Tự khớp' + (x.origin && x.origin !== 'match' && OLS[x.origin] ? ' · do ' + OLS[x.origin] : '') : (OLS[x.src] || x.src);
+      return `<div class="hx-olr"><span class="hx-olt" title="${esc(fmtFull(x.ts))}">${esc(rel(x.ts))}</span><span class="hx-olc">${a ? chip(x.acc_id) : `<span class="hx-olx">#${x.acc_id} (đã xoá)</span>`}</span>`
+        + `<span class="hx-olv"><small>${x.kind === 'status' ? 'Trạng thái' : 'Sở hữu'}</small> ${esc(x.old || 'trống')} ${ico('chevr', 12)} <b>${esc(x.new || 'trống')}</b></span>`
+        + `<span class="pill hx-ols s-${esc(x.src)}">${esc(src)}${who && x.src !== 'match' ? ' · ' + esc(who) : ''}</span><span class="hx-olw">${esc(x.cause || '')}</span></div>`;
+    };
+    const body = !OL.ready ? `<div class="ph pad">${ico('info', 18)}<span>Chưa bật tự khớp ở DB — chạy SQL hs_accountshs (phần "Tự khớp Tình trạng sở hữu") để bắt đầu ghi nhật ký.</span></div>`
+      : !OL.rows.length ? `<div class="ph pad">${ico('inbox', 20)}<span>${OL.busy ? 'Đang tải…' : 'Chưa có thay đổi nào khớp bộ lọc'}</span></div>`
+      : OL.rows.map(row).join('') + (OL.more ? `<button type="button" class="mbtn" data-a="hxolmore">${ico('chevd', 13)}<span>Xem thêm</span></button>` : '');
+    box.innerHTML = `<h3>Nhật ký sở hữu<span class="sp"></span><em>${OL.rows.length ? OL.rows.length.toLocaleString('vi') + (OL.more ? '+' : '') + ' thay đổi' : ''}</em></h3>`
+      + `<div class="hx-olf">${seg(OLF, OL.f, 'hxolf')}${seg(OLK, OL.kind, 'hxolk')}</div><div class="hx-olf">${tsel}</div><div class="hx-oll">${body}</div>`;
+  }
+  ACT.hxolf = el => { OL.f = el.dataset.k; olLoad(false) };
+  ACT.hxolk = el => { OL.kind = el.dataset.k; olLoad(false) };
+  ACT.hxolt = el => { OL.tab = +el.dataset.k; olLoad(false) };
+  ACT.hxolmore = () => olLoad(true);
   { const _rr = renderReport; renderReport = function (m) {
-      const r = _rr.apply(this, arguments), w = ownWarn(), box = m.querySelectorAll('.rp-isl > .rp-is')[1];
-      const sc = new Set(scoped().map(a => a.id)), by = [...w.entries()].map(([t, x]) => [t, [...x].filter(i => sc.has(i)).length]).filter(([t, n]) => n && I.tab[t]).sort((p, q) => q[1] - p[1]);
-      const ib = box && box.querySelector('.rp-ib');
-      if (ib && by.length) ib.insertAdjacentHTML('afterbegin', `<div class="hx-owwt">${by.map(([t, n]) => `<button class="chip" data-a="hxowwgo" data-t="${t}" title="Mở bảng ${esc(I.tab[t].name)} lọc sẵn ${n} dòng">${ico(I.tab[t].icon, 12)}<span>${esc(I.tab[t].name)}</span><b>${n.toLocaleString('vi')}</b>${ico('chevr', 12)}</button>`).join('')}</div>`);
+      const r = _rr.apply(this, arguments), C = ownCalc(), sc = new Set(scoped().map(a => a.id));
+      [['warn', WK, 1], ['one', W1, 2]].forEach(([key, fk, i]) => {
+        const box = m.querySelectorAll('.rp-isl > .rp-is')[i], ib = box && box.querySelector('.rp-ib');
+        const by = [...C[key].entries()].map(([t, x]) => [t, [...x].filter(id => sc.has(id)).length]).filter(([t, n]) => n && I.tab[t]).sort((p, q) => q[1] - p[1]);
+        if (ib && by.length) ib.insertAdjacentHTML('afterbegin', `<div class="hx-owwt">${by.map(([t, n]) => `<button class="chip" data-a="hxowwgo" data-k="${fk}" data-t="${t}" title="Mở bảng ${esc(I.tab[t].name)} lọc sẵn ${n} dòng">${ico(I.tab[t].icon, 12)}<span>${esc(I.tab[t].name)}</span><b>${n.toLocaleString('vi')}</b>${ico('chevr', 12)}</button>`).join('')}</div>`);
+      });
+      const isl = m.querySelector('.rp-isl'), card = isl && isl.closest('.rp-c');
+      if (card) { card.insertAdjacentHTML('afterend', '<div class="rp-c hx-olog" id="hx-olog"></div>'); olDraw(); if (OL.key !== OL.f + '|' + OL.kind + '|' + OL.tab || OL.v !== DVER) olLoad(false) }
       return r;
     } }
   { const _rs = rpSheets; rpSheets = function () {
-      const out = _rs.apply(this, arguments), L = out['Cần xử lý'], D = reportData(), x = D.issues.find(i => i.k === 'own');
-      if (L && x) { let k = 0; const ids = x.ids.slice(0, 5000);
-        L.forEach(row => { if (row[0] !== OWT || k >= ids.length) return; const id = ids[k++];
-          row[6] = 'Xác minh: ' + ownLinks(id).map(([f, d]) => `${f.label} ${I.acc[d].label} (${OWW.val(I.acc[d]) || 'trống'}, ${stOf(I.acc[d])?.label || ''})`).join('; ') }) }
+      const out = _rs.apply(this, arguments), L = out['Cần xử lý'], D = reportData(), C = ownCalc();
+      const note = id => 'Xác minh: ' + ownLinks(id).map(([f, d]) => `${f.label} ${I.acc[d].label} (${C.val(I.acc[d]) || 'trống'}, ${stOf(I.acc[d])?.label || ''})`).join('; ') + (C.want[id] ? ' → nên là ' + C.want[id] : '');
+      if (L) [OWT, OW1].forEach(t => { const x = D.issues.find(i => i.t === t); if (!x) return; let k = 0; const ids = x.ids.slice(0, 5000);
+        L.forEach(row => { if (row[0] !== t || k >= ids.length) return; row[6] = note(ids[k++]) }) });
+      if (OL.rows.length) out['Nhật ký sở hữu'] = [['Thời điểm', 'Dòng', 'Nền tảng', 'Loại', 'Trước', 'Sau', 'Nguồn', 'Người / do', 'Lý do'],
+        ...OL.rows.map(x => { const a = I.acc[x.acc_id]; return [fmtFull(x.ts), a ? a.label : '#' + x.acc_id, I.tab[x.tab_id]?.name || '', x.kind === 'status' ? 'Trạng thái' : 'Sở hữu', x.old || '', x.new || '', OLS[x.src] || x.src, x.src === 'match' ? (OLS[x.origin] || '') : olName(x.by_name || ''), x.cause || ''] })];
       return out;
     } }
   { const _os = ovSheets; ovSheets = function () {

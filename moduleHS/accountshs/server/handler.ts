@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { HsError, bumpVer, log, requireHs, writeBegin, writeEnd, type Level } from "./db";
+import { HsError, SRC, asUser, bumpVer, log, requireHs, writeBegin, writeEnd, type Level } from "./db";
 import * as D from "./accounts-data";
 import * as R from "./accounts-routes";
 import * as B from "./backup";
@@ -88,6 +88,7 @@ export async function handleGet(name: string, qs: URLSearchParams, req?: Request
       case "events": return eventsResponse();
       case "backups": await requireHs("manage"); return json(await B.backupsInfo());
       case "logs": return json(await D.getLogs(q("q"), q("limit", "300")));
+      case "own_log": return json(await D.getOwnLog(q("f"), q("kind"), q("tab"), q("before"), q("limit", "300")));
       case "hist": return json(await D.histGet(Number(q("id", "0")) || 0));
       case "hist_info": return json(await D.histInfo());
       case "hist_last": return json(await D.histLast(q("ids").split(",")));
@@ -129,8 +130,8 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
       const sheet = String(b.sheet || "Owl").slice(0, 31) || "Owl", rows = [(b.headers as unknown[]) ?? [], ...((b.rows as unknown[][]) ?? [])];
       return file(await B.writeXlsx({ [sheet]: rows }, true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `owl_${stamp()}.xlsx`);
     }
-    if (name.startsWith("owl/")) { await requireHs("edit"); const r = await owlAutoHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())); await bumpVer(); return json(...r); }
-    if (name.startsWith("crm/")) { await requireHs("edit"); const r = await crmHandle("POST", name.slice(4), qs, Buffer.from(await req.arrayBuffer())); await bumpVer(); return json(...r); }
+    if (name.startsWith("owl/")) { await requireHs("edit"); const body = Buffer.from(await req.arrayBuffer()), r = await SRC.run({ src: "owl", name: "Cú vọ tự động" }, () => owlAutoHandle("POST", name.slice(4), qs, body)); await bumpVer(); return json(...r); }
+    if (name.startsWith("crm/")) { await requireHs("edit"); const body = Buffer.from(await req.arrayBuffer()), r = await SRC.run({ src: "crm", name: "CRM" }, () => crmHandle("POST", name.slice(4), qs, body)); await bumpVer(); return json(...r); }
     if (name === "att_upload") { await requireHs("edit"); return json(await A.attSave(qs.get("name") ?? "file", Buffer.from(await req.arrayBuffer()))); }
     if (name === "backup_upload") {
       await requireHs("manage");
@@ -167,7 +168,7 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     if ((!hb || Number(hb.i) === 0) && R.needsSnap(name, b)) await B.snapshot(!!hb);
     const wk = READ_ONLY.has(name) ? 0 : writeBegin();   // delta / thời gian thực không vượt qua lệnh ghi còn dở (db.ts safeTs)
     let r: Record<string, unknown> | undefined;
-    try { r = (await fn(b)) as Record<string, unknown> | undefined; } finally { if (wk) writeEnd(wk); }
+    try { r = (await asUser(() => Promise.resolve(fn(b)))) as Record<string, unknown> | undefined; } finally { if (wk) writeEnd(wk); }   // nguồn ghi = người dùng (nhật ký sở hữu)
     const act = name === "account" ? (b.id ? "account_edit" : "account_add") : name;
     const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
     const ln = n(b.ids) || n(b.items) || ((name === "bulk" || name === "device_bulk") && r ? Number(r.created ?? 0) + Number(r.updated ?? 0) : 1);
