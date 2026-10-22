@@ -146,3 +146,11 @@ html.ca-off .hx-busy{animation:none}
   .ovt .hx-rt>.hx-of{font-size:10.5px}
   .ovt .hx-rt>.hx-of:empty{display:none}
 }
+
+/* Tổng quan · nút "Cần xem" (Lâu dài mất xác minh) */
+.hx-ovtools .hx-oww{gap:6px;color:var(--ui-text-2)}
+.hx-ovtools .hx-oww svg{color:var(--ui-warning,#f59e0b)}
+.hx-ovtools .hx-oww b{font-weight:600;color:var(--ui-text);font-variant-numeric:tabular-nums}
+.hx-owwp{min-width:240px;max-width:300px}
+.hx-owwp .mi .k{margin-left:auto;color:var(--ui-muted);font-variant-numeric:tabular-nums}
+.hx-owwn{padding:6px 10px 8px;font-size:12px;line-height:1.45;color:var(--ui-muted)}

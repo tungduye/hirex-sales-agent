@@ -1,5 +1,7 @@
 const plain=(v:unknown)=>String(v??'').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/đ/gu,'d').trim();
 const location=(v:unknown)=>({hcm:'ho chi minh',japan:'nhat','nhat ban':'nhat',hn:'ha noi'}[plain(v)]??plain(v));
+/** A place as candidates say it ("Japan" in the job data → "Nhật"). */
+export function placeLabel(value:unknown){const key=location(value);return ({'ha noi':'Hà Nội','ho chi minh':'HCM',nhat:'Nhật'} as Record<string,string>)[key]??String(value??'');}
 export function withoutQuestionMarks(text:string){return text.replace(/[?？]+/gu,'.').replace(/\.{2,}/gu,'.');}
 export function approvedIntroReply(profile:Record<string,unknown>,jobs:Record<string,unknown>[]){
  const role=String(profile.candidate_type??'').trim();
@@ -21,5 +23,5 @@ export function approvedIntroReply(profile:Record<string,unknown>,jobs:Record<st
  const match=eligible.find(job=>location(job.location)===location(profile.location));
  if(!match)return `Em chưa thấy vị trí ${role} ở ${String(profile.location)} trong danh sách hiện tại.\n\n${question}`;
  const communication=/trao doi.*khach nhat|giao tiep.*tieng nhat/u.test(plain(match.requirements));
- return `Em có vị trí ${String(match.candidate_type)} tại ${String(match.location)}${communication?', cần người có thể trao đổi công việc với khách Nhật':''}.\n\n${question}`;
+ return `Em có vị trí ${String(match.candidate_type)} tại ${placeLabel(match.location)}${communication?', cần người có thể trao đổi công việc với khách Nhật':''}.\n\n${question}`;
 }

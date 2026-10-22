@@ -17,3 +17,6 @@ test('no invented vacancy or requirement',()=>{
  assert.doesNotMatch(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội'},[{...jobs[0],requirements:''}]),/khách Nhật/);
 });
 test('question punctuation removed including opening',()=>assert.equal(withoutQuestionMarks('Anh ạ? Anh nhé？？'),'Anh ạ. Anh nhé.'));
+test('job data "Japan" is said "Nhật"',()=>{
+ assert.match(approvedIntroReply({candidate_type:'BrSE',location:'Nhật'},jobs),/^Em có vị trí BrSE tại Nhật,/);
+});

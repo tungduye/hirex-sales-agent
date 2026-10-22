@@ -367,7 +367,9 @@
     ".next-soda-out-thanh-vien-nhom/types/**/*.ts",
     ".next-soda-out-thanh-vien-nhom/dev/types/**/*.ts",
     ".next-soda-out-nhom-sua/types/**/*.ts",
-    ".next-soda-out-nhom-sua/dev/types/**/*.ts"
+    ".next-soda-out-nhom-sua/dev/types/**/*.ts",
+    ".next-ai-rec-luon-chao/types/**/*.ts",
+    ".next-ai-rec-luon-chao/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

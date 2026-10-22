@@ -354,3 +354,69 @@ begin
     execute 'alter publication supabase_realtime add table public.ahs_ver';
   end if;
 end $b$;
+
+-- Tự khớp "Tình trạng sở hữu" theo chuỗi xác minh (chốt 2026-10-22):
+--   · Tạm thời / Không xác định → Lâu dài khi có ít nhất 1 tài nguyên xác minh đang Lâu dài (mọi trạng thái Live/Die/Đang kháng).
+--     Tài nguyên xác minh = cột liên kết trỏ sang tab cũng có trường "Tình trạng sở hữu" (Email/SĐT xác minh, Email/SĐT khôi phục,
+--     Email đăng nhập, SĐT của Telegram…) — tự nhận cột/tab mới, không gắn cứng id. Đi bắc cầu: FB → Email xác minh → Email khôi phục → …
+--   · Ô đang trống → chép giá trị của tài nguyên liên kết (ưu tiên Lâu dài > Tạm thời > Không xác định), vd Telegram theo SĐT đăng nhập.
+--   · Không bao giờ hạ cấp, không đụng "Mất": tài nguyên mất xác minh chỉ cảnh báo (giao diện tự tính "Cần xem").
+--   · Theo sự kiện: thêm liên kết → xét dòng nguồn; đổi sở hữu của 1 dòng → xét các dòng đang dùng nó để xác minh. Dòng vừa bị người
+--     sửa tay không bị ép lại ngay. Mỗi lần tự đổi: ghi Lịch sử dòng (trigger ahs_acc_hist), 1 dòng ghi chú "… tự đặt sở hữu … · qua …", nhật ký.
+create or replace function ahs_own_sync(p_src bigint[] default null, p_dst bigint[] default null) returns integer
+language plpgsql as $f$
+declare
+  ts double precision := extract(epoch from clock_timestamp());
+  dy text := to_char(now() at time zone 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD');
+  s bigint[] := p_src; d bigint[] := p_dst; up bigint[]; n integer := 0; i integer := 0;
+begin
+  perform set_config('ahs.own_sync', '1', true);   -- chặn trigger tự gọi lại khi chính hàm này ghi
+  loop
+    i := i + 1;
+    with o as (select tab_id, id::text fid from ahs_fields where coalesce(type, 'text') = 'select' and lower(btrim(label)) = 'tình trạng sở hữu'),
+    v as (select f.id, f.label from ahs_fields f where f.type = 'link' and f.tab_id in (select tab_id from o) and f.link_tab in (select tab_id from o)),
+    c as (
+      select distinct on (a.id) a.id, oa.fid, x.val, v.label via,
+        coalesce((select b.data->>k.id::text from ahs_fields k where k.tab_id = b.tab_id and coalesce(k.type, 'text') not in ('select', 'link', 'secret', 'file', 'lookup')
+                    and coalesce(b.data->>k.id::text, '') <> '' order by k.pos, k.id limit 1), '#' || b.id) lab
+      from ahs_links l join v on v.id = l.field_id
+        join ahs_accounts a on a.id = l.src join o oa on oa.tab_id = a.tab_id
+        join ahs_accounts b on b.id = l.dst join o ob on ob.tab_id = b.tab_id
+        cross join lateral (select btrim(coalesce(a.data->>oa.fid, '')) cur, btrim(coalesce(b.data->>ob.fid, '')) val) x
+      where ((s is null and d is null) or l.src = any(s) or l.dst = any(d))
+        and ((x.cur in ('Tạm thời', 'Không xác định') and x.val = 'Lâu dài') or (x.cur = '' and x.val in ('Lâu dài', 'Tạm thời', 'Không xác định')))
+      order by a.id, (x.val = 'Lâu dài') desc, (x.val = 'Tạm thời') desc, l.id),
+    u as (update ahs_accounts a set data = jsonb_set(a.data, array[c.fid], to_jsonb(c.val)), updated = ts,
+            note = case when coalesce(a.note, '') = '' then '' else rtrim(a.note, E'\n') || E'\n' end || dy || ' tự đặt sở hữu ' || c.val || ' · qua ' || c.via || ' ' || c.lab
+          from c where a.id = c.id returning a.id)
+    select array_agg(id) into up from u;
+    exit when up is null or i >= 8;
+    n := n + cardinality(up); s := null; d := up;
+  end loop;
+  if up is not null then n := n + cardinality(up); end if;
+  if n > 0 then insert into ahs_logs(ts, act, n, detail, user_name) values (ts, 'bulk', n, 'Tự khớp tình trạng sở hữu theo chuỗi xác minh', 'Tự khớp sở hữu'); end if;
+  perform set_config('ahs.own_sync', '', true);
+  return n;
+end $f$;
+create or replace function ahs_f_own_li() returns trigger language plpgsql as $f$
+begin
+  if current_setting('ahs.own_sync', true) = '1' then return null; end if;
+  perform ahs_own_sync((select array_agg(distinct src) from nt), null);
+  return null;
+end $f$;
+create or replace function ahs_f_own_u() returns trigger language plpgsql as $f$
+declare ch bigint[];
+begin
+  if current_setting('ahs.own_sync', true) = '1' then return null; end if;
+  select array_agg(n.id) into ch from nt n join ot o on o.id = n.id
+    join ahs_fields f on f.tab_id = n.tab_id and coalesce(f.type, 'text') = 'select' and lower(btrim(f.label)) = 'tình trạng sở hữu'
+   where (n.data->>f.id::text) is distinct from (o.data->>f.id::text);
+  if ch is not null then perform ahs_own_sync(null, ch); end if;
+  return null;
+end $f$;
+drop trigger if exists ahs_trg_own_li on ahs_links;
+create trigger ahs_trg_own_li after insert on ahs_links referencing new table as nt for each statement execute function ahs_f_own_li();
+drop trigger if exists ahs_trg_own_u on ahs_accounts;
+create trigger ahs_trg_own_u after update on ahs_accounts referencing old table as ot new table as nt for each statement execute function ahs_f_own_u();
+revoke all on function ahs_own_sync(bigint[], bigint[]) from public, anon, authenticated;
+grant execute on function ahs_own_sync(bigint[], bigint[]) to service_role;
