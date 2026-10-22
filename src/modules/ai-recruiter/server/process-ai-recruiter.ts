@@ -1,8 +1,9 @@
 import "server-only";
 import { approvedIntroReply, withoutQuestionMarks } from "../core/approved-intro-flow";
-import { initialRecruiterOpening } from "../core/recruiter-opening";
+import { initialRecruiterOpening, withFirstGreeting } from "../core/recruiter-opening";
 import { recoverIntroMemory } from "../core/intro-memory";
-import { missingIntroField } from "../core/profile-disclosure-gate";
+import { introductionQuestion, missingIntroField } from "../core/profile-disclosure-gate";
+import { containsJobDisclosure } from "../core/anonymous-job-preview";
 import { candidateBurst, shapeReply } from "../core/reply-shaping";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { ChannelAdapterRegistry } from "@/modules/channels/core/channel-adapter-registry";
@@ -219,6 +220,11 @@ async function processRun(run: {
       ),
       ...(noCvYet ? { cv_received: false } : {}),
     };
+    // Several places at once ("HN và Nhật cũng ok"): the first one is where to look first; the rest stay as preferences.
+    if ((typeof profileBase.location !== "string" || !profileBase.location.trim()) && Array.isArray(profileBase.preferred_locations)) {
+      const first = profileBase.preferred_locations.find((value): value is string => typeof value === "string" && value.trim() !== "");
+      if (first) profileBase.location = first;
+    }
     const offeredJobIds = Array.isArray(state?.offered_job_ids)
       ? state.offered_job_ids.filter((value): value is string => typeof value === "string")
       : [];
@@ -362,14 +368,24 @@ async function processRun(run: {
     const disclosureBlocked = String(bot.bot_type) === "RECRUITER" && !hasCoreProfile;
     // Collect the four introductory facts before offering even anonymous jobs.
     // Keep the approved opening and ground each subsequent question in known facts.
-    const introReply =
+    const plannedIntro =
       disclosureBlocked && !rejectionOverride && !result.handoffRequested && !result.stopBot
         ? (guidedCollection ?? approvedIntroReply(profileBase, jobsForGeneration))
         : null;
+    // Never send the same question twice in a row: if the candidate's answer was not understood, let the model's own
+    // reply answer it (when it names no company, salary or JD), otherwise ask the missing point in other words.
+    const lastOutbound = [...contextMessages].reverse().find((message) => message.role === "OUTBOUND")?.text ?? "";
+    const sameAsLast = (text: string) => normalizedEvidence(withoutQuestionMarks(text)) === normalizedEvidence(withoutQuestionMarks(lastOutbound));
+    const modelReply = result.replyParts.join("\n\n").trim();
+    const introReply = plannedIntro && lastOutbound && sameAsLast(plannedIntro)
+      ? (modelReply && !containsJobDisclosure(modelReply, jobs ?? []) && !sameAsLast(modelReply) ? modelReply : introductionQuestion(profileBase) ?? plannedIntro)
+      : plannedIntro;
     const gatedParts = introReply ? [introReply] : unsupportedOffer ? [clarificationReply(profileBase)] : replyParts;
-    const safeReplyParts = (guidedCollection ? [guidedCollection] : shapeReply(gatedParts.map(humanizeRecruiterReply), run.id)).map(
+    const shapedParts = (guidedCollection ? [guidedCollection] : shapeReply(gatedParts.map(humanizeRecruiterReply), run.id)).map(
       withoutQuestionMarks,
     );
+    // The bot's first message to a candidate always greets (Recruiter chatbot).
+    const safeReplyParts = String(bot.bot_type) === "RECRUITER" ? withFirstGreeting(shapedParts, contextMessages) : shapedParts;
     const verifiedResult = {
       ...result,
       ...(rejectionOverride

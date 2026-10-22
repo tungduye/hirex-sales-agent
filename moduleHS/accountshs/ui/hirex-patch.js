@@ -313,7 +313,7 @@
   addEventListener('message', e => {
     if (e.origin !== location.origin || !e.data || e.data.hx !== 'accounts-active') return;
     const was = HX.active; HX.active = !!e.data.on;
-    if (HX.active && !was) syncTick();
+    if (HX.active && !was) { syncTick(); if (HX.wake) HX.wake() }
     // iframe vừa hiện / vừa ẩn: tab đang nạp dở → hiện / ẩn khung tải (dòng giả + thẻ tiến độ góc dưới phải sau 5 giây)
     if (HX.active !== was && HX.lzView) HX.lzView();
   });
@@ -397,7 +397,7 @@
     } }
   /* tự mình ghi (mut) thì bản gốc đã nạp lại → ghi nhận phiên bản mới, khỏi nạp thêm lần nữa */
   const _mut = mut;
-  mut = async function () { const r = await _mut.apply(this, arguments); OVL.ts = 0; try { HX.v = await verNow() } catch (e) { /* bỏ qua */ } return r };
+  mut = async function () { const r = await _mut.apply(this, arguments); OVL.ts = 0; verNow().then(v => { HX.v = v }, () => { /* bỏ qua */ }); return r };   // không bắt người dùng chờ thêm 1 lượt hỏi phiên bản
   addEventListener('visibilitychange', () => { if (!document.hidden) syncTick() });
   /* dựng sẵn mọi tab bảng lúc rảnh: bản gốc chỉ chạy khi đang đứng ở một bảng → cho chạy cả khi đang ở Tổng quan (mặc định) */
   warmRun = function () {
@@ -527,7 +527,7 @@
       };
       try {
         try {
-          if (path === 'rows_set' || path === 'mass_set' || path === 'delete_accounts') {   // các thao tác bản gốc chụp bản an toàn trước khi ghi
+          if (path === 'delete_accounts') {   // xoá: chụp bản an toàn trước (sửa thì lịch sử dòng đã giữ bản cũ)
             card.stage('Đang chụp bản an toàn…');
             await send({ ...body, [key]: [], hx_batch: { i: 0, of: parts + 1, n, snap: 1 } }, 'bước chụp bản an toàn');
           }
@@ -558,6 +558,43 @@
       if (RT2.again) pushApply();
       return res;
     } }
+
+  /* ── 9b. thao tác 1 dòng nhanh: ghi + lấy phần thay đổi trong CÙNG 1 lượt ──
+     Trước: lưu → chờ phản hồi → hỏi /delta (thêm 1 lượt mạng, máy chủ kiểm tra đăng nhập lại, đọc lại meta) → vẽ.
+     Giờ: gửi kèm mốc dữ liệu đang có (hx_since + tab tải riêng đã nạp); máy chủ ghi xong tính luôn phần thay đổi, trả chung phản hồi
+     → load() của bản gốc nhận ngay phần đó, không gọi mạng nữa. Lô ghi lớn (hx_batch) vẫn đi đường riêng ở mục 9. */
+  const WR = new Set(['account', 'status_set', 'owner_set', 'mass_set', 'delete_accounts', 'quick', 'bulk', 'delete', 'reorder', 'dept', 'owner', 'tab', 'field',
+    'status', 'device', 'device_set', 'rows_set', 'device_bulk', 'grp_icon', 'tab_keys', 'tab_pk', 'opt_colors', 'hist_cfg', 'log_clear', 'repair']);
+  HX.pre = null;
+  { const _api = api; api = async function (path, body) {
+      if (body && typeof path === 'string' && WR.has(path) && !body.hx_batch && S.ts && S.accs && S.accs.length) {
+        const since = S.ts, r = await _api.call(this, path, { ...body, hx_since: since, hx_lz: typeof lzList === 'function' ? lzList() : '' });
+        if (r && typeof r === 'object' && r.__d) { HX.pre = { since, d: r.__d }; delete r.__d }
+        return r;
+      }
+      if (!body && typeof path === 'string' && path.startsWith('delta?since=') && HX.pre) {
+        const p = HX.pre; HX.pre = null;
+        if (Math.abs(parseFloat(path.slice(12)) - p.since) < 1e-6) return p.d;
+      }
+      return _api.apply(this, arguments);
+    } }
+  /* trang Tài nguyên đang chạy nền (đang ở trang khác của HireX) hoặc tab trình duyệt bị ẩn: không hỏi Vọng gác 30 giây/lần,
+     không tải "lịch sử dòng" cho các bảng dựng sẵn ngầm — để dành, hiện lại là tải ngay. Đang có lượt check chạy thì vẫn theo dõi. */
+  const shown = () => HX.active && !document.hidden;
+  if (typeof cyvLoad === 'function') {
+    const _cl = cyvLoad;
+    window.cyvLoad = function () {
+      const run = typeof CYV !== 'undefined' && (CYV.running || CYV.open);
+      if (!shown() && !run && CYV.st) { clearTimeout(CYV.t); CYV.t = setTimeout(window.cyvLoad, 300000); HX.cyvLater = 1; return Promise.resolve() }
+      HX.cyvLater = 0; return _cl.apply(this, arguments);
+    };
+  }
+  if (typeof hlFlush === 'function') {
+    const _hf = hlFlush;
+    window.hlFlush = function () { if (!shown()) { HX.hlLater = 1; return } HX.hlLater = 0; return _hf.apply(this, arguments) };
+  }
+  HX.wake = () => { if (HX.cyvLater) window.cyvLoad(); if (HX.hlLater) window.hlFlush() };
+  addEventListener('visibilitychange', () => { if (!document.hidden && HX.active) HX.wake() });
 
   /* ── 7. tab "Tải riêng": ĐỦ và ĐÚNG mới hiện ──
      · Mở app: dữ liệu chính (các tab thường) về trước → dùng được ngay; tab tải riêng không chặn gì.

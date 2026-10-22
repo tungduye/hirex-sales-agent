@@ -237,7 +237,25 @@ async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
 }
 
 /* ───────── API ───────── */
+/* Vọng gác được hỏi trạng thái liên tục (mỗi trình duyệt 30 giây/lần, đang chạy 1 giây/lần, kể cả trang HireX đang chạy nền) —
+   mỗi lần đọc cấu hình + đếm thống kê của ~6 bộ check trên toàn bảng → nhiều người mở là máy chủ nghẽn (request 10–30 giây).
+   Giờ: thống kê nhớ 20 giây / bộ check; cả trạng thái dùng chung cho mọi người (đang chạy: 0,8 giây, nghỉ: 3 giây); lưu cấu hình / chạy / dừng → tính lại ngay. */
+const STATS = new Map<string, { at: number; p: Promise<{ total: number; today: number; live: number; die: number; error: number; runs_today: number }> }>();
+let STATE: { at: number; p: Promise<{ checkers: unknown[]; now: number }> } | null = null;
+function stateReset() { STATE = null; STATS.clear(); }
+async function stateCached() {
+  const t = Date.now(), ttl = [...JOBS.values()].some((j) => j.running) ? 800 : 3000;
+  if (STATE && t - STATE.at < ttl) return STATE.p;
+  const p = state(); STATE = { at: t, p }; p.catch(() => { STATE = null; });
+  return p;
+}
 async function stats(cid: string) {
+  const hit = STATS.get(cid);
+  if (hit && Date.now() - hit.at < 20_000) return hit.p;
+  const p = statsNow(cid); STATS.set(cid, { at: Date.now(), p }); p.catch(() => STATS.delete(cid));
+  return p;
+}
+async function statsNow(cid: string) {
   const c = await cfgGet(cid);
   const s = await orMissing(run<{ total: number; today: number; live: number; die: number; error: number; runs_today: number }>(sb().rpc("ahs_cyv_stats", { p_ck: cid, p_tab: c.tab_id ?? null, p_fid: c.field_id ?? null, p_today: today0() })),
     () => ({ total: 0, today: 0, live: 0, die: 0, error: 0, runs_today: 0 }));
@@ -282,7 +300,8 @@ async function stop(cid: string) {
 const CFG_KEYS = [...Object.keys(DEF)];
 export async function checkerHandle(method: "GET" | "POST", path: string, _qs: URLSearchParams, raw: Buffer | null): Promise<[unknown, number?]> {
   try {
-    if (method === "GET" && path === "state") return [await state()];
+    if (method === "GET" && path === "state") return [await stateCached()];
+    stateReset();
     const b = raw && raw.length ? (JSON.parse(raw.toString("utf8")) as Record<string, unknown>) : {};
     const cid = String(b.id || "");
     if (path === "cfg") {

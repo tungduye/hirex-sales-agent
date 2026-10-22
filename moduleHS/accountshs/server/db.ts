@@ -1,6 +1,8 @@
 import "server-only";
 
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
+import { createHash } from "node:crypto";
+import { cookies } from "next/headers";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { hasPermission, isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import type { Device, Epoch, Id } from "../types";
@@ -113,7 +115,7 @@ export async function hasLogUser(): Promise<boolean> {
 export async function log(act: string, n = 1, detail = "") {
   const row: Record<string, unknown> = { ts: now(), act, n, detail: String(detail).slice(0, 400) };
   if (await hasLogUser()) {
-    const who = await getAccountContext().catch(() => null);
+    const who = await accountCtx().catch(() => null);
     row.user_id = who?.userId ?? null; row.user_name = who?.fullName ?? who?.email ?? null;
   }
   await run(sb().from(T.logs).insert(row));
@@ -137,11 +139,32 @@ export function ensureBucket() {
  *  view, edit = "Tài khoản · Xem" (accounts.view) — như bản Python: ai mở được là thao tác được;
  *  manage (Tùy chỉnh, sao lưu/khôi phục, Cú vọ cấu hình, CRM) = Quản trị viên workspace. */
 export type Level = "view" | "edit" | "manage";
+/** Đăng nhập + quyền: trước đây MỖI request (kể cả hỏi ver 4 giây/lần, Vọng gác, lịch sử dòng…) gọi lại Supabase 2–4 lượt
+ *  (claims, hồ sơ, quyền, vai trò quản trị) trước khi làm việc thật → trang chạy nặng thì 1 thao tác cũng chờ vài giây.
+ *  Giờ nhớ kết quả theo đúng phiên đăng nhập (cookie sb-* của trình duyệt, chỉ giữ mã băm) trong 60 giây:
+ *  đổi tài khoản / đăng xuất = cookie khác → tra lại; bị thu hồi quyền → tối đa 60 giây sau có hiệu lực. */
+type AuthHit = { exp: number; acc: Promise<Awaited<ReturnType<typeof getAccountContext>>>; admin?: Promise<boolean> };
+const AUTH = new Map<string, AuthHit>();
+const AUTH_TTL = 60_000;
+async function authHit(): Promise<AuthHit> {
+  let key = "";
+  try { key = (await cookies()).getAll().filter((c) => c.name.startsWith("sb-")).map((c) => c.name + "=" + c.value).sort().join(";"); } catch { key = ""; }
+  if (!key) return { exp: 0, acc: getAccountContext() };                                   // không có phiên (worker, gọi nội bộ): không nhớ
+  const k = createHash("sha256").update(key).digest("base64url"), t = Date.now();
+  const hit = AUTH.get(k);
+  if (hit && hit.exp > t) return hit;
+  if (AUTH.size > 500) for (const [kk, v] of AUTH) if (v.exp <= t) AUTH.delete(kk);
+  const h: AuthHit = { exp: t + AUTH_TTL, acc: getAccountContext() };
+  h.acc.then((a) => { if (!a?.workspaceId) AUTH.delete(k); }, () => AUTH.delete(k));       // lỗi / chưa đăng nhập: không nhớ
+  AUTH.set(k, h);
+  return h;
+}
+export async function accountCtx() { return (await authHit()).acc; }
 export async function requireHs(level: Level = "view") {
-  const account = await getAccountContext();
+  const h = await authHit(), account = await h.acc;
   if (!account?.workspaceId) throw new HsError("Chưa đăng nhập", 401);
   if (!account.permissions.includes("accounts.view")) throw new HsError("Bạn chưa được cấp quyền mục Tài khoản", 403);
-  if (level === "manage" && !(await isWorkspaceAdmin())) throw new HsError("Chỉ Quản trị viên được dùng chức năng này", 403);
+  if (level === "manage" && !(await (h.admin ??= isWorkspaceAdmin()))) throw new HsError("Chỉ Quản trị viên được dùng chức năng này", 403);
   await ensureBucket().catch((e) => console.error("[accountshs]", e));   // lỗi bucket chỉ ảnh hưởng đính kèm / sao lưu
   return account;
 }

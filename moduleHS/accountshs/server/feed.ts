@@ -11,7 +11,7 @@ import "server-only";
  *   trình duyệt: EventSource tự nối lại khi rớt mạng; nhận delta thì áp thẳng (không phải hỏi lại máy chủ),
  *     tự lọc các tab "tải riêng" chưa nạp; lỡ mất 1 đoạn (from > dữ liệu đang có) → tự tải delta bù như cũ.
  *   Không ai mở trang ~1 phút → bộ theo dõi tự dừng. Giữ kết nối qua Cloudflare: gửi ": ping" mỗi 20 giây. */
-import { BUMP, now, sb } from "./db";
+import { BUMP, T, now, safeTs, sb } from "./db";
 import { dataVersion, getDelta } from "./accounts-data";
 import type { Delta } from "../types";
 
@@ -63,6 +63,14 @@ class Feed {
       const v = await dataVersion();
       if (v !== this.ver) {
         const from = this.ts;
+        // đếm trước: sửa hàng loạt hàng nghìn dòng thì chỉ cần báo tín hiệu (mỗi trình duyệt tự tải phần thay đổi),
+        // không đọc cả chục MB dòng về máy chủ chỉ để bỏ đi
+        const ts0 = safeTs(), { count } = await sb().from(T.accounts).select("id", { count: "exact", head: true }).gte("updated", from - 2);
+        if ((count ?? 0) > BIG) {
+          this.ver = v; this.ts = ts0 - 2;
+          this.broadcast(`event: delta\ndata: ${JSON.stringify({ accounts: [], links: [], deleted: [], ts: ts0, delta: 1, big: count, from, ver: v })}\n\n`);
+          return;
+        }
         const d: Delta = await getDelta(from, "*");
         // lần sau tính lùi 2 giây: dòng đang ghi dở lúc tính (updated < ts nhưng chưa commit) không bao giờ bị sót; trùng thì trình duyệt tự gộp
         this.ver = v; this.ts = d.ts - 2;

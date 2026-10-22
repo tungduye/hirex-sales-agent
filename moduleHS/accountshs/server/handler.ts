@@ -44,6 +44,7 @@ const ROUTES: Record<string, [Level, Fn]> = {
   backup_restore: ["manage", B.backupRestore], backup_cfg: ["manage", B.cfgSet], repair: ["manage", R.repair],
   ...AI.routes,
 };
+const ROW_ROUTES = new Set(["account", "status_set", "owner_set", "mass_set", "delete_accounts", "quick", "bulk", "bulk_check", "device_set", "rows_set", "ov_trend", "ov_lazy"]);
 const NO_LOG = new Set(["reorder", "bulk_check", "ov_trend", "ov_lazy", ...AI.noLog]);
 const READ_ONLY = new Set(["bulk_check", "ov_trend", "ov_lazy", "ai_chat", "ai_rows", "ai_models", "ai_test", "ai_backup", "ai_feedback", "ai_drop", "ai_cfg_set", "ai_learn", "ai_logic_import"]);
 
@@ -147,7 +148,12 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     const route = ROUTES[name];
     if (!route) return json({ error: "not found" }, 404);
     const [level, fn] = route;
-    await requireHs(level);
+    const t0 = Date.now(), tm: string[] = [], mark = (k: string) => { tm.push(`${k};dur=${Date.now() - t0}`); };
+    await requireHs(level); mark("auth");
+    // trình duyệt gửi kèm mốc dữ liệu đang có (hx_since/hx_lz) → trả luôn phần thay đổi trong cùng phản hồi,
+    // khỏi gọi thêm /delta (thêm 1 lượt mạng + 1 lần kiểm tra đăng nhập) sau mỗi thao tác
+    const since = Number(b.hx_since) || 0, lzq = typeof b.hx_lz === "string" ? b.hx_lz : "";
+    delete b.hx_since; delete b.hx_lz;
     // thao tác hàng loạt rất lớn được trình duyệt chia lô (hx_batch = {i, of, n}): chụp bản an toàn ở lô đầu, ghi nhật ký 1 lần ở lô cuối (đủ số dòng)
     const hb = b.hx_batch && typeof b.hx_batch === "object" ? (b.hx_batch as { i: number; of: number; n: number; snap?: number }) : null;
     delete b.hx_batch;
@@ -155,7 +161,9 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     // Sửa (rows_set / mass_set): mỗi dòng đổi đã có bản cũ trong lịch sử (trigger ahs_acc_hist) → bản an toàn toàn DB tối đa 1 lần / 10 phút
     // như v7 (chụp toàn DB mất ~30 giây). Xoá hàng loạt: lịch sử của dòng bị xoá cũng mất theo → luôn chụp.
     if (hb && hb.snap) { if (R.needsSnap(name, { ...b, [Array.isArray(b.items) ? "items" : "ids"]: new Array(Math.max(20, Number(hb.n) || 0)).fill(0) })) await B.snapshot(name === "delete_accounts"); return json({ snap: 1 }); }
-    const detail = hb ? `${Number(hb.n) || 0} dòng` : await R.auditDetail(name, b);
+    // mô tả nhật ký: xoá thì phải đọc tên trước khi xoá; còn lại đọc song song với lúc ghi
+    const detP = hb ? Promise.resolve(`${Number(hb.n) || 0} dòng`) : R.auditDetail(name, b).catch(() => "");
+    if (name === "delete_accounts" || name === "delete") await detP;
     if ((!hb || Number(hb.i) === 0) && R.needsSnap(name, b)) await B.snapshot(!!hb);
     const wk = READ_ONLY.has(name) ? 0 : writeBegin();   // delta / thời gian thực không vượt qua lệnh ghi còn dở (db.ts safeTs)
     let r: Record<string, unknown> | undefined;
@@ -163,9 +171,22 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     const act = name === "account" ? (b.id ? "account_edit" : "account_add") : name;
     const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
     const ln = n(b.ids) || n(b.items) || ((name === "bulk" || name === "device_bulk") && r ? Number(r.created ?? 0) + Number(r.updated ?? 0) : 1);
-    if (!NO_LOG.has(name) && (!hb || Number(hb.i) === Number(hb.of) - 1)) await log(act, hb ? Number(hb.n) || ln : ln, detail);
-    if (!READ_ONLY.has(name)) await bumpVer();   // Python tăng ahs_ver sau mỗi lần ghi (DB của bản Python không có trigger tăng)
+    mark("write");
+    if (name === "tab") D.lazyReset();
+    if (!ROW_ROUTES.has(name)) D.metaReset();   // ghi cấu trúc / cài đặt → lần lấy meta sau đọc lại
+    // nhật ký + tăng phiên bản + tính phần thay đổi: độc lập nhau → chạy song song (trước đây nối tiếp 4–5 lượt mạng)
+    const wantDelta = since > 0 && !READ_ONLY.has(name) && !hb && (!r || (typeof r === "object" && !Array.isArray(r)));
+    const [, , dl] = await Promise.all([
+      !NO_LOG.has(name) && (!hb || Number(hb.i) === Number(hb.of) - 1) ? detP.then((detail) => log(act, hb ? Number(hb.n) || ln : ln, detail)) : null,
+      READ_ONLY.has(name) ? null : bumpVer(),   // Python tăng ahs_ver sau mỗi lần ghi (DB của bản Python không có trigger tăng)
+      wantDelta ? D.getDelta(since, lzq).catch(() => null) : null,
+    ]);
+    mark("post");
     B.autoBackupIfDue().catch((e) => console.error("[accountshs] auto backup", e));
-    return json(r ?? { ok: 1 });
+    const out = (r ?? { ok: 1 }) as Record<string, unknown>;
+    if (dl) out.__d = dl;
+    if (Date.now() - t0 > 1500) console.warn(`[accountshs] chậm ${name}: ${tm.join(" · ")}`);
+    const res = json(out); res.headers.set("Server-Timing", tm.join(", "));
+    return res;
   } catch (e) { return fail(e); }
 }

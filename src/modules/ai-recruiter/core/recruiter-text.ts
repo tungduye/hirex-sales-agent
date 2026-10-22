@@ -1,6 +1,7 @@
 // Pure text helpers for AI Recruiter replies: reading candidate messages, checking evidence,
 // and the deterministic fallback questions. No I/O; covered by tests/recruiter-text.test.mjs.
 import { hasRecruiterCvAttachment, normalizeRecruiterMatchText } from "../server/ai-recruiter-job-policy.ts";
+import { BARE_GREETING } from "./recruiter-opening.ts";
 
 export function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -43,7 +44,7 @@ export function humanizeRecruiterReply(value: string) {
   return cleaned ? cleaned[0].toLocaleUpperCase("vi-VN") + cleaned.slice(1) : cleaned;
 }
 export function isBareRecruiterGreeting(value: string) {
-  return /^(?:hi|hello|chào)(?:\s+(?:em|e|anh|chị))?[!.,\s]*$/iu.test(value.trim()) || /^(?:em|e)\s*ơi[!.,\s]*$/iu.test(value.trim());
+  return BARE_GREETING.test(value.trim());
 }
 export function recruiterProfileQuestion(latestText: string, profile: Record<string, unknown>) {
   if (!profile.candidate_type)

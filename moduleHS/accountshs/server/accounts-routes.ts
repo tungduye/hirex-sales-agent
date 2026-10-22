@@ -164,17 +164,23 @@ async function idsWithStatusTab(ids: Id[], sid: Id): Promise<Set<Id>> {
 export async function saveAccount(b: Body) {
   const ts = now();
   const tabId = num(b.tab_id);
-  if (!(await exists("tabs", tabId))) throw bad("Tab không tồn tại");
-  const row = { tab_id: tabId, dept_id: num(b.dept_id), owner_id: num(b.owner_id), status_id: num(b.status_id), device_id: num(b.device_id), note: str(b.note), data: dataOf(b.data), updated: ts };
   let aid = num(b.id);
+  // kiểm tab + đọc dòng hiện tại + đọc trường liên kết: độc lập → 1 lượt mạng thay vì 3
+  const [tabOk, cur0, fl0] = await Promise.all([
+    exists("tabs", tabId),
+    aid ? run<{ updated: Epoch; tab_id: Id } | null>(sb().from(T.accounts).select("updated,tab_id").eq("id", aid).maybeSingle()) : Promise.resolve(null),
+    "links" in b ? run<{ id: Id; link_tab: Id | null }[]>(sb().from(T.fields).select("id,link_tab").eq("tab_id", tabId!)) : Promise.resolve([] as { id: Id; link_tab: Id | null }[]),
+  ]);
+  if (!tabOk) throw bad("Tab không tồn tại");
+  const row = { tab_id: tabId, dept_id: num(b.dept_id), owner_id: num(b.owner_id), status_id: num(b.status_id), device_id: num(b.device_id), note: str(b.note), data: dataOf(b.data), updated: ts };
   if (aid) {
-    const cur = await run<{ updated: Epoch; tab_id: Id } | null>(sb().from(T.accounts).select("updated,tab_id").eq("id", aid).maybeSingle());
+    const cur = cur0;
     if (!cur) throw bad("Dòng này không còn tồn tại");
     if (b.ver && Math.abs(Number(cur.updated) - Number(b.ver)) > 0.001) throw new Conflict("Dữ liệu đã được thay đổi ở nơi khác - đã tải lại");
     await run(sb().from(T.accounts).update(row).eq("id", aid));
   } else aid = await insertId("accounts", { ...row, created: ts });
   if ("links" in b) {
-    const fl = new Map((await run<{ id: Id; link_tab: Id | null }[]>(sb().from(T.fields).select("id,link_tab").eq("tab_id", tabId!))).map((f) => [f.id, f.link_tab]));
+    const fl = new Map(fl0.map((f) => [f.id, f.link_tab]));
     await run(sb().from(T.links).delete().eq("src", aid));
     const want: LinkRow[] = [], seen = new Set<string>();
     for (const [fid, ids] of Object.entries(dataOf(b.links))) {
@@ -702,8 +708,8 @@ export function needsSnap(name: string, b: Body): boolean {
   const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
   if (name === "delete_accounts") return n(b.ids) >= 20;
   if (name === "delete") return ["depts", "tabs", "fields", "statuses", "owners"].includes(String(b.table));
-  if (name === "bulk") return ((b.mode === "update" || b.mode === "fill") && n(b.rows) >= 20) || n(b.rows) >= 2000;
-  if (name === "mass_set") return n(b.ids) >= 20;
-  if (name === "rows_set") return n(b.items) >= 20;
+  // Sửa / nhập: trigger ahs_acc_hist đã giữ bản cũ của TỪNG dòng bị đổi (khôi phục được từ Lịch sử dòng) → không bắt người dùng
+  // chờ chụp toàn DB (~30 giây) trước mỗi lần sửa ≥ 20 dòng. Xoá vẫn chụp (xoá dòng thì lịch sử của dòng cũng mất theo).
+  if (name === "bulk" || name === "mass_set" || name === "rows_set") return false;
   return false;
 }

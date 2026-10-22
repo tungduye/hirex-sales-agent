@@ -4,7 +4,16 @@ import { T, allOrdered, chunks, getJsonSetting, getSetting, isMissing, now, safe
 import type { Account, DbCheck, Delta, Device, Epoch, Field, HistChange, HistInfo, HistItem, HistLast, Id, Link, LogRow, Meta, Snapshot, Status, Tab, TabRows } from "../types";
 
 /* ───────── meta ───────── */
-export async function getMeta(): Promise<Meta> {
+/** Cấu trúc (tab, trường, trạng thái, bộ phận, owner, cài đặt hiển thị) gửi kèm MỖI lần lấy phần thay đổi = 11 truy vấn.
+ *  Gần như không đổi → nhớ 10 giây; tiến trình này ghi cấu trúc (handler.ts) thì xoá nhớ ngay. */
+let MC: { at: number; p: Promise<Meta> } | null = null;
+export function metaReset() { MC = null; }
+export function getMeta(): Promise<Meta> {
+  if (MC && Date.now() - MC.at < 10_000) return MC.p.then((m) => structuredClone(m));
+  const p = getMetaNow(); MC = { at: Date.now(), p }; p.catch(() => { MC = null; });
+  return p.then((m) => structuredClone(m));
+}
+async function getMetaNow(): Promise<Meta> {
   const [tabs, fields, statuses, depts, owners, grp_icons, tab_keys, tab_pk, opt_colors, opt_icons, opt_mode] = await Promise.all([
     allOrdered<Omit<Tab, "fields" | "statuses">>("tabs"), allOrdered<Field>("fields"), allOrdered<Status>("statuses"),
     allOrdered<Meta["depts"][number]>("depts"), allOrdered<Meta["owners"][number]>("owners"),
@@ -36,11 +45,14 @@ export async function firstStatus(tabId: Id): Promise<Id | null> {
 }
 
 /** Id các tab "tải riêng" (lazy=1) mà trình duyệt CHƯA nạp (lz = danh sách tab đã nạp, cách nhau dấu phẩy). */
+let LZT: { at: number; ids: Promise<Id[]> } | null = null;
+export function lazyReset() { LZT = null; }
 async function lazyExcl(lz = ""): Promise<Id[]> {
   if (lz === "*") return [];   // dòng thay đổi realtime (feed.ts): lấy mọi tab, trình duyệt tự lọc
   const have = new Set(toIds(lz.split(",")));
-  const rows = await run<{ id: Id }[]>(sb().from(T.tabs).select("id").eq("lazy", 1));
-  return rows.map((r) => r.id).filter((id) => !have.has(id));
+  // danh sách tab "tải riêng" gần như không đổi → nhớ 5 giây (mỗi /delta, /data bớt 1 lượt mạng đứng trước mọi truy vấn khác)
+  if (!LZT || Date.now() - LZT.at > 5000) LZT = { at: Date.now(), ids: run<{ id: Id }[]>(sb().from(T.tabs).select("id").eq("lazy", 1)).then((r) => r.map((x) => x.id)).catch((e) => { LZT = null; throw e; }) };
+  return (await LZT.ids).filter((id) => !have.has(id));
 }
 
 const parseJsonText = <R>(t: string | null | undefined): R => JSON.parse(t || "[]") as R;
