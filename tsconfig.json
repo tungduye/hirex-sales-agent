@@ -355,7 +355,9 @@
     ".next-suoi-nguon-dot-1/types/**/*.ts",
     ".next-suoi-nguon-dot-1/dev/types/**/*.ts",
     ".next-suoi-nguon-dot-1-sua/types/**/*.ts",
-    ".next-suoi-nguon-dot-1-sua/dev/types/**/*.ts"
+    ".next-suoi-nguon-dot-1-sua/dev/types/**/*.ts",
+    ".next-suoi-nguon-dot-2/types/**/*.ts",
+    ".next-suoi-nguon-dot-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

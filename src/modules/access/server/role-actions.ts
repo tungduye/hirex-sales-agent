@@ -49,7 +49,9 @@ export async function assignProfileAccess(formData:FormData){
   const bossOf=new Map((people??[]).map(item=>[item.id as string,item.manager_id as string|null]));
   let safeManager:string|null=managerId&&managerId!==profile.id&&bossOf.has(managerId)?managerId:null;
   for(let step=safeManager,hops=0;step&&hops<200;step=bossOf.get(step)??null,hops++){if(step===profile.id){safeManager=null;break;}}
-  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts,manager_id:safeManager}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
+  // Bộ phận (Sale, Rec…): Soda counts Suối Nguồn by it.
+  const department=String(formData.get("department")??"").replace(/\s+/gu," ").trim().slice(0,60)||null;
+  await db.from("profiles").update({role_id:role.id,all_channel_accounts:allAccounts,manager_id:safeManager,department}).eq("id",profile.id).eq("workspace_id",account.workspaceId);
   // Tài khoản chính: each account has one main user; ticking one here takes it over from whoever had it.
   const primaryIds=formData.getAll("primaryAccountId").map(String).filter(value=>uuid.safeParse(value).success);
   const {data:validPrimary}=primaryIds.length?await db.from("channel_accounts").select("id").eq("workspace_id",account.workspaceId).in("id",primaryIds):{data:[] as Array<{id:string}>};

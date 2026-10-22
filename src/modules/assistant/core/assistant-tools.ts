@@ -748,6 +748,31 @@ function ROUND_ONE_TOOLS(): AssistantToolDefinition[] {
     },
     args: z.object({ kenh: z.enum(["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE"]).nullable(), nick: text(120).nullable(), so_ngay: z.number().int().min(1).max(90).nullable(), nguoi_nhat: z.boolean().nullable(), so_luong: z.number().int().min(1).max(40).nullable() }).strict(),
   }, {
+    name: "dem_suoi_nguon",
+    permission: "inbox.view",
+    label: "Đếm Suối Nguồn theo owner, bộ phận, nhãn, thị trường",
+    description: "Đếm hội thoại Suối Nguồn (trong các nick người hỏi được xem) theo cơ cấu chung: trạng thái (CHUA_TRA_LOI như tab Chưa trả lời, QUAN_TRONG, NHOM, CA_NHAN, CHUA_DOC; nhiều trạng thái = HOẶC), Owner (người được giao, chưa giao = người dùng chính của nick), Bộ phận của owner (Sale, Rec…), nhãn/thẻ (BrSE, Đầu mối khách hàng…; nhiều nhãn = phải có đủ), thị trường (nhãn trong nhóm thẻ Thị trường: IT, IT Nhật, IT Úc…; nhiều = HOẶC), kênh. chia_theo để ra bảng: OWNER, BO_PHAN, THE (tình trạng thẻ: mỗi nhãn bao nhiêu hội thoại), THI_TRUONG, NHOM_THE (kèm ten_nhom_the), KENH, NICK, hoặc TONG.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["trang_thai", "owner", "bo_phan", "the", "thi_truong", "kenh", "chia_theo", "ten_nhom_the", "so_ngay"],
+      properties: {
+        trang_thai: { type: ["array", "null"], items: { type: "string", enum: ["CHUA_TRA_LOI", "QUAN_TRONG", "NHOM", "CA_NHAN", "CHUA_DOC"] }, description: "Trạng thái (HOẶC), null = tất cả. \"chưa trả lời hoặc quan trọng\" = [CHUA_TRA_LOI, QUAN_TRONG]." },
+        owner: nullableStringArray("Tên owner (ví dụ [\"Hải\"]), null = mọi người."),
+        bo_phan: nullableStringArray("Bộ phận của owner (ví dụ [\"Sale\"]), null = mọi bộ phận."),
+        the: nullableStringArray("Nhãn hội thoại phải có (ví dụ [\"BrSE\"], [\"Đầu mối khách hàng\"]), null = không lọc."),
+        thi_truong: nullableStringArray("Thị trường (ví dụ [\"IT Nhật\"]), null = không lọc."),
+        kenh: { type: ["array", "null"], items: { type: "string", enum: ["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE"] }, description: "Kênh (Mail = EMAIL), null = mọi kênh." },
+        chia_theo: { type: "string", enum: ["TONG", "OWNER", "BO_PHAN", "THE", "THI_TRUONG", "NHOM_THE", "KENH", "NICK"], description: "Cách chia bảng kết quả." },
+        ten_nhom_the: nullableString("Tên nhóm thẻ khi chia_theo NHOM_THE (ví dụ \"Vị trí\"), còn lại null."),
+        so_ngay: nullableInteger("Chỉ hội thoại có tin trong bao nhiêu ngày gần đây, null = mọi hội thoại."),
+      },
+    },
+    args: z.object({
+      trang_thai: z.array(z.enum(["CHUA_TRA_LOI", "QUAN_TRONG", "NHOM", "CA_NHAN", "CHUA_DOC"])).max(5).nullable(),
+      owner: z.array(text(80)).max(20).nullable(), bo_phan: z.array(text(60)).max(10).nullable(), the: z.array(text(80)).max(10).nullable(), thi_truong: z.array(text(80)).max(10).nullable(),
+      kenh: z.array(z.enum(["EMAIL", "ZALO", "FACEBOOK", "FACEBOOK_PROFILE"])).max(4).nullable(),
+      chia_theo: z.enum(["TONG", "OWNER", "BO_PHAN", "THE", "THI_TRUONG", "NHOM_THE", "KENH", "NICK"]), ten_nhom_the: text(60).nullable(), so_ngay: z.number().int().min(1).max(365).nullable(),
+    }).strict(),
+  }, {
     name: "nhom_zalo",
     permission: "inbox.view",
     label: "Đếm nhóm Zalo",

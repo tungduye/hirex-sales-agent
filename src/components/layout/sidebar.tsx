@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, Bot, FileUser, BriefcaseBusiness, CalendarDays, Send, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, UsersRound, Workflow, Wrench } from "lucide-react";
+import { BarChart3, Bot, FileUser, BriefcaseBusiness, CalendarDays, Send, Building2, CheckSquare, ChevronRight, ContactRound, FileScan, FileText, Inbox, KeyRound, LayoutDashboard, Megaphone, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Tags, UsersRound, Workflow, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeNavigationHref } from "./navigation";
 import { SignOutButton } from "@/modules/identity/components/sign-out-button";
@@ -37,6 +37,7 @@ const settingsNavigation: NavItem[] = [
   { label: "Công ty", href: "/companies", icon: Building2, permission:"companies.view" },
   { label: "Liên hệ", href: "/contacts", icon: ContactRound, permission:"contacts.view" },
   { label: "Công việc", href: "/tasks", icon: CheckSquare, permission:"tasks.view" },
+  { label: "Nhãn & nhóm thẻ", href: "/inbox/tags", icon: Tags, permission:"inbox.update" },
   { label: "Phân tích", href: "/analytics", icon: BarChart3, permission:"analytics.view" },
   { label: "Tự động hoá", href: "/settings/automation", icon: Workflow, permission:"roles.manage", adminOnly: true },
   { label: "AI Recruiter", href: "/settings/ai-recruiter", icon: Bot, permission:"roles.manage", adminOnly: true },

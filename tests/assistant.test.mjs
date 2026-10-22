@@ -8,7 +8,7 @@ import { parseAnswer, parseInline } from '../src/modules/assistant/core/assistan
 
 test('tools follow the member permissions', () => {
   assert.deepEqual(toolsFor([], false).map((tool) => tool.name), ['mo_trang', 'kpi', 'lich_hen', 'de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich', 'tao_file_word']);
-  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai', 'mo_trang', 'ung_vien_rec', 'kpi', 'lich_hen', 'de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich', 'tao_file_word', 'dem_hoi_thoai', 'nhom_zalo']);
+  assert.deepEqual(toolsFor(['inbox.view'], false).map((tool) => tool.name), ['hoi_thoai_cho_tra_loi', 'tim_hoi_thoai', 'chi_tiet_hoi_thoai', 'mo_trang', 'ung_vien_rec', 'kpi', 'lich_hen', 'de_xuat_tao_lich_hen', 'de_xuat_huy_lich_hen', 'de_xuat_cai_nhac_lich', 'tao_file_word', 'dem_hoi_thoai', 'dem_suoi_nguon', 'nhom_zalo']);
   assert.ok(!toolsFor(['roles.manage', 'settings.view'], false).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   assert.ok(toolsFor([], true).some((tool) => tool.name === 'trang_thai_ai_recruiter'));
   const everything = [...new Set(ASSISTANT_TOOLS.map((tool) => tool.permission))];
