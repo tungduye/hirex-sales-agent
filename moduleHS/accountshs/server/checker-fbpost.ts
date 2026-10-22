@@ -23,6 +23,7 @@ export const FBPOST_META: CheckerMeta = {
 
 const UAS = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"];
+const CHROME_CH = '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"';
 const DIE_CODES = ["1357031", "1357004", "1357001", "1357002", "1357033"];
 
 /** UID bài từ số thuần hoặc link (story_fbid=, fbid=, posts/, videos/, permalink/) */
@@ -176,10 +177,19 @@ const ename = (e: unknown): string => e instanceof NetError ? e.kind : e instanc
 export async function fbpostCheck(value: string, opt: CheckOpt): Promise<CheckOut> {
   const uid = norm(value);
   if (!uid) return { res: "error", info: "UID bài viết không hợp lệ" };
-  const hdr: Hdr = [["User-Agent", UAS[Math.floor(hooks.random() * UAS.length)]],
-    ["Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"],
-    ["Accept-Language", "en-US,en;q=0.9"],           // ép tiếng Anh để HTML ổn định
-    ["Upgrade-Insecure-Requests", "1"]];
+  const ua = UAS[Math.floor(hooks.random() * UAS.length)];
+  // Có impit (giả Chrome như curl_cffi): chỉ cần vài header đặc trưng, impit tự thêm phần còn lại — đúng bản Python.
+  // KHÔNG có impit (fetch thường của Node): bộ header tối giản bị Facebook trả 400 / trang vỏ → phải gửi ĐỦ bộ header đồng bộ của Chrome thật
+  // (UA khớp sec-ch-ua / sec-fetch-*). Python không cần vì curl_cffi tự giả đủ.
+  const hdr: Hdr = impersonating()
+    ? [["User-Agent", ua],
+      ["Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"],
+      ["Accept-Language", "en-US,en;q=0.9"],           // ép tiếng Anh để HTML ổn định
+      ["Upgrade-Insecure-Requests", "1"]]
+    : [["sec-ch-ua", CHROME_CH], ["sec-ch-ua-mobile", "?0"], ["sec-ch-ua-platform", '"Windows"'], ["Upgrade-Insecure-Requests", "1"], ["User-Agent", UAS[0]],
+      ["Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"],
+      ["Sec-Fetch-Site", "none"], ["Sec-Fetch-Mode", "navigate"], ["Sec-Fetch-User", "?1"], ["Sec-Fetch-Dest", "document"],
+      ["Accept-Encoding", "gzip, deflate, br"], ["Accept-Language", "en-US,en;q=0.9"]];
   const ck = strip(truthy(opt.x?.cookie) ? String(opt.x?.cookie) : "");
   if (ck) hdr.push(["Cookie", ck]);
   const timeout = Number(opt.timeout) || 15;

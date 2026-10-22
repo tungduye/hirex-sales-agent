@@ -155,6 +155,8 @@ const gmail: CheckerMod = {
     hint_tab: ["gmail", "email", "mail"], hint_field: ["email", "gmail", "mail"], batch: 1000, threads: 1, timeout: 60,
     fields: [{ k: "api_key", label: "API key", secret: true, ph: "Dán API key checkmail.live" }, { k: "session", label: "Session", secret: true, ph: "Chỉ cần khi API báo lỗi phiên" }],
     no_proxy: true,
+    // kết quả phụ của API checkmail: giao diện hiện ô chọn "Khi …" (Không đổi / một trạng thái của tab) — trước đây cấu hình có khoá này nhưng không có ô để chọn lại
+    results: [["verify_phone", "Cần xác minh SĐT"], ["not_exist", "Không tồn tại"]],
   },
   meta: () => ({ ...gmInfo }),
   async check_batch(values, opt) {

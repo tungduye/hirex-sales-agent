@@ -21,7 +21,11 @@ interface Actor {
   state: "sit" | "walk" | "coffee"; path: P[]; arrive: (() => void) | null; until: number; nextBreak: number; random: () => number;
 }
 
-export interface People { sync: (team: HqMember[], time: number) => void; tick: (time: number, delta: number) => void; pickables: () => Three.Object3D[]; dispose: () => void }
+export interface People {
+  sync: (team: HqMember[], time: number) => void; tick: (time: number, delta: number) => void; pickables: () => Three.Object3D[]; dispose: () => void;
+  /** Where a member is right now (at the desk, walking, in the meeting), or null when they have no seat. */
+  positionOf: (id: string) => { x: number; y: number; z: number } | null;
+}
 
 export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: World, cloneSkinned: (object: Three.Object3D) => Three.Object3D): People {
   const actors = new Map<string, Actor>();
@@ -58,7 +62,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
     const person = actor.person;
     const head = avatar(THREE, person, 24);
     head.position.y = 74;
-    head.userData.pick = { title: `${person.name}${person.department ? ` · ${person.department}` : ""}`, sub: person.doing, href: null };
+    head.userData.pick = { title: `${person.name}${person.department ? ` · ${person.department}` : ""}`, sub: `${person.doing} · bấm để xem`, href: null, personId: person.id };
     const text = person.tone === "alert" ? `${person.name} · ${person.waiting.toLocaleString("vi-VN")} chờ` : person.name;
     const tag = label(THREE, text.length > 24 ? `${text.slice(0, 23)}…` : text, { height: 11, border: person.tone === "alert" ? "rgba(244,63,94,.85)" : undefined });
     tag.position.y = 91;
@@ -175,5 +179,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
     }
   };
 
-  return { sync, tick, pickables: () => picks, dispose: () => { for (const actor of [...actors.values()]) remove(actor); parent.remove(group); } };
+  const positionOf: People["positionOf"] = (id) => { const actor = actors.get(id); return actor ? { x: actor.root.position.x, y: 0, z: actor.root.position.z } : null; };
+
+  return { sync, tick, positionOf, pickables: () => picks, dispose: () => { for (const actor of [...actors.values()]) remove(actor); parent.remove(group); } };
 }

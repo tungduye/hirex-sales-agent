@@ -265,6 +265,7 @@
   /* ── 14b. Tự khớp sở hữu (phần chính ở DB: ahs_own_sync + trigger, sql hs_accountshs). Quy tắc chung mọi nền tảng:
        dòng có liên kết xác minh (cột liên kết sang tab cũng có "Tình trạng sở hữu") → Lâu dài nếu còn ≥ 1 tài nguyên Lâu dài chưa Die;
        Tạm thời nếu chỉ còn tài nguyên sống không Lâu dài; Mất nếu mọi tài nguyên đã Die / Mất. Hai chiều, lan theo chuỗi.
+       Chưa có tài nguyên xác minh nào → không thể Lâu dài (tối đa Tạm thời); chưa có mật khẩu → Không xác định (trừ Mất).
      Ở trình duyệt (Báo cáo · Cần xử lý):
        · "Sở hữu lệch xác minh": giá trị đang lưu ≠ giá trị suy ra từ tài nguyên đang liên kết (sửa tay đè, hoặc DB chưa bật tự khớp);
        · "Lâu dài · chỉ còn 1 xác minh": 1 tài nguyên chết là rớt Tạm thời / Mất → nên thêm xác minh dự phòng.
@@ -276,20 +277,28 @@
     if (OWW.k === DVER) return OWW;
     ownField(0);
     const vf = {}, val = b => { const g = b && OWF.m[b.tab_id]; return g ? String((b.data && b.data[g.id]) || '').trim() : null };
-    Object.keys(OWF.m).forEach(t => { const tb = I.tab[t]; vf[t] = tb ? tb.fields.filter(f => f.type === 'link' && OWF.m[f.link_tab]) : [] });
+    const pwf = {};   // cột "Mật khẩu" (loại secret) của từng tab có theo dõi sở hữu
+    Object.keys(OWF.m).forEach(t => { const tb = I.tab[t]; vf[t] = tb ? tb.fields.filter(f => f.type === 'link' && OWF.m[f.link_tab]) : []; const p = tb && tb.fields.find(f => f.type === 'secret' && /mật khẩu|password/i.test(f.label || '')); pwf[t] = p ? p.id : null });
     const warn = new Map(), one = new Map(), want = {}, put = (m, a) => { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) };
     for (const a of S.accs) {
-      const f = OWF.m[a.tab_id], out = f && I.out[a.id]; if (!out) continue;
+      const f = OWF.m[a.tab_id]; if (!f || !(vf[a.tab_id] || []).length) continue;   // chỉ tab có cột liên kết xác minh (SĐT là gốc)
+      const out = I.out[a.id] || {};
       let any = false, rk = 0, n2 = 0;
       for (const lf of vf[a.tab_id] || []) for (const d of out[lf.id] || []) {
         const b = I.acc[d]; if (!b) continue; any = true;
         const v = (val(b) || '').toLowerCase(), dead = ownDead(b), r = v === 'lâu dài' && !dead ? 2 : !dead && v !== 'mất' ? 1 : 0;
         if (r === 2) n2++; if (r > rk) rk = r;
       }
-      if (!any) continue;
-      const w = rk === 2 ? 'Lâu dài' : rk === 1 ? 'Tạm thời' : 'Mất'; want[a.id] = w;
-      if ((val(a) || '').toLowerCase() !== w.toLowerCase()) put(warn, a);
-      else if (w === 'Lâu dài' && n2 === 1) put(one, a);
+      const cur = val(a) || '';
+      // có liên kết → suy từ tài nguyên; chưa có liên kết nào → không thể Lâu dài (tối đa Tạm thời), còn lại giữ
+      let w = any ? (rk === 2 ? 'Lâu dài' : rk === 1 ? 'Tạm thời' : 'Mất') : (cur.toLowerCase() === 'lâu dài' ? 'Tạm thời' : cur);
+      // chưa có mật khẩu (tab có cột Mật khẩu) → Không xác định (riêng Mất giữ nguyên)
+      const pk = pwf[a.tab_id];
+      if (pk && !String((a.data && a.data[pk]) || '').trim() && w.toLowerCase() !== 'mất') w = 'Không xác định';
+      if (!any && !w) continue;
+      want[a.id] = w;
+      if (cur.toLowerCase() !== w.toLowerCase()) put(warn, a);
+      else if (any && w === 'Lâu dài' && n2 === 1) put(one, a);
     }
     return Object.assign(OWW, { k: DVER, warn, one, want, vf, val });
   }

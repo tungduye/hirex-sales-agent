@@ -387,7 +387,9 @@
     ".next-tong-quan-hq-muc-3/types/**/*.ts",
     ".next-tong-quan-hq-muc-3/dev/types/**/*.ts",
     ".next-tong-quan-3d-van-phong/types/**/*.ts",
-    ".next-tong-quan-3d-van-phong/dev/types/**/*.ts"
+    ".next-tong-quan-3d-van-phong/dev/types/**/*.ts",
+    ".next-tong-quan-3d-cuon-trang/types/**/*.ts",
+    ".next-tong-quan-3d-cuon-trang/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

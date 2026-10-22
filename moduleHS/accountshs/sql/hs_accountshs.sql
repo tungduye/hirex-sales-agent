@@ -363,7 +363,12 @@ end $b$;
 --       Tạm thời  ← không còn tài nguyên Lâu dài sống, nhưng còn tài nguyên sống Tạm thời / Không xác định / trống;
 --       Mất       ← mọi tài nguyên đã chết hoặc Mất.
 --     Hai chiều: email/SĐT nâng lên Lâu dài hoặc thêm liên kết Lâu dài → tự lên; chết / bị gỡ → tự xuống. Lan theo chuỗi (FB → Email → SĐT…).
---   · Dòng không có liên kết xác minh (SĐT, email chưa có khôi phục…) = gốc: giữ giá trị người dùng / CRM đặt.
+--   · Bổ sung 2026-10-22 (chốt theo thực tế nền tảng): tab có cột liên kết xác minh (Facebook, Email, Zalo, LinkedIn, Telegram…) mà dòng
+--     CHƯA có tài nguyên xác minh / khôi phục nào → không thể Lâu dài (tối đa Tạm thời — mất quyền đăng nhập là mất luôn, không có đường lấy lại).
+--     Tab có cột "Mật khẩu" (loại secret) mà dòng chưa có mật khẩu → "Không xác định" (không có mật khẩu thì không điều khiển được tài khoản,
+--     kể cả khi có xác minh; riêng "Mất" giữ nguyên). Email khôi phục chưa có mật khẩu → đếm như "Không xác định" nên không nâng Lâu dài cho dòng dùng nó.
+--     Chỉ SĐT (tab không có cột liên kết xác minh) là gốc: giữ giá trị người dùng đặt.
+--     Sửa tay vẫn giữ tới lần tài nguyên / mật khẩu của dòng đổi tiếp; ahs_own_sync() không tham số = quét lại toàn bộ.
 --   · Theo sự kiện: thêm / xoá liên kết → xét dòng nguồn; đổi sở hữu hoặc trạng thái 1 dòng → xét các dòng đang dùng nó để xác minh.
 --     Dòng vừa bị người sửa tay giữ nguyên tới lần tài nguyên của nó đổi tiếp.
 --   · Nhật ký ahs_own_log: mọi lần đổi sở hữu (và đổi trạng thái của dòng trong tab có theo dõi sở hữu) kèm nguồn: user / vonggac / crm /
@@ -397,17 +402,23 @@ begin
     create temp table ahs_own_w(id bigint primary key, tab_id bigint, fid text, cur text, val text, cause text) on commit drop;
     create temp table ahs_own_sc(id bigint primary key) on commit drop;
   else truncate ahs_own_w, ahs_own_sc; end if;
+  -- tab "có xác minh" = có ít nhất 1 cột liên kết sang tab cũng có "Tình trạng sở hữu" (tự nhận tab / nền tảng mới)
+  insert into ahs_own_sc select a.id from ahs_accounts a
+   where a.tab_id in (select f.tab_id from ahs_fields f
+        join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
+        join ahs_fields o2 on o2.tab_id = f.link_tab and coalesce(o2.type, 'text') = 'select' and lower(btrim(o2.label)) = 'tình trạng sở hữu'
+        where f.type = 'link')
+     and ((p_src is null and p_dst is null) or a.id in (select unnest(p_src))) on conflict do nothing;      -- gồm cả dòng chưa có liên kết nào
   insert into ahs_own_sc select distinct l.src from ahs_links l join ahs_fields f on f.id = l.field_id and f.type = 'link'
     join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
     join ahs_fields o2 on o2.tab_id = f.link_tab and coalesce(o2.type, 'text') = 'select' and lower(btrim(o2.label)) = 'tình trạng sở hữu'
-   where (p_src is null and p_dst is null)
-      or l.src in (select unnest(p_src)) or l.dst in (select unnest(p_dst)) on conflict do nothing;   -- in (unnest) → dùng chỉ mục, nhanh với mảng lớn
+   where l.dst in (select unnest(p_dst)) on conflict do nothing;   -- in (unnest) → dùng chỉ mục, nhanh với mảng lớn
   analyze ahs_own_sc;   -- bảng tạm chưa có thống kê → planner chọn sai (nested loop) khi phạm vi lớn
   loop
     i := i + 1;
     if i > 1 then analyze ahs_own_w; end if;
     with o as (select tab_id, id::text fid from ahs_fields where coalesce(type, 'text') = 'select' and lower(btrim(label)) = 'tình trạng sở hữu'),
-    v as (select f.id, f.label from ahs_fields f where f.type = 'link' and f.tab_id in (select tab_id from o) and f.link_tab in (select tab_id from o)),
+    v as (select f.id, f.label, f.tab_id from ahs_fields f where f.type = 'link' and f.tab_id in (select tab_id from o) and f.link_tab in (select tab_id from o)),
     kf as (select distinct on (tab_id) tab_id, id::text kid from ahs_fields where coalesce(type, 'text') not in ('select', 'link', 'secret', 'file', 'lookup') order by tab_id, pos, id),   -- cột tên của tab (ghi lý do)
     cand as (select id from ahs_own_sc),
     ev as (
@@ -425,17 +436,34 @@ begin
     g as (select id, max(rk) rk, (array_agg(via || ' ' || lab order by rk desc, lid))[1] top,
             left(string_agg(via || ' ' || lab || ' (' || coalesce(nullif(braw, ''), 'trống') || case when dead then ', Die' else '' end || ')', ' · ' order by rk desc, lid), 240) det
           from ev group by id),
+    -- tab có xác minh (vt) và cột mật khẩu (pwf: loại secret, nhãn chứa "mật khẩu" / "password")
+    vt as (select distinct tab_id from v),
+    pwf as (select distinct on (tab_id) tab_id, id::text pid from ahs_fields
+             where type = 'secret' and lower(label) ~ 'mật khẩu|password' order by tab_id, pos, id),
     calc as (
       select a.id, a.tab_id, oa.fid, btrim(coalesce(a.data->>oa.fid, '')) cur0, coalesce(wa.val, btrim(coalesce(a.data->>oa.fid, ''))) cur,
-        case g.rk when 2 then 'Lâu dài' when 1 then 'Tạm thời' else 'Mất' end val,
-        case g.rk when 2 then 'Còn ' || g.top || ' đang Lâu dài và còn sống'
-                  when 1 then 'Không còn xác minh Lâu dài nào sống: ' || g.det
-                  else 'Mọi xác minh đã Die / Mất: ' || g.det end cause
-      from g join ahs_accounts a on a.id = g.id join o oa on oa.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id),
+        g.rk, g.top, g.det, (pf.pid is not null and btrim(coalesce(a.data->>pf.pid, '')) = '') nopw
+      from ahs_accounts a join cand c on c.id = a.id join o oa on oa.tab_id = a.tab_id join vt on vt.tab_id = a.tab_id
+        left join g on g.id = a.id left join pwf pf on pf.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id),
+    -- giá trị theo xác minh: có liên kết → suy từ tài nguyên; chưa có liên kết nào → không được Lâu dài (hạ xuống Tạm thời, còn lại giữ)
+    bs as (
+      select calc.*,
+        case when rk is null then (case when lower(cur) = 'lâu dài' then 'Tạm thời' else cur end)
+             when rk = 2 then 'Lâu dài' when rk = 1 then 'Tạm thời' else 'Mất' end base
+      from calc),
+    fv as (
+      select bs.*,
+        case when nopw and lower(base) <> 'mất' then 'Không xác định' else base end val,
+        case when nopw and lower(base) <> 'mất' then 'Chưa có mật khẩu' || case when rk is null then ' và chưa có email / SĐT xác minh hay khôi phục nào' else ' (xác minh: ' || coalesce(det, '') || ')' end
+             when rk is null then 'Chưa có email / SĐT xác minh hay khôi phục nào → không thể Lâu dài'
+             when rk = 2 then 'Còn ' || top || ' đang Lâu dài và còn sống'
+             when rk = 1 then 'Không còn xác minh Lâu dài nào sống: ' || det
+             else 'Mọi xác minh đã Die / Mất: ' || det end cause
+      from bs),
     w as (insert into ahs_own_w(id, tab_id, fid, cur, val, cause)
-          select id, tab_id, fid, cur0, val, cause from calc
-           cross join lateral (select case lower(cur) when 'lâu dài' then 2 when 'mất' then 0 else 1 end crk,
-                                      case val when 'Lâu dài' then 2 when 'Mất' then 0 else 1 end vrk) r
+          select id, tab_id, fid, cur0, val, cause from fv
+           cross join lateral (select case lower(cur) when 'lâu dài' then 3 when 'tạm thời' then 2 when 'mất' then 0 else 1 end crk,
+                                      case val when 'Lâu dài' then 3 when 'Tạm thời' then 2 when 'Mất' then 0 else 1 end vrk) r
            where lower(cur) is distinct from lower(val) and ((mode = 'up' and r.vrk >= r.crk) or (mode = 'down' and r.vrk <= r.crk))
           on conflict (id) do update set val = excluded.val, cause = excluded.cause returning id)
     select array_agg(id) into up from w;
@@ -474,7 +502,7 @@ begin
 end $f$;
 -- đổi sở hữu / trạng thái của 1 dòng (người dùng, Vọng gác, CRM…) → ghi nhật ký + xét lại các dòng dùng nó để xác minh
 create or replace function ahs_f_own_u() returns trigger language plpgsql as $f$
-declare ch bigint[]; src text; who text;
+declare ch bigint[]; pc bigint[]; src text; who text;
 begin
   if current_setting('ahs.own_sync', true) = '1' then return null; end if;
   src := coalesce(ahs_req_hdr('x-ahs-src'), 'khac'); who := ahs_req_hdr('x-ahs-user');
@@ -488,7 +516,11 @@ begin
          select extract(epoch from clock_timestamp()), x.id, x.tab_id, 'status', s1.label, s2.label, src, who
            from x left join ahs_statuses s1 on s1.id = x.os left join ahs_statuses s2 on s2.id = x.ns where x.os is distinct from x.ns)
   select array_agg(id) into ch from x;
-  if ch is not null then perform ahs_own_sync(array[]::bigint[], ch, src); end if;
+  -- đổi mật khẩu (có ↔ trống) ở tab có xác minh → xét lại chính dòng đó (không có mật khẩu → Không xác định)
+  select array_agg(n.id) into pc from nt n join ot p on p.id = n.id
+    join (select distinct on (tab_id) tab_id, id::text pid from ahs_fields where type = 'secret' and lower(label) ~ 'mật khẩu|password' order by tab_id, pos, id) pw on pw.tab_id = n.tab_id
+   where (nullif(btrim(coalesce(n.data->>pw.pid, '')), '') is null) is distinct from (nullif(btrim(coalesce(p.data->>pw.pid, '')), '') is null);
+  if ch is not null or pc is not null then perform ahs_own_sync(coalesce(pc, array[]::bigint[]), coalesce(ch, array[]::bigint[]), src); end if;
   return null;
 end $f$;
 drop trigger if exists ahs_trg_own_li on ahs_links;

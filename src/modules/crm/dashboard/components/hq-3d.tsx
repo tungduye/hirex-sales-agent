@@ -7,6 +7,7 @@ import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 import type { People } from "@/modules/crm/dashboard/components/hq-3d-people";
 import type { RoomKey, World } from "@/modules/crm/dashboard/components/hq-3d-world";
+import type { Effects } from "@/modules/crm/dashboard/components/hq-3d-effects";
 
 // HireX HQ, mức 3: the office in real 3D — a high floor of a tower over a lit city, with furniture and people from
 // CC0 model kits (public/hq3d). Three.js and the models load only when this view opens.
@@ -15,13 +16,46 @@ import type { RoomKey, World } from "@/modules/crm/dashboard/components/hq-3d-wo
 
 type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; onUnsupported: () => void };
 type Hover = { x: number; y: number; title: string; sub: string } | null;
-type Pick = { title: string; sub: string; href: string | null };
+type Pick = { title: string; sub: string; href: string | null; personId?: string };
+type LogLine = { id: number; at: string; text: string; tone: "alert" | "ok" | "info" };
 type Data = Omit<Props, "onUnsupported">;
 
 interface Engine {
   camera: Three.PerspectiveCamera;
   controls: { update: () => void; dispose: () => void; autoRotate: boolean; target: Three.Vector3; reset: () => void };
-  world: World; people: People; started: number;
+  world: World; people: People; effects: Effects; started: number;
+  /** Camera flight (click on a person) and the member it follows. */
+  flight: { from: Three.Vector3; to: Three.Vector3; fromTarget: Three.Vector3; toTarget: Three.Vector3; start: number; follow: string | null } | null;
+  home: { camera: Three.Vector3; target: Three.Vector3 } | null;
+  fly: (to: { x: number; y: number; z: number } | null, follow: string | null) => void;
+}
+
+const clock = () => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
+const spread = () => 1 + Math.random() * 35; // play a minute's events over the next ~35 seconds
+
+/** Compares two refreshes and plays what changed (see hq-3d-effects.ts). Returns lines for the event log. */
+function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogLine, "id">> {
+  const lines: Array<Omit<LogLine, "id">> = [];
+  const was = new Map(before.team.map((person) => [person.id, person.waiting]));
+  let envelopes = 0, ticks = 0;
+  for (const person of after.team) {
+    const previous = was.get(person.id);
+    if (previous === undefined || !person.seat) continue;
+    const change = person.waiting - previous;
+    const at = () => engine.people.positionOf(person.id);
+    if (change > 0) {
+      for (let index = 0; index < Math.min(change, 3) && envelopes < 14; index += 1, envelopes += 1) engine.effects.envelope(at, spread());
+      lines.push({ at: clock(), text: `+${change} tin chưa trả lời · ${person.name}`, tone: "alert" });
+    } else if (change < 0) {
+      for (let index = 0; index < Math.min(-change, 2) && ticks < 10; index += 1, ticks += 1) engine.effects.reply(at, spread());
+      lines.push({ at: clock(), text: `${person.name} đã trả lời ${-change} hội thoại`, tone: "ok" });
+    }
+  }
+  const cvs = (after.stats.cvToday ?? 0) - (before.stats.cvToday ?? 0);
+  if (cvs > 0 && before.stats.cvToday !== null) { for (let index = 0; index < Math.min(cvs, 5); index += 1) engine.effects.cv(spread()); lines.push({ at: clock(), text: `+${cvs} CV mới vào Kho CV`, tone: "info" }); }
+  const replies = (after.stats.replies ?? 0) - (before.stats.replies ?? 0);
+  if (replies > 0 && before.stats.replies !== null) { for (let index = 0; index < Math.min(replies, 4); index += 1) engine.effects.firework(spread()); lines.push({ at: clock(), text: `+${replies} phản hồi chiến dịch Zalo`, tone: "info" }); }
+  return lines;
 }
 
 const CAMERA_START = { x: -640, y: 860, z: 1060 };
@@ -35,14 +69,22 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
   const [hover, setHover] = useState<Hover>(null);
   const [spinning, setSpinning] = useState(false);
   const [progress, setProgress] = useState<string | null>("Đang tải văn phòng 3D…");
+  const [focused, setFocused] = useState<string | null>(null);
+  const [log, setLog] = useState<LogLine[]>([]);
+  const logId = useRef(0);
   const fallback = useRef(onUnsupported);
   const navigate = useRef(router.push);
   useEffect(() => { fallback.current = onUnsupported; navigate.current = router.push; });
 
   useEffect(() => {
+    const before = dataRef.current;
     dataRef.current = { rooms, team, stats, floor };
     const engine = engineRef.current;
-    if (engine) { engine.world.update(dataRef.current); engine.people.sync(team, (performance.now() - engine.started) / 1000); }
+    if (!engine) return;
+    engine.world.update(dataRef.current);
+    engine.people.sync(team, (performance.now() - engine.started) / 1000);
+    const lines = playChanges(engine, before, dataRef.current);
+    if (lines.length) setLog((current) => [...lines.map((line) => ({ ...line, id: ++logId.current })), ...current].slice(0, 5));
   }, [rooms, team, stats, floor]);
 
   useEffect(() => {
@@ -51,9 +93,10 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
     let stopped = false, frame = 0, visible = true;
     const cleanups: Array<() => void> = [];
     void (async () => {
-      const [THREE, { OrbitControls }, SkeletonUtils, worldModule, peopleModule] = await Promise.all([
+      const [THREE, { OrbitControls }, SkeletonUtils, worldModule, peopleModule, effectsModule] = await Promise.all([
         import("three"), import("three/examples/jsm/controls/OrbitControls.js"), import("three/examples/jsm/utils/SkeletonUtils.js"),
         import("@/modules/crm/dashboard/components/hq-3d-world"), import("@/modules/crm/dashboard/components/hq-3d-people"),
+        import("@/modules/crm/dashboard/components/hq-3d-effects"),
       ]);
       if (stopped) return;
       let renderer: Three.WebGLRenderer;
@@ -93,13 +136,27 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       if (stopped) return;
       const world = worldModule.buildWorld(THREE, scene, kit, sun, hemi);
       const people = peopleModule.createPeople(THREE, scene, kit, world, (object) => SkeletonUtils.clone(object));
+      const effects = effectsModule.createEffects(THREE, scene);
       const started = performance.now();
-      const engine: Engine = { camera, controls, world, people, started };
+      const engine: Engine = {
+        camera, controls, world, people, effects, started, flight: null, home: null,
+        fly: (to, follow) => {
+          const fromTarget = controls.target.clone(), from = camera.position.clone();
+          if (to) {
+            if (!engine.home) engine.home = { camera: from.clone(), target: fromTarget.clone() };
+            const toTarget = new THREE.Vector3(to.x, 30, to.z);
+            engine.flight = { from, to: toTarget.clone().add(new THREE.Vector3(-150, 190, 230)), fromTarget, toTarget, start: performance.now(), follow };
+          } else if (engine.home) {
+            engine.flight = { from, to: engine.home.camera.clone(), fromTarget, toTarget: engine.home.target.clone(), start: performance.now(), follow: null };
+            engine.home = null;
+          }
+        },
+      };
       engineRef.current = engine;
       world.update(dataRef.current);
       people.sync(dataRef.current.team, 0);
       setProgress(null);
-      cleanups.push(() => { people.dispose(); engineRef.current = null; scene.traverse((child) => { const mesh = child as Three.Mesh; mesh.geometry?.dispose?.(); const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []; for (const material of list) { (material as Three.MeshStandardMaterial).map?.dispose(); material.dispose(); } }); });
+      cleanups.push(() => { effects.dispose(); people.dispose(); engineRef.current = null; scene.traverse((child) => { const mesh = child as Three.Mesh; mesh.geometry?.dispose?.(); const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []; for (const material of list) { (material as Three.MeshStandardMaterial).map?.dispose(); material.dispose(); } }); });
 
       const resize = () => {
         const width = element.clientWidth, height = element.clientHeight;
@@ -144,6 +201,7 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
         const start = down; down = null;
         if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5 || event.button !== 0) return;
         const found = pickAt(event);
+        if (found?.pick.personId) { const id = found.pick.personId; engine.fly(people.positionOf(id), id); setFocused(id); setHover(null); return; }
         if (found?.pick.href) navigate.current(found.pick.href);
       };
       const onLeave = () => { current = null; shown = false; world.highlight(null); setHover(null); };
@@ -170,6 +228,18 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
         world.tick(time, camera);
         world.robot?.mixer?.update(delta);
         people.tick(time, delta);
+        effects.tick(time, delta);
+        const flight = engine.flight;
+        if (flight) {
+          const t = Math.min(1, (nowMs - flight.start) / 1100), ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+          if (flight.follow) { const spot = people.positionOf(flight.follow); if (spot) { const moved = new THREE.Vector3(spot.x, 30, spot.z).sub(flight.toTarget); flight.toTarget.add(moved); flight.to.add(moved); } }
+          camera.position.lerpVectors(flight.from, flight.to, ease);
+          controls.target.lerpVectors(flight.fromTarget, flight.toTarget, ease);
+          if (t >= 1) {
+            if (flight.follow) { flight.from.copy(flight.to); flight.fromTarget.copy(flight.toTarget); flight.start = nowMs - 1100; } // keep following a walking member
+            else engine.flight = null;
+          }
+        }
         controls.update();
         renderer.render(scene, camera);
       };
@@ -187,7 +257,16 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
     camera.position.copy(controls.target).add(offset.setLength(Math.min(2600, Math.max(220, offset.length()))));
   };
   const toggleSpin = () => setSpinning((value) => { if (engineRef.current) engineRef.current.controls.autoRotate = !value; return !value; });
-  const reset = () => { const engine = engineRef.current; if (!engine) return; engine.controls.autoRotate = false; setSpinning(false); engine.controls.reset(); };
+  const reset = () => { const engine = engineRef.current; if (!engine) return; engine.controls.autoRotate = false; setSpinning(false); engine.flight = null; engine.home = null; setFocused(null); engine.controls.reset(); };
+  const closeCard = () => { engineRef.current?.fly(null, null); setFocused(null); };
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { engineRef.current?.fly(null, null); setFocused(null); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused]);
+  const person = focused ? team.find((member) => member.id === focused) ?? null : null;
+  const STATUS = { busy: "Đang nhắn", alert: "Cần xem", meet: "Đang họp", idle: "Chưa có hoạt động" } as const;
 
   return (
     <div className={styles.scene3dWrap}>
@@ -199,8 +278,25 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       </div>
       <div ref={holder} className={styles.scene3d} />
       {progress ? <div className={styles.scene3dLoading}>{progress}</div> : null}
+      {person ? (
+        <div className={styles.card3d} role="dialog" aria-label={`Thông tin ${person.name}`}>
+          <div className={styles.card3dHead}>
+            <strong>{person.name}</strong>
+            <button type="button" onClick={closeCard} aria-label="Đóng">×</button>
+          </div>
+          <span className={styles.card3dSub}>{person.department ?? "Chưa có bộ phận"} · <b className={styles[`card3d_${person.tone}`]}>{STATUS[person.tone]}</b></span>
+          <div className={styles.card3dBig}><span>Chưa trả lời</span><b>{person.waiting.toLocaleString("vi-VN")}</b></div>
+          <p className={styles.card3dDoing}>{person.doing}</p>
+          <button type="button" className={styles.card3dLink} onClick={() => router.push(`/inbox/all?view=waiting&owner=${encodeURIComponent(person.id)}`)}>Mở Suối Nguồn của {person.name} →</button>
+        </div>
+      ) : null}
+      {log.length ? (
+        <ul className={styles.log3d} aria-label="Vừa xảy ra">
+          {log.map((line) => <li key={line.id} className={styles[`log3d_${line.tone}`]}><span>{line.at}</span>{line.text}</li>)}
+        </ul>
+      ) : null}
       {hover ? <div className={styles.tooltip3d} style={{ left: hover.x + 14, top: hover.y + 14 }}><strong>{hover.title}</strong><span>{hover.sub}</span></div> : null}
-      <p className={styles.hint3d}>Kéo chuột trái để xoay · Ctrl + lăn chuột (hoặc nút +/−) để phóng to · kéo chuột phải để di chuyển · bấm vào phòng để mở · mô hình: Kenney &amp; Quaternius (CC0)</p>
+      <p className={styles.hint3d}>Kéo chuột trái để xoay · Ctrl + lăn chuột (hoặc nút +/−) để phóng to · kéo chuột phải để di chuyển · bấm vào phòng để mở, bấm vào người để xem · mô hình: Kenney &amp; Quaternius (CC0)</p>
     </div>
   );
 }
