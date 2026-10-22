@@ -27,5 +27,7 @@ select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000001331'
 select pg_temp.assert_true((select count(*)=2 from public.inbox_conversation_facts(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null)),'one row per conversation');
 select pg_temp.assert_true((select is_important and latest_direction='INBOUND' and cardinality(tag_ids)=2 from public.inbox_conversation_facts(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null) where id='00000000-0000-4000-8000-0000000133d1'),'important, waiting, with its tags');
 select pg_temp.assert_true((select count(*)=1 from public.inbox_conversation_facts(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null, array['00000000-0000-4000-8000-0000000133e2']::uuid[])),'only conversations with the asked tags');
+select pg_temp.assert_true((select jsonb_array_length(public.inbox_conversation_summary(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null))=2 and (select sum((x->>'c')::int) from jsonb_array_elements(public.inbox_conversation_summary(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null)) x)=2),'summary adds up in the database');
+select pg_temp.assert_true((select bool_or((x->>'w')::boolean and (x->>'i')::boolean) from jsonb_array_elements(public.inbox_conversation_summary(array['00000000-0000-4000-8000-0000000133c1']::uuid[], null, null)) x),'waiting and important flags');
 reset role;
 rollback;

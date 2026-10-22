@@ -11,8 +11,10 @@ import type { ActionContext } from "@/modules/assistant/server/assistant-proposa
 //  - nhom_zalo: how many Zalo groups each nick is in (as HireX knows them), optionally which.
 
 type Scope = { workspaceId: string; userId: string; context: ActionContext; channel?: "WEB" | "ZALO" };
-type TabRow = { id: string; channel_account_id: string; channel_type: string; sort_at: string; is_group: boolean; is_other: boolean; latest_direction: string | null; unread_count: number; assigned_to: string | null; mention_pending?: boolean };
-type FactRow = TabRow & { is_important: boolean; mention_pending: boolean; tag_ids: string[] };
+// One line of inbox_conversation_summary: c conversations sharing nick (a), assigned person (o), group (g), waiting (w),
+// important (i), unread (u) and tags (t). Added up in the database: a row per conversation stopped at 1,000 rows.
+type SummaryRow = { a: string; o: string | null; g: boolean; w: boolean; i: boolean; u: boolean; t: string[]; c: number };
+type Slice = { accountId: string; channel: string; assignedTo: string | null; isGroup: boolean; waiting: boolean; important: boolean; unread: boolean; tagIds: string[]; count: number };
 type JpRow = { id: string; channel_account_id: string; channel_type: string; sort_at: string; is_group: boolean; is_other: boolean; latest_direction: string | null; name: string | null; reason: string };
 const fold = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase().trim();
 const CHANNEL: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Facebook Page", FACEBOOK_PROFILE: "Facebook cá nhân", EMAIL: "Email" };
@@ -61,17 +63,18 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
         })),
       };
     }
-    const { data, error } = await supabase.rpc("inbox_conversation_facts", { p_account_ids: ids, p_channel_types: channels, p_since: since });
+    const { data, error } = await supabase.rpc("inbox_conversation_summary", { p_account_ids: ids, p_channel_types: channels, p_since: since });
     if (error) return { loi: "Chưa đếm được Suối Nguồn, thử lại sau." };
-    const rows = (data ?? []) as TabRow[];
+    const channelOf = new Map(nicks.map((nick) => [nick.id, nick.channel]));
     const per = new Map<string, { nick: string; kenh: string; hoi_thoai: number; cho_tra_loi: number; chua_doc: number; nhom: number }>();
-    for (const row of rows) {
-      const key = `${row.channel_account_id}`;
-      const entry = per.get(key) ?? { nick: name.get(row.channel_account_id) ?? "Nick", kenh: CHANNEL[row.channel_type] ?? row.channel_type, hoi_thoai: 0, cho_tra_loi: 0, chua_doc: 0, nhom: 0 };
-      if (row.is_group) entry.nhom += 1; else if (!row.is_other) entry.hoi_thoai += 1;
-      if (waiting(row)) entry.cho_tra_loi += 1;
-      if (!row.is_group && !row.is_other && row.unread_count > 0) entry.chua_doc += 1;
-      per.set(key, entry);
+    for (const row of (Array.isArray(data) ? data : []) as SummaryRow[]) {
+      const channel = channelOf.get(row.a) ?? "";
+      const entry = per.get(row.a) ?? { nick: name.get(row.a) ?? "Nick", kenh: CHANNEL[channel] ?? channel, hoi_thoai: 0, cho_tra_loi: 0, chua_doc: 0, nhom: 0 };
+      const count = Number(row.c) || 0;
+      if (row.g) entry.nhom += count; else entry.hoi_thoai += count;
+      if (row.w) entry.cho_tra_loi += count;
+      if (!row.g && row.u) entry.chua_doc += count;
+      per.set(row.a, entry);
     }
     const list = [...per.values()].sort((a, b) => b.cho_tra_loi - a.cho_tra_loi);
     return {
@@ -94,7 +97,7 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
       db.from("profiles").select("id,full_name,department").eq("workspace_id", scope.workspaceId),
       db.from("conversation_tags").select("id,name,group_name").eq("workspace_id", scope.workspaceId),
     ]);
-    const accounts = new Map((accountRows ?? []).map((row) => [String(row.id), { name: String(row.display_name ?? row.external_account_id ?? "Nick"), owner: typeof row.primary_profile_id === "string" ? row.primary_profile_id : null }]));
+    const accounts = new Map((accountRows ?? []).map((row) => [String(row.id), { name: String(row.display_name ?? row.external_account_id ?? "Nick"), channel: String(row.channel_type), owner: typeof row.primary_profile_id === "string" ? row.primary_profile_id : null }]));
     if (!accounts.size) return { loi: "Sếp chưa được cấp nick nào." };
     const people = new Map((profileRows ?? []).map((row) => [String(row.id), { name: String(row.full_name ?? ""), department: typeof row.department === "string" ? row.department : null }]));
     const tags = (tagRows ?? []).map((row) => ({ id: String(row.id), name: String(row.name), group: typeof row.group_name === "string" ? row.group_name : null }));
@@ -125,44 +128,45 @@ export const inboxStatTools: Record<string, (args: Record<string, unknown>, scop
     const byTag = tagScope.length > 0;
     const days = Number(args.so_ngay) > 0 ? Math.min(Number(args.so_ngay), 365) : byTag ? null : 30;
     const supabase = await createClient();
-    const { data, error } = await supabase.rpc("inbox_conversation_facts", { p_account_ids: [...accounts.keys()], p_channel_types: channels.length ? channels : null, p_since: days ? new Date(Date.now() - days * 86_400_000).toISOString() : null, p_tag_ids: byTag ? [...new Set(tagScope)] : null });
+    const { data, error } = await supabase.rpc("inbox_conversation_summary", { p_account_ids: [...accounts.keys()], p_channel_types: channels.length ? channels : null, p_since: days ? new Date(Date.now() - days * 86_400_000).toISOString() : null, p_tag_ids: byTag ? [...new Set(tagScope)] : null });
     if (error) return { loi: "Chưa đếm được Suối Nguồn, thử lại sau." };
-    const facts = ((data ?? []) as FactRow[]).filter((row) => !row.is_other);
+    const slices: Slice[] = ((Array.isArray(data) ? data : []) as SummaryRow[]).map((row) => ({ accountId: row.a, channel: accounts.get(row.a)?.channel ?? "", assignedTo: row.o, isGroup: row.g, waiting: row.w, important: row.i, unread: row.u, tagIds: row.t ?? [], count: Number(row.c) || 0 }));
     // Owner: the person the conversation is given to; not given = the main user of the nick.
-    const ownerOf = (row: FactRow) => row.assigned_to ?? accounts.get(row.channel_account_id)?.owner ?? null;
-    const matchesState = (row: FactRow) => !states.length || states.some((state) => state === "CHUA_TRA_LOI" ? waiting(row) : state === "QUAN_TRONG" ? row.is_important
-      : state === "NHOM" ? row.is_group : state === "CA_NHAN" ? !row.is_group : state === "CHUA_DOC" ? row.unread_count > 0 : false);
-    const rows = facts.filter((row) => {
+    const ownerOf = (row: Slice) => row.assignedTo ?? accounts.get(row.accountId)?.owner ?? null;
+    const matchesState = (row: Slice) => !states.length || states.some((state) => state === "CHUA_TRA_LOI" ? row.waiting : state === "QUAN_TRONG" ? row.important
+      : state === "NHOM" ? row.isGroup : state === "CA_NHAN" ? !row.isGroup : state === "CHUA_DOC" ? row.unread : false);
+    const rows = slices.filter((row) => {
       if (!matchesState(row)) return false;
       const owner = ownerOf(row); const person = owner ? people.get(owner) : null;
       if (ownerNames.length && !(person && ownerNames.some((name) => fold(person.name).includes(name)))) return false;
       if (departments.length && !(person?.department && departments.includes(fold(person.department)))) return false;
-      if (wantedTags.some((tag) => !tag.ids.some((id) => row.tag_ids.includes(id)))) return false;
-      if (wantedMarkets.length && !wantedMarkets.some((market) => market.ids.some((id) => row.tag_ids.includes(id)))) return false;
+      if (wantedTags.some((tag) => !tag.ids.some((id) => row.tagIds.includes(id)))) return false;
+      if (wantedMarkets.length && !wantedMarkets.some((market) => market.ids.some((id) => row.tagIds.includes(id)))) return false;
       return true;
     });
     if (ownerNames.length && !rows.length && ![...people.values()].some((person) => ownerNames.some((name) => fold(person.name).includes(name))))
       return { loi: `Không có người tên "${list(args.owner).join(", ")}".` };
-    const keysOf = (row: FactRow): string[] => {
+    const keysOf = (row: Slice): string[] => {
       const owner = ownerOf(row); const person = owner ? people.get(owner) : null;
       if (by === "OWNER") return [person?.name || "(chưa có owner)"];
       if (by === "BO_PHAN") return [person?.department || "(chưa có bộ phận)"];
-      if (by === "KENH") return [CHANNEL[row.channel_type] ?? row.channel_type];
-      if (by === "NICK") return [accounts.get(row.channel_account_id)?.name ?? "Nick"];
-      if (by === "THE") { const names = row.tag_ids.map((id) => tagName.get(id)).filter((name): name is string => Boolean(name)); return names.length ? names : ["(chưa gắn nhãn)"]; }
-      if (by === "THI_TRUONG" || by === "NHOM_THE") { const names = groupTags.filter((tag) => row.tag_ids.includes(tag.id)).map((tag) => tag.name); return names.length ? names : [by === "THI_TRUONG" ? "(chưa gắn thị trường)" : "(chưa gắn nhãn nhóm này)"]; }
+      if (by === "KENH") return [CHANNEL[row.channel] ?? row.channel];
+      if (by === "NICK") return [accounts.get(row.accountId)?.name ?? "Nick"];
+      if (by === "THE") { const names = row.tagIds.map((id) => tagName.get(id)).filter((name): name is string => Boolean(name)); return names.length ? names : ["(chưa gắn nhãn)"]; }
+      if (by === "THI_TRUONG" || by === "NHOM_THE") { const names = groupTags.filter((tag) => row.tagIds.includes(tag.id)).map((tag) => tag.name); return names.length ? names : [by === "THI_TRUONG" ? "(chưa gắn thị trường)" : "(chưa gắn nhãn nhóm này)"]; }
       return ["Tổng"];
     };
     const buckets = new Map<string, { nhom: string; hoi_thoai: number; chua_tra_loi: number; quan_trong: number; nhom_zalo: number }>();
     for (const row of rows) for (const key of keysOf(row)) {
       const entry = buckets.get(key) ?? { nhom: key, hoi_thoai: 0, chua_tra_loi: 0, quan_trong: 0, nhom_zalo: 0 };
-      entry.hoi_thoai += 1; if (waiting(row)) entry.chua_tra_loi += 1; if (row.is_important) entry.quan_trong += 1; if (row.is_group) entry.nhom_zalo += 1;
+      entry.hoi_thoai += row.count; if (row.waiting) entry.chua_tra_loi += row.count; if (row.important) entry.quan_trong += row.count; if (row.isGroup) entry.nhom_zalo += row.count;
       buckets.set(key, entry);
     }
+    const total = (pick: (row: Slice) => boolean) => rows.reduce((sum, row) => sum + (pick(row) ? row.count : 0), 0);
     return {
       pham_vi: `${days ? `hội thoại có tin trong ${days} ngày gần đây${Number(args.so_ngay) > 0 ? "" : " (mặc định, giống số trên các tab)"}` : "mọi thời gian, chỉ các hội thoại có nhãn được hỏi"} trên ${accounts.size} nick sếp được xem`,
       dieu_kien: { trang_thai: states.length ? states.join(" hoặc ") : "tất cả", owner: list(args.owner), bo_phan: list(args.bo_phan), nhan: wantedTags.map((tag) => tag.name), thi_truong: wantedMarkets.map((market) => market.name), kenh: channels.map((channel) => CHANNEL[channel] ?? channel) },
-      tong: { hoi_thoai: rows.length, chua_tra_loi: rows.filter(waiting).length, quan_trong: rows.filter((row) => row.is_important).length, nhom_zalo: rows.filter((row) => row.is_group).length },
+      tong: { hoi_thoai: total(() => true), chua_tra_loi: total((row) => row.waiting), quan_trong: total((row) => row.important), nhom_zalo: total((row) => row.isGroup) },
       ...(by !== "TONG" ? { chia_theo: by, bang: [...buckets.values()].sort((a, b) => b.hoi_thoai - a.hoi_thoai).slice(0, 50) } : {}),
       ghi_chu: "Owner = người được giao hội thoại; chưa giao thì là người dùng chính của nick. chua_tra_loi giống tab Chưa trả lời (gồm nhóm Zalo tag nick mình chưa trả lời). Không tính email tự động. Khi chia theo nhãn/thị trường, một hội thoại nhiều nhãn được tính ở mỗi nhãn. Nhóm Zalo có nhiều nick của mình tính theo từng nick.",
       link: "/inbox/all",
