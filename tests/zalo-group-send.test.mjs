@@ -54,7 +54,8 @@ test('the inbox lists a shared group once and lets the member pick the sending n
   assert.match(loader, /mergeGroupCopies\(conversations, lastOutboundAt, ambiguous\)/);
   assert.match(detail, /rpc\("is_zalo_group_conversation"/);
   assert.match(detail, /await canAccessChannelAccount\(accountId\)/, 'only nicks the member may use');
-  assert.match(list, /conversation\.copyIds\.map\(\(id\)=>fetch\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'menu actions reach every copy');
+  assert.match(list, /conversation\.copyIds\.map\(send\)/, 'menu actions reach every copy');
+  assert.match(list, /post\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'menu actions use the preferences route');
 });
 
 test('expired Facebook Page chats offer the chat in Meta Business Suite', () => {

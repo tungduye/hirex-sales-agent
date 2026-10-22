@@ -40,6 +40,7 @@ const ROUTES: Record<string, [Level, Fn]> = {
   device: ["edit", (b) => R.upsert("device", b)], device_set: ["edit", R.deviceSet], rows_set: ["edit", R.rowsSet], device_bulk: ["edit", R.deviceBulk],
   backup_now: ["manage", async () => ({ names: await B.doBackup("manual") })], backup_delete: ["manage", B.backupDelete], backup_rename: ["manage", B.backupRename],
   log_clear: ["manage", R.logClear], hist_cfg: ["manage", R.histCfg], grp_icon: ["manage", R.grpIcon], tab_keys: ["manage", R.tabKeys],
+  tab_pk: ["manage", R.tabPk], opt_colors: ["manage", R.optColors],
   backup_restore: ["manage", B.backupRestore], backup_cfg: ["manage", B.cfgSet], repair: ["manage", R.repair],
   ...AI.routes,
 };
@@ -70,10 +71,6 @@ export async function handleGet(name: string, qs: URLSearchParams, req?: Request
       const h = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-cache", ETag: tag };
       if (req?.headers.get("if-none-match") === tag) return new NextResponse(null, { status: 304, headers: h });
       return new NextResponse(html, { headers: h });
-    }
-    if (name === "crm-sdt") {   // trang đối soát 1 lần: tab SĐT = danh sách SĐT kéo từ CRM (ui/crm-sdt.html), chỉ Quản trị
-      await requireHs("manage");
-      return new NextResponse(await uiPage("crm-sdt.html"), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
     if (name === "themes") { await requireHs("view"); return json({ themes: await themesList() }); }
     if (name.startsWith("theme-preview/")) { await requireHs("view"); const img = await themePreview(name.slice(14).replace(/\.jpg$/, "")); return img ? new NextResponse(img as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "max-age=86400" } }) : json({ error: "not found" }, 404); }

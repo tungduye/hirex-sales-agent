@@ -10,5 +10,5 @@ test("keeps only list filters", () => {
 test("suggests a readable name", () => {
   assert.equal(suggestFilterName({ scope: "TEAM", view: "waiting", query: "channel=ZALO&account=a%2Cb" }), "Team · Zalo · Chưa trả lời · 2 tài khoản");
   assert.equal(suggestFilterName({ scope: null, view: "all", query: "" }), "Bộ lọc của tôi");
-  assert.equal(suggestFilterName({ scope: "MINE", view: null, query: "account=a", accountName: "Dương Linh" }), "Của tôi · Dương Linh");
+  assert.equal(suggestFilterName({ scope: "MINE", view: null, query: "account=a", accountName: "Dương Linh" }), "Cá nhân · Dương Linh");
 });

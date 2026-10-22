@@ -31,7 +31,13 @@ export interface Account {
 }
 export interface Link { id: Id; src: Id; dst: Id; f: Id }
 
-export interface Meta { depts: Dept[]; owners: Owner[]; tabs: Tab[]; grp_icons: Record<string, string>; tab_keys: Record<string, Id[]> }
+export interface Meta {
+  depts: Dept[]; owners: Owner[]; tabs: Tab[]; grp_icons: Record<string, string>; tab_keys: Record<string, Id[]>;
+  /** khóa chính từng tab (trường hiển thị làm tên dòng) — không đặt = trường đầu tiên. Tab có khóa riêng: fields[] đưa khóa lên đầu, thứ tự cột hiển thị vẫn theo pos */
+  tab_pk: Record<string, Id>;
+  /** màu giá trị của trường Danh sách người dùng đã đặt: {field_id: {giá trị: "#rrggbb"}} (chưa đặt → màu mặc định trong giao diện) */
+  opt_colors: Record<string, Record<string, string>>;
+}
 /** /api/data */
 export interface Snapshot { meta: Meta; devices: Device[]; accounts: Account[]; links: Link[]; ts: Epoch }
 /** /api/delta */

@@ -489,4 +489,162 @@
     OVSK = o != null ? 'o' + o : d !== 'all' ? 'd' + d : 'all';   // đã đứng đúng dòng: không nhảy/cuộn lại
     setScope(d, o);
   };
+
+  /* ── 10. tải đúng chỗ, đúng lúc ──
+     · Vọng gác / CRM chạy xong: bản gốc tải lại TOÀN BỘ (~20.000+ dòng, khung tải đè lên trang) dù đang ở Tổng quan.
+       Thay đổi đã về qua thời gian thực (SSE) → chỉ cần lấy phần thay đổi (delta) im lặng, vẽ lại lúc người dùng rảnh.
+     · Dòng giả (khung tải bảng) chỉ hiện khi màn đang xem thật sự là BẢNG; Tổng quan / Sơ đồ / Báo cáo / Thiết bị không bao giờ có dòng giả.
+       Chuyển tab trong lúc tải: dòng giả theo bảng mới hoặc tắt. */
+  HX.soft = 0;
+  { const _l = load; load = function (full) { if (full && HX.soft && !HX.reloading && S.ts && S.accs && S.accs.length) full = false; return _l.call(this, full) } }
+  { const _ra = renderAll; renderAll = function () {
+      if (HX.soft && !HX.inBg) { HX.inBg = 1; try { bgRender() } finally { HX.inBg = 0 } return }
+      return _ra.apply(this, arguments);
+    } }
+  for (const nm of ['cyvLoad', 'crmLoad']) {
+    const f = window[nm]; if (typeof f !== 'function') continue;
+    window[nm] = async function () { HX.soft++; try { return await f.apply(this, arguments) } finally { HX.soft-- } };
+  }
+  const tblView = () => typeof S !== 'undefined' && isTbl() && !ovOn() && !!document.querySelector('#main #tw');
+  { const _sk = ldrSkel; ldrSkel = function () { if (!tblView()) { if (LDR.sk) ldrSkOff(); return } return _sk.apply(this, arguments) } }
+  { const _st = setTab; setTab = function () {
+      const r = _st.apply(this, arguments);
+      if (LDR.el) { ldrSkOff(); LDR.sig = ''; requestAnimationFrame(() => requestAnimationFrame(ldrSkel)) }
+      return r;
+    } }
+
+  /* ── 11. cột, khóa chính, màu giá trị Danh sách, đúp chuột chọn giá trị ──
+     · Cột Thiết bị (ít dùng) đứng ngay trước Ghi chú, ở mọi bảng.
+     · Khóa chính (trường làm tên dòng: liên kết, tìm, Cú vọ, nhật ký…) chọn trong Cài đặt › Trường, không buộc là cột đầu.
+       Máy chủ đưa khóa lên đầu fields[] (mọi chỗ của bản gốc coi fields[0] là tên) → thứ tự cột trên bảng / trong cài đặt vẫn theo pos.
+     · Giá trị Danh sách có màu: mặc định theo thương hiệu / ý nghĩa (nhà mạng, loại email, sở hữu…), đổi trong Cài đặt › Trường (nút bảng màu).
+     · Đúp chuột ô Danh sách → chọn giá trị ngay (đang chọn nhiều dòng cùng tab → áp cho cả các dòng đó). */
+  if (typeof LG !== 'undefined') Object.assign(LG, { tab_pk: ['key', 'Khóa chính'], opt_colors: ['palette', 'Màu giá trị'] });
+  const nzk = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const OC_DEF = (() => {
+    const m = {}, put = (c, ...vs) => vs.forEach(v => { m[nzk(v)] = c });
+    // nhà mạng: màu nhận diện thương hiệu
+    put('#ee0033', 'Viettel'); put('#f26f21', 'Vietnamobile'); put('#0057b8', 'Mobifone'); put('#00a0e3', 'Vinaphone');
+    put('#c2185b', 'Itel', 'iTel', 'Itelecom'); put('#7c3aed', 'Gmobile'); put('#e11d48', 'Reddi'); put('#0f766e', 'Wintel'); put('#64748b', 'Local');
+    // loại email
+    put('#ea4335', 'Gmail'); put('#0078d4', 'Outlook', 'Hotmail'); put('#6d4aff', 'Proton'); put('#6001d2', 'Yahoo'); put('#a01e2b', 'Tuta', 'Tutanota');
+    put('#1f6fb2', 'Runbox'); put('#475467', 'Domain'); put('#98a2b3', 'Tempmail');
+    // sở hữu / trạng thái xử lý / danh mục
+    put('#12b76a', 'Lâu dài', 'Đã quét UID', 'Tham gia & Đăng bài', 'Chat REC người Việt');
+    put('#f79009', 'Tạm thời', 'Cần CEO Check'); put('#2e90fa', 'Quét UID', 'Chat', 'Kết bạn');
+    put('#7a5af8', 'Cào thành viên', 'Comment', 'Chatbot'); put('#0e9384', 'Đăng bài', 'Chat HRNB'); put('#98a2b3', 'Tham gia', 'Chưa sử dụng', 'Trống', 'KXD', 'Other');
+    put('#d92d20', 'Chat REC Người Nhật');
+    put('#12b76a', 'Có'); put('#f04438', 'Không'); put('#98a2b3', 'Không xác định');
+    // proxy
+    put('#2e90fa', 'v4'); put('#7a5af8', 'v6'); put('#da251d', 'VN'); put('#3c3b6e', 'US'); put('#bc002d', 'JP'); put('#ef3340', 'SG');
+    return m;
+  })();
+  const optColor = (f, v) => { if (!f || v == null || v === '') return null; const m = S.meta && S.meta.opt_colors && S.meta.opt_colors[f.id]; return (m && m[v]) || OC_DEF[nzk(v)] || null };
+  const optVals = f => { const o = String(f.opts || '').split(',').map(x => x.trim()).filter(Boolean), seen = new Set(o);
+    for (const a of S.accs) if (a.tab_id === f.tab_id) { const v = a.data && a.data[f.id]; if (v && !seen.has(v)) { seen.add(v); o.push(String(v)) } }
+    return o };
+  const posOrder = t => t.fields.slice().sort((a, b) => (a.pos - b.pos) || (a.id - b.id));
+  /** chạy fn với t.fields theo thứ tự cột (pos) — phần đồng bộ của fn thấy đúng thứ tự hiển thị */
+  const withPos = (t, fn) => { if (!t || !t.fields || t.fields.length < 2) return fn(); const f = t.fields, p = posOrder(t); if (p.every((x, i) => x === f[i])) return fn(); t.fields = p; try { return fn() } finally { t.fields = f } };
+  /* hàng: ô Thiết bị chuyển xuống trước Ghi chú */
+  const mvDev = h => { const i = h.indexOf('<td class="c-dev">'); if (i < 0) return h; const j = h.indexOf('</td>', i) + 5, seg = h.slice(i, j), rest = h.slice(0, i) + h.slice(j), k = rest.indexOf('<td class="c-note"'); return k < 0 ? h : rest.slice(0, k) + seg + rest.slice(k) };
+  { const _r = rowHtml; rowHtml = function () { return mvDev(_r.apply(this, arguments)) } }
+  { const _r = rowAll; rowAll = function () { return mvDev(_r.apply(this, arguments)) } }
+  /* ô: chữ đậm cho khóa chính thật; giá trị Danh sách tô màu */
+  { const _c = cell; cell = function (a, f, i) {
+      const t = I.tab[a.tab_id], pk = t && t.fields[0];
+      let h = _c.call(this, a, f, pk && f.id === pk.id ? 0 : 1);
+      if (f.type === 'select') { const c = optColor(f, a.data[f.id]); if (c) h = h.replace('<span class="tag">', `<span class="tag hx-oc" style="--c:${c}">`) }
+      return h;
+    } }
+  /* tiêu đề: Thiết bị trước Ghi chú, chìa khóa đúng cột khóa chính */
+  function fixHead() {
+    const hd = document.querySelector('#main #tw thead tr'); if (!hd) return;
+    const dev = hd.querySelector('th.c-dev'), note = hd.querySelector('th[data-k="note"]');
+    if (dev && note && dev.nextElementSibling !== note) hd.insertBefore(dev, note);
+    const t = I.tab[S.tab], pk = t && t.fields[0];
+    if (t && pk) {
+      hd.querySelectorAll('th.pk').forEach(th => { if (th.dataset.k === String(pk.id)) return; const f = I.field[th.dataset.k], sv = th.querySelector('svg'); th.classList.remove('pk'); if (f && sv) sv.outerHTML = ico(f.type === 'link' ? (I.tab[f.link_tab] && I.tab[f.link_tab].icon || 'link') : TYPEIC[f.type], 13) });
+      const th = hd.querySelector(`th[data-k="${pk.id}"]`); if (th && !th.classList.contains('pk')) { th.classList.add('pk'); const sv = th.querySelector('svg'); if (sv) sv.outerHTML = ico('key', 13) }
+    }
+    applyCW();
+  }
+  { const _rb = renderBody; renderBody = function () { const t = I.tab && I.tab[S.tab], r = withPos(t, () => _rb.apply(this, arguments)); fixHead(); return r } }
+  /* cài đặt › Trường: danh sách + nút lên/xuống theo thứ tự cột; chọn khóa chính; bảng màu giá trị */
+  { const _mv = ACT.mv; ACT.mv = function (el) { return el.dataset.t === 'fields' ? withPos(I.tab[SET.tab], () => _mv.apply(this, arguments)) : _mv.apply(this, arguments) } }
+  { const _ds = drawSettings; drawSettings = function () {
+      const t = SET.sec === 'field' ? I.tab[SET.tab] : null, r = withPos(t, () => _ds.apply(this, arguments));
+      if (t) fixFieldPane(t);
+      return r;
+    } }
+  function fixFieldPane(t) {
+    const pane = document.querySelector('#modal .spane'); if (!pane) return;
+    const pk = t.fields[0];
+    pane.querySelectorAll('input[data-api="field"][data-k="label"]').forEach(inp => {
+      const row = inp.closest('.srow'), kb = row && row.querySelector('.kb'), f = I.field[inp.dataset.id]; if (!kb || !f) return;
+      kb.innerHTML = pk && f.id === pk.id ? ico('key', 14) : ''; kb.title = pk && f.id === pk.id ? 'Khóa chính — hiển thị làm tên dòng' : '';
+      if (f.type === 'select' && !row.querySelector('[data-a="hxoc"]')) {
+        const op = row.querySelector('[data-k="opts"]'), b = `<button class="btn icon ghost sm hx-ocb" data-a="hxoc" data-id="${f.id}" title="Màu giá trị">${ico('palette', 15)}</button>`;
+        if (op) op.insertAdjacentHTML('afterend', b);
+      }
+    });
+    if (!pane.querySelector('.hx-pkrow')) {
+      const fs = posOrder(t).filter(f => !['link', 'lookup', 'file'].includes(f.type));
+      const html = `<div class="srow tkrow hx-pkrow" title="Trường dùng làm tên dòng (liên kết, tìm kiếm, Cú vọ, nhật ký…) — không cần là cột đầu tiên"><span class="kb">${ico('key', 14)}</span><span class="tkl">Khóa chính</span>
+        <select class="in" data-hxpk="${t.id}">${fs.map(f => `<option value="${f.id}" ${pk && f.id === pk.id ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select></div>`;
+      const tk = pane.querySelector('.tkrow'); if (tk) tk.insertAdjacentHTML('beforebegin', html);
+      const tk2 = pane.querySelector('.tkrow:not(.hx-pkrow)'); if (tk2) { const kb = tk2.querySelector('.kb'); if (kb) kb.innerHTML = ico('copy', 14); const tl = tk2.querySelector('.tkl'); if (tl) tl.textContent = 'Khóa trùng' }
+    }
+  }
+  document.addEventListener('change', async e => {
+    const x = e.target.closest && e.target.closest('[data-hxpk]'); if (!x) return;
+    const tid = +x.dataset.hxpk, t = I.tab[tid], first = t && posOrder(t)[0];
+    try { await mut('tab_pk', { tab_id: tid, field_id: first && +x.value === first.id ? null : +x.value }) } catch (err) { /* mut đã báo lỗi */ }
+    if (document.querySelector('#modal .sg')) drawSettings();
+  });
+  /* bảng màu giá trị của 1 trường */
+  function ocHtml(f) {
+    const own = (S.meta.opt_colors && S.meta.opt_colors[f.id]) || {};
+    const vs = optVals(f);
+    if (!vs.length) return `<div class="mh">${esc(f.label)}</div><div class="hx-oce mut">Chưa có giá trị nào</div>`;
+    return `<div class="mh">${esc(f.label)} · màu giá trị</div>` + vs.map(v => { const c = optColor(f, v) || '#98a2b3';
+      return `<div class="hx-ocr"><input type="color" class="clr sm" value="${c}" data-oc="${esc(v)}" data-f="${f.id}"><span class="tag hx-oc" style="--c:${c}">${esc(v)}</span>${own[v] ? '<em class="mut">đã đổi</em>' : ''}</div>` }).join('')
+      + `<div class="sep"></div><button class="mi" data-a="hxocreset" data-id="${f.id}">${ico('undo', 15)}<span class="t">Về màu mặc định</span></button>`;
+  }
+  Object.assign(ACT, {
+    hxoc(el) { const f = I.field[el.dataset.id]; if (f) { const p = openPop(el, ocHtml(f), 'hx-ocp'); p._f = f.id } },
+    async hxocreset(el) { const fid = +el.dataset.id; try { await mut('opt_colors', { field_id: fid, colors: {} }) } catch (e) { return } if (POP && POP._f === fid) POP.innerHTML = ocHtml(I.field[fid]) },
+  });
+  let ocT = 0;
+  document.addEventListener('input', e => {
+    const x = e.target.closest && e.target.closest('[data-oc]'); if (!x) return;
+    const tag = x.nextElementSibling; if (tag) tag.style.setProperty('--c', x.value);
+    clearTimeout(ocT); const fid = +x.dataset.f;
+    ocT = setTimeout(async () => {
+      const own = { ...((S.meta.opt_colors && S.meta.opt_colors[fid]) || {}) };
+      document.querySelectorAll(`.hx-ocp [data-oc][data-f="${fid}"]`).forEach(i => { const f = I.field[fid], v = i.dataset.oc, def = OC_DEF[nzk(v)] || '#98a2b3'; if (i.value.toLowerCase() !== def) own[v] = i.value.toLowerCase(); else delete own[v] });
+      try { await api('opt_colors', { field_id: fid, colors: own }); S.meta.opt_colors = { ...(S.meta.opt_colors || {}), [fid]: own }; if (!Object.keys(own).length) delete S.meta.opt_colors[fid]; HX.pend = 1; bgRender() } catch (err) { /* api đã báo lỗi */ }
+    }, 350);
+  });
+  /* đúp chuột ô Danh sách → chọn giá trị. Cú nhấp đầu của bản gốc đổi vùng chọn thành 1 dòng → nhớ vùng chọn ngay trước đó */
+  const PREV = { sel: null, t: 0 };
+  document.addEventListener('pointerdown', e => { if (e.target.closest && e.target.closest('#tw td[data-edit]') && S.sel && S.sel.size > 1) { PREV.sel = new Set(S.sel); PREV.t = performance.now() } }, true);
+  document.addEventListener('dblclick', e => {
+    const td = e.target.closest('#tw td[data-edit]'); if (!td || e.target.closest('button,a,input')) return;
+    const a = I.acc[td.closest('tr') && td.closest('tr').dataset.id]; if (!a) return;
+    const f = td.dataset.edit === 'label' ? null : I.field[td.dataset.edit]; if (!f || f.type !== 'select') return;
+    e.preventDefault(); e.stopPropagation(); try { getSelection().removeAllRanges() } catch (x) { /* bỏ qua */ }
+    const pv = PREV.sel && performance.now() - PREV.t < 1500 && PREV.sel.has(a.id) ? PREV.sel : null; PREV.sel = null;
+    if (pv) { S.sel = pv; if (typeof paintSel === 'function') paintSel(false) }   // giữ vùng chọn nhiều dòng
+    const ids = S.sel.has(a.id) && S.sel.size > 1 ? [...S.sel].filter(i => I.acc[i] && I.acc[i].tab_id === a.tab_id) : [a.id];
+    const cur = v => ids.every(i => String(I.acc[i].data[f.id] ?? '') === v);
+    const set = v => ids.length === 1 ? saveAcc(a, { data: { [f.id]: v } }) : mut('rows_set', { items: ids.map(id => ({ id, data: { [f.id]: v } })) });
+    const items = [];
+    if (ids.length > 1) items.push({ head: `${f.label} · ${nf(ids.length)} dòng đang chọn` });
+    for (const v of optVals(f)) items.push({ dot: optColor(f, v) || '#98a2b3', label: v, check: cur(v), fn: () => set(v) });
+    if (items.length) items.push({ sep: 1 });
+    items.push({ icon: 'x', label: 'Bỏ trống', check: cur(''), fn: () => set('') });
+    const r = td.getBoundingClientRect(); showMenu(r.left, r.bottom - 2, items);
+    if (POP) POP.classList.add('hx-selm');
+  }, true);
 })();

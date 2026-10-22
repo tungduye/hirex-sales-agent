@@ -1,14 +1,14 @@
 /** Saved filters ("Bộ lọc đã lưu") for Suối Nguồn: what is kept and how it is named. */
 
 export const SAVED_FILTER_PARAMS = ["channel", "account", "owner", "tag", "tagMode", "firstFrom", "firstTo"] as const;
-export const SAVED_FILTER_VIEWS = ["all", "waiting", "mine", "groups", "other"] as const;
+export const SAVED_FILTER_VIEWS = ["all", "waiting", "mine", "groups", "other", "important"] as const;
 export const MAX_SAVED_FILTERS = 20;
 export type SavedFilterView = (typeof SAVED_FILTER_VIEWS)[number];
 export type SavedFilterScope = "MINE" | "TEAM" | "ALL";
 export interface SavedFilter { id: string; name: string; query: string; scope: SavedFilterScope | null; view: SavedFilterView | null }
 
-const VIEW_LABELS: Record<SavedFilterView, string> = { all: "Tất cả", waiting: "Chưa trả lời", mine: "Giao cho tôi", groups: "Nhóm", other: "Khác" };
-const SCOPE_LABELS: Record<SavedFilterScope, string> = { MINE: "Của tôi", TEAM: "Team", ALL: "Tất cả tài khoản" };
+const VIEW_LABELS: Record<SavedFilterView, string> = { all: "All", waiting: "Chưa trả lời", mine: "Của tôi", groups: "Nhóm", other: "Thư tự động", important: "Quan trọng" };
+const SCOPE_LABELS: Record<SavedFilterScope, string> = { MINE: "Cá nhân", TEAM: "Team", ALL: "Tất cả tài khoản" };
 const CHANNEL_LABELS: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Page", FACEBOOK_PROFILE: "FB cá nhân", EMAIL: "Email" };
 
 /** Keeps only the list filters (no page, no conversation), in a stable order. */

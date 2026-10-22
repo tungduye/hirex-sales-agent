@@ -5,15 +5,18 @@ import type { Account, DbCheck, Delta, Device, Epoch, Field, HistChange, HistInf
 
 /* ───────── meta ───────── */
 export async function getMeta(): Promise<Meta> {
-  const [tabs, fields, statuses, depts, owners, grp_icons, tab_keys] = await Promise.all([
+  const [tabs, fields, statuses, depts, owners, grp_icons, tab_keys, tab_pk, opt_colors] = await Promise.all([
     allOrdered<Omit<Tab, "fields" | "statuses">>("tabs"), allOrdered<Field>("fields"), allOrdered<Status>("statuses"),
     allOrdered<Meta["depts"][number]>("depts"), allOrdered<Meta["owners"][number]>("owners"),
     getJsonSetting<Record<string, string>>("grp_icons", {}), getJsonSetting<Record<string, Id[]>>("tab_keys", {}),
+    getJsonSetting<Record<string, Id>>("tab_pk", {}), getJsonSetting<Record<string, Record<string, string>>>("opt_colors", {}),
   ]);
   const fs = new Map<Id, Field[]>(), ss = new Map<Id, Status[]>();
   for (const f of fields) (fs.get(f.tab_id) ?? fs.set(f.tab_id, []).get(f.tab_id)!).push(f);
   for (const s of statuses) (ss.get(s.tab_id) ?? ss.set(s.tab_id, []).get(s.tab_id)!).push(s);
-  return { depts, owners, tabs: tabs.map((t) => ({ ...t, fields: fs.get(t.id) ?? [], statuses: ss.get(t.id) ?? [] })), grp_icons, tab_keys };
+  // khóa chính riêng: đưa lên đầu fields[] (mọi nơi coi fields[0] là tên dòng); cột trên bảng vẫn xếp theo pos
+  const pkFirst = (tid: Id, fl: Field[]) => { const k = Number(tab_pk[String(tid)]), i = fl.findIndex((f) => f.id === k); return i > 0 ? [fl[i], ...fl.slice(0, i), ...fl.slice(i + 1)] : fl; };
+  return { depts, owners, tabs: tabs.map((t) => ({ ...t, fields: pkFirst(t.id, fs.get(t.id) ?? []), statuses: ss.get(t.id) ?? [] })), grp_icons, tab_keys, tab_pk, opt_colors };
 }
 
 export async function getDevices(): Promise<Device[]> {
@@ -21,6 +24,8 @@ export async function getDevices(): Promise<Device[]> {
 }
 
 export async function firstField(tabId: Id): Promise<Id | null> {
+  const pk = Number((await getJsonSetting<Record<string, Id>>("tab_pk", {}))[String(tabId)]);
+  if (pk && (await run<{ id: Id } | null>(sb().from(T.fields).select("id").eq("id", pk).eq("tab_id", tabId).maybeSingle()))) return pk;
   const r = await run<{ id: Id } | null>(sb().from(T.fields).select("id").eq("tab_id", tabId).order("pos").order("id").limit(1).maybeSingle());
   return r?.id ?? null;
 }

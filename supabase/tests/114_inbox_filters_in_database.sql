@@ -66,6 +66,6 @@ select pg_temp.assert_true(pg_temp.list('any',null,array['00000000-0000-4000-800
 select pg_temp.assert_true((select string_agg(right(l.id::text,2), ',') from public.inbox_list_conversations((select a from ids114), null, null, 'all', null, null, 'any', null, null, 2,
   '2026-10-20T06:00:00Z', '00000000-0000-4000-8000-0000000114d3') l)='d4,d5','next page after a cursor');
 select pg_temp.assert_true(pg_temp.list('any',null,null,'all','2026-10-01','2026-10-31')='d2,d3,d4,d5,d6','first message in October (d1 started in September)');
-select pg_temp.assert_true((select string_agg(view||'='||total||case when capped then '+' else '' end, ',' order by view) from public.inbox_view_counts((select a from ids114), null, null, 'all', null, null, null, '00000000-0000-4000-8000-000000001141'))='all=2,groups=2,mine=1,other=2,waiting=1','tab counts');
+select pg_temp.assert_true((select string_agg(view||'='||total||case when capped then '+' else '' end, ',' order by view) from public.inbox_view_counts((select a from ids114), null, null, 'all', null, null, null, '00000000-0000-4000-8000-000000001141'))='all=2,groups=2,important=0,mine=1,other=2,waiting=1','tab counts');
 reset role;
 rollback;

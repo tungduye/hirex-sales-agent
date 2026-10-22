@@ -1,8 +1,8 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LoginState } from "@/modules/identity/types/login";
 
@@ -16,6 +16,10 @@ export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState<LoginState["error"]>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Show the typed password (eye button) and warn when Caps Lock is on.
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
+  const watchCaps = (event: KeyboardEvent<HTMLInputElement>) => setCapsLock(event.getModifierState("CapsLock"));
   const errorMessage = error ? errorMessages[error] : null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -60,7 +64,9 @@ export function LoginForm() {
       </div>
       <div className="space-y-2">
         <label className="text-sm font-semibold text-slate-700" htmlFor="password">Mật khẩu</label>
-        <div className="relative"><LockKeyhole className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input id="password" name="password" type="password" autoComplete="current-password" required disabled={isSubmitting} className="h-11 w-full rounded-lg border bg-slate-50 pl-10 pr-3 text-sm focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-60" placeholder="Nhập mật khẩu" /></div>
+        <div className="relative"><LockKeyhole className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required disabled={isSubmitting} onKeyDown={watchCaps} onKeyUp={watchCaps} onBlur={() => setCapsLock(false)} className="h-11 w-full rounded-lg border bg-slate-50 pl-10 pr-11 text-sm focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-60" placeholder="Nhập mật khẩu" />
+          <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={showPassword} title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"} className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-blue-500">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div>
+        {capsLock ? <p className="text-xs font-medium text-amber-700" role="status">Đang bật Caps Lock.</p> : null}
       </div>
       {errorMessage && <div className="flex gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm leading-5 text-rose-700" role="alert"><AlertCircle className="mt-0.5 size-4 shrink-0" />{errorMessage}</div>}
       <Button className="h-11 w-full" type="submit" disabled={isSubmitting}>{isSubmitting ? <><LoaderCircle className="size-4 animate-spin" />Đang đăng nhập...</> : "Đăng nhập"}</Button>

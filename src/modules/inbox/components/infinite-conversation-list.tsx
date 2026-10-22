@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import Link from "next/link";
-import { BellOff, CheckCheck, LoaderCircle, MoreVertical, Pin, Search, Trash2, Undo2, X } from "lucide-react";
+import { Bell, BellOff, Bot, BotOff, Check, ChevronLeft, ChevronRight, LoaderCircle, Pin, Search, Star, Trash2, UserRound, UserX, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
@@ -16,7 +16,7 @@ import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
 
 interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null; view?: ViewMode; q?: string }
 
-type ViewMode = "all" | "waiting" | "mine" | "groups" | "other";
+type ViewMode = "all" | "waiting" | "mine" | "groups" | "other" | "important";
 const VIEW_KEY = "hirex.inbox.view";
 type ViewCounts = Record<ViewMode, number> & { capped: boolean };
 
@@ -38,7 +38,7 @@ function filterQuery(filters: Filters) {
 // Tab badges per filter set, kept a minute so switching back and forth does not count again.
 const countCache = new Map<string, { at: number; counts: ViewCounts }>();
 
-export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode; canUpdate?: boolean; profiles?: OmnichannelInboxProfile[] }) {
+export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode; canUpdate?: boolean; canDelete?: boolean; profiles?: OmnichannelInboxProfile[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -175,18 +175,23 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     return () => observer.disconnect();
   }, [hasNextPage, loadMore]);
 
-  // "Khác": the OTHER folder plus e-mails from robots (no-reply, notifications…) that nobody needs to answer.
+  // E-mail from robots (no-reply, notifications…) and the old "Khác" folder: left out of the tabs, found by searching.
   const isOther = (item: OmnichannelInboxConversation) => item.folder === "OTHER" || item.automated;
-  // The server already picked the tab's rows; this second look keeps rows changed live (a reply, a
-  // folder move) in the right tab until the next load.
-  const matches = (item: OmnichannelInboxConversation) => viewMode === "groups" ? item.isGroup
-    : viewMode === "other" ? !item.isGroup && isOther(item)
-    : !item.isGroup && !isOther(item) && (viewMode === "all" || (viewMode === "waiting" ? item.latestDirection === "INBOUND" : props.currentUserId !== null && item.assignedTo === props.currentUserId));
-  // "Chưa trả lời": longest wait first. Elsewhere: pinned first, then newest.
   const needle = normalize(props.filters.q ?? "");
+  const searching = needle !== "";
+  // The server already picked the tab's rows; this second look keeps rows changed live (a reply, a
+  // mark, a new owner) in the right tab until the next load. Của tôi: assigned to me, or (unassigned)
+  // on my nick — the server only sends unassigned rows of my nicks.
+  const matches = (item: OmnichannelInboxConversation) => viewMode === "groups" ? item.isGroup
+    : viewMode === "important" ? item.isImportant
+    : viewMode === "other" ? !item.isGroup && isOther(item)
+    : viewMode === "waiting" ? !item.isGroup && !isOther(item) && item.latestDirection === "INBOUND"
+    : viewMode === "mine" ? (!isOther(item) || searching) && props.currentUserId !== null && (item.assignedTo === props.currentUserId || (!item.isGroup && item.assignedTo === null))
+    : !item.isGroup && (!isOther(item) || searching);
+  // "Chưa trả lời": longest wait first. Elsewhere: pinned (for everyone or just me) first, then newest.
   const visible = conversations.filter(matches).sort((a, b) => viewMode === "waiting"
     ? (Date.parse(a.lastInboundAt ?? a.lastMessageAt ?? "") || 0) - (Date.parse(b.lastInboundAt ?? b.lastMessageAt ?? "") || 0)
-    : Number(b.isPinned) - Number(a.isPinned));
+    : Number(b.isPinned || b.isMyPin) - Number(a.isPinned || a.isMyPin));
   // A page may hold no row for this tab (the server stops looking after a while): keep loading until a few show.
   useEffect(() => {
     if (loading || failed || !hasNextPage || visible.length >= 15) return;
@@ -194,11 +199,14 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     return () => window.clearTimeout(timer);
   }, [failed, hasNextPage, loadMore, loading, visible.length]);
   // Menu actions change the row here at once; the list reloads quietly in the background.
-  const applyLocal = useCallback((conversation: OmnichannelInboxConversation, action: string) => {
+  const applyLocal = useCallback((conversation: OmnichannelInboxConversation, action: string, value?: string | null) => {
     setConversations((current) => action === "SOFT_DELETE" ? current.filter((item) => item.id !== conversation.id) : current.map((item) => item.id !== conversation.id ? item
       : action === "MARK_READ" ? { ...item, unreadCount: 0 } : action === "MARK_UNREAD" ? { ...item, unreadCount: Math.max(1, item.unreadCount) }
       : action === "TOGGLE_MUTE" ? { ...item, isMuted: !item.isMuted } : action === "TOGGLE_PIN" ? { ...item, isPinned: !item.isPinned }
-      : action === "TOGGLE_OTHER" ? { ...item, folder: item.folder === "OTHER" ? "PRIMARY" : "OTHER" } : item));
+      : action === "TOGGLE_OTHER" ? { ...item, folder: item.folder === "OTHER" ? "PRIMARY" : "OTHER" }
+      : action === "TOGGLE_MY_PIN" ? { ...item, isMyPin: !item.isMyPin } : action === "TOGGLE_IMPORTANT" ? { ...item, isImportant: !item.isImportant }
+      : action === "ASSIGN" ? { ...item, assignedTo: value ?? null }
+      : action === "AI_ON" ? { ...item, takeoverMode: "BOT_ALLOWED", aiBotId: value ?? null } : action === "AI_OFF" ? { ...item, takeoverMode: "HUMAN_TAKEOVER" } : item));
     countCache.clear();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   }, []);
@@ -246,7 +254,8 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     clearPick(); setLastBulk(done); countCache.clear();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   };
-  const tabs: Array<[ViewMode, string]> = [["all", "Tất cả"], ["waiting", "Chưa trả lời"], ["mine", "Giao cho tôi"], ["groups", "Nhóm"], ["other", "Khác"]];
+  const tabs: Array<[ViewMode, string]> = [["all", "All"], ["mine", "Của tôi"], ["groups", "Nhóm"], ["waiting", "Chưa trả lời"], ["important", "Quan trọng"]];
+  const menuContext: MenuContext = { profiles: props.profiles ?? [], canUpdate: props.canUpdate ?? false, canDelete: props.canDelete ?? false };
   return <div className="min-h-0 flex flex-1 flex-col">
     <div className="relative flex shrink-0 flex-col gap-2.5 border-b border-slate-100 px-3.5 pb-2.5 pt-2.5">
       <div className="flex gap-2"><label className="relative block min-w-0 flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Tìm theo tên, số điện thoại, email, tên nhóm" placeholder="Tìm tên, SĐT, email, nhóm…" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[13px] outline-none focus:border-blue-400 focus:bg-white"/>{search ? <button type="button" onClick={() => setSearch("")} aria-label="Xóa tìm kiếm" className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-4"/></button> : null}</label>{props.filterControl}</div>
@@ -254,10 +263,17 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
         onPickVisible={() => { setFilterPick(null); setPicked(new Set(visible.map((item) => item.id))); }} onPickFilter={() => void pickFilter()} pickingFilter={pickingFilter} onClear={clearPick}
         onTagCreated={(tag) => setCreatedTags((current) => [...current, tag])} onDone={onBulkDone}/> : null}
       {lastBulk && !bulkTarget ? <BulkUndoNotice done={lastBulk} onClose={() => setLastBulk(null)} onUndone={() => { setLastBulk(null); countCache.clear(); window.dispatchEvent(new Event(INBOX_REFRESH_EVENT)); }}/> : null}
-      <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-wrap gap-0.5`}>{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={viewMode === key} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${viewMode === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}{counts ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[11px] leading-[18px] ${viewMode === key ? "bg-slate-700 text-white" : key === "waiting" && counts[key] ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{counts[key]}{counts.capped ? "+" : ""}</span> : null}</button>)}</div>
+      <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]`}>{tabs.map(([key, label]) => {
+        const active = viewMode === key;
+        const urgent = key === "waiting";
+        const count = counts ? counts[key] : null;
+        // Chưa trả lời always stands out: red with white text.
+        const tone = urgent ? (active ? "bg-rose-600 text-white ring-2 ring-rose-300" : "bg-rose-500 text-white hover:bg-rose-600") : active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100";
+        return <button key={key} type="button" role="tab" aria-selected={active} onClick={() => setViewMode(key)} className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-[12.5px] font-semibold transition ${tone}`}>{label}{count !== null ? <span title="Hội thoại có tin trong 30 ngày gần nhất" className={`rounded-full px-1.5 text-[10.5px] leading-[17px] tabular-nums ${urgent ? "bg-white/25 text-white" : active ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"}`}>{count}{counts?.capped ? "+" : ""}</span> : null}</button>;
+      })}</div>
       {props.channelChips}
     </div>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={allTags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null} onChanged={applyLocal}
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="flex flex-col gap-0.5 px-2 py-1.5">{visible.map((conversation) => <ConversationRow key={conversation.id} conversation={conversation} selected={conversation.id === props.selectedConversationId || (props.selectedConversationId !== null && conversation.copyIds.includes(props.selectedConversationId))} tags={allTags} filters={props.filters} now={now} draft={[conversation.id, ...conversation.copyIds].map((id) => drafts.get(id)).find(Boolean) ?? null} onChanged={applyLocal} menu={menuContext}
       pick={props.canUpdate ? { picked: Boolean(filterPick) || picked.has(conversation.id), picking: Boolean(bulkTarget), toggle: (range) => pickRow(conversation.id, range) } : null}/>)}{visible.length === 0 && !loading && !hasNextPage ? <p className="px-4 py-10 text-center text-sm text-slate-500">{viewMode === "waiting" ? "Không có khách nào đang chờ trả lời." : needle ? `Không tìm thấy hội thoại nào với “${props.filters.q}”.` : conversations.length ? "Không có hội thoại nào khớp bộ lọc." : "Chưa có cuộc hội thoại. Tin nhắn mới sẽ xuất hiện tại đây."}</p> : null}</div>
     <div ref={sentinelRef} className="flex min-h-14 items-center justify-center px-3 py-3">{loading ? <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><LoaderCircle className="size-4 animate-spin"/>Đang tải thêm hội thoại…</span> : failed ? <button type="button" onClick={() => void loadMore()} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Thử tải lại</button> : hasNextPage ? <span className="text-xs text-slate-400">Cuộn xuống để tải thêm</span> : <span className="text-xs text-slate-400">Đã hiển thị toàn bộ hội thoại</span>}</div></div>
   </div>;
@@ -282,33 +298,100 @@ export function waitBadge(lastInboundAt: string | null, now: number): { text: st
 
 const LOGO_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE", "EMAIL"] as const;
 
-function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged, pick }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string) => void; pick: { picked: boolean; picking: boolean; toggle: (range: boolean) => void } | null }) {
+function ConversationRow({ conversation, selected, tags, filters, now, draft = null, onChanged, pick, menu }: { conversation: OmnichannelInboxConversation; selected: boolean; tags: OmnichannelInboxTag[]; filters: Filters; now: number; draft?: string | null; onChanged: (conversation: OmnichannelInboxConversation, action: string, value?: string | null) => void; pick: { picked: boolean; picking: boolean; toggle: (range: boolean) => void } | null; menu: MenuContext }) {
   const label = conversationDisplayName(conversation);
   const conversationTags = tags.filter((tag) => conversation.tagIds.includes(tag.id));
   const waiting = conversation.latestDirection === "INBOUND" && !conversation.isGroup ? waitBadge(conversation.lastInboundAt ?? conversation.lastMessageAt, now) : null;
   const badgeChannel = (LOGO_CHANNELS as readonly string[]).includes(conversation.channelType) ? conversation.channelType : "EMAIL";
-  return <div className={`group relative rounded-[10px] border transition ${pick?.picked ? "border-blue-300 bg-blue-50/70" : selected ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-slate-50"}`}><Link prefetch={false} href={inboxHref(conversation.id, filters)} className="block px-3 py-2.5" aria-label={`${label}${waiting ? `, ${waiting.text}` : ""}`}><div className="flex items-start gap-2.5">
-    <span className="relative shrink-0">{pick ? <button type="button" role="checkbox" aria-checked={pick.picked} aria-label={`Chọn ${label}`} title="Chọn (Shift+bấm để chọn một dải)"
+  const [menuOpen, setMenuOpen] = useState(false);
+  const avatar = conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>;
+  return <div className={`group relative rounded-[10px] border transition ${pick?.picked ? "border-blue-300 bg-blue-50/70" : selected ? "border-blue-200 bg-blue-50" : "border-transparent hover:bg-slate-50"} ${menuOpen ? "z-30" : ""}`}>
+    {/* Tick box to pick several rows: appears on hover (always while picking). Shift+click picks a range. */}
+    {pick ? <button type="button" role="checkbox" aria-checked={pick.picked} aria-label={`Chọn ${label}`} title="Chọn nhiều (Shift+bấm để chọn một dải)"
       onClick={(event) => { event.preventDefault(); event.stopPropagation(); pick.toggle(event.shiftKey); }}
-      className={`absolute inset-0 z-10 flex items-center justify-center rounded-full transition ${pick.picked ? "bg-blue-600 opacity-100" : pick.picking ? "bg-white/85 opacity-100 ring-2 ring-inset ring-slate-300" : "bg-white/85 opacity-0 ring-2 ring-inset ring-slate-300 group-hover:opacity-100 focus-visible:opacity-100"}`}>
-      {pick.picked ? <CheckCheck className="size-4 text-white"/> : null}</button> : null}{conversation.avatarUrl ? <Image unoptimized src={conversation.avatarUrl} alt="" width={40} height={40} className="size-10 rounded-full bg-slate-100 object-cover"/> : <span className="flex size-10 items-center justify-center rounded-full text-[13px] font-bold text-white" style={{ background: avatarColor(label) }}>{initials(label)}</span>}<span className="absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
+      className={`absolute left-0.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded border transition ${pick.picked ? "border-blue-600 bg-blue-600 opacity-100" : pick.picking ? "border-slate-400 bg-white opacity-100" : "border-slate-400 bg-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}>
+      {pick.picked ? <Check className="size-3 text-white" strokeWidth={3}/> : null}</button> : null}
+    <Link prefetch={false} href={inboxHref(conversation.id, filters)} className="block py-2.5 pl-5 pr-3" aria-label={`${label}${waiting ? `, ${waiting.text}` : ""}`}><div className="flex items-start gap-2.5">
+    <span className="relative shrink-0"><button type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`Tùy chọn cho ${label}`} title="Tùy chọn hội thoại"
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); setMenuOpen((open) => !open); }}
+      className="block rounded-full outline-none ring-blue-400 transition hover:ring-2 focus-visible:ring-2">{avatar}</button><span className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex rounded-full bg-white p-[1.5px]" aria-hidden="true"><ChannelLogo channel={badgeChannel} size={15}/></span></span>
     <div className="min-w-0 flex-1">
-      <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold transition group-hover:opacity-0 ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500 transition group-hover:opacity-0">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
+      <div className="flex items-center gap-2"><span className={`min-w-0 truncate text-sm ${conversation.unreadCount ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>{conversation.isPinned ? <Pin className="mr-1 inline size-3 text-blue-600" aria-label="Ghim trong tất cả"/> : null}{conversation.isMyPin ? <Pin className="mr-1 inline size-3 text-violet-600" aria-label="Ghim trong cá nhân"/> : null}{conversation.isImportant ? <Star className="mr-1 inline size-3 fill-amber-400 text-amber-500" aria-label="Quan trọng"/> : null}{label}</span>{waiting ? <span className={`ml-auto shrink-0 rounded-full px-[7px] py-0.5 text-[11px] font-bold ${waiting.className}`}>{waiting.text}</span> : <time className="ml-auto shrink-0 text-[11px] text-slate-500">{formatCompactTime(conversation.lastMessageAt)}</time>}</div>
       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"><span className="truncate">{channelLabel(conversation.channelType)} · {conversation.accountDisplayName}</span>{conversation.copyIds.length > 1 ? <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold leading-4 text-slate-600" title="Nhóm có nhiều nick của mình, chỉ hiện một dòng">{conversation.copyIds.length} nick</span> : null}{conversation.isMuted ? <BellOff className="size-3 shrink-0 text-slate-400"/> : null}</div>
       <div className="mt-0.5 flex items-center gap-2"><p className={`min-w-0 flex-1 truncate text-[13px] ${conversation.unreadCount ? "font-semibold text-slate-800" : "text-slate-500"}`}>{draft && !selected ? <><span className="font-semibold text-rose-600">Nháp: </span>{draft}</> : <>{conversation.latestDirection === "OUTBOUND" ? "Bạn: " : ""}{conversation.latestText ?? "Tệp đính kèm hoặc sự kiện"}</>}</p>{conversation.unreadCount ? <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-[5px] text-[11px] font-bold text-white">{conversation.unreadCount}</span> : null}</div>
       {conversationTags.length ? <div className="mt-1 flex gap-1 overflow-hidden">{conversationTags.slice(0, 3).map((tag) => <span key={tag.id} className="max-w-24 truncate rounded-full border px-1.5 py-0.5 text-[9px]" style={{ borderColor: tag.color ?? "#94a3b8" }}>{tag.name}</span>)}</div> : null}
-    </div></div></Link><ConversationMenu conversation={conversation} onChanged={onChanged}/></div>;
+    </div></div></Link>{menuOpen ? <ConversationMenu conversation={conversation} onChanged={onChanged} onClose={() => setMenuOpen(false)} context={menu}/> : null}</div>;
 }
 
-function ConversationMenu({conversation,onChanged}:{conversation:OmnichannelInboxConversation;onChanged:(conversation:OmnichannelInboxConversation,action:string)=>void}){
-  const [busy,setBusy]=useState(false);
-  const [error,setError]=useState<string|null>(null);
-  const menuRef=useRef<HTMLDetailsElement>(null);
-  // A merged Zalo group row stands for every nick's copy, so read/unread, mute, pin, folder and delete apply to all of them.
-  // The row changes at once; no page reload.
-  const mutate=async(action:string)=>{if(busy)return;if(action==="SOFT_DELETE"&&!window.confirm("Xóa hội thoại này khỏi Suối Nguồn?"))return;setBusy(true);setError(null);const responses=await Promise.all(conversation.copyIds.map((id)=>fetch(`/api/inbox/conversations/${id}/preferences`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action})}).catch(()=>null)));setBusy(false);if(responses.some((response)=>response?.ok)){menuRef.current?.removeAttribute("open");onChanged(conversation,action)}else setError("Chưa làm được, vui lòng thử lại.")};
-  const item="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium hover:bg-slate-50";
-  return <details ref={menuRef} className="absolute right-1.5 top-1.5 z-20 opacity-0 focus-within:opacity-100 group-hover:opacity-100 [&[open]]:opacity-100" onClick={event=>event.stopPropagation()}><summary aria-label="Tùy chọn hội thoại" className="flex size-7 cursor-pointer list-none items-center justify-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"><MoreVertical className="size-4"/></summary><div className="absolute right-0 top-9 w-48 overflow-hidden rounded-xl border bg-white py-1 shadow-xl"><button className={item} onClick={()=>void mutate(conversation.unreadCount?"MARK_READ":"MARK_UNREAD")}><CheckCheck className="size-4"/>{conversation.unreadCount?"Đánh dấu đã đọc":"Đánh dấu chưa đọc"}</button><button className={item} onClick={()=>void mutate("TOGGLE_MUTE")}><BellOff className="size-4"/>{conversation.isMuted?"Bật thông báo":"Tắt thông báo"}</button><button className={item} onClick={()=>void mutate("TOGGLE_PIN")}><Pin className="size-4"/>{conversation.isPinned?"Bỏ ghim":"Ghim trong HireX"}</button><button className={item} onClick={()=>void mutate("TOGGLE_OTHER")}><Undo2 className="size-4"/>{conversation.folder==="OTHER"?"Chuyển về Chính":"Chuyển vào Khác"}</button><button className={`${item} text-rose-600`} onClick={()=>void mutate("SOFT_DELETE")}><Trash2 className="size-4"/>Xóa hội thoại</button>{busy?<p className="px-3 py-1.5 text-[11px] text-slate-500">Đang lưu…</p>:null}{error?<p role="alert" className="px-3 py-1.5 text-[11px] text-rose-600">{error}</p>:null}</div></details>;
+/** What the avatar menu needs besides the row: who can be given the conversation, the AI versions, and rights. */
+interface MenuContext { profiles: OmnichannelInboxProfile[]; canUpdate: boolean; canDelete: boolean }
+type AiBots = { bots: Array<{ id: string; name: string; botType: string }>; bindings: Record<string, string> };
+let aiBotsRequest: Promise<AiBots | null> | null = null;
+function loadAiBots() {
+  aiBotsRequest ??= fetch("/api/inbox/ai-bots", { cache: "no-store" }).then((response) => response.ok ? response.json() as Promise<AiBots> : null).catch(() => null)
+    .then((value) => { if (!value) aiBotsRequest = null; return value; });
+  return aiBotsRequest;
+}
+
+/** Menu opened by clicking the avatar. A merged Zalo group row stands for every nick's copy: each action applies to all of them. */
+function ConversationMenu({ conversation, onChanged, onClose, context }: { conversation: OmnichannelInboxConversation; onChanged: (conversation: OmnichannelInboxConversation, action: string, value?: string | null) => void; onClose: () => void; context: MenuContext }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [panel, setPanel] = useState<"main" | "assign" | "ai">("main");
+  const [ai, setAi] = useState<AiBots | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (event: MouseEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) onClose(); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", away); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+  }, [onClose]);
+  useEffect(() => { if (panel === "ai" && !ai) void loadAiBots().then((value) => { if (value) setAi(value); else setError("Chưa tải được danh sách phiên bản AI."); }); }, [panel, ai]);
+  const run = async (action: string, send: (id: string) => Promise<Response | null>, value?: string | null) => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    const responses = await Promise.all(conversation.copyIds.map(send));
+    setBusy(false);
+    if (responses.some((response) => response?.ok)) { onChanged(conversation, action, value); onClose(); }
+    else setError("Chưa làm được, vui lòng thử lại.");
+  };
+  const post = (url: string, body: unknown) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+  const preference = (action: string) => { if (action === "SOFT_DELETE" && !window.confirm("Xóa hội thoại này khỏi Suối Nguồn?")) return; void run(action, (id) => post(`/api/inbox/conversations/${id}/preferences`, { action })); };
+  const assign = (assigneeId: string | null) => void run("ASSIGN", async () => post("/api/inbox/bulk", { action: "ASSIGN", conversationIds: conversation.copyIds, assigneeId }), assigneeId);
+  const setAiMode = (enabled: boolean, botId: string | null) => void run(enabled ? "AI_ON" : "AI_OFF", (id) => post(`/api/inbox/conversations/${id}/ai`, { enabled, botId }), botId);
+  // Only people who may see this nick can be given the conversation.
+  const people = context.profiles.filter((profile) => profile.allChannelAccounts || conversation.copyAccountIds.some((id) => profile.channelAccountIds.includes(id)));
+  const owner = context.profiles.find((profile) => profile.id === conversation.assignedTo)?.fullName ?? null;
+  const aiOn = conversation.takeoverMode === "BOT_ALLOWED";
+  const nickBot = ai ? ai.bots.find((bot) => bot.id === ai.bindings[conversation.channelAccountId]) ?? null : null;
+  const item = "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+  const back = <button type="button" className={`${item} border-b border-slate-100 font-semibold text-slate-500`} onClick={() => { setPanel("main"); setError(null); }}><ChevronLeft className="size-4"/>Quay lại</button>;
+  return <div ref={ref} role="menu" aria-label="Tùy chọn hội thoại" onClick={(event) => event.stopPropagation()} className="absolute left-4 top-[3.25rem] z-40 w-60 overflow-hidden rounded-xl border bg-white py-1 shadow-xl">
+    {!context.canUpdate ? <p className="px-3 py-2 text-xs text-slate-500">Bạn chỉ có quyền xem hội thoại này.</p>
+    : panel === "assign" ? <>{back}<div className="max-h-64 overflow-y-auto">
+      <button type="button" disabled={busy} className={item} onClick={() => assign(null)}><UserX className="size-4"/>Bỏ giao (Owner là người dùng chính của nick)</button>
+      {people.map((profile) => <button key={profile.id} type="button" disabled={busy} className={item} onClick={() => assign(profile.id)}><UserRound className="size-4"/><span className="min-w-0 flex-1 truncate">{profile.fullName}</span>{profile.id === conversation.assignedTo ? <Check className="size-3.5 text-blue-600"/> : null}</button>)}
+    </div></>
+    : panel === "ai" ? <>{back}
+      <button type="button" disabled={busy} className={item} onClick={() => setAiMode(false, null)}><BotOff className="size-4"/><span className="flex-1">Tắt AI</span>{!aiOn ? <Check className="size-3.5 text-blue-600"/> : null}</button>
+      <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">Bật AI · chọn phiên bản</p>
+      {!ai ? <p className="px-3 py-2 text-xs text-slate-500">Đang tải…</p> : <>
+        <button type="button" disabled={busy || !nickBot} className={item} onClick={() => setAiMode(true, null)}><Bot className="size-4"/><span className="min-w-0 flex-1 truncate">Theo nick{nickBot ? ` (${nickBot.name})` : " (nick chưa gắn AI)"}</span>{aiOn && !conversation.aiBotId ? <Check className="size-3.5 text-blue-600"/> : null}</button>
+        {ai.bots.map((bot) => <button key={bot.id} type="button" disabled={busy} className={item} onClick={() => setAiMode(true, bot.id)}><Bot className="size-4"/><span className="min-w-0 flex-1 truncate">{bot.name}</span>{aiOn && conversation.aiBotId === bot.id ? <Check className="size-3.5 text-blue-600"/> : null}</button>)}
+        {ai.bots.length === 0 ? <p className="px-3 py-2 text-xs text-slate-500">Chưa có phiên bản AI nào đang bật.</p> : null}
+      </>}
+    </>
+    : <>
+      <button type="button" disabled={busy} className={item} onClick={() => preference("TOGGLE_MUTE")}>{conversation.isMuted ? <Bell className="size-4"/> : <BellOff className="size-4"/>}{conversation.isMuted ? "Bật thông báo" : "Tắt thông báo"}</button>
+      <button type="button" disabled={busy} className={item} onClick={() => preference("TOGGLE_PIN")}><Pin className="size-4 text-blue-600"/>{conversation.isPinned ? "Bỏ ghim trong tất cả" : "Ghim trong tất cả"}</button>
+      <button type="button" disabled={busy} className={item} onClick={() => preference("TOGGLE_MY_PIN")}><Pin className="size-4 text-violet-600"/>{conversation.isMyPin ? "Bỏ ghim trong cá nhân" : "Ghim trong cá nhân"}</button>
+      <button type="button" disabled={busy} className={item} onClick={() => preference("TOGGLE_IMPORTANT")}><Star className="size-4 text-amber-500"/>{conversation.isImportant ? "Bỏ khỏi Quan trọng" : "Chuyển vào Quan trọng"}</button>
+      <button type="button" disabled={busy} className={item} onClick={() => setPanel("assign")}><UserRound className="size-4"/><span className="min-w-0 flex-1 truncate">Giao việc{owner ? ` · ${owner}` : ""}</span><ChevronRight className="size-3.5 text-slate-400"/></button>
+      <button type="button" disabled={busy} className={item} onClick={() => setPanel("ai")}><Bot className="size-4"/><span className="flex-1">Phiên bản AI</span><span className={`rounded-full px-1.5 text-[10px] font-semibold ${aiOn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{aiOn ? "Bật" : "Tắt"}</span><ChevronRight className="size-3.5 text-slate-400"/></button>
+      {context.canDelete ? <button type="button" disabled={busy} className={`${item} border-t border-slate-100 text-rose-600`} onClick={() => preference("SOFT_DELETE")}><Trash2 className="size-4"/>Xóa hội thoại</button> : null}
+    </>}
+    {busy ? <p className="px-3 py-1.5 text-[11px] text-slate-500">Đang lưu…</p> : null}{error ? <p role="alert" className="px-3 py-1.5 text-[11px] text-rose-600">{error}</p> : null}
+  </div>;
 }
 
 function inboxHref(conversationId: string, filters: Filters) { const query = filterQuery(filters); return `/inbox/all/${conversationId}${query.size ? `?${query}` : ""}`; }

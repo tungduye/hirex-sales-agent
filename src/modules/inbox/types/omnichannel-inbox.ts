@@ -29,7 +29,14 @@ export interface OmnichannelInboxConversation {
   assignedTo: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
+  /** Ghim trong tất cả (everyone sees it). */
   isPinned: boolean;
+  /** Ghim trong cá nhân (only the signed-in member). */
+  isMyPin: boolean;
+  /** Quan trọng tab. */
+  isImportant: boolean;
+  /** Phiên bản AI chosen for this conversation (null = the nick's bot). */
+  aiBotId: string | null;
   isMuted: boolean;
   folder: "PRIMARY" | "OTHER";
   latestText: string | null;
@@ -85,16 +92,18 @@ export interface OmnichannelInboxData {
   firstMessageFrom: string | null;
   firstMessageTo: string | null;
   /** Quick tab (Tất cả, Chưa trả lời, Giao cho tôi, Nhóm, Khác) and search, both applied in the database. */
-  view?: "all" | "waiting" | "mine" | "groups" | "other";
+  view?: "all" | "waiting" | "mine" | "groups" | "other" | "important";
   search?: string;
   /** Tab badges (newest 3,000 conversations of the last 30 days); capped = there were more. */
-  viewCounts?: { all: number; waiting: number; mine: number; groups: number; other: number; capped: boolean };
+  viewCounts?: { all: number; waiting: number; mine: number; groups: number; other: number; important: number; capped: boolean };
   /** Only when asked for unread: per account, conversations of people / of robots and Khác not yet read. */
   accountUnread?: Record<string, { people: number; automated: number }>;
   /** Only when asked for ids: every conversation the filters select (5,001 means "more than 5,000"). */
   matchingIds?: string[];
   /** The member may change conversations (Suối Nguồn · Cập nhật): bulk actions are offered. */
   canUpdate?: boolean;
+  /** Xóa hội thoại: admins only. */
+  canDelete?: boolean;
   /** Where the next page starts; null at the end. */
   nextCursor?: string | null;
   /** Database time for the list, in milliseconds (shown in Server-Timing). */

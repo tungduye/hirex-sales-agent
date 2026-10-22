@@ -11,7 +11,7 @@ import { safeInboxPreview } from "../core/safe-preview";
 import { zaloProviderDisplayText } from "../core/zalo-provider-display-text";
 import { isFacebookProfileSystemPlaceholder } from "../core/facebook-profile-system-text";
 import type { OmnichannelInboxAccount, OmnichannelInboxConversation, OmnichannelInboxData } from "../types/omnichannel-inbox";
-import { getAccessibleChannelAccountIds } from "@/modules/access/server/access-control";
+import { getAccessibleChannelAccountIds, isWorkspaceAdmin } from "@/modules/access/server/access-control";
 import { loadChannelAdapterByAccountId } from "@/modules/channels/server/load-channel-adapter";
 import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/modules/assistant/core/assistant-tools";
 import { ambiguousGroupKeys, groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
@@ -190,6 +190,7 @@ function participantName(metadata: unknown): string | null {
   return typeof value === "string" ? value.trim() : null;
 }
 function preference(metadata:unknown,key:string){return Boolean(metadata&&typeof metadata==="object"&&!Array.isArray(metadata)&&(metadata as Record<string,unknown>)[key]===true)}
+function aiBotOf(metadata:unknown):string|null{const value=metadata&&typeof metadata==="object"&&!Array.isArray(metadata)?(metadata as Record<string,unknown>).aiRecruiterBotId:null;return typeof value==="string"&&isUuid(value)?value:null}
 function conversationFolder(metadata:unknown):"PRIMARY"|"OTHER"{return metadata&&typeof metadata==="object"&&!Array.isArray(metadata)&&(metadata as Record<string,unknown>).folder==="OTHER"?"OTHER":"PRIMARY"}
 
 function missingFacebookName(row: ConversationRow): boolean {
@@ -238,7 +239,7 @@ function emptyData(input: {
   return { workspaceId: null, currentUserId: null, accounts: input.accounts ?? [], conversations: [], profiles: input.profiles ?? [], tags: input.tags ?? [], selectedChannelType: input.selectedChannelType, selectedChannelTypes: input.selectedChannelType ? [input.selectedChannelType] : [], channelParam: input.selectedChannelType, selectedAccountId: input.selectedAccountId ?? null, selectedOwnerIds: input.selectedOwnerIds ?? [], selectedTagIds: input.selectedTagIds ?? [], tagMatchMode: input.tagMatchMode ?? "all", firstMessageFrom: input.firstMessageFrom ?? null, firstMessageTo: input.firstMessageTo ?? null, selectedPage: input.selectedPage, hasPreviousPage: input.selectedPage > 1, hasNextPage: false, error: input.error };
 }
 
-export const INBOX_VIEWS = ["all", "waiting", "mine", "groups", "other"] as const;
+export const INBOX_VIEWS = ["all", "waiting", "mine", "groups", "other", "important"] as const;
 export type InboxView = (typeof INBOX_VIEWS)[number];
 export function inboxView(value: string | null | undefined): InboxView { return INBOX_VIEWS.find((item) => item === value) ?? "all"; }
 
@@ -349,7 +350,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       p_search: search || null, p_user_id: accountContext.userId,
     }) : { data: [], error: null };
     if (countError) return emptyData({ selectedChannelType, selectedPage, error: "Chưa đếm được hội thoại." });
-    const viewCounts: Record<string, number> = { all: 0, waiting: 0, mine: 0, groups: 0, other: 0 };
+    const viewCounts: Record<string, number> = { all: 0, waiting: 0, mine: 0, groups: 0, other: 0, important: 0 };
     let capped = false;
     for (const row of (countData ?? []) as Array<{ view?: unknown; total?: unknown; capped?: unknown }>) { if (typeof row.view === "string" && row.view in viewCounts) viewCounts[row.view] = Number(row.total) || 0; if (row.capped === true) capped = true; }
     return { ...emptyData({ selectedChannelType, selectedPage, error: "" }), error: null, viewCounts: { ...viewCounts, capped } as NonNullable<OmnichannelInboxData["viewCounts"]> };
@@ -383,7 +384,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const proposedByConversation = new Map<string, Array<{ id: string; text: string | null; proposedBy: string }>>();
   const conversationColumns = "id,channel_account_id,channel_type,contact_id,subject,provider_conversation_id,status,takeover_mode,assigned_to,last_message_at,unread_count,metadata";
   // The rows and everything shown on them only need the ids: one round trip for all of it.
-  const [rowResult, { data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, { data: zaloGroupData }] = pageIds.length ? await Promise.all([
+  const [rowResult, { data: previewData, error: previewError }, { data: tagLinkData }, { data: actionData }, { data: zaloGroupData }, { data: myPinData }] = pageIds.length ? await Promise.all([
     Promise.resolve(supabase.from("omnichannel_conversations").select(`${conversationColumns},contacts(full_name)`).eq("workspace_id", accountContext.workspaceId).in("id", pageIds))
       // Without the contact name if that join is refused, rather than no list at all.
       .then((result) => result.error ? supabase.from("omnichannel_conversations").select(conversationColumns).eq("workspace_id", accountContext.workspaceId).in("id", pageIds) : result),
@@ -392,7 +393,10 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     supabase.from("channel_outbound_actions").select("id,conversation_id,text_content,proposed_by").in("conversation_id", pageIds).eq("status", "PROPOSED").order("created_at", { ascending: false }),
     // Zalo groups (someone other than the thread wrote to us).
     supabase.rpc("get_inbox_zalo_group_ids", { p_conversation_ids: pageIds }),
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [] }, { data: [] }, { data: [] }];
+    // Ghim trong cá nhân: row level security returns only this member's pins.
+    Promise.resolve(supabase.from("inbox_personal_pins").select("conversation_id").in("conversation_id", pageIds)).then((result) => result.error ? { data: [] } : result),
+  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
+  const myPins = new Set(((myPinData ?? []) as Array<{ conversation_id?: unknown }>).flatMap((row) => typeof row.conversation_id === "string" ? [row.conversation_id] : []));
   step("rows");
   if (rowResult.error) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Chưa tải được danh sách hội thoại. Vui lòng thử lại." });
   const position = new Map(pageIds.map((id, index) => [id, index]));
@@ -426,7 +430,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       subject: safeInboxPreview(typeof row.subject === "string" ? row.subject : null), status: row.status as OmnichannelInboxConversation["status"],
       takeoverMode: row.takeover_mode as OmnichannelInboxConversation["takeoverMode"], assignedTo: typeof row.assigned_to === "string" ? row.assigned_to : null,
       lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null, unreadCount: row.unread_count as number,
-      isPinned: preference(row.metadata,"appPinned"), isMuted: preference(row.metadata,"muted"), folder: conversationFolder(row.metadata),
+      isPinned: preference(row.metadata,"appPinned"), isMyPin: myPins.has(row.id), isImportant: preference(row.metadata,"important"), aiBotId: aiBotOf(row.metadata),
+      isMuted: preference(row.metadata,"muted"), folder: conversationFolder(row.metadata),
       latestText: safeInboxPreview(row.channel_type === "ZALO" ? zaloProviderDisplayText(typeof message?.text_content === "string" ? message.text_content : null) : typeof message?.text_content === "string" ? message.text_content : null),
       latestDirection: message?.direction === "INBOUND" || message?.direction === "OUTBOUND" ? message.direction : null,
       senderExternalId: typeof message?.sender_external_id === "string" ? message.sender_external_id : null,
@@ -463,7 +468,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const merged = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   step("merge");
   const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), canDelete: await isWorkspaceAdmin(), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

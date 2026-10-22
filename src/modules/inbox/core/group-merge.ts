@@ -17,6 +17,9 @@ export interface GroupCopy {
   lastMessageAt: string | null;
   unreadCount: number;
   isPinned: boolean;
+  /** Quan trọng / Ghim trong cá nhân: true when any copy has it. */
+  isImportant?: boolean;
+  isMyPin?: boolean;
   latestText: string | null;
   latestDirection: "INBOUND" | "OUTBOUND" | null;
   senderExternalId: string | null;
@@ -102,6 +105,8 @@ export function mergeGroupCopies<T extends GroupCopy>(items: readonly T[], lastO
       lastMessageAt: copies.reduce<string | null>((value, copy) => later(value, copy.lastMessageAt), null),
       unreadCount: Math.max(...copies.map((copy) => copy.unreadCount)),
       isPinned: copies.some((copy) => copy.isPinned),
+      isImportant: copies.some((copy) => copy.isImportant === true),
+      isMyPin: copies.some((copy) => copy.isMyPin === true),
       groupKey: key,
       copyIds: ordered.map((copy) => copy.id),
       copyAccountIds: ordered.map((copy) => copy.channelAccountId),

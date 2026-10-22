@@ -577,6 +577,29 @@ export async function tabKeys(b: Body) {
   await bumpVer();
   return { ok: 1 };
 }
+/** khóa chính của tab = trường bất kỳ (field_id rỗng → về trường đầu tiên) */
+export async function tabPk(b: Body) {
+  const tid = Math.trunc(Number(b.tab_id) || 0), fid = num(b.field_id);
+  if (!(await exists("tabs", tid))) throw bad("Tab không tồn tại");
+  if (fid && !(await run<{ id: Id } | null>(sb().from(T.fields).select("id").eq("id", fid).eq("tab_id", tid).maybeSingle()))) throw bad("Trường không thuộc tab này");
+  const pk = await getJsonSetting<Record<string, Id>>("tab_pk", {});
+  if (fid) pk[String(tid)] = fid; else delete pk[String(tid)];
+  await setSetting("tab_pk", JSON.stringify(pk));
+  await bumpVer();
+  return { ok: 1 };
+}
+/** màu từng giá trị của 1 trường Danh sách: colors = {giá trị: "#rrggbb"}; colors rỗng → về màu mặc định */
+export async function optColors(b: Body) {
+  const fid = num(b.field_id);
+  if (!fid || !(await exists("fields", fid))) throw bad("Trường không tồn tại");
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(dataOf(b.colors))) { const c = str(v).trim().toLowerCase(); if (String(k).trim() && /^#[0-9a-f]{6}$/.test(c)) out[String(k).trim().slice(0, 200)] = c; }
+  const oc = await getJsonSetting<Record<string, Record<string, string>>>("opt_colors", {});
+  if (Object.keys(out).length) oc[String(fid)] = out; else delete oc[String(fid)];
+  await setSetting("opt_colors", JSON.stringify(oc));
+  await bumpVer();
+  return { ok: 1 };
+}
 export async function grpIcon(b: Body) {
   const g = str(b.g).trim(); if (!g) throw bad("Chưa có tên nhóm");
   const ic = str(b.icon).toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30);
