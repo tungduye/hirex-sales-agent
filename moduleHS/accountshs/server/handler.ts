@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { HsError, bumpVer, log, requireHs, type Level } from "./db";
+import { HsError, bumpVer, log, requireHs, writeBegin, writeEnd, type Level } from "./db";
 import * as D from "./accounts-data";
 import * as R from "./accounts-routes";
 import * as B from "./backup";
@@ -149,11 +149,17 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     const [level, fn] = route;
     await requireHs(level);
     // thao tác hàng loạt rất lớn được trình duyệt chia lô (hx_batch = {i, of, n}): chụp bản an toàn ở lô đầu, ghi nhật ký 1 lần ở lô cuối (đủ số dòng)
-    const hb = b.hx_batch && typeof b.hx_batch === "object" ? (b.hx_batch as { i: number; of: number; n: number }) : null;
+    const hb = b.hx_batch && typeof b.hx_batch === "object" ? (b.hx_batch as { i: number; of: number; n: number; snap?: number }) : null;
     delete b.hx_batch;
+    // bước riêng trước khi ghi (trình duyệt hiện "Đang chụp bản an toàn…"): lô ghi nào cũng ngắn, không lô nào phải chờ chụp cả DB
+    // Sửa (rows_set / mass_set): mỗi dòng đổi đã có bản cũ trong lịch sử (trigger ahs_acc_hist) → bản an toàn toàn DB tối đa 1 lần / 10 phút
+    // như v7 (chụp toàn DB mất ~30 giây). Xoá hàng loạt: lịch sử của dòng bị xoá cũng mất theo → luôn chụp.
+    if (hb && hb.snap) { if (R.needsSnap(name, { ...b, [Array.isArray(b.items) ? "items" : "ids"]: new Array(Math.max(20, Number(hb.n) || 0)).fill(0) })) await B.snapshot(name === "delete_accounts"); return json({ snap: 1 }); }
     const detail = hb ? `${Number(hb.n) || 0} dòng` : await R.auditDetail(name, b);
     if ((!hb || Number(hb.i) === 0) && R.needsSnap(name, b)) await B.snapshot(!!hb);
-    const r = (await fn(b)) as Record<string, unknown> | undefined;
+    const wk = READ_ONLY.has(name) ? 0 : writeBegin();   // delta / thời gian thực không vượt qua lệnh ghi còn dở (db.ts safeTs)
+    let r: Record<string, unknown> | undefined;
+    try { r = (await fn(b)) as Record<string, unknown> | undefined; } finally { if (wk) writeEnd(wk); }
     const act = name === "account" ? (b.id ? "account_edit" : "account_add") : name;
     const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
     const ln = n(b.ids) || n(b.items) || ((name === "bulk" || name === "device_bulk") && r ? Number(r.created ?? 0) + Number(r.updated ?? 0) : 1);

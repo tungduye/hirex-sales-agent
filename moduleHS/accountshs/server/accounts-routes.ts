@@ -67,6 +67,67 @@ async function upsertPatches(list: Patch[]) {
   }, 4);
 }
 
+/* ───────── ghi hàng loạt nhanh: rows_set / mass_set ─────────
+   Mỗi dòng một "bản vá": set = trường → giá trị, del = trường cần xoá trống, note / note_add (nối thêm), status_id, owner_id + dept_id, device_id.
+   Luật như bản gốc: chỉ nhận trường thuộc đúng tab của dòng (không phải liên kết / file); trạng thái phải thuộc tab của dòng (khác tab thì giữ nguyên).
+   · Có hàm SQL ahs_rows_merge: Postgres tự vá ngay trên dòng — không đọc dòng về, 1 lệnh / 2.500 dòng, 4 lệnh song song (19.633 dòng ≈ vài giây).
+   · Chưa có hàm: đọc dòng theo lô 1.000 (6 lô song song), vá ở đây, ghi đè cả lô bằng 1 lệnh upsert; dòng bị xoá trong lúc đó không bao giờ "sống lại".
+   Trigger lịch sử (ahs_acc_hist) giữ bản cũ của mọi dòng đổi trong cả 2 cách. updated = lúc ghi từng lô. */
+type MergeItem = { id: Id; set?: Record<string, string>; del?: string[]; note?: string; note_add?: string; status_id?: Id | null; owner_id?: Id | null; dept_id?: Id; device_id?: Id | null };
+let noMergeFn = false;
+async function mergeWrite(items: MergeItem[]): Promise<number> {
+  if (!items.length) return 0;
+  if (!noMergeFn) {
+    const parts = chunks(items, 2500);
+    let n = 0, first = true;
+    try {
+      // lô đầu chạy 1 mình: DB chưa có hàm thì biết ngay, chưa ghi gì
+      n += Number(await run(sb().rpc("ahs_rows_merge", { p_items: parts[0], p_ts: now() }))) || 0; first = false;
+      await pool(parts.slice(1), async (ch) => { n += Number(await run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: now() }))) || 0; }, 4);
+      return n;
+    } catch (e) { if (!first || !isMissing(e)) throw e; noMergeFn = true; }
+  }
+  return mergeFallback(items);
+}
+async function mergeFallback(items: MergeItem[]): Promise<number> {
+  const [fs, sts] = await Promise.all([
+    pages<{ id: Id; tab_id: Id; type: string }>((a, z) => sb().from(T.fields).select("id,tab_id,type").order("id").range(a, z)),
+    pages<{ id: Id; tab_id: Id }>((a, z) => sb().from(T.statuses).select("id,tab_id").order("id").range(a, z)),
+  ]);
+  const fTab = new Map(fs.filter((f) => f.type !== "link" && f.type !== "file").map((f) => [String(f.id), f.tab_id])), stTab = new Map(sts.map((x) => [x.id, x.tab_id]));
+  const cols = "id,tab_id,dept_id,owner_id,status_id,device_id,note,data,created,updated";
+  let n = 0;
+  await pool(chunks(items, PAGE), async (ch) => {
+    const cur = new Map((await run<Account[]>(sb().from(T.accounts).select(cols).in("id", ch.map((x) => x.id)))).map((r) => [r.id, r]));
+    const rows: Account[] = [];
+    for (const it of ch) {
+      const r = cur.get(it.id); if (!r) continue;
+      const o = { ...r } as Account & Record<string, unknown>;
+      if (it.set || it.del) {
+        const d: Record<string, unknown> = { ...dataOf(r.data) };
+        for (const [k, v] of Object.entries(it.set ?? {})) if (fTab.get(k) === r.tab_id) d[k] = v;
+        for (const k of it.del ?? []) if (fTab.get(k) === r.tab_id) delete d[k];
+        o.data = d as Account["data"];
+      }
+      if (it.note !== undefined) o.note = it.note;
+      if (it.note_add !== undefined) o.note = (r.note ? r.note + "\n" : "") + it.note_add;
+      if (it.status_id !== undefined && (it.status_id === null || stTab.get(it.status_id) === r.tab_id)) o.status_id = it.status_id;
+      if (it.owner_id !== undefined) o.owner_id = it.owner_id;
+      if (it.dept_id !== undefined) o.dept_id = it.dept_id;
+      if (it.device_id !== undefined) o.device_id = it.device_id;
+      rows.push(o);
+    }
+    if (!rows.length) return;
+    const t0 = now();
+    for (const r of rows) r.updated = t0;
+    await run(sb().from(T.accounts).upsert(rows, { onConflict: "id" }));
+    const gone = (await run<{ id: Id }[]>(sb().from(T.tomb).select("id").in("id", rows.map((r) => r.id)).gte("ts", t0 - 60))).map((r) => r.id);
+    if (gone.length) await run(sb().from(T.accounts).delete().in("id", gone));
+    n += rows.length - gone.length;
+  }, 6);
+  return n;
+}
+
 async function exists(t: keyof typeof T, id: Id | null): Promise<boolean> {
   if (!id) return false;
   return Boolean(await run(sb().from(T[t]).select("id").eq("id", id).maybeSingle()));
@@ -131,14 +192,14 @@ export async function statusSet(b: Body) {
   if (sid && !(await exists("statuses", sid))) throw bad("Trạng thái không tồn tại");
   let ids = toIds(b.ids);
   if (sid) { const ok = await idsWithStatusTab(ids, sid); ids = ids.filter((i) => ok.has(i)); }
-  for (const ch of chunks(ids, 500)) await run(sb().from(T.accounts).update({ status_id: sid, updated: ts }).in("id", ch));
+  await pool(chunks(ids, 1000), (ch) => run(sb().from(T.accounts).update({ status_id: sid, updated: ts }).in("id", ch)), 6);
   return { ok: 1 };
 }
 
 export async function deviceSet(b: Body) {
   const ts = now(), dv = num(b.device_id);
   if (dv && !(await exists("devices", dv))) throw bad("Thiết bị không tồn tại");
-  for (const ch of chunks(toIds(b.ids), 500)) await run(sb().from(T.accounts).update({ device_id: dv, updated: ts }).in("id", ch));
+  await pool(chunks(toIds(b.ids), 1000), (ch) => run(sb().from(T.accounts).update({ device_id: dv, updated: ts }).in("id", ch)), 6);
   return { ok: 1 };
 }
 
@@ -166,35 +227,26 @@ export async function ownerSet(b: Body) {
   const dept = o ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", o).maybeSingle()) : null;
   if (dp && !(await exists("depts", dp))) dp = null;
   const patch = dept ? { owner_id: o, dept_id: dept.dept_id, updated: ts } : dp ? { owner_id: null, dept_id: dp, updated: ts } : { owner_id: null, updated: ts };
-  for (const ch of chunks(toIds(b.ids), 500)) await run(sb().from(T.accounts).update(patch).in("id", ch));
+  await pool(chunks(toIds(b.ids), 1000), (ch) => run(sb().from(T.accounts).update(patch).in("id", ch)), 6);
   return { ok: 1 };
 }
 
 /** Cập nhật hàng loạt: trường, trạng thái, owner, ghi chú, thiết bị cho nhiều tài khoản. */
 export async function massSet(b: Body) {
-  const ts = now(), ids = toIds(b.ids);
-  const rows = new Map<Id, Pick<Account, "id" | "data" | "note">>();
-  for (const ch of chunks(ids, PAGE)) for (const r of await run<Pick<Account, "id" | "data" | "note">[]>(sb().from(T.accounts).select("id,data,note").in("id", ch))) rows.set(r.id, r);
-  const sid = num(b.status_id), oid = num(b.owner_id);
-  const sok = sid ? await idsWithStatusTab(ids, sid) : new Set<Id>();
-  const od = b.set_owner && oid ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", oid).maybeSingle()) : null;
-  const ps = new Map<Id, Patch>();
-  let n = 0;
-  for (const i of ids) {
-    const r = rows.get(i); if (!r) continue;
-    const d: Record<string, unknown> = { ...dataOf(r.data) }, bd = Object.entries(dataOf(b.data));
-    for (const [k, v] of bd) { if (v === "" || v === null || v === undefined) delete d[String(k)]; else d[String(k)] = v; }
-    let note = r.note || "";
-    if (b.note !== null && b.note !== undefined) note = b.note_mode !== "append" ? str(b.note) : (note ? note + "\n" : "") + str(b.note);
-    const p: Patch = { ...(bd.length ? { data: d } : {}), note, updated: ts };   // không sửa trường → data giữ nguyên (patch giống nhau gộp được)
-    if (b.set_device) p.device_id = num(b.device_id);
-    if (sid && sok.has(i)) p.status_id = sid;
-    if (b.set_owner) { p.owner_id = oid; const nd = od ? od.dept_id : num(b.dept_id); if (nd) p.dept_id = nd; }   // owner thuộc bộ phận nào thì dòng chuyển sang bộ phận đó
-    ps.set(i, p);
-    n++;
+  const ids = toIds(b.ids), sid = num(b.status_id), oid = num(b.owner_id);
+  const base: Omit<MergeItem, "id"> = {};
+  for (const [k, v] of Object.entries(dataOf(b.data))) {
+    if (v === "" || v === null || v === undefined) (base.del ??= []).push(String(k)); else (base.set ??= {})[String(k)] = String(v);
   }
-  await updateIds(ps);
-  return { ok: n };
+  if (b.note !== null && b.note !== undefined) { if (b.note_mode !== "append") base.note = str(b.note); else base.note_add = str(b.note); }
+  if (b.set_device) base.device_id = num(b.device_id);
+  if (sid) base.status_id = sid;                                                     // chỉ dòng có tab chứa trạng thái này
+  if (b.set_owner) {
+    base.owner_id = oid;
+    const od = oid ? await run<{ dept_id: Id } | null>(sb().from(T.owners).select("dept_id").eq("id", oid).maybeSingle()) : null;
+    const nd = od ? od.dept_id : num(b.dept_id); if (nd) base.dept_id = nd;          // owner thuộc bộ phận nào thì dòng chuyển sang bộ phận đó
+  }
+  return { ok: await mergeWrite(ids.map((id) => ({ id, ...base }))) };
 }
 
 export async function delAccountIds(raw: unknown) {
@@ -428,42 +480,32 @@ export async function bulk2(b0: Body) {
 
 /* ───────── cập nhật theo từng dòng (đối chiếu cũ/mới) ───────── */
 export async function rowsSet(b: Body) {
-  const ts = now(), items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === "object") as Body[];
-  const rows = new Map<Id, Account>();
-  for (const ch of chunks([...new Set(items.map((it) => num(it.id)).filter((x): x is Id => x !== null))], PAGE))
-    for (const r of await run<Account[]>(sb().from(T.accounts).select("*").in("id", ch))) rows.set(r.id, r);
-  const tabs = [...new Set([...rows.values()].map((r) => r.tab_id))];
-  const [fs, sts, owns, devs] = tabs.length ? await Promise.all([
-    pages<{ id: Id; tab_id: Id; type: string }>((a, z) => sb().from(T.fields).select("id,tab_id,type").in("tab_id", tabs).order("id").range(a, z)),
-    pages<{ id: Id; tab_id: Id }>((a, z) => sb().from(T.statuses).select("id,tab_id").in("tab_id", tabs).order("id").range(a, z)),
-    pages<{ id: Id; dept_id: Id }>((a, z) => sb().from(T.owners).select("id,dept_id").order("id").range(a, z)),
-    pages<{ id: Id }>((a, z) => sb().from(T.devices).select("id").order("id").range(a, z)),
-  ]) : [[], [], [], []];
-  const ftype = new Map(fs.map((f) => [`${f.tab_id}:${f.id}`, f.type]));
-  const stTab = new Map(sts.map((s) => [s.id, s.tab_id])), oDept = new Map(owns.map((o) => [o.id, o.dept_id])), devOk = new Set(devs.map((d) => d.id));
-  const ps = new Map<Id, Patch>();
-  let n = 0;
+  const items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === "object") as Body[];
+  const wantO = items.some((it) => "owner_id" in it), wantD = items.some((it) => "device_id" in it);
+  const [owns, devs] = await Promise.all([
+    wantO ? pages<{ id: Id; dept_id: Id }>((a, z) => sb().from(T.owners).select("id,dept_id").order("id").range(a, z)) : Promise.resolve([] as { id: Id; dept_id: Id }[]),
+    wantD ? pages<{ id: Id }>((a, z) => sb().from(T.devices).select("id").order("id").range(a, z)) : Promise.resolve([] as { id: Id }[]),
+  ]);
+  const oDept = new Map(owns.map((o) => [o.id, o.dept_id])), devOk = new Set(devs.map((d) => d.id));
+  const by = new Map<Id, MergeItem>();                                                // cùng id lặp lại: gộp, lần sau đè lần trước (như chạy tuần tự)
   for (const it of items) {
-    const r = rows.get(num(it.id) ?? 0); if (!r) continue;
-    const d: Record<string, unknown> = { ...dataOf(r.data) };
-    for (const [k, v] of Object.entries(dataOf(it.data))) {
-      const t = ftype.get(`${r.tab_id}:${k}`); if (!t || t === "link" || t === "file") continue;
-      if (v === null || v === undefined || v === "") delete d[String(k)]; else d[String(k)] = String(v);
+    const id = num(it.id); if (id === null) continue;
+    const m = by.get(id) ?? { id };
+    for (const [k0, v] of Object.entries(dataOf(it.data))) {
+      const k = String(k0);
+      if (v === null || v === undefined || v === "") { if (m.set) delete m.set[k]; (m.del ??= []).push(k); }
+      else { (m.set ??= {})[k] = String(v); if (m.del) m.del = m.del.filter((x) => x !== k); }
     }
-    const p: Patch = { data: d, updated: ts };
-    if ("note" in it) p.note = it.note ? String(it.note) : "";
-    if ("status_id" in it) { const sid = idOr(it.status_id); if (sid === null || stTab.get(sid) === r.tab_id) p.status_id = sid; }
+    if ("note" in it) m.note = it.note ? String(it.note) : "";
+    if ("status_id" in it) m.status_id = idOr(it.status_id);
     if ("owner_id" in it) {
       const oid = idOr(it.owner_id), od = oid ? oDept.get(oid) : undefined;
-      if (od !== undefined) { p.owner_id = oid; p.dept_id = od; } else if (oid === null) p.owner_id = null;
+      if (od !== undefined) { m.owner_id = oid; m.dept_id = od; } else if (oid === null) m.owner_id = null;
     }
-    if ("device_id" in it) { const dv = idOr(it.device_id); if (dv === null || devOk.has(dv)) p.device_id = dv; }
-    rows.set(r.id, { ...r, ...p } as Account);                                       // cùng id xuất hiện lại: thấy kết quả lần trước (như chạy tuần tự)
-    ps.set(r.id, { ...ps.get(r.id), ...p });
-    n++;
+    if ("device_id" in it) { const dv = idOr(it.device_id); if (dv === null || devOk.has(dv)) m.device_id = dv; }
+    by.set(id, m);
   }
-  await updateIds(ps);
-  return { updated: n };
+  return { updated: await mergeWrite([...by.values()]) };
 }
 
 /* ───────── meta: dept / owner / tab / field / status / device ───────── */

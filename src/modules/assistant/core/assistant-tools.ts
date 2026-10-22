@@ -888,6 +888,27 @@ function DOCUMENT_SAVE_TOOLS(): AssistantToolDefinition[] {
   }];
 }
 
+// Xoá thành viên khỏi nhóm Zalo: the Trợ lý nick (deputy of the group) removes people after an admin confirms the card.
+function GROUP_MEMBER_TOOLS(): AssistantToolDefinition[] {
+  return [{
+    name: "de_xuat_out_thanh_vien_nhom",
+    permission: "workspace.admin",
+    proposal: true,
+    label: "Đề xuất xoá thành viên khỏi nhóm Zalo",
+    description: "Xoá (out/kick) người khỏi một nhóm Zalo bằng nick Trợ lý (phó nhóm): các nick của bộ phận (ví dụ \"out toàn bộ nick Rec khỏi nhóm X\" → bo_phan [\"Rec\"]), nick theo tên, hoặc thành viên theo tên trong nhóm. Thẻ liệt kê nhóm và từng người; chỉ chạy khi người hỏi xác nhận. Không xoá trưởng/phó nhóm. Hỏi ngay trong nhóm Zalo thì nhom = null là nhóm đó.",
+    parameters: {
+      type: "object", additionalProperties: false, required: ["nhom", "bo_phan", "nick", "thanh_vien"],
+      properties: {
+        nhom: nullableString("Tên nhóm Zalo (một phần tên cũng được), hoặc null = nhóm đang chat."),
+        bo_phan: nullableStringArray("Xoá các nick có người dùng chính thuộc bộ phận này (ví dụ [\"Rec\"]), hoặc null."),
+        nick: nullableStringArray("Tên các nick của mình cần xoá, hoặc null."),
+        thanh_vien: nullableStringArray("Tên thành viên trong nhóm cần xoá (người ngoài), hoặc null."),
+      },
+    },
+    args: z.object({ nhom: text(200).nullable(), bo_phan: z.array(text(60)).max(10).nullable(), nick: z.array(text(120)).max(50).nullable(), thanh_vien: z.array(text(120)).max(50).nullable() }).strict(),
+  }];
+}
+
 // Suối Nguồn bulk actions: the card shows how many conversations match; confirming runs it (undo 10 minutes).
 function INBOX_BULK_TOOLS(): AssistantToolDefinition[] {
   return [{
@@ -1139,6 +1160,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...ROUND_ONE_TOOLS(),
   ...CV_TOOLS(),
   ...DOCUMENT_SAVE_TOOLS(),
+  ...GROUP_MEMBER_TOOLS(),
   ...PROPOSAL_TOOLS(),
   ...CRM_PROPOSAL_TOOLS(),
   ...CAMPAIGN_PROPOSAL_TOOLS(),

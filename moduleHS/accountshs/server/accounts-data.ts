@@ -1,6 +1,6 @@
 import "server-only";
 
-import { T, allOrdered, chunks, getJsonSetting, getSetting, isMissing, now, orMissing, pages, run, sb, parseDevice, toIds } from "./db";
+import { T, allOrdered, chunks, getJsonSetting, getSetting, isMissing, now, safeTs, orMissing, pages, run, sb, parseDevice, toIds } from "./db";
 import type { Account, DbCheck, Delta, Device, Epoch, Field, HistChange, HistInfo, HistItem, HistLast, Id, Link, LogRow, Meta, Snapshot, Status, Tab, TabRows } from "../types";
 
 /* ───────── meta ───────── */
@@ -97,7 +97,7 @@ async function dataRows(ex: Id[]): Promise<{ accounts: Account[]; links: Link[] 
 
 /** /api/data — giống get_data_fast(): bỏ dòng của tab tải riêng chưa nạp (kèm số dòng để hiện "+N"). */
 export async function getData(lz = ""): Promise<Snapshot> {
-  const ts = now();
+  const ts = safeTs();
   const [ex, ver] = await Promise.all([lazyExcl(lz),
     run<{ n: number } | null>(sb().from(T.ver).select("n").eq("id", 1).maybeSingle()).then((r) => (r ? Number(r.n) : -1), () => -1)]);   // -1: không đệm
   const key = ver >= 0 ? `${ex.join(",")}|${ver}` : "";
@@ -145,13 +145,13 @@ export async function tabChunk(tab: Id, before: number, n: number) {
 const DELTA_OVERLAP = 2;
 /** /api/delta — chỉ dòng đổi từ `since` + dòng đã xoá (tomb) + liên kết liên quan. */
 export async function getDelta(since: number, lz = ""): Promise<Delta> {
-  const ts = now();
+  const ts = safeTs();
   const ex = await lazyExcl(lz);
   const [rows, meta, devices, tomb, gone] = await Promise.all([
     pages<Account>((a, b) => {
       const q = sb().from(T.accounts).select("*").gte("updated", since - DELTA_OVERLAP).order("id").range(a, b);
       return ex.length ? q.not("tab_id", "in", `(${ex.join(",")})`) : q;
-    }),
+    }, Infinity, 8),                                                                   // sửa hàng loạt nghìn dòng: 8 trang song song
     getMeta(), getDevices(),
     pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - DELTA_OVERLAP).order("id").order("ts").range(a, b)),
     // dòng vừa đổi sang một tab "tải riêng" mà trình duyệt chưa nạp: báo như đã xoá khỏi trình duyệt

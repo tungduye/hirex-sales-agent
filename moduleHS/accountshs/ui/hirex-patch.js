@@ -127,6 +127,133 @@
     const n = S.meta.depts.reduce((s, d) => s + ovN(LASTD.C['u' + d.id] && LASTD.C['u' + d.id].T), 0), T = ovN(LASTD.C.all && LASTD.C.all.T);
     c.querySelector('b').textContent = n.toLocaleString('vi'); c.querySelector('em').textContent = rpPct(n, T) + '%';
   }
+  /* ── 14. Tổng quan: nhóm cột "Tình trạng sở hữu" ──
+     Bên cạnh nhóm "Tất cả" (Tổng · Live · Die · Khác) là nhóm cùng 4 cột nhưng chỉ đếm tài nguyên có trường "Tình trạng sở hữu"
+     thuộc các giá trị đang chọn (mặc định Lâu dài + Tạm thời = đang sở hữu). Cùng phạm vi (cây bên trái), cùng nhóm nền tảng, cùng
+     cách tính Live / Die / Khác như nhóm Tất cả → mỗi số sở hữu luôn ≤ số cùng cột bên trái, đọc ngang là so được ngay.
+     · Cột Tổng có thanh tỉ lệ (sở hữu / tổng nền tảng); rê chuột xem chia theo từng giá trị (Lâu dài, Tạm thời, Mất, Không xác định, Chưa nhập).
+     · Nền tảng không có trường sở hữu (Bài đăng FB, Nhóm FB…) → 1 ô gộp mờ "Không theo dõi".
+     · Bấm 1 số → mở đúng nền tảng, đúng phạm vi, lọc sẵn theo tình trạng sở hữu (+ Live / Die).
+     · Thẻ số phía trên có thêm thẻ "Sở hữu" cùng màu nhóm. Xuất Excel có thêm trang "Tình trạng sở hữu". */
+  const OWN0 = '∅', OWND = ['Lâu dài', 'Tạm thời'], OWN1 = ['Lâu dài'];   // OWND = "Đang sở hữu"; mặc định lần đầu = Lâu dài
+  let OWNS = (() => { try { const v = JSON.parse(LS('hx.ovown2') || 'null'); const w = Array.isArray(v) ? v.filter(x => x !== OWN0) : []; return w.length ? w : OWN1 } catch (e) { return OWN1 } })();
+  const ownLab = v => v === OWN0 ? 'Chưa nhập' : v;
+  const ownSel = () => OWNS.length === 2 && OWND.every(v => OWNS.includes(v)) ? 'Đang sở hữu' : OWNS.map(ownLab).join(' + ');
+  const OWF = { k: -1, m: {} };
+  const ownField = t => {
+    if (OWF.k !== DVER) { OWF.k = DVER; OWF.m = {}; (S.meta.tabs || []).forEach(tb => { const f = tb.fields.find(x => /^\s*tình trạng sở hữu\s*$/i.test(x.label)); if (f) OWF.m[tb.id] = f }) }
+    return OWF.m[t] || null;
+  };
+  const ownVals = () => { const o = new Set(); Object.values((ownField(0), OWF.m)).forEach(f => String(f.opts || '').split(',').map(x => x.trim()).filter(Boolean).forEach(x => o.add(x))); OWNS.forEach(v => o.add(v)); return [...o] };
+  const scopeTest = k => {
+    if (k === 'all') return () => true;
+    const id = +k.slice(1);
+    if (k[0] === 'd') return a => a.dept_id === id;
+    if (k[0] === 'u') return a => a.dept_id === id && !(a.owner_id && I.own[a.owner_id]);
+    if (k[0] === 'o') return a => { const o = a.owner_id && I.own[a.owner_id]; return !!o && o.path.includes(id) };
+    return () => false;
+  };
+  const OWC = new Map();
+  function ownCount(sk) {
+    const key = DVER + '#' + OWNS.join('|');
+    if (OWC.key !== key) { OWC.clear(); OWC.key = key }
+    if (OWC.has(sk)) return OWC.get(sk);
+    const sel = new Set(OWNS), inSk = scopeTest(sk), m = {};
+    ownField(0);
+    for (const a of ovAll()) {
+      const f = OWF.m[a.tab_id]; if (!f || !inSk(a)) continue;
+      const v = a.data && a.data[f.id], vv = v == null || v === '' ? OWN0 : String(v), h = rpH(a);
+      const x = m[a.tab_id] ??= { sel: rpE(), tot: rpE(), by: {} };
+      x.tot[h]++; x.by[vv] = (x.by[vv] || 0) + 1;
+      if (sel.has(vv)) x.sel[h]++;
+    }
+    OWC.set(sk, m); return m;
+  }
+  const nf0 = n => n.toLocaleString('vi');
+  function ownCols(m) {
+    const t = m.querySelector('.ovw:not(.ovsk) .ovt'); if (!t || !t.tHead || !t.tBodies[0]) return;
+    const hr = t.tHead.rows[0], ths = [...hr.cells]; if (ths.length !== 6) return;
+    const cnt = ownCount(OVS), lz = new Set(lzTabs());
+    const top = document.createElement('tr'); top.className = 'hx-og';
+    top.innerHTML = `<th rowspan="2">${ths[0].innerHTML}</th><th colspan="4" class="hx-og0"><span>Tất cả</span></th>`
+      + `<th colspan="4" class="hx-og1"><button class="hx-ownb" data-a="hxown" aria-haspopup="true" title="Chọn tình trạng sở hữu được đếm trong nhóm cột này"><span>Tình trạng sở hữu</span><b>${esc(ownSel())}</b>${ico('chevd', 13)}</button></th>`
+      + `<th rowspan="2" class="tr">${ths[5].innerHTML}</th>`;
+    ths[0].remove(); ths[5].remove(); hr.classList.add('hx-og2');
+    hr.insertAdjacentHTML('beforeend', `<th class="hx-o hx-o0">Tổng</th><th class="hx-o g">Live</th><th class="hx-o b">Die</th><th class="hx-o hx-ok">Khác</th>`);
+    t.tHead.insertBefore(top, hr);
+    t.classList.add('hx-ownt');
+    const S0 = { sel: rpE(), base: 0 };
+    const RTW = { a: 4, b: 3 };   // độ rộng chung (ký tự) của phần số và phần "/tổng" trên cả bảng → mọi dòng thẳng hàng, không dư khoảng trống
+    for (const tr of t.tBodies[0].rows) {
+      const tid = +tr.dataset.t, f = ownField(tid), x = cnt[tid], td5 = tr.cells[tr.cells.length - 1], tb = I.tab[tid];
+      let html;
+      if (!f || lz.has(tid)) html = '<td class="hx-o hx-o0"></td><td class="hx-o"></td><td class="hx-o"></td><td class="hx-o"></td>';   // không có trường sở hữu: để trống
+      else {
+        const sel = x ? x.sel : rpE(), tot = x ? x.tot : rpE(), n = ovN(sel), all = ovN(tot), p = all ? n / all * 100 : 0;
+        S0.sel.g += sel.g; S0.sel.w += sel.w; S0.sel.b += sel.b; S0.sel.n += sel.n; S0.base += all;
+        const by = x ? x.by : {}, nm = tb ? tb.name : '';
+        const tip0 = `${nm} · ${ownSel()}: ${nf0(n)} / ${nf0(all)} (${Math.round(p)}%)\n` + ownVals().filter(v => by[v]).map(v => `${OWNS.includes(v) ? '✓' : '  '} ${ownLab(v)}: ${nf0(by[v])}`).join('\n');
+        const pc = (v, of) => of ? Math.round(v / of * 100) : 0;
+        // % nổi bật (căn phải) · "số/tổng" nhỏ, mờ (căn trái): 2 cột cố định đo theo số dài nhất cả bảng → mọi dòng thẳng hàng
+        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length), of
+          ? `<span class="hx-rt"><b class="${v ? '' : 'z'}">${pc(v, of)}%</b><small class="hx-of">${nf0(v)}/${nf0(of)}</small></span>`
+          : `<span class="hx-rt"><b class="z">–</b><small class="hx-of"></small></span>`);
+        const c = (h, cls, v, of, lab) => `<td class="hx-o hx-r ${cls}" data-a="hxowngo" data-t="${tid}" data-h="${h}" title="${esc(`${nm} · ${lab}: ${nf0(v)} / ${nf0(of)} (${pc(v, of)}%) thuộc ${ownSel().toLowerCase()} — bấm để mở danh sách`)}">${rt(v, of)}</td>`;
+        html = `<td class="hx-o hx-o0" data-a="hxowngo" data-t="${tid}" data-h="" title="${esc(tip0)}">${rt(n, all)}</td>`
+          + c('g', 'g', sel.g, tot.g, 'Live') + c('b', 'b', sel.b, tot.b, 'Die') + c('o', 'hx-ok', sel.w + sel.n, tot.w + tot.n, 'Khác');
+      }
+      td5.insertAdjacentHTML('beforebegin', html);
+    }
+    t.style.setProperty('--rtb', (RTW.b * 0.82 + 0.2).toFixed(1) + 'ch');
+    // thẻ số "Sở hữu" cùng hàng thẻ Tổng / Live / Die
+    const ks = m.querySelector('.ovw:not(.ovsk) .ovks');
+    if (ks && S0.base) {
+      const n = ovN(S0.sel);
+      ks.classList.add('hx-ks5');
+      ks.insertAdjacentHTML('beforeend', `<div class="ovkc hx-okc" title="${esc(`${ownSel()}: ${nf0(n)} / ${nf0(S0.base)} tài nguyên có theo dõi sở hữu (${rpPct(n, S0.base)}%)`)}"><span>${esc(ownSel())}</span><b>${nf0(n)}</b><em>${rpPct(n, S0.base)}% · ${nf0(S0.sel.g)} live · ${nf0(S0.sel.b)} die</em></div>`);
+    }
+  }
+  /* chọn giá trị đếm: popup tích nhiều ô, tích xong vẫn mở (bảng cập nhật ngay phía sau); bấm ra ngoài / Esc để đóng */
+  const ownSave = v => { OWNS = v.length ? v : OWN1; LS('hx.ovown2', JSON.stringify(OWNS)); OWC.clear(); renderBody() };
+  const ownPopHtml = () => {
+    const box = on => `<span class="hx-cb ${on ? 'on' : ''}" aria-hidden="true">${on ? ico('check', 12) : ''}</span>`, all = ownSel() === 'Đang sở hữu';
+    return `<div class="mh">Đếm tình trạng sở hữu</div>`
+      + ownVals().map(v => `<button class="mi hx-ownv" data-v="${esc(v)}" role="menuitemcheckbox" aria-checked="${OWNS.includes(v)}">${box(OWNS.includes(v))}<span class="t">${esc(v)}</span></button>`).join('')
+      + `<div class="sep"></div><button class="mi hx-ownv" data-v="" ${all ? 'disabled' : ''}><span class="t">Đang sở hữu (Lâu dài + Tạm thời)</span></button>`;
+  };
+  ACT.hxown = el => {
+    const p = openPop(el, ownPopHtml(), 'hx-ownp');
+    p.addEventListener('click', e => {
+      const b = e.target.closest('.hx-ownv'); if (!b || b.disabled) return;
+      e.stopPropagation();
+      const v = b.dataset.v;
+      if (!v) ownSave(OWND);
+      else if (OWNS.includes(v)) { if (OWNS.length > 1) ownSave(OWNS.filter(x => x !== v)) }   // luôn giữ ít nhất 1 giá trị
+      else ownSave([...OWNS, v]);
+      if (POP === p) p.innerHTML = ownPopHtml();
+      else { const a = document.querySelector('.hx-ownb'); if (a) ACT.hxown(a) }   // phòng khi vẽ lại đóng popup: mở lại đúng chỗ
+    });
+  };
+  /* bấm 1 số sở hữu → mở nền tảng đó trong đúng phạm vi, lọc sẵn tình trạng sở hữu (+ Live / Die / Khác) */
+  ACT.hxowngo = el => {
+    const tr = el.closest('tr'), t = +el.dataset.t, h = el.dataset.h, f = ownField(t); if (!tr || !f) return;
+    OVF = { k: OVS, t };
+    ovInfo(tr.dataset.d, tr.dataset.o ? +tr.dataset.o : null, t, !!tr.dataset.u);
+    S.fl[t] = [...(S.fl[t] || []).filter(c => String(c.k) !== String(f.id)), { k: f.id, op: 'in', v: OWNS.map(v => v === OWN0 ? EMP : v) }];
+    const sts = (I.tab[t] ? I.tab[t].statuses : []).filter(s => h === 'g' ? s.h === 'g' : h === 'b' ? s.h === 'b' : h === 'o' ? s.h !== 'g' && s.h !== 'b' : false).map(s => s.id);
+    if (sts.length) S.st = new Set(sts);
+    savePref(); renderAll();
+  };
+  { const _os = ovSheets; ovSheets = function () {
+      const out = _os.apply(this, arguments), D = LASTD || ovData(), H = ['Phạm vi', 'Cấp', 'Nền tảng', 'Tổng', 'Live', 'Die', 'Khác', `${ownSel()} · Tổng`, `${ownSel()} · Live`, `${ownSel()} · Die`, `${ownSel()} · Khác`, '% sở hữu'];
+      const rows = [H];
+      D.rows.forEach(r => { const cc = ownCount(r.k), c = D.C[r.k] || {}; D.tabs.forEach(t => {
+        if (!ownField(t.id) || !c[t.id] || !ovN(c[t.id])) return;
+        const a = c[t.id], x = cc[t.id] || { sel: rpE() }, n = ovN(x.sel);
+        rows.push([r.name, r.lv, t.name, ovN(a), a.g, a.b, a.w + a.n, n, x.sel.g, x.sel.b, x.sel.w + x.sel.n, rpPct(n, ovN(a))]);
+      }) });
+      out['Tình trạng sở hữu'] = rows; return out;
+    } }
   const _ro = renderOverview;
   renderOverview = function (m) {
     const on = m.querySelector('.ovtb .ovi.on'), g0 = on && geo(on);
@@ -135,6 +262,7 @@
     header(m);
     tools(m);
     kpiShared(m);
+    try { ownCols(m) } catch (e) { console.warn('hx sở hữu', e) }
     slide(m, g0);
   };
 
@@ -264,7 +392,7 @@
     return { meta: last.meta, devices: last.devices, accounts: keep, links: [...lk.values()].filter(l => known(l.src) && known(l.dst)), deleted: [...del], ts: last.ts, delta: 1 };
   }
   { const _api = api; api = function (path, body) {
-      if (!body && typeof path === 'string' && path.startsWith('delta?since=') && RT2.q.length) { const d = takePushed(parseFloat(path.slice(12))); if (d) return Promise.resolve(d) }
+      if (!body && !HX.direct && typeof path === 'string' && path.startsWith('delta?since=') && RT2.q.length) { const d = takePushed(parseFloat(path.slice(12))); if (d) return Promise.resolve(d) }
       return _api.apply(this, arguments);
     } }
   /* tự mình ghi (mut) thì bản gốc đã nạp lại → ghi nhận phiên bản mới, khỏi nạp thêm lần nữa */
@@ -310,35 +438,123 @@
       fail(t) { el.classList.add('hx-err'); $q('.ldw-ph').textContent = 'Không hoàn tất'; $q('.ldw-p').textContent = ''; $q('.ldw-g').textContent = ''; $q('.ldw-x').textContent = t; close(8000) },
     };
     if (spin) { el.classList.add('hx-spin'); C.stage('Đang tải phần thay đổi') } else C.stage('Đang ghi');
+    C.el = el; C.close = () => close(0);
     return C;
+  }
+  /** như api() của bản gốc nhưng không bật thông báo lỗi (dùng khi tự thử lại) */
+  async function apiQuiet(path, body) {
+    const r = await fetch('/api/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { let m = 'Lỗi máy chủ ' + r.status; try { m = (await r.json()).error || m } catch (e) { /* bỏ qua */ } throw new Error(m) }
+    return r.json();
   }
   const BIGOPS = { mass_set: 'ids', rows_set: 'items', status_set: 'ids', owner_set: 'ids', device_set: 'ids', delete_accounts: 'ids' };
   const BIG_MIN = 1500;
+  const frame = () => new Promise(z => requestAnimationFrame(() => requestAnimationFrame(z)));   // chờ trình duyệt vẽ xong
+  /** Đối chiếu dữ liệu trên trình duyệt với đúng những gì vừa ghi (đã nạp lại từ máy chủ). Trả danh sách id chưa khớp.
+   *  Cùng luật với máy chủ: trường phải thuộc tab của dòng, trạng thái phải thuộc tab của dòng; dòng không còn (bị xoá) bỏ qua. */
+  function hxVerify(path, body) {
+    const bad = [], has = (o, k) => Object.prototype.hasOwnProperty.call(o, k), sv = x => x == null ? '' : String(x);
+    const fOk = (k, a) => { const f = I.field[k]; return !!f && f.tab_id === a.tab_id && f.type !== 'link' && f.type !== 'file' };
+    const want = new Map();
+    const put = (id, w) => { const o = want.get(id) || { data: {} }; Object.assign(o.data, w.data || {}); for (const c of ['note', 'status_id', 'owner_id', 'device_id']) if (has(w, c)) o[c] = w[c]; want.set(id, o) };
+    if (path === 'delete_accounts') { for (const id of body.ids || []) if (I.acc[id]) bad.push(id); return bad }
+    if (path === 'rows_set') for (const it of body.items || []) put(+it.id, { data: it.data || {}, ...['note', 'status_id', 'owner_id', 'device_id'].reduce((o, c) => (has(it, c) && (o[c] = it[c] === '' ? null : it[c]), o), {}) });
+    else {
+      const w = { data: path === 'mass_set' ? body.data || {} : {} };
+      if (path === 'mass_set') {
+        if (body.note != null && body.note_mode !== 'append') w.note = body.note;
+        if (body.status_id) w.status_id = body.status_id;
+        if (body.set_owner) w.owner_id = body.owner_id;
+        if (body.set_device) w.device_id = body.device_id;
+      }
+      if (path === 'status_set') w.status_id = body.status_id;
+      if (path === 'owner_set' && body.owner_id) w.owner_id = body.owner_id;
+      if (path === 'device_set') w.device_id = body.device_id;
+      for (const id of body.ids || []) put(+id, w);
+    }
+    for (const [id, w] of want) {
+      const a = I.acc[id]; if (!a) continue;
+      let ok = true;
+      for (const [k, v] of Object.entries(w.data)) if (fOk(k, a) && sv(a.data && a.data[k]) !== sv(v)) ok = false;
+      if (has(w, 'note') && sv(a.note) !== sv(w.note)) ok = false;
+      if (has(w, 'status_id')) { const st = w.status_id ? I.status[w.status_id] : null; if ((!w.status_id || (st && st.tab_id === a.tab_id)) && sv(a.status_id) !== sv(w.status_id || '')) ok = false }
+      if (has(w, 'owner_id') && (!w.owner_id || I.own[w.owner_id]) && sv(a.owner_id) !== sv(w.owner_id || '')) ok = false;
+      if (has(w, 'device_id') && sv(a.device_id) !== sv(w.device_id || '')) ok = false;
+      if (!ok) bad.push(id);
+    }
+    return bad;
+  }
+  /** Ghi xong → nạp lại THẲNG từ máy chủ (không dùng phần thay đổi đã đẩy qua thời gian thực trong lúc ghi), đối chiếu từng dòng;
+   *  lệch → nạp lại toàn bộ rồi đối chiếu lần nữa. Vẽ lại bảng xong (trình duyệt đã vẽ) mới báo xong. */
+  async function hxSettle(path, body, card) {
+    const n = nRows(body);
+    card.stage('Đang tải dữ liệu mới…');
+    HX.direct = (HX.direct || 0) + 1; try { await load() } finally { HX.direct-- }
+    card.stage('Đang đối chiếu…');
+    let bad = hxVerify(path, body);
+    if (bad.length) {
+      console.warn('hx: chưa khớp sau khi ghi', path, bad.length, bad.slice(0, 20));
+      card.stage('Đang nạp lại toàn bộ để đối chiếu…');
+      HX.direct = (HX.direct || 0) + 1; try { await load(true) } finally { HX.direct-- }
+      bad = hxVerify(path, body);
+    }
+    card.stage('Đang vẽ lại bảng…');
+    if (document.querySelector('#modal .sg') && typeof drawSettings === 'function') drawSettings();
+    renderAll(); await frame();
+    return { n, bad };
+  }
   { const _m = mut; mut = async function (path, body) {
       const key = BIGOPS[path], arr = key && body && Array.isArray(body[key]) ? body[key] : null;
       if (!arr || arr.length <= BIG_MIN) return _m.apply(this, arguments);
-      const n = arr.length, CH = path === 'rows_set' ? 1000 : 2000, parts = Math.ceil(n / CH), del = path === 'delete_accounts';
+      const n = arr.length, CH = 4000, parts = Math.ceil(n / CH), del = path === 'delete_accounts';
       const card = opCard(`${del ? 'Đang xoá' : 'Đang cập nhật'} ${nf(n)} dòng`), res = {};
       let done = 0; HX.bulk = 1; card.set(0, n);
-      try {
-        for (let i = 0; i < parts; i++) {
-          const part = arr.slice(i * CH, (i + 1) * CH);
-          const r = await api(path, { ...body, [key]: part, hx_batch: { i, of: parts, n } });
-          for (const [k, v] of Object.entries(r || {})) { if (typeof v === 'number') res[k] = (res[k] || 0) + v; else if (!(k in res)) res[k] = v }
-          done += part.length; card.set(done, n);
+      // thanh tiến độ chạy đều trong lúc chờ từng lô (ước theo tốc độ các lô trước), không bao giờ vượt quá lô đang ghi
+      let rate = 0, lot = 0, t0 = 0;
+      const tick = setInterval(() => { if (!lot || !rate) return; card.set(done + Math.floor(Math.min(lot * 0.95, (performance.now() - t0) * rate)), n) }, 200);
+      // lỗi mạng / máy chủ tạm lỗi (rớt mạng, khởi động lại, 502/503/504/524): thử lại lô đó, tối đa 3 lần.
+      // Ghi theo lô là ghi đè giá trị (lặp lại vẫn đúng); riêng "nối thêm ghi chú" lặp lại sẽ nối 2 lần → không tự thử lại.
+      const again = !(path === 'mass_set' && body.note_mode === 'append');
+      const send = async (b, what) => {
+        for (let k = 1; ; k++) {
+          try { return await (k === 1 ? api : apiQuiet)(path, b) }
+          catch (e) {
+            const net = e instanceof TypeError || /Failed to fetch|NetworkError|Lỗi máy chủ|50[234]|52[0-4]/i.test(String(e && e.message || e));
+            if (!again || !net || k >= 4) throw e;
+            card.stage(`Mất kết nối, đang thử lại ${what} (${k}/3)…`); await new Promise(z => setTimeout(z, 1500 * k * k)); card.stage('Đang ghi');
+          }
         }
+      };
+      try {
+        try {
+          if (path === 'rows_set' || path === 'mass_set' || path === 'delete_accounts') {   // các thao tác bản gốc chụp bản an toàn trước khi ghi
+            card.stage('Đang chụp bản an toàn…');
+            await send({ ...body, [key]: [], hx_batch: { i: 0, of: parts + 1, n, snap: 1 } }, 'bước chụp bản an toàn');
+          }
+          card.stage('Đang ghi');
+          for (let i = 0; i < parts; i++) {
+            const part = arr.slice(i * CH, (i + 1) * CH);
+            lot = part.length; t0 = performance.now();
+            const r = await send({ ...body, [key]: part, hx_batch: { i: i + 1, of: parts + 1, n } }, `lô ${i + 1}/${parts}`);
+            const ms = performance.now() - t0; rate = rate ? (rate + part.length / ms) / 2 : part.length / ms; lot = 0;
+            for (const [k, v] of Object.entries(r || {})) { if (typeof v === 'number') res[k] = (res[k] || 0) + v; else if (!(k in res)) res[k] = v }
+            done += part.length; card.set(done, n);
+          }
+        } finally { clearInterval(tick) }
       } catch (e) {
         HX.bulk = 0;
         card.fail(`Đã ${del ? 'xoá' : 'cập nhật'} ${nf(done)} / ${nf(n)} dòng rồi dừng: ${e && e.message || e}`);
-        try { await load(); renderAll() } catch (x) { /* bỏ qua */ }
+        HX.direct = (HX.direct || 0) + 1; try { await load(); renderAll() } catch (x) { /* bỏ qua */ } finally { HX.direct-- }
         throw e;
       }
       HX.bulk = 0;
-      card.stage('Đang cập nhật bảng');
       try { HX.v = HX.selfVer = await verNow() } catch (e) { /* bỏ qua */ }
-      await load(); if (document.querySelector('#modal .sg') && typeof drawSettings === 'function') drawSettings(); renderAll();
-      card.ok(`${del ? 'Đã xoá' : 'Đã cập nhật'} ${nf(n)} dòng`);
+      let st;
+      try { st = await hxSettle(path, body, card) }
+      catch (e) { card.fail(`Đã ghi xong ${nf(n)} dòng nhưng chưa tải lại được bảng: ${e && e.message || e}. Bấm F5 để xem dữ liệu mới.`); throw e }
       OVL.ts = 0;
+      if (st.bad.length) card.fail(`Đã ghi ${nf(n)} dòng, ${nf(st.bad.length)} dòng hiện khác giá trị vừa sửa (có thể vừa bị người khác sửa tiếp). Mở lịch sử dòng để xem.`);
+      else card.ok(`${del ? 'Đã xoá' : 'Đã cập nhật'} ${nf(n)} dòng`);
       if (RT2.again) pushApply();
       return res;
     } }
@@ -595,6 +811,8 @@
       hd.querySelectorAll('th.pk').forEach(th => { if (th.dataset.k === String(pk.id)) return; const f = I.field[th.dataset.k], sv = th.querySelector('svg'); th.classList.remove('pk'); if (f && sv) sv.outerHTML = ico(f.type === 'link' ? (I.tab[f.link_tab] && I.tab[f.link_tab].icon || 'link') : TYPEIC[f.type], 13) });
       const th = hd.querySelector(`th[data-k="${pk.id}"]`); if (th && !th.classList.contains('pk')) { th.classList.add('pk'); const sv = th.querySelector('svg'); if (sv) sv.outerHTML = ico('key', 13) }
     }
+    const tip = { outl: 'Phụ thuộc — dòng này cần / dựa vào các dòng nó trỏ tới (email khôi phục, SĐT xác minh, UID Admin…)', links: 'Dùng cho — các dòng khác đang dùng dòng này (vd. email này là email xác minh của 3 Facebook)' };
+    for (const k in tip) { const th = hd.querySelector(`th[data-k="${k}"]`); if (th && !th.title) th.title = tip[k] }
     applyCW();
   }
   { const _rb = renderBody; renderBody = function () { const t = I.tab && I.tab[S.tab], r = withPos(t, () => _rb.apply(this, arguments)); fixHead(); return r } }
@@ -816,4 +1034,58 @@
       const sp2 = document.querySelector('#modal .spane'); if (sp2 && top) sp2.scrollTop = top;
       seFoot(); return r;
     } }
+
+  /* ── 13. Thao tác trên dữ liệu lớn: không mất chỗ đang nhìn, không bấm chồng ──
+     · Sắp xếp / lọc / sửa / dữ liệu mới về: bản gốc dựng lại khung bảng → giữ cuộn dọc nhưng cuộn ngang về đầu.
+       Giờ cùng 1 bảng thì giữ cả 2 chiều. Đổi sắp xếp / bộ lọc → giữ nguyên vị trí cuộn; dữ liệu đổi (sửa, thêm, thời gian thực) →
+       neo theo dòng đang ở đầu màn hình, dòng mới chen phía trên không đẩy lệch chỗ đang xem. Làm mới / chuyển trang vẫn lên đầu như cũ.
+     · Đang ghi (lưu, sửa hàng loạt, đổi trạng thái / owner, xoá, nhập…) > 0,2 giây: lớp phủ nhẹ chặn bấm + phím, thẻ tiến trình góc dưới;
+       xong tự tắt (im lặng), lỗi → báo rõ. Thao tác rất lớn đã có thẻ tiến độ riêng (mục 9) → chỉ thêm lớp phủ. */
+  const viewSig = () => JSON.stringify([S.sort && S.sort[S.tab], S.q, S.fl && S.fl[S.tab], [...(S.st || [])], [...(S.tf || [])], S.dept, S.owner, S.devf, S.idf, S.page]);
+  const VW = { sig: {} };   // bộ lọc / sắp xếp lần vẽ trước của từng tab (bản gốc còn dựng sẵn ngầm các tab khác)
+  { const _rb = renderBody; renderBody = function () {
+      const tw0 = document.querySelector('#main #tw'), same = !!tw0 && tw0.dataset.hxTab === String(S.tab) && isTbl() && !ovOn();
+      const L = tw0 ? tw0.scrollLeft : 0, T = tw0 ? tw0.scrollTop : 0, sig = viewSig(), sameView = sig === VW.sig[S.tab];
+      let anc = null;   // dòng đang ở đầu vùng nhìn
+      if (same && sameView && typeof VROWH === 'number' && S.view && S.view.length) { const i = Math.min(S.view.length - 1, Math.floor(T / VROWH)); anc = { id: S.view[i], off: T - i * VROWH } }
+      const r = _rb.apply(this, arguments);
+      const tw = document.querySelector('#main #tw'), reset = (typeof RL !== 'undefined' && RL) || HX.reloading || S.scrollTo != null;
+      if (tw && same && !reset) {
+        if (tw.scrollLeft !== L) tw.scrollLeft = L;
+        if (anc) { const j = S.view.indexOf(anc.id); if (j >= 0) { const nt = j * VROWH + anc.off; if (Math.abs(tw.scrollTop - nt) > 1) { tw.scrollTop = nt; if (typeof renderWindow === 'function') renderWindow(true) } } }
+      }
+      if (tw) tw.dataset.hxTab = String(S.tab);
+      VW.sig[S.tab] = sig;
+      return r;
+    } }
+  const BUSY = { n: 0, el: null, card: null, t: 0, big: 0 };
+  const VERB = { delete_accounts: 'Đang xoá', delete: 'Đang xoá', quick: 'Đang thêm', bulk: 'Đang nhập', status_set: 'Đang đổi trạng thái', owner_set: 'Đang chuyển owner',
+    device_set: 'Đang gán thiết bị', mass_set: 'Đang cập nhật', rows_set: 'Đang cập nhật', device_bulk: 'Đang cập nhật thiết bị' };
+  const nRows = b => b && (Array.isArray(b.ids) ? b.ids.length : Array.isArray(b.items) ? b.items.length : Array.isArray(b.rows) ? b.rows.length : 1) || 1;
+  function busyOn(path, body) {
+    if (BUSY.n++ > 0) return;
+    const n = nRows(body), big = BIGOPS[path] && n > BIG_MIN;
+    const label = (VERB[path] || (path === 'account' ? (body && body.id ? 'Đang lưu' : 'Đang thêm') : 'Đang lưu')) + (n > 1 ? ` ${nf(n)} dòng` : '');
+    BUSY.t = setTimeout(() => {
+      const el = BUSY.el = document.createElement('div'); el.className = 'hx-busy'; el.setAttribute('aria-busy', 'true'); el.title = label + '…'; document.body.appendChild(el);
+      if (!big) { BUSY.card = opCard(label, false); BUSY.card.el.classList.add('hx-spin', 'hx-top'); BUSY.card.stage('Đang ghi'); BUSY.card.set(0, 0, n > 1 ? `${nf(n)} dòng` : ''); BUSY.card.el.querySelector('.ldw-p').textContent = '' }
+      else document.querySelectorAll('.ldw.hx-op').forEach(x => x.classList.add('hx-top'));
+    }, 180);
+  }
+  function busyOff(err) {
+    if (--BUSY.n > 0) return;
+    clearTimeout(BUSY.t); if (BUSY.el) { BUSY.el.remove(); BUSY.el = null }
+    const c = BUSY.card; BUSY.card = null;
+    if (c) { if (err) c.fail(String(err && err.message || err).slice(0, 160)); else c.close() }
+  }
+  { const _m = mut; mut = async function (path, body) {
+      busyOn(path, body);
+      // ghi nhiều dòng: nạp lại thẳng từ máy chủ (chắc chắn đủ), không ghép từ các phần đã đẩy qua thời gian thực
+      const many = nRows(body) > 1; if (many) HX.direct = (HX.direct || 0) + 1;
+      try { const r = await _m.apply(this, arguments); busyOff(); return r }
+      catch (e) { busyOff(e); throw e }
+      finally { if (many) HX.direct-- }
+    } }
+  /* đang ghi: chặn phím (gõ, Enter, phím tắt) để không ra lệnh chồng; F5 / Ctrl+R vẫn dùng được */
+  addEventListener('keydown', e => { if (!BUSY.el) return; if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && /^r$/i.test(e.key))) return; e.preventDefault(); e.stopImmediatePropagation() }, true);
 })();

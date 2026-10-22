@@ -30,18 +30,26 @@ export async function run<R = unknown>(query: PromiseLike<{ data: unknown; error
   return data as R;
 }
 
-/** Lỗi do DB chưa có migration 128_hs_accountshs (hàm/bảng mới chưa tạo) — bản chạy local xem trước khi deploy vẫn dùng được phần còn lại. */
+/** Lỗi do DB chưa chạy sql/hs_accountshs.sql (hàm/bảng mới chưa tạo) — phần còn lại vẫn dùng được (có đường dự phòng). */
 const MISSING = /PGRST20[25]|Could not find the (function|table)|(function|relation) [^ ]*ahs_\w+[^ ]* does not exist/i;
 export const isMissing = (e: unknown) => e instanceof Error && MISSING.test(e.message);
-export class NeedMigration extends HsError { constructor() { super("Chức năng này cần cập nhật DB: migration 128_hs_accountshs (release với -ExpectMigrations 128).", 503); } }
+export class NeedMigration extends HsError { constructor() { super("Chức năng này cần cập nhật DB: chạy moduleHS/accountshs/sql/hs_accountshs.sql trên Supabase.", 503); } }
 function explain(m: string) {
-  if (MISSING.test(m)) return "Chức năng này cần cập nhật DB: migration 128_hs_accountshs (release với -ExpectMigrations 128). (" + m + ")";
+  if (MISSING.test(m)) return "Chức năng này cần cập nhật DB: chạy moduleHS/accountshs/sql/hs_accountshs.sql trên Supabase. (" + m + ")";
   return m;
 }
 /** Chạy truy vấn; nếu DB chưa có migration thì trả `fallback` (hàm) thay vì lỗi. */
 export async function orMissing<R>(p: Promise<R>, fallback: () => R | Promise<R>): Promise<R> {
   try { return await p; } catch (e) { if (isMissing(e)) return fallback(); throw e; }
 }
+/** Lệnh ghi đang chạy trong tiến trình này (thời điểm bắt đầu). Dòng ghi có `updated` = lúc bắt đầu nhưng chỉ thấy được khi xong
+ *  (sửa hàng loạt có thể vài giây) → mốc `ts` trả cho trình duyệt / dòng thời gian thực không bao giờ vượt quá lệnh ghi còn dở,
+ *  lần hỏi sau vẫn lấy lại các dòng đó (không bao giờ sót; trùng thì trình duyệt gộp). */
+const INFLIGHT = new Map<number, Epoch>();
+let inflightN = 0;
+export function writeBegin(): number { const k = ++inflightN; INFLIGHT.set(k, now()); return k; }
+export function writeEnd(k: number) { INFLIGHT.delete(k); }
+export function safeTs(t: Epoch = now()): Epoch { let m = t; for (const v of INFLIGHT.values()) if (v < m) m = v; return m; }
 /** ahs_ver.n + 1 — để bộ đệm (Cú vọ, client) biết có thay đổi. Có migration thì trigger tự tăng; tăng thêm cũng vô hại. */
 /** feed.ts đăng ký vào đây: ghi xong là đẩy thay đổi cho mọi trình duyệt ngay, không chờ nhịp hỏi. */
 export const BUMP: { fn: null | (() => void) } = { fn: null };
@@ -53,13 +61,14 @@ export async function bumpVer() {
 
 /** PostgREST trả tối đa max_rows (supabase/config.toml: 1000) dòng mỗi lần → đọc hết theo trang. `q` phải sắp theo khoá duy nhất; `max` = giới hạn tổng. */
 export const PAGE = 1000;
-export async function pages<R>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>, max = Infinity): Promise<R[]> {
-  // trang đầu đọc 1 mình (bảng nhỏ chỉ tốn 1 lượt); còn nữa thì đọc 4 trang song song mỗi đợt, giữ đúng thứ tự
+const WAVE = 4;
+export async function pages<R>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>, max = Infinity, wave = WAVE): Promise<R[]> {
+  // trang đầu đọc 1 mình (bảng nhỏ chỉ tốn 1 lượt); còn nữa thì đọc `wave` trang song song mỗi đợt (mặc định 4), giữ đúng thứ tự
   const n0 = Math.min(PAGE, max), out = await run<R[]>(q(0, n0 - 1));
   if (out.length < n0) return out;
-  for (let from = PAGE; from < max; from += PAGE * WAVE) {
+  for (let from = PAGE; from < max; from += PAGE * wave) {
     const part: Array<Promise<{ rows: R[]; n: number }>> = [];
-    for (let k = 0; k < WAVE && from + k * PAGE < max; k++) {
+    for (let k = 0; k < wave && from + k * PAGE < max; k++) {
       const f = from + k * PAGE, n = Math.min(PAGE, max - f);
       part.push(run<R[]>(q(f, f + n - 1)).then((rows) => ({ rows, n })));
     }
@@ -67,7 +76,6 @@ export async function pages<R>(q: (from: number, to: number) => PromiseLike<{ da
   }
   return out;
 }
-const WAVE = 4;
 
 /** select * from <t> order by pos,id — thứ tự chuẩn của mọi bảng meta. */
 export function allOrdered<R>(t: TableKey, order: "pos" | "id" = "pos"): Promise<R[]> {

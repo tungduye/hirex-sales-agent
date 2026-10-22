@@ -159,7 +159,7 @@ test('phase 2 proposals follow permissions and validate arguments', () => {
   assert.deepEqual(names(['tasks.view', 'contacts.view', 'campaigns.view']), [], 'view-only members get no proposals');
   assert.deepEqual(names(['tasks.create', 'contacts.update']), ['de_xuat_tao_cong_viec', 'de_xuat_doi_trang_thai_lead', 'de_xuat_sua_lien_he', 'de_xuat_ghi_chu_lien_he']);
   assert.deepEqual(names(['campaigns.launch']), ['de_xuat_dieu_khien_chien_dich']);
-  assert.deepEqual(names([], true), ['de_xuat_dung_ai_recruiter']);
+  assert.deepEqual(names([], true), ['de_xuat_out_thanh_vien_nhom', 'de_xuat_dung_ai_recruiter']);
   const all = toolsFor(['tasks.create', 'contacts.update', 'campaigns.launch', 'content.create'], true);
   const id = '11111111-2222-4333-8444-555555555555';
   assert.equal(parseToolCall('de_xuat_dung_ai_recruiter', JSON.stringify({ doi_tuong: 'HOI_THOAI', id, hanh_dong: 'DUNG_KHAN_CAP' }), all).ok, false, 'emergency stop is bot-only');

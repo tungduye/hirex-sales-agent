@@ -22,6 +22,7 @@ const FIND_BY_PHONE_PATH="/v1/zalo/users/find-by-phone";
 const FRIEND_REQUEST_PATH="/v1/zalo/friend-requests/send";
 const REACT_PATH="/v1/messages/react";
 const GROUP_NOTE_PATH="/v1/groups/notes";
+const GROUP_REMOVE_PATH="/v1/groups/members/remove";
 const SEND_TIMEOUT_MS=20_000;
 // A file is downloaded by the bridge and uploaded to Zalo before it answers (the bridge itself gives up after 75 s).
 const FILE_SEND_TIMEOUT_MS=85_000;
@@ -268,6 +269,16 @@ export class ZaloBridgeAdapter implements ChannelAdapter {
       throw new ChannelError("DELIVERY_REJECTED", false);
     const result = await this.contactRequest(GROUP_NOTE_PATH, { groupId: input.groupId, kind: input.kind, text: input.text, messageId: input.messageId }, idempotencyKey, "AI_AUTOMATION");
     return result.status === "PINNED";
+  }
+
+  /** People removed from a group by this nick (its deputy), after a HireX admin confirmed the list. */
+  async removeGroupMembers(input: { groupId: string; memberIds: string[] }, idempotencyKey: string): Promise<{ status: "REMOVED"; failedMemberIds: string[] } | { status: "FAILED"; errorCode: "NOT_GROUP_ADMIN" | "PROVIDER_FAILED" }> {
+    if (!isString(input.groupId, 512) || !input.memberIds.length || input.memberIds.length > 50 || new Set(input.memberIds).size !== input.memberIds.length ||
+        !input.memberIds.every((id) => /^[0-9]{1,40}$/u.test(id)) || input.memberIds.includes(this.credential.bridgeAccountId) || !/^group-remove:[0-9a-f-]{36}$/u.test(idempotencyKey))
+      throw new ChannelError("DELIVERY_REJECTED", false);
+    const result = await this.contactRequest(GROUP_REMOVE_PATH, { groupId: input.groupId, memberIds: input.memberIds }, idempotencyKey, "AI_AUTOMATION");
+    if (result.status === "REMOVED" && Array.isArray(result.failedMemberIds)) return { status: "REMOVED", failedMemberIds: result.failedMemberIds.filter((id): id is string => typeof id === "string") };
+    return { status: "FAILED", errorCode: result.errorCode === "NOT_GROUP_ADMIN" ? "NOT_GROUP_ADMIN" : "PROVIDER_FAILED" };
   }
 
   async sendFriendRequest(userId: string, message: string, idempotencyKey: string) {

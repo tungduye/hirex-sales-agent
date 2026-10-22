@@ -39,6 +39,14 @@ def hirex(h):
     h = h.replace('/style/theme/', P + 'theme/').replace("'/owl?", "'" + P + "owl-page?")
     return h.replace("['/vendor/quill/quill.js','/vendor/quill/quill.core.css'],", '')   # không có /vendor: Quill nạp từ CDN như bản gốc khi thiếu file
 
+# Tên dễ hiểu cho 2 chiều liên kết (thay đúng chuỗi hiển thị của bản gốc, không đổi logic):
+#   Liên kết đi  → "Phụ thuộc"  (dòng này cần / dựa vào các dòng nó trỏ tới: email khôi phục, SĐT xác minh, UID Admin…)
+#   Liên kết đến → "Dùng cho"   (các dòng khác đang dùng dòng này: email này xác minh cho 3 Facebook…)
+REN = [('Mũi tên liên kết đi', 'Mũi tên "Phụ thuộc"'), ('Mũi tên liên kết đến', 'Mũi tên "Dùng cho"'), ('Liên kết đến', 'Dùng cho'), ('Liên kết đi', 'Phụ thuộc')]
+for a_, b_ in REN:
+    assert a_ in H, a_
+    H = H.replace(a_, b_)
+
 # Vá thêm của HireX (ui/hirex-patch.css + .js): nạp sau CSS/JS gốc, chỉ bọc hàm của bản gốc
 PJ = open(os.path.join(OUT, 'hirex-patch.js'), encoding='utf8').read()
 PC = open(os.path.join(OUT, 'hirex-patch.css'), encoding='utf8').read()

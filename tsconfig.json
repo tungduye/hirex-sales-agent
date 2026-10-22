@@ -361,7 +361,9 @@
     ".next-suoi-nguon-dot-3/types/**/*.ts",
     ".next-suoi-nguon-dot-3/dev/types/**/*.ts",
     ".next-suoi-nguon-dot-3-sua/types/**/*.ts",
-    ".next-suoi-nguon-dot-3-sua/dev/types/**/*.ts"
+    ".next-suoi-nguon-dot-3-sua/dev/types/**/*.ts",
+    ".next-soda-dem-suoi-nguon-sua/types/**/*.ts",
+    ".next-soda-dem-suoi-nguon-sua/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

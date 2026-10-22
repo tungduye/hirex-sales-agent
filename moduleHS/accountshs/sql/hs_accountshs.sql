@@ -306,6 +306,37 @@ $f$;
 revoke all on function ahs_patch_accounts(jsonb) from public, anon, authenticated;
 grant execute on function ahs_patch_accounts(jsonb) to service_role;
 
+-- Sửa hàng loạt (rows_set / mass_set) ngay trong Postgres: mỗi phần tử là một bản vá
+--   {id, set?: {field_id: "giá trị"}, del?: [field_id], note?, note_add? (nối thêm), status_id?, owner_id?, dept_id?, device_id?} — khoá vắng mặt thì giữ nguyên.
+-- Trường chỉ nhận khi thuộc đúng tab của dòng (không phải link/file); trạng thái phải thuộc tab của dòng (khác tab thì giữ nguyên).
+-- Không phải đọc dòng về máy chủ: 1 lệnh cho cả lô, trigger lịch sử (ahs_acc_hist) vẫn giữ bản cũ của từng dòng.
+create or replace function ahs_rows_merge(p_items jsonb, p_ts double precision)
+returns integer language sql as $f$
+  with r as (select (x->>'id')::bigint id, x from jsonb_array_elements(p_items) x),
+  u as (
+    update ahs_accounts a set
+      data = case when r.x ? 'set' or r.x ? 'del' then
+          (a.data || coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(coalesce(r.x->'set', '{}'::jsonb)) e
+                                 join ahs_fields f on f.id::text = e.key and f.tab_id = a.tab_id and coalesce(f.type, 'text') not in ('link', 'file')), '{}'::jsonb))
+          - coalesce((select array_agg(k) from jsonb_array_elements_text(coalesce(r.x->'del', '[]'::jsonb)) k
+                        join ahs_fields f on f.id::text = k and f.tab_id = a.tab_id and coalesce(f.type, 'text') not in ('link', 'file')), '{}'::text[])
+        else a.data end,
+      note = case when r.x ? 'note_add' then case when coalesce(a.note, '') = '' then '' else a.note || E'\n' end || (r.x->>'note_add')
+                  when r.x ? 'note' then coalesce(r.x->>'note', '') else a.note end,
+      status_id = case when r.x ? 'status_id' and (jsonb_typeof(r.x->'status_id') = 'null'
+                         or exists (select 1 from ahs_statuses s where s.id = (r.x->>'status_id')::bigint and s.tab_id = a.tab_id))
+                       then (r.x->>'status_id')::bigint else a.status_id end,
+      owner_id  = case when r.x ? 'owner_id'  then (r.x->>'owner_id')::bigint  else a.owner_id end,
+      dept_id   = case when r.x ? 'dept_id' and jsonb_typeof(r.x->'dept_id') <> 'null' then (r.x->>'dept_id')::bigint else a.dept_id end,
+      device_id = case when r.x ? 'device_id' then (r.x->>'device_id')::bigint else a.device_id end,
+      updated   = p_ts
+    from r where a.id = r.id
+    returning 1)
+  select count(*)::integer from u;
+$f$;
+revoke all on function ahs_rows_merge(jsonb, double precision) from public, anon, authenticated;
+grant execute on function ahs_rows_merge(jsonb, double precision) to service_role;
+
 -- Tổng quan: đếm cả tab "tải riêng" chưa nạp (gom theo tab/bộ phận/owner/tình trạng; nn = tạo mới trong khoảng).
 create or replace function ahs_ov_counts(p_tabs bigint[], p_since double precision, p_until double precision)
 returns table(t bigint, d bigint, o bigint, s bigint, n bigint, nn bigint) language sql stable as $f$
