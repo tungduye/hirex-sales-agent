@@ -271,12 +271,13 @@ export async function getLogs(qs: string, limit: number | string): Promise<{ row
 }
 export type OwnLogRow = { id: Id; ts: number; acc_id: Id | null; tab_id: Id | null; kind: string; old: string | null; new: string | null; src: string; by_name: string | null; cause: string | null; origin: string | null };
 /** Nhật ký "Tình trạng sở hữu" (bảng ahs_own_log do trigger ghi — sql hs_accountshs): mới nhất trước, trang theo id (before).
- *  f = nguồn: user (người dùng sửa) · match (tự khớp theo xác minh) · vonggac (Vọng gác đổi trạng thái + các lần tự khớp do nó) · crm · khac.
+ *  f = nguồn: user (người dùng sửa) · match (tự khớp, trừ phần do Vọng gác / CRM) · vonggac (Vọng gác + tự khớp do nó) · crm · khac.
  *  Chưa chạy SQL (chưa có bảng) → rỗng, ready = false. */
 export async function getOwnLog(f: string, kind: string, tab: string, before: string, limit: string): Promise<{ rows: OwnLogRow[]; ready: boolean }> {
   const lim = Math.max(1, Math.min(parseInt(limit || "300", 10) || 300, 2000));
   let q = sb().from("ahs_own_log").select("*").order("id", { ascending: false }).limit(lim);
-  if (f === "user" || f === "match") q = q.eq("src", f);
+  if (f === "user") q = q.eq("src", f);
+  else if (f === "match") q = q.eq("src", "match").or("origin.is.null,origin.not.in.(vonggac,crm)");   // Tự động: trừ phần do Vọng gác / CRM
   else if (f === "vonggac" || f === "crm") q = q.or(`src.eq.${f},origin.eq.${f}`);
   else if (f === "khac") q = q.in("src", ["khac", "owl"]);
   if (kind === "own" || kind === "status") q = q.eq("kind", kind);

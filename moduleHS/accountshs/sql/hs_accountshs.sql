@@ -400,32 +400,38 @@ begin
   insert into ahs_own_sc select distinct l.src from ahs_links l join ahs_fields f on f.id = l.field_id and f.type = 'link'
     join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
     join ahs_fields o2 on o2.tab_id = f.link_tab and coalesce(o2.type, 'text') = 'select' and lower(btrim(o2.label)) = 'tình trạng sở hữu'
-   where (p_src is null and p_dst is null) or l.src = any(p_src) or l.dst = any(p_dst) on conflict do nothing;
+   where (p_src is null and p_dst is null)
+      or l.src in (select unnest(p_src)) or l.dst in (select unnest(p_dst)) on conflict do nothing;   -- in (unnest) → dùng chỉ mục, nhanh với mảng lớn
+  analyze ahs_own_sc;   -- bảng tạm chưa có thống kê → planner chọn sai (nested loop) khi phạm vi lớn
   loop
     i := i + 1;
+    if i > 1 then analyze ahs_own_w; end if;
     with o as (select tab_id, id::text fid from ahs_fields where coalesce(type, 'text') = 'select' and lower(btrim(label)) = 'tình trạng sở hữu'),
     v as (select f.id, f.label from ahs_fields f where f.type = 'link' and f.tab_id in (select tab_id from o) and f.link_tab in (select tab_id from o)),
+    kf as (select distinct on (tab_id) tab_id, id::text kid from ahs_fields where coalesce(type, 'text') not in ('select', 'link', 'secret', 'file', 'lookup') order by tab_id, pos, id),   -- cột tên của tab (ghi lý do)
     cand as (select id from ahs_own_sc),
     ev as (
-      select l.src id, l.id lid, v.label via, b.id bid, z.braw, z.bv,
-        case when z.bv = 'lâu dài' and not z.dead then 2 when not z.dead and z.bv <> 'mất' then 1 else 0 end rk
+      select l.src id, l.id lid, v.label via, b.id bid, z.braw, z.bv, z.dead,
+        case when z.bv = 'lâu dài' and not z.dead then 2 when not z.dead and z.bv <> 'mất' then 1 else 0 end rk,
+        coalesce(nullif(btrim(b.data->>kf.kid), ''), '#' || b.id) lab
       from ahs_links l join v on v.id = l.field_id join cand c on c.id = l.src
-        join ahs_accounts b on b.id = l.dst join o ob on ob.tab_id = b.tab_id
+        join ahs_accounts b on b.id = l.dst join o ob on ob.tab_id = b.tab_id left join kf on kf.tab_id = b.tab_id
         left join ahs_own_w wb on wb.id = b.id
         left join ahs_statuses st on st.id = b.status_id
         cross join lateral (select btrim(coalesce(wb.val, b.data->>ob.fid, '')) braw) y
         cross join lateral (select y.braw, lower(y.braw) bv, lower(btrim(coalesce(st.label, ''))) in ('die', 'chết', 'dead') dead) z),
-    best as (select distinct on (id) id, rk, via, bid, braw from ev order by id, rk desc, lid),
+    -- 1 lần gom theo dòng (không join CTE với nhau — planner đoán 1 dòng nên nested loop, chậm khi phạm vi lớn):
+    -- rk tốt nhất + tài nguyên tốt nhất + lý do dễ đọc liệt kê từng email / SĐT xác minh và tình trạng của nó
+    g as (select id, max(rk) rk, (array_agg(via || ' ' || lab order by rk desc, lid))[1] top,
+            left(string_agg(via || ' ' || lab || ' (' || coalesce(nullif(braw, ''), 'trống') || case when dead then ', Die' else '' end || ')', ' · ' order by rk desc, lid), 240) det
+          from ev group by id),
     calc as (
       select a.id, a.tab_id, oa.fid, btrim(coalesce(a.data->>oa.fid, '')) cur0, coalesce(wa.val, btrim(coalesce(a.data->>oa.fid, ''))) cur,
-        case b.rk when 2 then 'Lâu dài' when 1 then 'Tạm thời' else 'Mất' end val,
-        case b.rk when 0 then 'mọi xác minh đã Die / Mất'
-          else case b.rk when 2 then 'còn ' else 'chỉ còn ' end || b.via || ' ' ||
-            coalesce((select r.data->>k.id::text from ahs_accounts r join ahs_fields k on k.tab_id = r.tab_id where r.id = b.bid
-                        and coalesce(k.type, 'text') not in ('select', 'link', 'secret', 'file', 'lookup') and coalesce(r.data->>k.id::text, '') <> ''
-                      order by k.pos, k.id limit 1), '#' || b.bid)
-            || case b.rk when 2 then ' (Lâu dài)' else ' (' || coalesce(nullif(b.braw, ''), 'trống') || ')' end end cause
-      from best b join ahs_accounts a on a.id = b.id join o oa on oa.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id),
+        case g.rk when 2 then 'Lâu dài' when 1 then 'Tạm thời' else 'Mất' end val,
+        case g.rk when 2 then 'Còn ' || g.top || ' đang Lâu dài và còn sống'
+                  when 1 then 'Không còn xác minh Lâu dài nào sống: ' || g.det
+                  else 'Mọi xác minh đã Die / Mất: ' || g.det end cause
+      from g join ahs_accounts a on a.id = g.id join o oa on oa.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id),
     w as (insert into ahs_own_w(id, tab_id, fid, cur, val, cause)
           select id, tab_id, fid, cur0, val, cause from calc
            cross join lateral (select case lower(cur) when 'lâu dài' then 2 when 'mất' then 0 else 1 end crk,
@@ -440,7 +446,7 @@ begin
       idle := 0;
       insert into ahs_own_sc select distinct l.src from ahs_links l join ahs_fields f on f.id = l.field_id and f.type = 'link'
         join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
-       where l.dst = any(up) on conflict do nothing;
+       where l.dst in (select unnest(up)) on conflict do nothing;
     end if;
     exit when i >= 60;
   end loop;

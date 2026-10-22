@@ -2,7 +2,7 @@ import "server-only";
 import { approvedIntroReply, withoutQuestionMarks } from "../core/approved-intro-flow";
 import { initialRecruiterOpening, withFirstGreeting } from "../core/recruiter-opening";
 import { recoverIntroMemory } from "../core/intro-memory";
-import { CV_REQUEST, jobIntroduction, nextJobIntroduction, nextScriptJob, SALARY_QUESTION, salaryFollowup } from "../core/recruiter-script";
+import { CV_REQUEST, jobIntroduction, nextJobIntroduction, nextScriptJob, SALARY_QUESTION, salaryFollowup, salaryInText, startDateInText } from "../core/recruiter-script";
 import { introductionQuestion, missingIntroField } from "../core/profile-disclosure-gate";
 import { containsJobDisclosure } from "../core/anonymous-job-preview";
 import { candidateBurst, shapeReply } from "../core/reply-shaping";
@@ -287,6 +287,21 @@ async function processRun(run: {
     const isRecruiter = String(bot.bot_type) === "RECRUITER";
     const scripted = isRecruiter && hasCoreProfile && !rejectionOverride && !result.handoffRequested && !result.stopBot &&
       !["process_question", "complaint", "cv_shared"].includes(result.intent);
+    // Salary and start date are also read from the candidate's own words, so a step never depends on the model
+    // having filed them as facts.
+    const lastBotText = [...contextMessages].reverse().find((message) => message.role === "OUTBOUND")?.text ?? "";
+    if (isRecruiter && lastOfferedJob) {
+      const salary = supportedFacts.find((fact) => fact.fieldKey === "expected_salary")?.value ?? result.profileUpdates.expected_salary ?? salaryInText(latestText);
+      if (typeof salary === "string" && salary.trim() && !supportedFacts.some((fact) => fact.fieldKey === "expected_salary")) {
+        profileBase.expected_salary = salary.trim();
+        supportedFacts.push({ fieldKey: "expected_salary", value: salary.trim(), confidence: "EXPLICIT", evidenceQuote: salary.trim() } as (typeof supportedFacts)[number]);
+      }
+      const start = startDateInText(latestText, lastBotText);
+      if (start && !supportedFacts.some((fact) => fact.fieldKey === "availability")) {
+        profileBase.availability = start;
+        supportedFacts.push({ fieldKey: "availability", value: start, confidence: "EXPLICIT", evidenceQuote: start } as (typeof supportedFacts)[number]);
+      }
+    }
     const learnedNow = (key: string) => supportedFacts.some((fact) => fact.fieldKey === key);
     if (scripted && offeredJobIds.length === 0) {
       const job = nextScriptJob(profileBase, jobs ?? [], offeredJobIds, eligibleJobIds);
@@ -361,6 +376,10 @@ async function processRun(run: {
           : `Em còn vị trí ${alternative.job_title} tại ${alternative.company_name} ở ${alternative.location}${salary}. Anh xem hướng này có phù hợp với mình không nhé.`;
       }
     }
+    // While the script runs, the model may talk about the job already offered but never brings in another one on its
+    // own: the next job comes only after the candidate says why this one does not fit (above).
+    if (scripted && lastOfferedJob && !guidedAlternative)
+      jobMatches = jobMatches.filter((match) => match.jobId === lastOfferedJob.external_job_id);
     const learnedSalary =
       supportedFacts.some((fact) => fact.fieldKey === "expected_salary") || result.profileUpdates.expected_salary !== null;
     const selectedMatchJob = (jobs ?? []).find((job) => job.external_job_id === (jobMatches[0]?.jobId ?? result.selectedJobId));
@@ -413,7 +432,13 @@ async function processRun(run: {
     const introReply = plannedIntro && lastOutbound && sameAsLast(plannedIntro)
       ? (modelReply && !containsJobDisclosure(modelReply, jobs ?? []) && !sameAsLast(modelReply) ? modelReply : introductionQuestion(profileBase) ?? plannedIntro)
       : plannedIntro;
-    const gatedParts = introReply ? [introReply] : unsupportedOffer ? [clarificationReply(profileBase)] : replyParts;
+    // Mid-script, a reply that wandered to another job is replaced by the script's next question, not a generic one.
+    const scriptNext = scripted && lastOfferedJob
+      ? !profileBase.expected_salary ? SALARY_QUESTION
+        : !profileBase.availability ? "Anh dự kiến có thể bắt đầu công việc mới từ thời điểm nào nhé."
+        : profileBase.cv_received !== true ? CV_REQUEST : null
+      : null;
+    const gatedParts = introReply ? [introReply] : unsupportedOffer ? [scriptNext ?? clarificationReply(profileBase)] : replyParts;
     const shapedParts = (guidedCollection ? [guidedCollection] : shapeReply(gatedParts.map(humanizeRecruiterReply), run.id)).map(
       withoutQuestionMarks,
     );

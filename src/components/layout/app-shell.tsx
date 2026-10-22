@@ -18,9 +18,9 @@ const SIDEBAR_KEY = "hirex.sidebarCollapsed";
 export function AppShell({ children, account, workspaceAdmin }: { children: ReactNode; account: AccountContext; workspaceAdmin: boolean }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
-  // Suối Nguồn uses the whole screen (no page padding or max width) so the composer stays in view;
+  // Tổng quan (HireX HQ) and Suối Nguồn use the whole screen (no page padding or max width) so the composer stays in view;
   // so does "Tài nguyên", which shows the account manager site inside HireX.
-  const fullBleed = pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/utilities" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
+  const fullBleed = pathname === "/" || pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/utilities" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
   // "Tài nguyên" has its own toolbar: hide the top bar on desktop (phones keep it for the menu button).
   const noTopBar = pathname === "/accounts";
   // The main menu can shrink to an icon column; the choice is remembered in this browser.

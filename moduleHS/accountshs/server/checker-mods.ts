@@ -404,6 +404,52 @@ const fbWorker: CheckerMeta[] = [
     extra: [{ k: "comments", label: "Số bình luận", type: "number", icon: "chat", match: ["so binh luan", "binh luan", "so comment", "comment", "comments", "so cmt", "cmt"], hint: "Ghi khi bài Live" }], threads: 5, timeout: 15 },
 ];
 
+/* ───────── Facebook / FB Page chạy ngay trong máy chủ (khi chưa có worker Python) ─────────
+   Live / Die giống hệt checkfb.py: graph.facebook.com/<uid>/picture?redirect=false (API JSON thường, không cần curl_cffi):
+   có "height" / ảnh thật = Live · ảnh trống rsrc.php = Die · 400/404 = Die · bị giới hạn (mã 4/17/32/341/613, 403/429) / lỗi mạng = giữ nguyên.
+   Đọc tên (facebook.com/<uid>) cần giả trình duyệt → chỉ worker làm; chế độ này không ghi tên. */
+const FB_UAS = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"];
+const FB_RATE = new Set([4, 17, 32, 341, 613]);
+const fbUid = (v: string) => (/(\d{5,20})/.exec(String(v || "")) || [])[1] || "";
+async function fbGraph(uid: string, opt: CheckOpt): Promise<CheckOut | null> {
+  const r = await fetch(`https://graph.facebook.com/${uid}/picture?redirect=false&type=normal`, {
+    headers: { "User-Agent": FB_UAS[Math.floor(Math.random() * FB_UAS.length)], Accept: "application/json" },
+    signal: AbortSignal.timeout(Math.max(3, Number(opt.timeout) || 12) * 1000) });
+  const code = r.status; let j: { error?: { code?: number }; data?: { height?: number; url?: string } } = {};
+  try { j = JSON.parse((await r.text()).slice(0, 20000) || "{}"); } catch { j = {}; }
+  if (j.error) {
+    if (FB_RATE.has(Number(j.error.code)) || code === 429 || code === 403) return { res: "error", info: "Facebook giới hạn tốc độ (giảm luồng / dùng proxy)" };
+    if (code === 400 || code === 404) return { res: "die", info: "Die · UID không tồn tại" };
+    return null;
+  }
+  const d = j.data;
+  if (code === 200 && d && typeof d === "object") {
+    const url = String(d.url || "");
+    if (d.height || (url && !url.includes("rsrc.php"))) return { res: "live", info: "Live" };
+    if (url.includes("rsrc.php")) return { res: "die", info: "Die · không khả dụng" };
+  }
+  if (code === 400 || code === 404) return { res: "die", info: "Die · " + code };
+  return null;
+}
+const fbNode = (meta: CheckerMeta): CheckerMod => ({
+  CHECKER: meta,
+  async check(value, opt) {
+    const uid = fbUid(value); if (!uid) return { res: "error", info: "UID không hợp lệ" };
+    let why = "";
+    for (let i = 0; i < 2; i++) {                                                   // lỗi mạng → thử lại 1 lần
+      if (opt.stopped?.()) return { res: "error", info: "Đã dừng" };
+      try { const r = await fbGraph(uid, opt); if (r) return r.res === "live" ? { ...r, info: "Live (chế độ máy chủ · chưa đọc tên)" } : r; why = "Graph không rõ"; }
+      catch (e) { why = e instanceof Error ? (e.name === "TimeoutError" ? "hết thời gian chờ" : e.message.slice(0, 60)) : "lỗi mạng"; }
+      await new Promise((ok) => setTimeout(ok, 500));
+    }
+    return { res: "error", info: why || "lỗi mạng" };
+  },
+});
+/** checker worker nào chạy được ngay trong máy chủ khi worker Python chưa bật (Bài đăng FB cần giả trình duyệt → không có) */
+export const NODE_FALLBACK: Record<string, CheckerMod> = Object.fromEntries(
+  fbWorker.filter((m) => m.id === "fb" || m.id === "fbpage").map((m) => [m.id, fbNode(m)]));
+
 export const MODS: CheckerMod[] = [gmail, proxy, telegram];
 export const WORKER_METAS = fbWorker;
 export const MOD_MAP: Record<string, CheckerMod> = Object.fromEntries(MODS.map((m) => [m.CHECKER.id, m]));

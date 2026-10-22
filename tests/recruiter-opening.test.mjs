@@ -19,3 +19,4 @@ test('the first reply always greets, later replies do not',()=>{
  assert.deepEqual(withFirstGreeting([recruiterOpening],[inbound('hi em')]),[recruiterOpening],'opening already greets');
  assert.deepEqual(withFirstGreeting(reply,[inbound('hi'),{role:'OUTBOUND',text:recruiterOpening},inbound('brse')]),reply);
 });
+test('greetings with Vietnamese marks',()=>{for(const text of ['hêlo em','Chào em ạ','xin chào anh'])assert.equal(initialRecruiterOpening([inbound(text)],{}),recruiterOpening,text);});

@@ -1,19 +1,19 @@
 import { Suspense } from "react";
-import { DashboardView } from "@/modules/crm/dashboard/components/dashboard-view";
-import { getDashboardData } from "@/modules/crm/dashboard/server/get-dashboard-data";
+import { HqView } from "@/modules/crm/dashboard/components/hq-view";
+import { getHqData } from "@/modules/crm/dashboard/server/hq-data";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { DailyBriefSkeleton } from "@/modules/assistant/components/daily-brief-card";
 import { DailyBriefSection } from "@/modules/assistant/components/daily-brief-section";
 
-export default async function DashboardPage() {
-  const [data, account] = await Promise.all([
-    getDashboardData(),
-    getAccountContext(),
-  ]);
-
+// Tổng quan = HireX HQ (mức 1): live numbers from Suối Nguồn, Lịch hẹn, Chiến dịch, AI Recruiter and CV,
+// each part shown only to members with the matching right. ?tang=rec|sale narrows to one floor.
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ tang?: string }> }) {
+  const [{ tang }, account] = await Promise.all([searchParams, getAccountContext()]);
+  const data = await getHqData(tang);
+  if (!data) return null;
   // The brief streams in after the page shows; its first build of the day can take a few seconds.
   const brief = account?.permissions.includes("dashboard.view")
     ? <Suspense fallback={<DailyBriefSkeleton />}><DailyBriefSection /></Suspense>
     : null;
-  return <DashboardView fullName={account?.fullName ?? null} data={data} brief={brief} />;
+  return <HqView data={data} brief={brief} />;
 }

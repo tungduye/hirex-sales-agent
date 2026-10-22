@@ -2221,22 +2221,48 @@ html.ca-off .hx-busy{animation:none}
 .hx-owwt .chip{gap:6px}
 .hx-owwt .chip b{font-weight:600;font-variant-numeric:tabular-nums}
 
-/* Báo cáo · Nhật ký sở hữu */
-.hx-olog .hx-olf{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
-.hx-olog .hx-olf .rp-seg{flex-wrap:wrap}
-.hx-oll{display:flex;flex-direction:column;border-top:1px solid var(--ui-border)}
-.hx-olr{display:grid;grid-template-columns:64px 230px 220px 190px minmax(0,1fr);align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--ui-border);font-size:13px}
-.hx-olt{color:var(--ui-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-.hx-olc{min-width:0;overflow:hidden}
-.hx-olv{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--ui-text-2);min-width:0}
-.hx-olv small{color:var(--ui-muted)}
-.hx-olv b{font-weight:600;color:var(--ui-text)}
-.hx-olv svg{display:inline-block;flex:none;color:var(--ui-muted)}
-.hx-ols{white-space:nowrap;justify-self:start}
-.hx-olw{color:var(--ui-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hx-olx{color:var(--ui-muted)}
-.hx-oll .mbtn{margin:8px auto 2px}
-@media(max-width:900px){.hx-olr{grid-template-columns:70px minmax(0,1fr) auto}.hx-olv{grid-column:2/4}.hx-ols{grid-column:2}.hx-olw{grid-column:2/4;white-space:normal}}
+/* Báo cáo · Nhật ký sở hữu (cùng kiểu "Mới cập nhật") */
+.hx-olog h3 .rp-seg{margin-left:8px}
+.hx-olog .hx-olv{display:inline-flex;align-items:center;gap:4px;flex:none;color:var(--ui-muted);font-size:12px}
+.hx-olog .hx-olv b{font-weight:600;color:var(--ui-text)}
+.hx-olog .hx-ols{flex:none;width:110px;color:var(--ui-text-2);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hx-olog .rp-rt{width:56px;text-align:right}
+.hx-olog .hx-olx{cursor:default}
+@media(max-width:600px){.hx-olog .hx-ols{width:auto;max-width:80px}.hx-olog .hx-olv{font-size:11px}}
+
+/* Nút "?" + popup cách tính sở hữu */
+.btn.hx-q span{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1.5px solid currentColor;font-size:11px;font-weight:700;line-height:1}
+h3 .btn.hx-q{margin-left:6px;height:24px;width:24px;min-width:24px;padding:0;vertical-align:middle;text-transform:none}
+.modal.hx-qm{max-width:760px}
+.hx-qb{display:flex;flex-direction:column;gap:14px}
+.hx-qb h4{margin:4px 0 -4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted)}
+.hx-ql{margin:0;color:var(--ui-text-2);line-height:1.55;font-size:13px}
+.hx-q3{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;font-size:13px;color:var(--ui-text-2)}
+.hx-qp{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;border:1px solid var(--ui-border);background:var(--ui-surface);font-weight:600;font-size:12px;white-space:nowrap;justify-self:start}
+.hx-qp::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ui-muted)}
+.hx-qp.g::before{background:var(--ui-success)}.hx-qp.w::before{background:var(--ui-warning,#f59e0b)}.hx-qp.b::before{background:var(--ui-danger)}
+.hx-qt{flex:none;width:100%;height:auto;aspect-ratio:700/320;box-sizing:border-box;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm,8px);background:var(--ui-surface-hover);padding:6px}
+.hx-qt rect{fill:var(--ui-surface);stroke:var(--ui-border-strong,#cbd5e1);stroke-width:1}
+.hx-qt text{font-size:12.5px;fill:var(--ui-text)}
+.hx-qt .g rect{stroke:var(--ui-success);stroke-width:1.6}.hx-qt .w rect{stroke:var(--ui-warning,#f59e0b);stroke-width:1.6}.hx-qt .b rect{stroke:var(--ui-danger);stroke-width:1.6}
+.hx-qt .g text,.hx-qt .w text,.hx-qt .b text{font-weight:700;font-size:13px}
+.hx-qt .k text{fill:var(--ui-text-2)}
+.hx-qt .e{fill:none;stroke:var(--ui-muted);stroke-width:1.3}.hx-qt .ah{fill:var(--ui-muted)}
+.hx-qt .el{font-size:11.5px;fill:var(--ui-muted);font-weight:600}
+.hx-qx{display:flex;flex-direction:column;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm,8px)}
+.hx-qe{padding:9px 12px;border-bottom:1px solid var(--ui-border);display:flex;flex-direction:column;gap:6px}
+.hx-qe:last-child{border-bottom:0}
+.hx-qd{font-size:13px;color:var(--ui-text)}
+.hx-qc{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.hx-qr{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--ui-border);font-size:12px;color:var(--ui-text-2);background:var(--ui-surface)}
+.hx-qr b{font-weight:600;color:var(--ui-text)}
+.hx-qr.ok{border-color:var(--ui-success)}.hx-qr.no{border-style:dashed;color:var(--ui-muted)}
+.hx-qa{color:var(--ui-muted);display:inline-flex}
+/* Nhật ký: dòng lý do dưới mỗi thay đổi */
+.hx-olog .rp-rc.hx-olr{flex-direction:column;align-items:stretch;gap:2px}
+.hx-olog .hx-olm{display:flex;align-items:center;gap:8px;min-width:0}
+.hx-olog .hx-olw{padding-left:28px;font-size:12px;color:var(--ui-muted);line-height:1.4;white-space:normal;text-align:left}
+@media(max-width:600px){.hx-q3{grid-template-columns:1fr}.hx-olog .hx-olw{padding-left:0}}
 </style><script>/* HireX · chạy TRƯỚC JS gốc (build_ui.py chèn vào <head>).
    1. Mở Tài nguyên = luôn vào Tổng quan (tab Tất cả › Tổng quan, không ô tìm): bản gốc đọc lựa chọn cũ (localStorage) ngay khi chạy
       và vẽ khung lần đầu TRƯỚC khi hirex-patch.js kịp chạy → phải sửa lựa chọn đã lưu từ đây. Phạm vi, bộ lọc từng tab… giữ nguyên.
@@ -6250,7 +6276,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
   const LS = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v) } catch (e) { return null } };
 
   /* ── 4. nhóm tab ── */
-  let OVG = LS('hx.ovg') || '';
+  let OVG = LS('hx.ovg'); if (OVG === null) OVG = 'g:Tài khoản';   // lần đầu: nhóm Tài khoản; sau đó nhớ lựa chọn của người dùng
   const ALLG = 'Tất cả nền tảng';
   const ovGroups = () => tabGroups().map(x => x.g ? { k: 'g:' + x.g, name: x.g, ids: x.ts.map(t => t.id) } : { k: 't:' + x.t.id, name: x.t.name, ids: [x.t.id] });
   const ovAllow = () => { const g = OVG && ovGroups().find(x => x.k === OVG); return g ? new Set(g.ids) : null };
@@ -6351,7 +6377,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
     const ph = m.querySelector('.ovw:not(.ovsk) .ovph'); if (!ph) return;
     const g = OVG && ovGroups().find(x => x.k === OVG);
     if (g && !ph.querySelector('small')) ph.lastElementChild.insertAdjacentHTML('beforeend', `<small>${esc(g.name)}</small>`);
-    ph.insertAdjacentHTML('beforeend', `<div class="hx-ovtools">${ovSw()}<button class="btn icon ghost" data-a="ovxls" title="Xuất Excel" aria-label="Xuất Excel">${ico('download', 16)}</button></div>`);
+    ph.insertAdjacentHTML('beforeend', `<div class="hx-ovtools">${qBtn()}${ovSw()}<button class="btn icon ghost" data-a="ovxls" title="Xuất Excel" aria-label="Xuất Excel">${ico('download', 16)}</button></div>`);
   }
   /* ô "Dùng chung" của Toàn hệ thống: bản gốc đếm trên dòng đã nạp → tính lại từ cây (gồm tab tải riêng, theo nhóm tab) */
   function kpiShared(m) {
@@ -6361,24 +6387,22 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
     const n = S.meta.depts.reduce((s, d) => s + ovN(LASTD.C['u' + d.id] && LASTD.C['u' + d.id].T), 0), T = ovN(LASTD.C.all && LASTD.C.all.T);
     c.querySelector('b').textContent = n.toLocaleString('vi'); c.querySelector('em').textContent = rpPct(n, T) + '%';
   }
-  /* ── 14. Tổng quan: nhóm cột "Tình trạng sở hữu" ──
-     Bên cạnh nhóm "Tất cả" (Tổng · Live · Die · Khác) là nhóm cùng 4 cột nhưng chỉ đếm tài nguyên có trường "Tình trạng sở hữu"
-     thuộc các giá trị đang chọn (mặc định Lâu dài + Tạm thời = đang sở hữu). Cùng phạm vi (cây bên trái), cùng nhóm nền tảng, cùng
-     cách tính Live / Die / Khác như nhóm Tất cả → mỗi số sở hữu luôn ≤ số cùng cột bên trái, đọc ngang là so được ngay.
-     · Cột Tổng có thanh tỉ lệ (sở hữu / tổng nền tảng); rê chuột xem chia theo từng giá trị (Lâu dài, Tạm thời, Mất, Không xác định, Chưa nhập).
-     · Nền tảng không có trường sở hữu (Bài đăng FB, Nhóm FB…) → 1 ô gộp mờ "Không theo dõi".
-     · Bấm 1 số → mở đúng nền tảng, đúng phạm vi, lọc sẵn theo tình trạng sở hữu (+ Live / Die).
-     · Thẻ số phía trên có thêm thẻ "Sở hữu" cùng màu nhóm. Xuất Excel có thêm trang "Tình trạng sở hữu". */
-  const OWN0 = '∅', OWND = ['Lâu dài', 'Tạm thời'], OWN1 = ['Lâu dài'];   // OWND = "Đang sở hữu"; mặc định lần đầu = Lâu dài
-  let OWNS = (() => { try { const v = JSON.parse(LS('hx.ovown2') || 'null'); const w = Array.isArray(v) ? v.filter(x => x !== OWN0) : []; return w.length ? w : OWN1 } catch (e) { return OWN1 } })();
+  /* ── 14. Tổng quan: 1 bảng duy nhất, lọc theo "Tình trạng sở hữu" ──
+     Đầu nhóm cột Tổng · Live · Die · Khác là bộ chọn tình trạng sở hữu (mặc định Lâu dài; "Tất cả" = không lọc, như bảng gốc).
+     Số hiển thị như bảng gốc (không %), chỉ đếm dòng thuộc giá trị đang chọn; nền tảng không có trường sở hữu thì để trống.
+     Thẻ số Tổng / Live / Die phía trên đi theo cùng lựa chọn. Bấm 1 số → mở đúng nền tảng, đúng phạm vi, lọc sẵn.
+     Lựa chọn được nhớ (localStorage hx.ovown3). Xuất Excel có trang "Tình trạng sở hữu" theo lựa chọn đang xem. */
+  const OWN0 = '∅', OWA = 'Tất cả', OWN1 = ['Lâu dài'];
+  let OWNS = (() => { try { const v = JSON.parse(LS('hx.ovown3') || 'null'); return Array.isArray(v) && v.length ? v : OWN1 } catch (e) { return OWN1 } })();
+  const ownAll = () => OWNS.includes(OWA);
   const ownLab = v => v === OWN0 ? 'Chưa nhập' : v;
-  const ownSel = () => OWNS.length === 2 && OWND.every(v => OWNS.includes(v)) ? 'Đang sở hữu' : OWNS.map(ownLab).join(' + ');
+  const ownSel = () => ownAll() ? OWA : OWNS.map(ownLab).join(' + ');
   const OWF = { k: -1, m: {} };
   const ownField = t => {
     if (OWF.k !== DVER) { OWF.k = DVER; OWF.m = {}; (S.meta.tabs || []).forEach(tb => { const f = tb.fields.find(x => /^\s*tình trạng sở hữu\s*$/i.test(x.label)); if (f) OWF.m[tb.id] = f }) }
     return OWF.m[t] || null;
   };
-  const ownVals = () => { const o = new Set(); Object.values((ownField(0), OWF.m)).forEach(f => String(f.opts || '').split(',').map(x => x.trim()).filter(Boolean).forEach(x => o.add(x))); OWNS.forEach(v => o.add(v)); return [...o] };
+  const ownVals = () => { const o = new Set(); Object.values((ownField(0), OWF.m)).forEach(f => String(f.opts || '').split(',').map(x => x.trim()).filter(Boolean).forEach(x => o.add(x))); OWNS.forEach(v => v !== OWA && o.add(v)); return [...o] };
   const scopeTest = k => {
     if (k === 'all') return () => true;
     const id = +k.slice(1);
@@ -6405,67 +6429,48 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
   }
   const nf0 = n => n.toLocaleString('vi');
   function ownCols(m) {
-    const t = m.querySelector('.ovw:not(.ovsk) .ovt'); if (!t || !t.tHead || !t.tBodies[0]) return;
+    const t = m.querySelector('.ovw:not(.ovsk) .ovt'); if (!t || !t.tHead || !t.tBodies[0] || t.classList.contains('hx-ownt')) return;
     const hr = t.tHead.rows[0], ths = [...hr.cells]; if (ths.length !== 6) return;
-    const cnt = ownCount(OVS), lz = new Set(lzTabs());
     const top = document.createElement('tr'); top.className = 'hx-og';
-    top.innerHTML = `<th rowspan="2">${ths[0].innerHTML}</th><th colspan="4" class="hx-og0"><span>Tất cả</span></th>`
-      + `<th colspan="4" class="hx-og1"><button class="hx-ownb" data-a="hxown" aria-haspopup="true" title="Chọn tình trạng sở hữu được đếm trong nhóm cột này"><span>Tình trạng sở hữu</span><b>${esc(ownSel())}</b>${ico('chevd', 13)}</button></th>`
+    top.innerHTML = `<th rowspan="2">${ths[0].innerHTML}</th>`
+      + `<th colspan="4" class="hx-og1"><button class="hx-ownb" data-a="hxown" aria-haspopup="true" title="Chọn tình trạng sở hữu được đếm"><span>Tình trạng sở hữu</span><b>${esc(ownSel())}</b>${ico('chevd', 13)}</button></th>`
       + `<th rowspan="2" class="tr">${ths[5].innerHTML}</th>`;
     ths[0].remove(); ths[5].remove(); hr.classList.add('hx-og2');
-    hr.insertAdjacentHTML('beforeend', `<th class="hx-o hx-o0">Tổng</th><th class="hx-o g">Live</th><th class="hx-o b">Die</th><th class="hx-o hx-ok">Khác</th>`);
-    t.tHead.insertBefore(top, hr);
-    t.classList.add('hx-ownt');
-    const S0 = { sel: rpE(), base: 0 };
-    const RTW = { a: 4, b: 3 };   // độ rộng chung (ký tự) của phần số và phần "/tổng" trên cả bảng → mọi dòng thẳng hàng, không dư khoảng trống
+    t.tHead.insertBefore(top, hr); t.classList.add('hx-ownt');
+    if (ownAll()) return;   // Tất cả = số gốc
+    const cnt = ownCount(OVS), lz = new Set(lzTabs()), S0 = rpE();
     for (const tr of t.tBodies[0].rows) {
-      const tid = +tr.dataset.t, f = ownField(tid), x = cnt[tid], td5 = tr.cells[tr.cells.length - 1], tb = I.tab[tid];
-      let html;
-      if (!f || lz.has(tid)) html = '<td class="hx-o hx-o0"></td><td class="hx-o"></td><td class="hx-o"></td><td class="hx-o"></td>';   // không có trường sở hữu: để trống
-      else {
-        const sel = x ? x.sel : rpE(), tot = x ? x.tot : rpE(), n = ovN(sel), all = ovN(tot), p = all ? n / all * 100 : 0;
-        S0.sel.g += sel.g; S0.sel.w += sel.w; S0.sel.b += sel.b; S0.sel.n += sel.n; S0.base += all;
-        const by = x ? x.by : {}, nm = tb ? tb.name : '';
-        const tip0 = `${nm} · ${ownSel()}: ${nf0(n)} / ${nf0(all)} (${Math.round(p)}%)\n` + ownVals().filter(v => by[v]).map(v => `${OWNS.includes(v) ? '✓' : '  '} ${ownLab(v)}: ${nf0(by[v])}`).join('\n');
-        const pc = (v, of) => of ? Math.round(v / of * 100) : 0;
-        // "%  (số/tổng)": % cột cố định căn phải, "(số/tổng)" cột cố định căn trái (đo theo số dài nhất cả bảng), cả cụm căn giữa dưới tiêu đề cột
-        const rt = (v, of) => (RTW.b = Math.max(RTW.b, (nf0(v) + '/' + nf0(of)).length + 2), of
-          ? `<span class="hx-rt"><b>${pc(v, of)}%</b><small class="hx-of">(${nf0(v)}/${nf0(of)})</small></span>`
-          : `<span class="hx-rt"><b class="z">–</b><small class="hx-of"></small></span>`);
-        const c = (h, cls, v, of, lab) => `<td class="hx-o hx-r ${cls}" data-a="hxowngo" data-t="${tid}" data-h="${h}" title="${esc(`${nm} · ${lab}: ${nf0(v)} / ${nf0(of)} (${pc(v, of)}%) thuộc ${ownSel().toLowerCase()} — bấm để mở danh sách`)}">${rt(v, of)}</td>`;
-        html = `<td class="hx-o hx-o0" data-a="hxowngo" data-t="${tid}" data-h="" title="${esc(tip0)}">${rt(n, all)}</td>`
-          + c('g', 'g', sel.g, tot.g, 'Live') + c('b', 'b', sel.b, tot.b, 'Die') + c('o', 'hx-ok', sel.w + sel.n, tot.w + tot.n, 'Khác');
-      }
-      td5.insertAdjacentHTML('beforebegin', html);
+      const tid = +tr.dataset.t, f = ownField(tid), cs = tr.cells; if (cs.length < 6) continue;
+      if (!f || lz.has(tid)) { for (let i = 1; i <= 4; i++) { cs[i].textContent = ''; cs[i].removeAttribute('title') } continue }   // không theo dõi sở hữu: trống
+      const x = cnt[tid] ? cnt[tid].sel : rpE(), nm = I.tab[tid] ? I.tab[tid].name : '';
+      ['g', 'w', 'b', 'n'].forEach(k => S0[k] += x[k]);
+      [[ovN(x), '', 'Tổng'], [x.g, 'g', 'Live'], [x.b, 'b', 'Die'], [x.w + x.n, 'o', 'Khác']].forEach(([v, h, l], i) => {
+        const c = cs[i + 1]; c.textContent = nf0(v); c.dataset.a = 'hxowngo'; c.dataset.t = tid; c.dataset.h = h;
+        c.title = `${nm} · ${ownSel()} · ${l}: ${nf0(v)} — bấm để mở danh sách`;
+      });
     }
-    t.style.setProperty('--rtb', (RTW.b * 0.82 + 0.2).toFixed(1) + 'ch');
-    // thẻ số "Sở hữu" cùng hàng thẻ Tổng / Live / Die
-    const ks = m.querySelector('.ovw:not(.ovsk) .ovks');
-    if (ks && S0.base) {
-      const n = ovN(S0.sel);
-      ks.classList.add('hx-ks5');
-      ks.insertAdjacentHTML('beforeend', `<div class="ovkc hx-okc" title="${esc(`${ownSel()}: ${nf0(n)} / ${nf0(S0.base)} tài nguyên có theo dõi sở hữu (${rpPct(n, S0.base)}%)`)}"><span>${esc(ownSel())}</span><b>${nf0(n)}</b><em>${rpPct(n, S0.base)}% · ${nf0(S0.sel.g)} live · ${nf0(S0.sel.b)} die</em></div>`);
-    }
+    const ks = m.querySelectorAll('.ovw:not(.ovsk) .ovks .ovkc'), T = ovN(S0);
+    const put = (el, v, sub) => { if (!el) return; const b = el.querySelector('b'), e = el.querySelector('em'); if (b) b.textContent = nf0(v); if (e) e.textContent = sub };
+    put(ks[0], T, ownSel()); put(ks[1], S0.g, rpPct(S0.g, T) + '%'); put(ks[2], S0.b, rpPct(S0.b, T) + '%');
   }
-  /* chọn giá trị đếm: popup tích nhiều ô, tích xong vẫn mở (bảng cập nhật ngay phía sau); bấm ra ngoài / Esc để đóng */
-  const ownSave = v => { OWNS = v.length ? v : OWN1; LS('hx.ovown2', JSON.stringify(OWNS)); OWC.clear(); renderBody() };
+  /* chọn giá trị đếm: popup tích nhiều ô, tích xong vẫn mở; "Tất cả" = bỏ lọc */
+  const ownSave = v => { OWNS = v.length ? v : [OWA]; LS('hx.ovown3', JSON.stringify(OWNS)); OWC.clear(); renderBody() };
   const ownPopHtml = () => {
-    const box = on => `<span class="hx-cb ${on ? 'on' : ''}" aria-hidden="true">${on ? ico('check', 12) : ''}</span>`, all = ownSel() === 'Đang sở hữu';
-    return `<div class="mh">Đếm tình trạng sở hữu</div>`
-      + ownVals().map(v => `<button class="mi hx-ownv" data-v="${esc(v)}" role="menuitemcheckbox" aria-checked="${OWNS.includes(v)}">${box(OWNS.includes(v))}<span class="t">${esc(v)}</span></button>`).join('')
-      + `<div class="sep"></div><button class="mi hx-ownv" data-v="" ${all ? 'disabled' : ''}><span class="t">Đang sở hữu (Lâu dài + Tạm thời)</span></button>`;
+    const box = on => `<span class="hx-cb ${on ? 'on' : ''}" aria-hidden="true">${on ? ico('check', 12) : ''}</span>`, al = ownAll();
+    return `<div class="mh">Tình trạng sở hữu</div><button class="mi hx-ownv" data-v="${OWA}" role="menuitemcheckbox" aria-checked="${al}">${box(al)}<span class="t">${OWA}</span></button><div class="sep"></div>`
+      + ownVals().map(v => { const on = !al && OWNS.includes(v); return `<button class="mi hx-ownv" data-v="${esc(v)}" role="menuitemcheckbox" aria-checked="${on}">${box(on)}<span class="t">${esc(ownLab(v))}</span></button>` }).join('');
   };
   ACT.hxown = el => {
     const p = openPop(el, ownPopHtml(), 'hx-ownp');
     p.addEventListener('click', e => {
       const b = e.target.closest('.hx-ownv'); if (!b || b.disabled) return;
       e.stopPropagation();
-      const v = b.dataset.v;
-      if (!v) ownSave(OWND);
-      else if (OWNS.includes(v)) { if (OWNS.length > 1) ownSave(OWNS.filter(x => x !== v)) }   // luôn giữ ít nhất 1 giá trị
-      else ownSave([...OWNS, v]);
+      const v = b.dataset.v, cur = ownAll() ? [] : OWNS;
+      if (v === OWA) ownSave([OWA]);
+      else if (cur.includes(v)) ownSave(cur.filter(x => x !== v));   // bỏ hết → Tất cả
+      else ownSave([...cur, v]);
       if (POP === p) p.innerHTML = ownPopHtml();
-      else { const a = document.querySelector('.hx-ownb'); if (a) ACT.hxown(a) }   // phòng khi vẽ lại đóng popup: mở lại đúng chỗ
+      else { const a = document.querySelector('.hx-ownb'); if (a) ACT.hxown(a) }
     });
   };
   /* bấm 1 số sở hữu → mở nền tảng đó trong đúng phạm vi, lọc sẵn tình trạng sở hữu (+ Live / Die / Khác) */
@@ -6473,11 +6478,50 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
     const tr = el.closest('tr'), t = +el.dataset.t, h = el.dataset.h, f = ownField(t); if (!tr || !f) return;
     OVF = { k: OVS, t };
     ovInfo(tr.dataset.d, tr.dataset.o ? +tr.dataset.o : null, t, !!tr.dataset.u);
-    S.fl[t] = [...(S.fl[t] || []).filter(c => String(c.k) !== String(f.id)), { k: f.id, op: 'in', v: OWNS.map(v => v === OWN0 ? EMP : v) }];
+    if (!ownAll()) S.fl[t] = [...(S.fl[t] || []).filter(c => String(c.k) !== String(f.id)), { k: f.id, op: 'in', v: OWNS.map(v => v === OWN0 ? EMP : v) }];
     const sts = (I.tab[t] ? I.tab[t].statuses : []).filter(s => h === 'g' ? s.h === 'g' : h === 'b' ? s.h === 'b' : h === 'o' ? s.h !== 'g' && s.h !== 'b' : false).map(s => s.id);
     if (sts.length) S.st = new Set(sts);
     savePref(); renderAll();
   };
+  /* ── 14c. Nút "?" — giải thích cách tính Tình trạng sở hữu: cây quyết định (SVG) + ví dụ từng trường hợp. Mở từ Tổng quan & Nhật ký. */
+  const qBtn = () => `<button class="btn icon ghost hx-q" data-a="hxownq" title="Cách tính Lâu dài / Tạm thời / Mất" aria-label="Cách tính tình trạng sở hữu"><span>?</span></button>`;
+  const QP = (t, c) => `<span class="hx-qp ${c}">${t}</span>`;
+  const QR = (k, own, st, ok) => `<span class="hx-qr ${ok ? 'ok' : 'no'}"><b>${k}</b>${own} · ${st}</span>`;
+  const QX = [
+    ['Facebook có Email xác minh và SĐT xác minh, cả hai Lâu dài và còn sống', [QR('Email xác minh', 'Lâu dài', 'Live', 1), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
+    ['Email chết nhưng SĐT vẫn sống → vẫn còn 1 xác minh Lâu dài', [QR('Email xác minh', 'Lâu dài', 'Die', 0), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
+    ['Chết cả hai → không còn gì để lấy lại tài khoản', [QR('Email xác minh', 'Lâu dài', 'Die', 0), QR('SĐT xác minh', 'Lâu dài', 'Die', 0)], QP('Mất', 'b')],
+    ['Tài khoản mới: email còn sống nhưng mới Tạm thời / Không xác định', [QR('Email xác minh', 'Không xác định', 'Live', 0)], QP('Tạm thời', 'w')],
+    ['Sau đó email được nâng Lâu dài, hoặc thêm 1 SĐT Lâu dài → tự lên', [QR('Email xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
+    ['Email cũng tính y hệt, theo Email khôi phục + SĐT khôi phục. Email xuống Mất thì Facebook dùng email đó tự tính lại', [QR('Email khôi phục', 'Mất', '—', 0), QR('SĐT khôi phục', 'Lâu dài', 'Die', 0)], QP('Email: Mất', 'b')],
+  ];
+  const qTree = () => {
+    const box = (x, y, w, h, t, c) => `<g class="${c}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"/>${t.map((l, i) => `<text x="${x + w / 2}" y="${y + h / 2 + (i - (t.length - 1) / 2) * 15 + 4}" text-anchor="middle">${l}</text>`).join('')}</g>`;
+    const ar = (x1, y1, x2, y2, l, lx, ly) => `<path class="e" d="M${x1} ${y1} C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2 - 4}" marker-end="url(#hxqa)"/><text class="el" x="${lx}" y="${ly}" text-anchor="middle">${l}</text>`;
+    return `<svg class="hx-qt" viewBox="0 0 700 320" role="img" aria-label="Cây quyết định tình trạng sở hữu"><defs><marker id="hxqa" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" class="ah"/></marker></defs>`
+      + box(210, 8, 280, 44, ['Dòng có email / SĐT xác minh', '(cột liên kết sang Email, SĐT…)?'], 'q')
+      + ar(270, 52, 120, 96, 'Không', 168, 76) + ar(430, 52, 470, 96, 'Có', 468, 76)
+      + box(10, 96, 220, 44, ['Giữ giá trị đang đặt', '(người dùng / CRM nhập)'], 'k')
+      + box(320, 96, 300, 44, ['Còn ít nhất 1 cái đang Lâu dài', 'và chưa Die?'], 'q')
+      + ar(400, 140, 330, 186, 'Có', 344, 166) + ar(540, 140, 560, 186, 'Không', 584, 166)
+      + box(260, 186, 140, 40, ['Lâu dài'], 'g')
+      + box(450, 186, 230, 44, ['Còn cái nào chưa Die', '(Tạm thời / Không xác định)?'], 'q')
+      + ar(510, 230, 480, 270, 'Có', 476, 254) + ar(620, 230, 630, 270, 'Không', 652, 254)
+      + box(420, 270, 120, 40, ['Tạm thời'], 'w') + box(575, 270, 110, 40, ['Mất'], 'b') + `</svg>`;
+  };
+  function qDraw() {
+    const el = document.querySelector('#modal .modal'); if (!el) return;
+    el.innerHTML = `<header><span class="ti" style="--c:var(--ui-primary)">${ico('shield', 16)}</span><h3>Cách tính Tình trạng sở hữu</h3><div class="grow"></div><button class="btn icon ghost" data-a="mclose" aria-label="Đóng">${ico('x', 16)}</button></header>
+      <div class="mbody hx-qb">
+        <p class="hx-ql">Hệ thống tự tính cho <b>mọi nền tảng</b> (Facebook, Zalo, WhatsApp, LinkedIn, Telegram, Email…) dựa trên các email / SĐT dùng để xác minh hoặc khôi phục tài khoản. Chết = trạng thái <b>Die</b>; Đang kháng, Chờ kích hoạt lại vẫn tính là còn sống.</p>
+        <div class="hx-q3">${QP('Lâu dài', 'g')}<span>còn ít nhất 1 xác minh Lâu dài chưa chết — mất 1 trong 2 vẫn Lâu dài</span>${QP('Tạm thời', 'w')}<span>chỉ còn xác minh sống nhưng Tạm thời / Không xác định</span>${QP('Mất', 'b')}<span>mọi xác minh đã chết hoặc Mất</span></div>
+        ${qTree()}
+        <h4>Ví dụ</h4>
+        <div class="hx-qx">${QX.map(([t, rs, r]) => `<div class="hx-qe"><div class="hx-qd">${t}</div><div class="hx-qc">${rs.join('')}<span class="hx-qa">${ico('chevr', 14)}</span>${r}</div></div>`).join('')}</div>
+        <p class="hx-ql">Tự đổi hai chiều và lan theo chuỗi: SĐT chết → email dùng SĐT đó để khôi phục tính lại → Facebook dùng email đó tính lại. Dòng chưa có email / SĐT xác minh giữ giá trị người dùng đặt. Mọi lần đổi ghi ở <b>Báo cáo · Nhật ký sở hữu</b>: ai đổi (Người dùng / Tự động / Vọng gác) và vì sao.</p>
+      </div>`;
+  }
+  ACT.hxownq = () => { if (typeof closePop === 'function') closePop(); openModal(qDraw, true, 'hx-qm') };
   /* ── 14b. Tự khớp sở hữu (phần chính ở DB: ahs_own_sync + trigger, sql hs_accountshs). Quy tắc chung mọi nền tảng:
        dòng có liên kết xác minh (cột liên kết sang tab cũng có "Tình trạng sở hữu") → Lâu dài nếu còn ≥ 1 tài nguyên Lâu dài chưa Die;
        Tạm thời nếu chỉ còn tài nguyên sống không Lâu dài; Mất nếu mọi tài nguyên đã Die / Mất. Hai chiều, lan theo chuỗi.
@@ -6485,7 +6529,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
        · "Sở hữu lệch xác minh": giá trị đang lưu ≠ giá trị suy ra từ tài nguyên đang liên kết (sửa tay đè, hoặc DB chưa bật tự khớp);
        · "Lâu dài · chỉ còn 1 xác minh": 1 tài nguyên chết là rớt Tạm thời / Mất → nên thêm xác minh dự phòng.
      Mỗi mục: cặp dòng → tài nguyên, nút mở bảng lọc sẵn theo nền tảng (bộ lọc hxwarn / hxone), Excel có ghi chú tài nguyên.
-     Nhật ký sở hữu (ahs_own_log, route own_log): ai / cái gì đổi — người dùng, tự khớp, Vọng gác, CRM — lọc theo nguồn, loại, nền tảng. */
+     Nhật ký sở hữu (ahs_own_log, route own_log): dòng · trước → sau · ai đổi (người dùng / Tự động / Vọng gác) · lúc nào. */
   const OWW = { k: null }, WK = 'hxwarn', W1 = 'hxone';
   const ownDead = b => { const st = b && I.status[b.status_id]; return !!st && /^(die|chết|dead)$/i.test(String(st.label || '').trim()) };
   function ownCalc() {
@@ -6534,44 +6578,34 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
       const b = ownIssue(D, 'one', 'own1', 'w', OW1, 'Đang Lâu dài nhờ đúng 1 email / SĐT — tài nguyên đó Die là tự rớt Tạm thời / Mất. Nên thêm xác minh dự phòng.');
       D.issues.splice(1, 0, a, b); D.issueN += a.ids.length + b.ids.length; return D;
     } }
-  const OL = { f: '', kind: '', tab: 0, rows: [], ready: true, more: false, key: '', busy: false, v: null };
-  const OLF = [['', 'Tất cả'], ['user', 'Người dùng'], ['match', 'Tự khớp'], ['vonggac', 'Vọng gác'], ['crm', 'CRM'], ['khac', 'Khác']];
-  const OLK = [['', 'Sở hữu + trạng thái'], ['own', 'Sở hữu'], ['status', 'Trạng thái']];
-  const OLS = { user: 'Người dùng', match: 'Tự khớp', vonggac: 'Vọng gác', crm: 'CRM', owl: 'Cú vọ tự động', khac: 'Khác' };
-  const olQ = before => `own_log?f=${OL.f}&kind=${OL.kind}&tab=${OL.tab || ''}&limit=200${before ? '&before=' + before : ''}`;
-  async function olLoad(more) {
+  /* Nhật ký sở hữu: cùng kiểu danh sách "Mới cập nhật" — dòng · trước → sau · ai đổi · lúc nào (rê chuột xem lý do); 1 bộ lọc nguồn. */
+  const OL = { f: '', rows: [], ready: true, key: null, busy: false, v: null };
+  const OLF = [['', 'Tất cả'], ['user', 'Người dùng'], ['match', 'Tự động'], ['vonggac', 'Vọng gác']];
+  const olName = s => { try { return decodeURIComponent(s) } catch (e) { return s } };
+  const olWho = x => x.src === 'user' ? (x.by_name ? olName(x.by_name) : 'Người dùng') : (x.src === 'vonggac' || x.origin === 'vonggac') ? 'Vọng gác' : (x.src === 'crm' || x.origin === 'crm') ? 'CRM' : 'Tự động';
+  async function olLoad() {
     if (OL.busy) return; OL.busy = true;
-    try {
-      const r = await api(olQ(more && OL.rows.length ? OL.rows[OL.rows.length - 1].id : 0));
-      OL.rows = more ? OL.rows.concat(r.rows || []) : (r.rows || []); OL.ready = r.ready !== false; OL.more = (r.rows || []).length >= 200;
-      OL.key = OL.f + '|' + OL.kind + '|' + OL.tab; OL.v = DVER;
-    } catch (e) { } finally { OL.busy = false }
+    try { const r = await api(`own_log?f=${OL.f}&kind=own&limit=300`); OL.rows = r.rows || []; OL.ready = r.ready !== false }
+    catch (e) { } finally { OL.busy = false; OL.key = OL.f; OL.v = DVER }
     olDraw();
   }
-  const olName = s => { try { return decodeURIComponent(s) } catch (e) { return s } };
   function olDraw() {
     const box = document.getElementById('hx-olog'); if (!box) return;
-    const seg = (arr, cur, a) => `<div class="rp-seg">${arr.map(([k, l]) => `<button class="${String(cur) === String(k) ? 'on' : ''}" data-a="${a}" data-k="${k}">${l}</button>`).join('')}</div>`;
-    ownField(0);
-    const tabs = Object.keys(OWF.m).map(Number).filter(t => I.tab[t]);
-    const tsel = `<div class="rp-seg">${[[0, 'Mọi nền tảng'], ...tabs.map(t => [t, I.tab[t].name])].map(([k, l]) => `<button class="${+OL.tab === +k ? 'on' : ''}" data-a="hxolt" data-k="${k}">${esc(l)}</button>`).join('')}</div>`;
-    const row = x => {
-      const a = x.acc_id && I.acc[x.acc_id], who = x.by_name ? olName(x.by_name) : '';
-      const src = x.src === 'match' ? 'Tự khớp' + (x.origin && x.origin !== 'match' && OLS[x.origin] ? ' · do ' + OLS[x.origin] : '') : (OLS[x.src] || x.src);
-      return `<div class="hx-olr"><span class="hx-olt" title="${esc(fmtFull(x.ts))}">${esc(rel(x.ts))}</span><span class="hx-olc">${a ? chip(x.acc_id) : `<span class="hx-olx">#${x.acc_id} (đã xoá)</span>`}</span>`
-        + `<span class="hx-olv"><small>${x.kind === 'status' ? 'Trạng thái' : 'Sở hữu'}</small> ${esc(x.old || 'trống')} ${ico('chevr', 12)} <b>${esc(x.new || 'trống')}</b></span>`
-        + `<span class="pill hx-ols s-${esc(x.src)}">${esc(src)}${who && x.src !== 'match' ? ' · ' + esc(who) : ''}</span><span class="hx-olw">${esc(x.cause || '')}</span></div>`;
-    };
-    const body = !OL.ready ? `<div class="ph pad">${ico('info', 18)}<span>Chưa bật tự khớp ở DB — chạy SQL hs_accountshs (phần "Tự khớp Tình trạng sở hữu") để bắt đầu ghi nhật ký.</span></div>`
-      : !OL.rows.length ? `<div class="ph pad">${ico('inbox', 20)}<span>${OL.busy ? 'Đang tải…' : 'Chưa có thay đổi nào khớp bộ lọc'}</span></div>`
-      : OL.rows.map(row).join('') + (OL.more ? `<button type="button" class="mbtn" data-a="hxolmore">${ico('chevd', 13)}<span>Xem thêm</span></button>` : '');
-    box.innerHTML = `<h3>Nhật ký sở hữu<span class="sp"></span><em>${OL.rows.length ? OL.rows.length.toLocaleString('vi') + (OL.more ? '+' : '') + ' thay đổi' : ''}</em></h3>`
-      + `<div class="hx-olf">${seg(OLF, OL.f, 'hxolf')}${seg(OLK, OL.kind, 'hxolk')}</div><div class="hx-olf">${tsel}</div><div class="hx-oll">${body}</div>`;
+    const seg = `<div class="rp-seg">${OLF.map(([k, l]) => `<button class="${OL.f === k ? 'on' : ''}" data-a="hxolf" data-k="${k}">${l}</button>`).join('')}</div>`;
+    const n = lim('hxol', 10), rows = OL.rows.slice(0, n).map(x => {
+      const a = x.acc_id && I.acc[x.acc_id], t = I.tab[x.tab_id];
+      const lead = `<span class="ci" style="--c:${t ? t.color : GREY}">${ico(t ? t.icon : 'user', 12)}</span><span class="rp-rn">${esc(a ? a.label : '#' + x.acc_id)}</span>`;
+      const mid = `<span class="hx-olv">${esc(x.old || 'trống')}${ico('chevr', 11)}<b>${esc(x.new || 'trống')}</b></span><span class="hx-ols">${esc(olWho(x))}</span><span class="rp-rt" title="${esc(fmtFull(x.ts))}">${esc(rel(x.ts))}</span>`;
+      const tip = esc(x.cause || '');
+      const why = x.src === 'user' ? 'Sửa tay' : x.cause ? (x.origin === 'vonggac' ? 'Sau khi Vọng gác kiểm tra · ' : '') + x.cause : '';
+      const inner = `<span class="hx-olm">${lead}${mid}</span>${why ? `<span class="hx-olw">${esc(why)}</span>` : ''}`;
+      return a ? `<button class="rp-rc hx-olr" data-a="jump" data-id="${x.acc_id}" title="${tip}">${inner}</button>` : `<div class="rp-rc hx-olr hx-olx" title="${tip}">${inner}</div>`;
+    }).join('');
+    const body = !OL.ready ? `<div class="ph pad">${ico('info', 18)}<span>Chưa bật tự khớp ở DB</span></div>`
+      : rows ? rows + (OL.rows.length > n ? moreBtn('hxol', OL.rows.length - n, 20, 'thay đổi') : '') : `<div class="ph pad">${ico('inbox', 20)}</div>`;
+    box.innerHTML = `<h3>Nhật ký sở hữu${qBtn()}<span class="sp"></span>${seg}</h3><div class="rp-rcl">${body}</div>`;
   }
-  ACT.hxolf = el => { OL.f = el.dataset.k; olLoad(false) };
-  ACT.hxolk = el => { OL.kind = el.dataset.k; olLoad(false) };
-  ACT.hxolt = el => { OL.tab = +el.dataset.k; olLoad(false) };
-  ACT.hxolmore = () => olLoad(true);
+  ACT.hxolf = el => { OL.f = el.dataset.k; olLoad() };
   { const _rr = renderReport; renderReport = function (m) {
       const r = _rr.apply(this, arguments), C = ownCalc(), sc = new Set(scoped().map(a => a.id));
       [['warn', WK, 1], ['one', W1, 2]].forEach(([key, fk, i]) => {
@@ -6580,7 +6614,7 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
         if (ib && by.length) ib.insertAdjacentHTML('afterbegin', `<div class="hx-owwt">${by.map(([t, n]) => `<button class="chip" data-a="hxowwgo" data-k="${fk}" data-t="${t}" title="Mở bảng ${esc(I.tab[t].name)} lọc sẵn ${n} dòng">${ico(I.tab[t].icon, 12)}<span>${esc(I.tab[t].name)}</span><b>${n.toLocaleString('vi')}</b>${ico('chevr', 12)}</button>`).join('')}</div>`);
       });
       const isl = m.querySelector('.rp-isl'), card = isl && isl.closest('.rp-c');
-      if (card) { card.insertAdjacentHTML('afterend', '<div class="rp-c hx-olog" id="hx-olog"></div>'); olDraw(); if (OL.key !== OL.f + '|' + OL.kind + '|' + OL.tab || OL.v !== DVER) olLoad(false) }
+      if (card) { card.insertAdjacentHTML('afterend', '<div class="rp-c hx-olog" id="hx-olog"></div>'); olDraw(); if (OL.key !== OL.f || OL.v !== DVER) olLoad() }
       return r;
     } }
   { const _rs = rpSheets; rpSheets = function () {
@@ -6588,17 +6622,16 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
       const note = id => 'Xác minh: ' + ownLinks(id).map(([f, d]) => `${f.label} ${I.acc[d].label} (${C.val(I.acc[d]) || 'trống'}, ${stOf(I.acc[d])?.label || ''})`).join('; ') + (C.want[id] ? ' → nên là ' + C.want[id] : '');
       if (L) [OWT, OW1].forEach(t => { const x = D.issues.find(i => i.t === t); if (!x) return; let k = 0; const ids = x.ids.slice(0, 5000);
         L.forEach(row => { if (row[0] !== t || k >= ids.length) return; row[6] = note(ids[k++]) }) });
-      if (OL.rows.length) out['Nhật ký sở hữu'] = [['Thời điểm', 'Dòng', 'Nền tảng', 'Loại', 'Trước', 'Sau', 'Nguồn', 'Người / do', 'Lý do'],
-        ...OL.rows.map(x => { const a = I.acc[x.acc_id]; return [fmtFull(x.ts), a ? a.label : '#' + x.acc_id, I.tab[x.tab_id]?.name || '', x.kind === 'status' ? 'Trạng thái' : 'Sở hữu', x.old || '', x.new || '', OLS[x.src] || x.src, x.src === 'match' ? (OLS[x.origin] || '') : olName(x.by_name || ''), x.cause || ''] })];
+      if (OL.rows.length) out['Nhật ký sở hữu'] = [['Thời điểm', 'Dòng', 'Nền tảng', 'Trước', 'Sau', 'Bởi', 'Lý do'],
+        ...OL.rows.map(x => { const a = I.acc[x.acc_id]; return [fmtFull(x.ts), a ? a.label : '#' + x.acc_id, I.tab[x.tab_id]?.name || '', x.old || '', x.new || '', olWho(x), x.cause || ''] })];
       return out;
     } }
   { const _os = ovSheets; ovSheets = function () {
-      const out = _os.apply(this, arguments), D = LASTD || ovData(), H = ['Phạm vi', 'Cấp', 'Nền tảng', 'Tổng', 'Live', 'Die', 'Khác', `${ownSel()} · Tổng`, `${ownSel()} · Live`, `${ownSel()} · Die`, `${ownSel()} · Khác`, '% sở hữu'];
-      const rows = [H];
-      D.rows.forEach(r => { const cc = ownCount(r.k), c = D.C[r.k] || {}; D.tabs.forEach(t => {
-        if (!ownField(t.id) || !c[t.id] || !ovN(c[t.id])) return;
-        const a = c[t.id], x = cc[t.id] || { sel: rpE() }, n = ovN(x.sel);
-        rows.push([r.name, r.lv, t.name, ovN(a), a.g, a.b, a.w + a.n, n, x.sel.g, x.sel.b, x.sel.w + x.sel.n, rpPct(n, ovN(a))]);
+      const out = _os.apply(this, arguments); if (ownAll()) return out;
+      const D = LASTD || ovData(), rows = [['Phạm vi', 'Cấp', 'Nền tảng', `Tổng · ${ownSel()}`, 'Live', 'Die', 'Khác']];
+      D.rows.forEach(r => { const cc = ownCount(r.k); D.tabs.forEach(t => {
+        if (!ownField(t.id)) return; const x = (cc[t.id] || { sel: rpE() }).sel, n = ovN(x); if (!n) return;
+        rows.push([r.name, r.lv, t.name, n, x.g, x.b, x.w + x.n]);
       }) });
       out['Tình trạng sở hữu'] = rows; return out;
     } }

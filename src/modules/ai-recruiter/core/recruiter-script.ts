@@ -37,6 +37,12 @@ function requirementsLabel(job: Job) {
   return parts.join(" và ");
 }
 
+/** "BrSE/PM tại VTI" — or the title alone when it already names the company ("BrSE/PM tại VTI Building"). */
+function jobName(job: Job) {
+  const title = String(job.job_title ?? "").trim(), company = String(job.company_name ?? "").trim();
+  return company && !plain(title).includes(plain(company)) ? `${title} tại ${company}` : title;
+}
+
 function closingQuestion(profile: Record<string, unknown>) {
   return roleOf(profile.candidate_type) === "dev"
     ? "Anh có bao nhiêu năm kinh nghiệm phát triển, chủ yếu với công nghệ nào ạ?"
@@ -47,14 +53,14 @@ function closingQuestion(profile: Record<string, unknown>) {
 export function jobIntroduction(job: Job, profile: Record<string, unknown>) {
   const salary = salaryLabel(job.salary_range);
   const requirements = requirementsLabel(job);
-  return `Với kinh nghiệm này em thấy vị trí ${String(job.job_title)} tại ${String(job.company_name)} (${placeLabel(job.location)}${salary ? `, khoảng ${salary}` : ""}) khá sát với anh${requirements ? `: vị trí yêu cầu ${requirements}` : ""}. ${closingQuestion(profile)}`;
+  return `Với kinh nghiệm này em thấy vị trí ${jobName(job)} (${placeLabel(job.location)}${salary ? `, khoảng ${salary}` : ""}) khá sát với anh${requirements ? `: vị trí yêu cầu ${requirements}` : ""}. ${closingQuestion(profile)}`;
 }
 
 /** Step 4: the next job after the candidate said why the last one does not fit. */
 export function nextJobIntroduction(job: Job) {
   const salary = salaryLabel(job.salary_range);
   const requirements = requirementsLabel(job);
-  return `Em còn vị trí ${String(job.job_title)} tại ${String(job.company_name)} (${placeLabel(job.location)}${salary ? `, khoảng ${salary}` : ""})${requirements ? `, yêu cầu ${requirements}` : ""}. Anh xem hướng này có phù hợp với mình không ạ?`;
+  return `Em còn vị trí ${jobName(job)} (${placeLabel(job.location)}${salary ? `, khoảng ${salary}` : ""})${requirements ? `, yêu cầu ${requirements}` : ""}. Anh xem hướng này có phù hợp với mình không ạ?`;
 }
 
 /** Numbers and unit of a salary ("60tr", "55-65M gross", "up to 900 man"). */
@@ -86,3 +92,21 @@ export function salaryFollowup(expected: unknown, job: Job) {
 export const CV_REQUEST = "Dạ vâng ạ. Anh gửi em CV mới nhất để em chuyển recruiter phụ trách đặt lịch phỏng vấn cho anh nhé.";
 /** Between steps 1 and 2: the candidate answered about experience but named no salary. */
 export const SALARY_QUESTION = "Mức thu nhập anh mong muốn cho vị trí này khoảng bao nhiêu ạ?";
+
+/** The salary a candidate names ("Lương 60tr được không em", "mong muốn 1500 USD", "tầm 800 man"), as written. */
+export function salaryInText(text: string) {
+  const match = text.match(/(\d+(?:[.,]\d+)?\s*(?:-|–|đến|~)?\s*\d*(?:[.,]\d+)?\s*(?:tr\b|triệu|trieu|củ|cu\b|m\b|man\b|万|usd|\$|jpy|yên))/iu);
+  if (!match) return null;
+  const value = match[1]!.trim();
+  // A bare count of years/people is not a salary.
+  return /(?:năm|nam|người|nguoi)\s*$/iu.test(value) ? null : value;
+}
+
+/** A start date answering "bắt đầu công việc mới từ thời điểm nào" ("Tháng 12 anh nghỉ được", "2 tuần nữa", "ngay"). */
+export function startDateInText(text: string, lastAsked: string) {
+  if (!/thoi diem nao|bat dau cong viec/u.test(plain(lastAsked))) return null;
+  const value = plain(text);
+  if (/\b(?:thang\s*\d{1,2}|\d{1,2}\/\d{1,2}|\d+\s*(?:tuan|ngay|thang)|tuan sau|thang sau|ngay|luon|sau tet|dau nam|cuoi nam|dau thang|cuoi thang|q[1-4])\b/u.test(value))
+    return text.trim().slice(0, 120);
+  return null;
+}

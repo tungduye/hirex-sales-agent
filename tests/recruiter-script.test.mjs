@@ -26,3 +26,16 @@ test('salary is checked against the range before saying it fits',()=>{
  assert.match(salaryFollowup('2000 USD',vti),/^Em sẽ trao đổi mức 2000 USD với VTI/);
  assert.equal(salaryLabel('55-65M gross'),'55–65 triệu gross');
 });
+import {salaryInText,startDateInText} from '../src/modules/ai-recruiter/core/recruiter-script.ts';
+test('job title that already names the company is not repeated',()=>{
+ assert.match(jobIntroduction({...vti,job_title:'BrSE/PM tại VTI Building'},{candidate_type:'BrSE'}),/^Với kinh nghiệm này em thấy vị trí BrSE\/PM tại VTI Building \(Hà Nội/);
+});
+test('salary and start date are read from the candidate words',()=>{
+ assert.equal(salaryInText('Anh làm BrSE 3 năm, có lead team 5 người. Lương 60tr được không em?'),'60tr');
+ assert.equal(salaryInText('mong muốn tầm 800 man'),'800 man');
+ assert.equal(salaryInText('anh làm 3 năm rồi'),null);
+ const asked='Mức 60tr nằm trong range của VTI. Anh dự kiến có thể bắt đầu công việc mới từ thời điểm nào nhé.';
+ assert.equal(startDateInText('Tháng 12 anh nghỉ được',asked),'Tháng 12 anh nghỉ được');
+ assert.equal(startDateInText('2 tuần nữa em',asked),'2 tuần nữa em');
+ assert.equal(startDateInText('Tháng 12 anh nghỉ được','Anh muốn làm ở đâu ạ'),null);
+});

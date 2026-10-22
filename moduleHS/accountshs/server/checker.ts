@@ -2,7 +2,7 @@ import "server-only";
 
 import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb, SRC } from "./db";
 import { snapshot } from "./backup";
-import { ALL_METAS, Abort, MOD_MAP, WORKER_IDS, type CheckOut, type CheckerMeta } from "./checker-mods";
+import { ALL_METAS, Abort, MOD_MAP, NODE_FALLBACK, WORKER_IDS, type CheckOut, type CheckerMeta, type CheckerMod } from "./checker-mods";
 import type { Id } from "../types";
 
 /* Vọng gác (checker/) — khung chạy trong HireX.
@@ -98,15 +98,56 @@ async function xfield(cid: string, cfg: Cfg, ex: { k: string; label: string; typ
   cfg["xf_" + ex.k] = fid; await cfgSet(cid, cfg);
   return fid;
 }
+/* ───────── toàn vẹn dữ liệu khi Vọng gác ghi ─────────
+   Cấu hình cũ có thể trỏ tới trạng thái / cột đã xoá hoặc của tab khác (vd Gmail "Không tồn tại" → trạng thái đã xoá). Trước đây vẫn ghi
+   status_id đó vào dòng → dòng mang trạng thái "ma", Tổng quan / tự khớp sở hữu đếm sai. Giờ:
+   · chạy: thiếu tab / cột giá trị / trạng thái Live-Die hợp lệ → dừng ngay, báo rõ thiếu gì; kết quả phụ (verify_phone…) trỏ sai → bỏ qua kết quả đó;
+   · ghi: chỉ ghi trạng thái thuộc đúng tab, chỉ ghi vào dòng của đúng tab đang check. */
+const RES_KEYS = ["live", "die", "verify_phone", "not_exist"];
+const RES_LAB: Record<string, string> = { live: "Live", die: "Die", verify_phone: "Cần xác minh SĐT", not_exist: "Không tồn tại" };
+const TST = new Map<Id, { at: number; st: Set<Id>; fs: Set<Id> }>();
+async function tabMeta(tab: Id) {
+  const h = TST.get(tab); if (h && Date.now() - h.at < 30_000) return h;
+  const [st, fs] = await Promise.all([
+    run<{ id: Id }[]>(sb().from(T.statuses).select("id").eq("tab_id", tab)),
+    run<{ id: Id }[]>(sb().from(T.fields).select("id").eq("tab_id", tab)),
+  ]);
+  const x = { at: Date.now(), st: new Set(st.map((r) => r.id)), fs: new Set(fs.map((r) => r.id)) }; TST.set(tab, x); return x;
+}
+/** vấn đề của cấu hình: fatal = không chạy được, warn = kết quả phụ sẽ bị bỏ qua */
+async function cfgIssues(cid: string, c: Cfg): Promise<{ fatal: string[]; warn: string[] }> {
+  const fatal: string[] = [], warn: string[] = [], meta = metaOf(cid);
+  const tab = Number(c.tab_id); if (!tab) return { fatal: ["Chưa chọn tab"], warn };
+  const t = await run<{ id: Id } | null>(sb().from(T.tabs).select("id").eq("id", tab).maybeSingle());
+  if (!t) return { fatal: ["tab đã bị xoá"], warn };
+  const m = await tabMeta(tab);
+  if (!c.field_id || !m.fs.has(Number(c.field_id))) fatal.push(`cột ${meta?.value || "giá trị"} không còn trong tab`);
+  if ((c.target ?? "status") === "status") {
+    const keys = [...new Set([...RES_KEYS, ...(meta?.results || []).map((r) => r[0])])];
+    for (const k of keys) {
+      const v = c[k]; if (v === null || v === undefined || v === "") continue;
+      const lab = (meta?.results || []).find((r) => r[0] === k)?.[1] || RES_LAB[k] || k;
+      if (!m.st.has(Number(v))) (k === "live" || k === "die" ? fatal : warn).push(`trạng thái ghi khi "${lab}" đã bị xoá / không thuộc tab`);
+    }
+  } else if (!m.fs.has(Number(c.target))) fatal.push("cột ghi kết quả không còn trong tab");
+  return { fatal, warn };
+}
+/** Vọng gác vừa đổi trạng thái → tự khớp sở hữu kéo theo bao nhiêu dòng (nhật ký ahs_own_log, nguồn vonggac) */
+async function ownImpact(since: number): Promise<number> {
+  if (!since) return 0;
+  try { const { count } = await sb().from("ahs_own_log").select("id", { count: "exact", head: true }).eq("src", "match").eq("origin", "vonggac").gte("ts", since); return count || 0; } catch { return 0; }
+}
 async function applyRes(cfg: Cfg, aid: Id, res: string, ts: number): Promise<boolean> {
   const val = cfg[res]; if (res === "error" || val === null || val === undefined || val === "") return false;
+  const tab = Number(cfg.tab_id), tm = await tabMeta(tab);
   if ((cfg.target ?? "status") === "status") {
-    const r = await run<{ status_id: Id | null } | null>(sb().from(T.accounts).select("status_id").eq("id", aid).maybeSingle());
-    if (r && r.status_id !== Number(val)) { await run(sb().from(T.accounts).update({ status_id: Number(val), updated: ts }).eq("id", aid)); return true; }
+    if (!tm.st.has(Number(val))) return false;                                       // trạng thái đích không thuộc tab → không ghi
+    const r = await run<{ status_id: Id | null } | null>(sb().from(T.accounts).select("status_id").eq("id", aid).eq("tab_id", tab).maybeSingle());
+    if (r && r.status_id !== Number(val)) { await run(sb().from(T.accounts).update({ status_id: Number(val), updated: ts }).eq("id", aid).eq("tab_id", tab)); return true; }
     return false;
   }
-  const fid = String(cfg.target);
-  const r = await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", aid).maybeSingle());
+  const fid = String(cfg.target); if (!tm.fs.has(Number(fid))) return false;
+  const r = await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", aid).eq("tab_id", tab).maybeSingle());
   if (!r) return false; const d = { ...(r.data || {}) }; if (d[fid] === val) return false;
   d[fid] = val; await run(sb().from(T.accounts).update({ data: d, updated: ts }).eq("id", aid)); return true;
 }
@@ -133,8 +174,8 @@ async function applyOneNow(cid: string, cfg: Cfg, xf: Record<string, Id | null>,
 interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string }
 const JOBS = new Map<string, NodeJob>();
 
-async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>) {
-  const m = MOD_MAP[cid], meta = m.CHECKER, J = JOBS.get(cid)!;
+async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>, mod?: CheckerMod) {
+  const m = mod ?? MOD_MAP[cid], meta = m.CHECKER, J = JOBS.get(cid)!;
   const xon = (meta.extra || []).filter((e) => cfg["xf_" + e.k] !== "").map((e) => e.k);
   const opt = { timeout: Number(cfg.timeout) || 10, proxy: String(cfg.proxy || ""), url: String(cfg.url || meta.url || ""), x: (cfg.x as Record<string, string>) || {}, xon, stopped: () => J.stop };
   const xf: Record<string, Id | null> = {};
@@ -156,6 +197,12 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
         for (;;) { if (J.stop) return; const idx = i++; if (idx >= items.length) return; const it = items[idx];
           let r: CheckOut; const t0 = Date.now();
           try { r = await m.check!(it.value, opt); } catch (e) { r = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
+          // Die kéo theo tự khớp sở hữu (có thể hạ cả chuỗi xuống Mất) → kiểm lại 1 lần sau 1,5 giây cho chắc; lần 2 không Die thì không ghi Die
+          if (r.res === "die" && !J.stop) {
+            await new Promise((ok) => setTimeout(ok, 1500));
+            let r2: CheckOut; try { r2 = await m.check!(it.value, opt); } catch (e) { r2 = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
+            r = r2.res === "die" ? { ...r, info: r.info + " · đã kiểm 2 lần" } : r2.res === "live" ? r2 : { res: "error", info: "Die chưa chắc (lần 2: " + r2.info + ") — giữ nguyên trạng thái" };
+          }
           await consume(cid, cfg, xf, J, m, it, r, Date.now() - t0);
         }
       });
@@ -168,10 +215,11 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
     try { const mt = m.meta?.(); if (mt && mt.credit != null) c2.credit = mt.credit; } catch { /* */ }
     await cfgSet(cid, c2);
     if (J.changed) await bumpVer();
-    await log("cyv_" + cid, J.done, `Vọng gác ${meta.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${J.by === "auto" ? " (định kỳ)" : ""}`).catch(() => undefined);
+    const oi = J.changed ? await ownImpact(J.started) : 0;
+    await log("cyv_" + cid, J.done, `Vọng gác ${meta.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${oi ? ` · sở hữu đổi theo ${oi}` : ""}${J.by === "auto" ? " (định kỳ)" : ""}`).catch(() => undefined);
   }
 }
-async function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJob, m: (typeof MOD_MAP)[string], it: { id: Id; value: string }, r: CheckOut, ms = 0) {
+async function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJob, m: CheckerMod, it: { id: Id; value: string }, r: CheckOut, ms = 0) {
   if (J.stop) return;
   J.done++; J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   J.recent.unshift({ id: it.id, v: m.show ? m.show(it.value) : it.value, res: r.res, info: r.info, ms, ts: now() }); J.recent.length = Math.min(J.recent.length, 60);
@@ -213,9 +261,16 @@ async function activeWorkerJob(cid: string) {
   return orMissing(run<{ id: Id; status: string; progress: Record<string, unknown>; result: unknown; started: number | null; finished: number | null } | null>(
     sb().from("ahs_jobs").select("id,status,progress,result,started,finished").eq("kind", "cyv").eq("payload->>cid", cid).order("id", { ascending: false }).limit(1).maybeSingle()), () => null);
 }
+/** việc giao worker đang "chờ" nhưng không có worker nào sống → huỷ (giao diện không treo "đang chạy" mãi) */
+async function dropStaleWorkerJobs(cid: string, minAge = 0) {
+  const rows = await orMissing(run<{ id: Id; started: number | null }[]>(sb().from("ahs_jobs").select("id,started").eq("kind", "cyv").eq("payload->>cid", cid).eq("status", "queued")), () => []);
+  const ids = rows.filter((r) => now() - Number(r.started || 0) >= minAge).map((r) => r.id);
+  if (ids.length) await run(sb().from("ahs_jobs").update({ status: "stopped", finished: now(), progress: { err: "Không có worker nhận việc — đã huỷ" } }).in("id", ids)).catch(() => undefined);
+}
 /** đọc kết quả thô worker đã ghi và ÁP DỤNG những dòng chưa áp (applied = con trỏ trong progress). */
 async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
-  const row = await activeWorkerJob(cid); if (!row) return null;
+  let row = await activeWorkerJob(cid); if (!row) return null;
+  if (row.status === "queued" && now() - Number(row.started || 0) > 120 && !(await workerAlive())) { await dropStaleWorkerJobs(cid, 120); row = await activeWorkerJob(cid); if (!row) return null; }
   const res = Array.isArray(row.result) ? (row.result as Array<{ id: Id; res: string; info: string; extra?: Record<string, unknown> }>) : [];
   const prog = (row.progress || {}) as Record<string, unknown>; const applied = Number(prog.applied || 0);
   const running = row.status === "queued" || row.status === "running";
@@ -230,7 +285,8 @@ async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
     if (!running) { cfg.last = now(); await cfgSet(cid, cfg); }
   }
   if (!running && !prog.logged) {                                                  // ghi nhật ký 1 lần khi worker xong (như finally của core._run)
-    await log("cyv_" + cid, J.done, `Vọng gác ${metaOf(cid)!.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}`).catch(() => undefined);
+    const oi = await ownImpact(Number(row.started) || 0);
+    await log("cyv_" + cid, J.done, `Vọng gác ${metaOf(cid)!.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${oi ? ` · sở hữu đổi theo ${oi}` : ""}`).catch(() => undefined);
     await run(sb().from("ahs_jobs").update({ progress: { ...prog, applied: res.length, logged: 1 } }).eq("id", row.id)).catch(() => undefined);
   }
   if (row.status === "failed") J.err_msg = String(prog.err || "Worker lỗi");
@@ -268,31 +324,45 @@ async function state() {
   // các checker độc lập → đọc song song (tuần tự mỗi lần poll mất vài giây trên Supabase thật)
   const out = await Promise.all(ALL_METAS.map(async (meta) => {
     const cid = meta.id; const c = await cfgGet(cid);
-    const J: NodeJob | null = WORKER_IDS.has(cid) ? await drainWorkerJob(cid) : JOBS.get(cid) || null;
+    // FB / FB Page có thể chạy trong máy chủ (không có worker) → lượt mới nhất (máy chủ hoặc worker) là lượt hiển thị
+    const nj = JOBS.get(cid) || null, wj = WORKER_IDS.has(cid) ? await drainWorkerJob(cid) : null;
+    const J: NodeJob | null = nj && (!wj || nj.running || nj.started >= (wj.started || 0)) ? nj : wj ?? nj;
     const nxt = c.auto ? Number(c.last || 0) + Math.max(5, Number(c.every) || 60) * 60 : 0;
     const m = MOD_MAP[cid]; let mt: Record<string, unknown> = {}; try { mt = m?.meta?.() || {}; } catch { mt = {}; }
     if (mt.credit == null && c.credit != null) mt.credit = c.credit;
     const job = J ? { running: J.running, total: J.total, done: J.done, live: J.live, die: J.die, error: J.error, changed: J.changed, started: J.started, ended: J.ended, recent: J.recent, err_msg: J.err_msg } : {};
-    return { id: cid, info: { ...meta }, cfg: c, stats: await stats(cid), meta: mt, job, next: nxt };
+    // cấu hình trỏ tới cột / trạng thái đã xoá → hiện ngay trong khung checker (ô báo lỗi sẵn có của giao diện), không đợi lúc chạy
+    const iss = c.tab_id ? await cfgIssues(cid, c).catch(() => null) : null, warn = iss ? [...iss.fatal, ...iss.warn] : [];
+    const job2 = warn.length && !(J && J.running) && !(job as { err_msg?: string }).err_msg ? { ...job, err_msg: "Cần chọn lại: " + warn.join(" · ") } : job;
+    return { id: cid, info: { ...meta }, cfg: c, stats: await stats(cid), meta: mt, job: job2, next: nxt, issues: warn };
   }));
   return { checkers: out, now: now() };
 }
 async function start(cid: string, ids: Id[] | null, scope?: string) {
   const meta = metaOf(cid); if (!meta) throw new HsError("Checker không tồn tại");
   const node = JOBS.get(cid); if (node?.running) throw new HsError("Đang chạy - chờ xong hoặc bấm Dừng");
-  if (WORKER_IDS.has(cid)) { const w = await activeWorkerJob(cid); if (w && (w.status === "queued" || w.status === "running")) throw new HsError("Đang chạy - chờ xong hoặc bấm Dừng"); }
+  // Facebook / FB Page / Bài đăng FB: có worker Python đang sống → giao worker (đọc được cả tên); chưa có worker → FB / FB Page chạy
+  // ngay trong máy chủ (Graph, chỉ Live / Die), Bài đăng FB báo rõ cần worker — không còn tạo việc "đang chờ" mãi không ai làm.
+  const alive = WORKER_IDS.has(cid) ? await workerAlive() : false;
+  if (WORKER_IDS.has(cid) && alive) { const w = await activeWorkerJob(cid); if (w && (w.status === "queued" || w.status === "running")) throw new HsError("Đang chạy - chờ xong hoặc bấm Dừng"); }
+  if (WORKER_IDS.has(cid) && !alive) {
+    await dropStaleWorkerJobs(cid);
+    if (!NODE_FALLBACK[cid]) throw new HsError(`${meta.name} cần worker Python (đọc trang như trình duyệt) — worker chưa chạy trên máy chủ. Bật worker (worker/hs-accountshs-worker.py) rồi chạy lại.`);
+  }
   const c = await cfgGet(cid);
   if (!c.tab_id || !c.field_id) throw new HsError("Chưa chọn tab và trường " + (meta.value || "giá trị"));
   if ((c.live === null || c.live === "") && (c.die === null || c.die === "")) throw new HsError("Chưa chọn giá trị ghi khi Live / Die");
+  const iss = await cfgIssues(cid, c);
+  if (iss.fatal.length) throw new HsError(`Vọng gác ${meta.name} — cần chọn lại: ${iss.fatal.join(" · ")}`);
   const sc = scope || String(c.scope || "all");
   const items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid);
   if (!items.length) throw new HsError("Không có dòng nào cần check");
   if (items.length > 50) await snapshot().catch(() => undefined);                  // core.start(): chụp bản an toàn trước lượt lớn
-  if (WORKER_IDS.has(cid)) { await createWorkerJob(cid, c, items); return { ok: 1, total: items.length }; }
+  if (WORKER_IDS.has(cid) && alive) { await createWorkerJob(cid, c, items); return { ok: 1, total: items.length }; }
   const J: NodeJob = { cid, running: true, stop: false, total: items.length, done: 0, live: 0, die: 0, error: 0, changed: 0, started: now(), ended: 0, by: "manual", recent: [], scope: sc };
   JOBS.set(cid, J);
-  void runNodeJob(cid, c, items);
-  return { ok: 1, total: items.length };
+  void runNodeJob(cid, c, items, WORKER_IDS.has(cid) ? NODE_FALLBACK[cid] : undefined);
+  return { ok: 1, total: items.length, mode: WORKER_IDS.has(cid) ? "server" : "node" };
 }
 async function stop(cid: string) {
   const J = JOBS.get(cid); if (J) J.stop = true;
