@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type * as Three from "three";
 import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
+import type { HqSelection } from "@/modules/crm/dashboard/components/hq-map";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 import type { People } from "@/modules/crm/dashboard/components/hq-3d-people";
 import type { RoomKey, World } from "@/modules/crm/dashboard/components/hq-3d-world";
@@ -14,11 +14,11 @@ import type { Effects } from "@/modules/crm/dashboard/components/hq-3d-effects";
 // Drag to turn, scroll to zoom, right-drag to move; hover shows who / what, a click opens the room's screen.
 // The building is built once; each data refresh (every minute) only updates numbers, screens and people.
 
-type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; onUnsupported: () => void };
+type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; selected: HqSelection; onSelect: (selection: HqSelection) => void; onUnsupported: () => void };
 type Hover = { x: number; y: number; title: string; sub: string } | null;
 type Pick = { title: string; sub: string; href: string | null; personId?: string };
 type LogLine = { id: number; at: string; text: string; tone: "alert" | "ok" | "info" };
-type Data = Omit<Props, "onUnsupported">;
+type Data = Omit<Props, "selected" | "onSelect" | "onUnsupported">;
 
 interface Engine {
   camera: Three.PerspectiveCamera;
@@ -27,7 +27,7 @@ interface Engine {
   /** Camera flight (click on a person) and the member it follows. */
   flight: { from: Three.Vector3; to: Three.Vector3; fromTarget: Three.Vector3; toTarget: Three.Vector3; start: number; follow: string | null } | null;
   home: { camera: Three.Vector3; target: Three.Vector3 } | null;
-  fly: (to: { x: number; y: number; z: number } | null, follow: string | null) => void;
+  fly: (to: { x: number; y: number; z: number } | null, follow: string | null, far?: number) => void;
 }
 
 const clock = () => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
@@ -61,20 +61,19 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
 const CAMERA_START = { x: -640, y: 860, z: 1060 };
 const TARGET = { x: 0, y: 0, z: 30 };
 
-export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
-  const router = useRouter();
+export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUnsupported }: Props) {
   const holder = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const dataRef = useRef<Data>({ rooms, team, stats, floor });
   const [hover, setHover] = useState<Hover>(null);
   const [spinning, setSpinning] = useState(false);
   const [progress, setProgress] = useState<string | null>("Đang tải văn phòng 3D…");
-  const [focused, setFocused] = useState<string | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
   const logId = useRef(0);
   const fallback = useRef(onUnsupported);
-  const navigate = useRef(router.push);
-  useEffect(() => { fallback.current = onUnsupported; navigate.current = router.push; });
+  const select = useRef(onSelect);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { fallback.current = onUnsupported; select.current = onSelect; });
 
   useEffect(() => {
     const before = dataRef.current;
@@ -140,12 +139,12 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       const started = performance.now();
       const engine: Engine = {
         camera, controls, world, people, effects, started, flight: null, home: null,
-        fly: (to, follow) => {
+        fly: (to, follow, far = 1) => {
           const fromTarget = controls.target.clone(), from = camera.position.clone();
           if (to) {
             if (!engine.home) engine.home = { camera: from.clone(), target: fromTarget.clone() };
             const toTarget = new THREE.Vector3(to.x, 30, to.z);
-            engine.flight = { from, to: toTarget.clone().add(new THREE.Vector3(-150, 190, 230)), fromTarget, toTarget, start: performance.now(), follow };
+            engine.flight = { from, to: toTarget.clone().add(new THREE.Vector3(-150, 190, 230).multiplyScalar(far)), fromTarget, toTarget, start: performance.now(), follow };
           } else if (engine.home) {
             engine.flight = { from, to: engine.home.camera.clone(), fromTarget, toTarget: engine.home.target.clone(), start: performance.now(), follow: null };
             engine.home = null;
@@ -156,6 +155,7 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
       world.update(dataRef.current);
       people.sync(dataRef.current.team, 0);
       setProgress(null);
+      setReady(true);
       cleanups.push(() => { effects.dispose(); people.dispose(); engineRef.current = null; scene.traverse((child) => { const mesh = child as Three.Mesh; mesh.geometry?.dispose?.(); const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []; for (const material of list) { (material as Three.MeshStandardMaterial).map?.dispose(); material.dispose(); } }); });
 
       const resize = () => {
@@ -203,7 +203,7 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
         if (!found) { if (shown || current) { shown = false; current = null; world.highlight(null); setHover(null); renderer.domElement.style.cursor = ""; } return; }
         if (current !== found.room) { current = found.room; world.highlight(found.room); }
         shown = true;
-        renderer.domElement.style.cursor = found.pick.href ? "pointer" : "default";
+        renderer.domElement.style.cursor = found.pick.personId || found.room ? "pointer" : "default";
         setHover({ x: event.clientX - found.rect.left, y: event.clientY - found.rect.top, title: found.pick.title, sub: found.pick.sub });
       };
       const onDown = (event: PointerEvent) => { down = { x: event.clientX, y: event.clientY }; setHover(null); };
@@ -211,8 +211,8 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
         const start = down; down = null;
         if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5 || event.button !== 0) return;
         const found = pickAt(event);
-        if (found?.pick.personId) { const id = found.pick.personId; engine.fly(people.positionOf(id), id); setFocused(id); setHover(null); return; }
-        if (found?.pick.href) navigate.current(found.pick.href);
+        if (found?.pick.personId) { setHover(null); select.current({ type: "person", id: found.pick.personId }); return; }
+        if (found?.room) { setHover(null); select.current({ type: "room", key: found.room }); }
       };
       const onLeave = () => { current = null; shown = false; world.highlight(null); setHover(null); };
       const canvas = renderer.domElement;
@@ -267,46 +267,37 @@ export function HqScene3D({ rooms, team, stats, floor, onUnsupported }: Props) {
     camera.position.copy(controls.target).add(offset.setLength(Math.min(2600, Math.max(220, offset.length()))));
   };
   const toggleSpin = () => setSpinning((value) => { if (engineRef.current) engineRef.current.controls.autoRotate = !value; return !value; });
-  const reset = () => { const engine = engineRef.current; if (!engine) return; engine.controls.autoRotate = false; setSpinning(false); engine.flight = null; engine.home = null; setFocused(null); engine.controls.reset(); };
-  const closeCard = () => { engineRef.current?.fly(null, null); setFocused(null); };
+  const reset = () => { const engine = engineRef.current; if (!engine) return; engine.controls.autoRotate = false; setSpinning(false); engine.flight = null; engine.home = null; select.current(null); engine.controls.reset(); };
+
+  // The camera follows what is picked: a member (and keeps following if they walk), a room, or back home.
+  const selectionKey = selected ? (selected.type === "person" ? `p:${selected.id}` : `r:${selected.key}`) : "";
   useEffect(() => {
-    if (!focused) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { engineRef.current?.fly(null, null); setFocused(null); } };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [focused]);
-  const person = focused ? team.find((member) => member.id === focused) ?? null : null;
-  const STATUS = { busy: "Đang nhắn", alert: "Cần xem", meet: "Đang họp", idle: "Chưa có hoạt động" } as const;
+    const engine = engineRef.current;
+    if (!engine || !ready) return;
+    if (!selectionKey) { engine.fly(null, null); return; }
+    if (selectionKey.startsWith("p:")) { const id = selectionKey.slice(2); engine.fly(engine.people.positionOf(id), id, 1.4); return; }
+    const spot = engine.world.centreOf(selectionKey.slice(2));
+    if (spot) engine.fly({ x: spot.x, y: 0, z: spot.z }, null, Math.max(2.2, spot.span / 170));
+  }, [selectionKey, ready]);
 
   return (
     <div className={styles.scene3dWrap}>
-      <div className={styles.mapTools3d}>
+      <div className={styles.stageTools}>
         <button type="button" onClick={() => zoom(0.8)} aria-label="Phóng to">+</button>
         <button type="button" onClick={() => zoom(1.25)} aria-label="Thu nhỏ">−</button>
         <button type="button" onClick={toggleSpin} aria-pressed={spinning} aria-label="Tự xoay" className={spinning ? styles.toolOn : undefined}>⟳</button>
         <button type="button" onClick={reset} aria-label="Về góc nhìn ban đầu">⌂</button>
+        <button type="button" aria-label="Cách dùng" title="Kéo chuột trái: xoay · Ctrl + lăn chuột hoặc +/−: phóng to · chuột phải: di chuyển · bấm phòng hoặc người để xem tóm tắt · Esc: đóng">?</button>
       </div>
       <div ref={holder} className={styles.scene3d} />
       {progress ? <div className={styles.scene3dLoading}>{progress}</div> : null}
-      {person ? (
-        <div className={styles.card3d} role="dialog" aria-label={`Thông tin ${person.name}`}>
-          <div className={styles.card3dHead}>
-            <strong>{person.name}</strong>
-            <button type="button" onClick={closeCard} aria-label="Đóng">×</button>
-          </div>
-          <span className={styles.card3dSub}>{person.department ?? "Chưa có bộ phận"} · <b className={styles[`card3d_${person.tone}`]}>{STATUS[person.tone]}</b></span>
-          <div className={styles.card3dBig}><span>Chưa trả lời</span><b>{person.waiting.toLocaleString("vi-VN")}</b></div>
-          <p className={styles.card3dDoing}>{person.doing}</p>
-          <button type="button" className={styles.card3dLink} onClick={() => router.push(`/inbox/all?view=waiting&owner=${encodeURIComponent(person.id)}`)}>Mở Suối Nguồn của {person.name} →</button>
-        </div>
-      ) : null}
       {log.length ? (
         <ul className={styles.log3d} aria-label="Vừa xảy ra">
           {log.map((line) => <li key={line.id} className={styles[`log3d_${line.tone}`]}><span>{line.at}</span>{line.text}</li>)}
         </ul>
       ) : null}
       {hover ? <div className={styles.tooltip3d} style={{ left: hover.x + 14, top: hover.y + 14 }}><strong>{hover.title}</strong><span>{hover.sub}</span></div> : null}
-      <p className={styles.hint3d}>Kéo chuột trái để xoay · Ctrl + lăn chuột (hoặc nút +/−) để phóng to · kéo chuột phải để di chuyển · bấm vào phòng để mở, bấm vào người để xem · mô hình: Kenney &amp; Quaternius (CC0)</p>
+      <p className={styles.hint3d}>Kéo chuột trái: xoay · Ctrl + lăn chuột hoặc +/−: phóng to · chuột phải: di chuyển · bấm phòng / người để xem tóm tắt · mô hình: Kenney &amp; Quaternius (CC0)</p>
     </div>
   );
 }

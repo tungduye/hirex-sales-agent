@@ -84,6 +84,8 @@ export interface World {
   update: (data: { rooms: HqRoom[]; stats: HqStats; floor: HqFloor }) => void;
   tick: (time: number, camera: Three.Camera) => void;
   highlight: (room: RoomKey | null) => void;
+  /** Centre and size of a room (for the camera). */
+  centreOf: (key: string) => { x: number; z: number; span: number } | null;
   robot: { root: Three.Object3D; mixer: Three.AnimationMixer | null; play: (name: string) => void } | null;
 }
 
@@ -312,7 +314,8 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
   const sodaTag = label(THREE, "Soda · Trợ lý", { height: 13 }); sodaTag.position.y = 26;
   soda.add(sodaTag);
   soda.position.set(-510, 72, -385);
-  sodaCore.userData.pick = { title: "Soda · Trợ lý HireX", sub: "Mở Trợ lý", href: "/assistant" };
+  sodaCore.userData.pick = { title: "Soda · Trợ lý HireX", sub: "Bấm để xem tóm tắt", href: null };
+  sodaCore.userData.room = "soda";
   pickables.push(sodaCore);
   root.add(soda);
   tickers.push((time) => { soda.position.y = 72 + Math.sin(time * 1.6) * 3; sodaCore.rotation.y = time * 0.8; sodaShell.rotation.y = -time * 0.4; sodaShell.rotation.x = time * 0.3; });
@@ -394,7 +397,7 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
       current = next;
     };
     play("Idle");
-    model.traverse((child) => { if ((child as Three.Mesh).isMesh) { child.userData.pick = { title: "AI Recruiter", sub: "Mở cài đặt AI Recruiter", href: "/settings/ai-recruiter" }; pickables.push(child); } });
+    model.traverse((child) => { if ((child as Three.Mesh).isMesh) { child.userData.pick = { title: "AI Recruiter", sub: "Bấm để xem tóm tắt", href: null }; child.userData.room = "ai"; pickables.push(child); } });
     robotHandle = { root: holder, mixer, play };
   }
 
@@ -438,7 +441,7 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
       const key = info.key as RoomKey;
       const floorMesh = floors.get(key);
       if (!floorMesh) continue;
-      floorMesh.userData.pick = { title: info.name, sub: info.meta, href: info.href };
+      floorMesh.userData.pick = { title: info.name, sub: `${info.meta} · bấm để xem tóm tắt`, href: info.href };
       toneOf.set(key, TONE[info.tone]);
       const dim = focus && focus !== key && (key === "rec" || key === "sale");
       (floorMesh.material as Three.MeshStandardMaterial).opacity = dim ? 0.45 : 1;
@@ -471,5 +474,9 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
   };
 
   const tick: World["tick"] = (time, camera) => { for (const step of tickers) step(time, camera); };
-  return { slots, meetingSeats, pickables, rails, floors, walls, update, tick, highlight, robot: robotHandle };
+  const centreOf: World["centreOf"] = (key) => {
+    const room = ROOMS[key as RoomKey];
+    return room ? { x: (room.x0 + room.x1) / 2, z: (room.z0 + room.z1) / 2, span: Math.max(room.x1 - room.x0, room.z1 - room.z0) } : null;
+  };
+  return { slots, meetingSeats, pickables, rails, floors, walls, update, tick, highlight, centreOf, robot: robotHandle };
 }

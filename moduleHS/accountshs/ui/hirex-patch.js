@@ -223,85 +223,154 @@
     if (sts.length) S.st = new Set(sts);
     savePref(); renderAll();
   };
-  /* ── 14c. Nút "?" — giải thích cách tính Tình trạng sở hữu: cây quyết định (SVG) + ví dụ từng trường hợp. Mở từ Tổng quan & Nhật ký. */
-  const qBtn = () => `<button class="btn icon ghost hx-q" data-a="hxownq" title="Cách tính Lâu dài / Tạm thời / Mất" aria-label="Cách tính tình trạng sở hữu"><span>?</span></button>`;
-  const QP = (t, c) => `<span class="hx-qp ${c}">${t}</span>`;
-  const QR = (k, own, st, ok) => `<span class="hx-qr ${ok ? 'ok' : 'no'}"><b>${k}</b>${own} · ${st}</span>`;
-  const QX = [
-    ['Facebook có Email xác minh và SĐT xác minh, cả hai Lâu dài và còn sống', [QR('Email xác minh', 'Lâu dài', 'Live', 1), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
-    ['Email chết nhưng SĐT vẫn sống → vẫn còn 1 xác minh Lâu dài', [QR('Email xác minh', 'Lâu dài', 'Die', 0), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
-    ['Chết cả hai → không còn gì để lấy lại tài khoản', [QR('Email xác minh', 'Lâu dài', 'Die', 0), QR('SĐT xác minh', 'Lâu dài', 'Die', 0)], QP('Mất', 'b')],
-    ['Tài khoản mới: email còn sống nhưng mới Tạm thời / Không xác định', [QR('Email xác minh', 'Không xác định', 'Live', 0)], QP('Tạm thời', 'w')],
-    ['Sau đó email được nâng Lâu dài, hoặc thêm 1 SĐT Lâu dài → tự lên', [QR('Email xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
-    ['Email cũng tính y hệt, theo Email khôi phục + SĐT khôi phục. Email xuống Mất thì Facebook dùng email đó tự tính lại', [QR('Email khôi phục', 'Mất', '—', 0), QR('SĐT khôi phục', 'Lâu dài', 'Die', 0)], QP('Email: Mất', 'b')],
-  ];
-  const qTree = () => {
-    const box = (x, y, w, h, t, c) => `<g class="${c}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"/>${t.map((l, i) => `<text x="${x + w / 2}" y="${y + h / 2 + (i - (t.length - 1) / 2) * 15 + 4}" text-anchor="middle">${l}</text>`).join('')}</g>`;
-    const ar = (x1, y1, x2, y2, l, lx, ly) => `<path class="e" d="M${x1} ${y1} C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2 - 4}" marker-end="url(#hxqa)"/><text class="el" x="${lx}" y="${ly}" text-anchor="middle">${l}</text>`;
-    return `<svg class="hx-qt" viewBox="0 0 700 320" role="img" aria-label="Cây quyết định tình trạng sở hữu"><defs><marker id="hxqa" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" class="ah"/></marker></defs>`
-      + box(210, 8, 280, 44, ['Dòng có email / SĐT xác minh', '(cột liên kết sang Email, SĐT…)?'], 'q')
-      + ar(270, 52, 120, 96, 'Không', 168, 76) + ar(430, 52, 470, 96, 'Có', 468, 76)
-      + box(10, 96, 220, 44, ['Giữ giá trị đang đặt', '(người dùng / CRM nhập)'], 'k')
-      + box(320, 96, 300, 44, ['Còn ít nhất 1 cái đang Lâu dài', 'và chưa Die?'], 'q')
-      + ar(400, 140, 330, 186, 'Có', 344, 166) + ar(540, 140, 560, 186, 'Không', 584, 166)
-      + box(260, 186, 140, 40, ['Lâu dài'], 'g')
-      + box(450, 186, 230, 44, ['Còn cái nào chưa Die', '(Tạm thời / Không xác định)?'], 'q')
-      + ar(510, 230, 480, 270, 'Có', 476, 254) + ar(620, 230, 630, 270, 'Không', 652, 254)
-      + box(420, 270, 120, 40, ['Tạm thời'], 'w') + box(575, 270, 110, 40, ['Mất'], 'b') + `</svg>`;
+  /* ── 14b. Tình trạng sở hữu = KẾT QUẢ TÍNH (phần chính ở DB: ahs_own_sync + trigger, sql hs_accountshs). 3 câu hỏi, xét theo thứ tự:
+       1. Còn sống không?  trạng thái Die → Mất
+       2. Mở được không?   tab có cột Mật khẩu mà dòng để trống → Không xác định
+       3. Giữ được không?  còn ≥ 1 email / SĐT xác minh đang Lâu dài & chưa chết, và tài khoản đang Live → Lâu dài; còn lại → Tạm thời
+     Tab gốc (SĐT: không có cột liên kết xác minh): người dùng đặt, chỉ tự xuống Mất khi Die (sống lại thì trả về giá trị cũ).
+     Ở trình duyệt chạy cùng luật (ownModel) để: giải thích 1-3 câu (đúp chuột ô, nút Xuất cạnh Bộ lọc, Excel Báo cáo),
+     cảnh báo "Sở hữu lệch" khi DB chưa đồng bộ, "Lâu dài · chỉ còn 1 xác minh". */
+  const OWW = { k: null }, WK = 'hxwarn', W1 = 'hxone';
+  const stLab = a => String(((a && I.status[a.status_id]) || {}).label || '').trim();
+  const ownDead = a => /^(die|chết|dead)$/i.test(stLab(a));
+  const ownLive = a => /^(live|sống)$/i.test(stLab(a));
+  const OWM = { k: -1, vf: {}, pw: {}, root: {} };   // theo tab: cột liên kết xác minh · cột mật khẩu · tab gốc?
+  function ownMeta() {
+    if (OWM.k === DVER) return OWM;
+    ownField(0); OWM.k = DVER; OWM.vf = {}; OWM.pw = {}; OWM.root = {};
+    Object.keys(OWF.m).forEach(t => {
+      const tb = I.tab[t], vf = tb ? tb.fields.filter(f => f.type === 'link' && OWF.m[f.link_tab]) : [];
+      OWM.vf[t] = vf; OWM.root[t] = !vf.length;
+      const p = tb && tb.fields.find(f => f.type === 'secret' && /mật khẩu|password/i.test(f.label || '')); OWM.pw[t] = p ? p.id : null;
+    });
+    return OWM;
+  }
+  const ownVal = a => { const f = a && OWF.m[a.tab_id]; return f ? String((a.data && a.data[f.id]) || '').trim() : '' };
+  const ownNoPw = a => { const p = ownMeta().pw[a.tab_id]; return !!p && !String((a.data && a.data[p]) || '').trim() };
+  /** tài nguyên xác minh của 1 dòng: [{f, b, rk}] — rk 2 = Lâu dài & sống · 1 = sống nhưng chưa Lâu dài · 0 = Die / Mất */
+  const ownRes = a => { const out = I.out[a.id] || {}; return (ownMeta().vf[a.tab_id] || []).flatMap(f => (out[f.id] || []).filter(d => I.acc[d]).map(d => {
+    const b = I.acc[d], v = ownVal(b).toLowerCase(), dead = ownDead(b) || v === 'mất'; return { f, b, rk: !dead && v === 'lâu dài' ? 2 : !dead ? 1 : 0 } })) };
+  /** giá trị theo luật + mã lý do. root: giữ giá trị đang có (trừ Die) */
+  function ownModel(a) {
+    const cur = ownVal(a);
+    if (ownDead(a)) return { val: 'Mất', k: 'dead', res: [], rk: -1 };
+    if (ownMeta().root[a.tab_id]) return { val: cur, k: 'root', res: [], rk: -1 };
+    const res = ownRes(a), rk = res.length ? Math.max(...res.map(r => r.rk)) : -1;
+    if (ownNoPw(a)) return { val: 'Không xác định', k: 'nopw', res, rk };
+    if (rk === 2 && ownLive(a)) return { val: 'Lâu dài', k: 'ok', res, rk };
+    return { val: 'Tạm thời', k: rk === 2 ? 'notlive' : rk === 1 ? 'weak' : rk === 0 ? 'alldead' : 'nores', res, rk };
+  }
+  /* ── Giải thích 1-3 câu, chữ thường, không thuật ngữ: vì sao dòng này Lâu dài / Tạm thời / Mất / Không xác định ── */
+  const PLAT = [[/facebook|\bfb\b/i, 'Facebook hỏi xác minh qua email / SĐT khi đăng nhập máy lạ hay bị checkpoint'], [/mail/i, 'email lấy lại mật khẩu qua email / SĐT khôi phục'],
+    [/zalo|whatsapp|telegram|viber/i, 'nền tảng đăng nhập bằng SĐT, cần SĐT còn nhận được OTP'], [/./, 'nền tảng lấy lại tài khoản qua email / SĐT xác minh']];
+  const platHint = t => PLAT.find(([re]) => re.test(t ? t.name : ''))[1];
+  /** ghi chú kiểm tra gần nhất trong Ghi chú (dòng "YYYY-MM-DD … Tình trạng: …" / "Đã chết" / "không sóng") → "ghi chú 08/10: không sóng…" */
+  const lastCheck = b => { const m = [...String(b.note || '').matchAll(/(\d{4})-(\d\d)-(\d\d)\s*([^\n]*)/g)].filter(x => /tình trạng|sóng|chết|khóa|chặn/i.test(x[4])).pop();
+    return m ? `ghi chú ${m[3]}/${m[2]}: ${m[4].replace(/^.*?tình trạng:\s*/i, '').trim().slice(0, 70)}` : '' };
+  /** 1 vế ngắn về tài nguyên b: nó đang thế nào, vì sao chưa Lâu dài */
+  function resWhy(b) {
+    const v = ownVal(b), lv = v.toLowerCase(), lc = lastCheck(b);
+    if (ownDead(b)) return 'đã Die' + (lc ? ', ' + lc : '');
+    if (lv === 'mất') return 'đã Mất';
+    if (lv === 'lâu dài') return 'Lâu dài, ' + (stLab(b) || 'chưa có trạng thái');
+    if (ownMeta().root[b.tab_id]) return (v || 'chưa đặt tình trạng') + (lc ? ', ' + lc : '');
+    if (ownNoPw(b)) return (v || 'Không xác định') + ' vì chưa có mật khẩu';
+    const r = ownRes(b), rk = r.length ? Math.max(...r.map(x => x.rk)) : -1;
+    return (v || 'chưa đặt') + (rk === -1 ? ' vì chưa gắn khôi phục' : rk === 0 ? ' vì khôi phục của nó đã chết hết' : rk === 2 ? ' vì đang ' + (stLab(b) || 'chưa có trạng thái') : ' vì khôi phục của nó chưa Lâu dài');
+  }
+  function ownWhy(a) {
+    const m = ownModel(a), t = I.tab[a.tab_id], st = stLab(a) || 'chưa có trạng thái', lc = lastCheck(a);
+    const list = rs => rs.map(r => `${r.f.label} ${r.b.label} (${resWhy(r.b)})`).join('; ');
+    if (m.k === 'dead') return `${ownMeta().root[a.tab_id] && t ? t.name : 'Tài khoản'} đã Die${lc ? ' (' + lc + ')' : ''} → không còn sở hữu.`;
+    if (m.k === 'root') {
+      const f0 = OWF.m[a.tab_id], sel = (t ? t.fields : []).filter(f => f.type === 'select' && f !== f0 && a.data && a.data[f.id]).map(f => `${f.label}: ${a.data[f.id]}`).join(', ');
+      return `${t ? t.name : 'Dòng'} là tài nguyên gốc, tình trạng do người dùng đặt${sel ? ' (' + sel + ')' : ''}; đang ${st}${lc ? ', ' + lc : ''}.`;
+    }
+    const s1 = m.k === 'nopw' ? 'Chưa có mật khẩu nên chưa biết có vào được không' : ownLive(a) ? 'Tài khoản còn Live và có mật khẩu nên vào được ngay' : `Tài khoản đang "${st}", hiện chưa vào được`;
+    let s2, s3 = '';
+    if (!m.res.length) { s2 = `Chưa gắn email / SĐT xác minh nào → nếu bị đăng xuất hay bị hỏi xác minh thì không lấy lại được (${platHint(t)})`; s3 = m.k === 'nopw' ? 'Thêm mật khẩu và gắn xác minh để xác định' : 'Gắn 1 SĐT / email Lâu dài còn sống là lên Lâu dài' }
+    else if (m.k === 'ok') { s2 = `Có ${list(m.res.filter(r => r.rk === 2))} → công ty giữ được lâu dài` }
+    else if (m.k === 'notlive') { s2 = `Có xác minh ${list(m.res)} — khi về Live sẽ thành Lâu dài` }
+    else if (m.k === 'alldead') { s2 = `Mọi xác minh đã chết: ${list(m.res)} → chỉ dùng được chừng nào còn đăng nhập, không khôi phục được`; s3 = 'Gắn 1 SĐT / email Lâu dài còn sống là lên Lâu dài' }
+    else if (m.k === 'weak') { s2 = `Xác minh: ${list(m.res)} → chưa có xác minh nào công ty giữ lâu dài, có thể mất nếu bị đăng xuất / bị hỏi xác minh`; s3 = 'Nâng tài nguyên đó lên Lâu dài hoặc gắn thêm 1 SĐT / email Lâu dài là lên Lâu dài' }
+    else { s2 = `Xác minh: ${list(m.res)}`; s3 = m.rk === 2 && ownLive(a) ? 'Thêm mật khẩu là thành Lâu dài' : 'Thêm mật khẩu để xác định' }
+    return `${s1}. ${s2}.${s3 ? ' ' + s3 + '.' : ''}`;
+  }
+  function ownCalc() {
+    if (OWW.k === DVER) return OWW;
+    ownMeta();
+    const vf = OWM.vf, val = b => (b && OWF.m[b.tab_id]) ? ownVal(b) : null;
+    const warn = new Map(), one = new Map(), want = {}, put = (m, a) => { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) };
+    for (const a of S.accs) {
+      if (!OWF.m[a.tab_id]) continue;
+      const m = ownModel(a), cur = ownVal(a); want[a.id] = m.val;
+      if (cur.toLowerCase() !== m.val.toLowerCase()) put(warn, a);
+      else if (m.k === 'ok' && m.res.filter(r => r.rk === 2).length === 1) put(one, a);
+    }
+    return Object.assign(OWW, { k: DVER, warn, one, want, vf, val });
+  }
+  /* ── Nút Xuất (cạnh Bộ lọc): Excel các dòng đang lọc / tìm / lọc AI — Tài khoản · Trạng thái · Tình trạng sở hữu · Giải thích ── */
+  function ownSheet(rows, all) {
+    const hdr = [...(all ? ['Nền tảng'] : []), 'Tài khoản', 'Trạng thái', 'Tình trạng sở hữu', 'Giải thích'];
+    return [hdr, ...rows.map(a => [...(all ? [(I.tab[a.tab_id] || {}).name || ''] : []), a.label, stLab(a), ownVal(a), ownWhy(a)])];
+  }
+  ACT.hxownxls = () => {
+    const rows = (S.view || []).map(id => I.acc[id]).filter(a => a && OWF.m[a.tab_id]);
+    if (!rows.length) { toast('Danh sách đang lọc không có dòng nào có Tình trạng sở hữu', 'err'); return }
+    const t = I.tab[S.tab], n = t ? '-' + String(t.name).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '-') : '';
+    dlSheets(xlsxName('so-huu' + n), { 'Tình trạng sở hữu': ownSheet(rows, S.tab === 'all') });
   };
+  window.HXOWN = { btn: () => (S.tab === 'all' || ownField(S.tab)) ? `<button class="btn outline hx-ownx" data-a="hxownxls" title="Xuất Excel các dòng đang lọc: Tài khoản · Tình trạng sở hữu · Giải thích vì sao">${ico('download', 16)}<span>Xuất</span></button>` : '', why: ownWhy, model: ownModel };
+  /* ── Ô "Tình trạng sở hữu" ở tab có xác minh: không sửa tay (tự tính) — đúp chuột → giải thích + cách tính; form sửa dòng → chỉ đọc ── */
+  function ownPop(el, a) {
+    const m = ownModel(a), cur = ownVal(a);
+    openPop(el, `<div class="hx-owp"><div class="hx-owh">${ico('shield', 14)}<b>${esc(cur || 'trống')}</b><span class="mut">${cur.toLowerCase() === m.val.toLowerCase() ? 'tự tính' : 'DB chưa đồng bộ → ' + esc(m.val)}</span></div><p>${esc(ownWhy(a))}</p><div class="hx-owf"><button class="btn sm ghost" data-a="hxownq">${ico('info', 13)}<span>Cách tính</span></button></div></div>`, 'hx-owpop');
+  }
+  document.addEventListener('dblclick', e => {
+    const td = e.target.closest && e.target.closest('#tw td[data-edit]'); if (!td || e.target.closest('button,a,input')) return;
+    const tr = td.closest('tr'), a = tr && I.acc[tr.dataset.id], f = a && I.field[td.dataset.edit];
+    if (!a || !f || f !== OWF.m[a.tab_id] || ownMeta().root[a.tab_id]) return;
+    e.preventDefault(); e.stopImmediatePropagation(); try { getSelection().removeAllRanges() } catch (x) { /* bỏ qua */ }
+    ownPop(td, a);
+  }, true);
+  { const _fh = fieldHtml; fieldHtml = function (f) {
+      const F0 = typeof F !== 'undefined' ? F : null, tb = F0 && F0.tab_id, own = tb && ownField(tb);
+      if (own && f === own && !ownMeta().root[tb]) { const v = F0.data[f.id] || '', a = F0.id && I.acc[F0.id];
+        return `<div class="fld full hx-owfld"><label>${ico('shield', 13)}${esc(f.label)}<span class="mut">tự tính</span></label><input class="in" value="${esc(v || (a ? '' : 'tự tính sau khi lưu'))}" readonly title="Tự tính theo trạng thái, mật khẩu và email / SĐT xác minh">${a ? `<div class="hx-owfh">${esc(ownWhy(a))}</div>` : ''}</div>` }
+      return _fh.apply(this, arguments);
+    } }
+  /* ── 14c. Nút "?" — cách tính Tình trạng sở hữu: bảng 3 câu hỏi + ví dụ từng trường hợp. Mở từ Tổng quan, Nhật ký và ô giải thích. */
+  const qBtn = () => `<button class="btn icon ghost hx-q" data-a="hxownq" title="Cách tính Lâu dài / Tạm thời / Mất / Không xác định" aria-label="Cách tính tình trạng sở hữu"><span>?</span></button>`;
+  const QP = (t, c) => `<span class="hx-qp ${c}">${t}</span>`;
+  const QR = (k, own, st, ok) => `<span class="hx-qr ${ok ? 'ok' : 'no'}"><b>${k}</b>${own}${st ? ' · ' + st : ''}</span>`;
+  const QX = [
+    ['Facebook Live, có mật khẩu, SĐT xác minh là sim công ty còn sóng', [QR('Facebook', 'Live, có mật khẩu', '', 1), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Lâu dài', 'g')],
+    ['Facebook Live, có mật khẩu, nhưng email xác minh chưa có mật khẩu / chưa có khôi phục → email đó chỉ Không xác định', [QR('Facebook', 'Live, có mật khẩu', '', 1), QR('Email xác minh', 'Không xác định', 'Live', 0)], QP('Tạm thời', 'w')],
+    ['Vẫn vào được nhưng SĐT khôi phục đã chết → nếu bị đăng xuất / hỏi xác minh là không lấy lại được', [QR('Email', 'Live, có mật khẩu', '', 1), QR('SĐT khôi phục', 'Lâu dài', 'Die', 0)], QP('Tạm thời', 'w')],
+    ['Chưa gắn email / SĐT xác minh nào → không có đường khôi phục', [QR('Zalo', 'Live, có mật khẩu', '', 1), QR('SĐT xác minh', 'trống', '', 0)], QP('Tạm thời', 'w')],
+    ['Không có mật khẩu → chưa biết có vào được không, dù xác minh tốt', [QR('Facebook', 'Live, không có mật khẩu', '', 0), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Không xác định', 'n')],
+    ['Tài khoản đã Die (Vọng gác / người dùng đặt) → không còn gì để sở hữu', [QR('Facebook', 'Die', '', 0)], QP('Mất', 'b')],
+    ['Đang kháng: chưa vào được, nhưng có SĐT Lâu dài → kháng xong về Live là tự lên', [QR('LinkedIn', 'Đang kháng, có mật khẩu', '', 0), QR('SĐT xác minh', 'Lâu dài', 'Live', 1)], QP('Tạm thời', 'w')],
+    ['SĐT là gốc: người dùng đặt theo sim (vật lý / cloud); sim Die thì tự xuống Mất, sống lại tự trả về', [QR('SĐT', 'Sim vật lý: Có', 'Live', 1)], QP('Lâu dài', 'g')],
+  ];
+  const qTable = () => `<table class="hx-qtb"><thead><tr><th>Câu hỏi (xét theo thứ tự)</th><th>Nhìn vào</th><th>Kết quả</th></tr></thead><tbody>
+      <tr><td><b>1. Còn sống không?</b></td><td>Trạng thái của dòng (Vọng gác kiểm hoặc người dùng đặt)</td><td>Die → ${QP('Mất', 'b')}</td></tr>
+      <tr><td><b>2. Mở được không?</b></td><td>Cột Mật khẩu</td><td>trống → ${QP('Không xác định', 'n')}</td></tr>
+      <tr><td><b>3. Giữ được không?</b></td><td>Các email / SĐT xác minh, khôi phục đang gắn (cột liên kết) và trạng thái Live</td><td>còn ≥ 1 cái Lâu dài &amp; sống, tài khoản Live → ${QP('Lâu dài', 'g')}<br>còn lại (xác minh chỉ Tạm thời / Không xác định, chưa gắn, đã chết hết, đang kháng) → ${QP('Tạm thời', 'w')}</td></tr>
+    </tbody></table>`;
   function qDraw() {
     const el = document.querySelector('#modal .modal'); if (!el) return;
     el.innerHTML = `<header><span class="ti" style="--c:var(--ui-primary)">${ico('shield', 16)}</span><h3>Cách tính Tình trạng sở hữu</h3><div class="grow"></div><button class="btn icon ghost" data-a="mclose" aria-label="Đóng">${ico('x', 16)}</button></header>
       <div class="mbody hx-qb">
-        <p class="hx-ql">Hệ thống tự tính cho <b>mọi nền tảng</b> (Facebook, Zalo, WhatsApp, LinkedIn, Telegram, Email…) dựa trên các email / SĐT dùng để xác minh hoặc khôi phục tài khoản. Chết = trạng thái <b>Die</b>; Đang kháng, Chờ kích hoạt lại vẫn tính là còn sống.</p>
-        <div class="hx-q3">${QP('Lâu dài', 'g')}<span>còn ít nhất 1 xác minh Lâu dài chưa chết — mất 1 trong 2 vẫn Lâu dài</span>${QP('Tạm thời', 'w')}<span>chỉ còn xác minh sống nhưng Tạm thời / Không xác định</span>${QP('Mất', 'b')}<span>mọi xác minh đã chết hoặc Mất</span></div>
-        ${qTree()}
+        <p class="hx-ql"><b>Tự tính, không sửa tay</b>, cho mọi nền tảng có cột email / SĐT xác minh (Facebook, Email, Zalo, LinkedIn, Telegram…). Ý nghĩa: <b>Lâu dài</b> = vào được ngay và công ty giữ được lâu dài · <b>Tạm thời</b> = còn dùng được nhưng có thể mất · <b>Mất</b> = không còn · <b>Không xác định</b> = thiếu mật khẩu, chưa biết.</p>
+        ${qTable()}
+        <p class="hx-ql">Một email / SĐT xác minh "đếm được" khi chính nó đang Lâu dài và chưa Die / Mất — nên tính lan theo chuỗi: SĐT chết → email khôi phục bằng SĐT đó xuống Tạm thời → Facebook xác minh bằng email đó cũng xuống. Chỉ cần 1 xác minh Lâu dài còn sống là đủ (mất 1 trong 2 vẫn Lâu dài). Muốn đổi kết quả: đổi trạng thái, thêm mật khẩu, hoặc gắn / nâng email, SĐT xác minh.</p>
         <h4>Ví dụ</h4>
         <div class="hx-qx">${QX.map(([t, rs, r]) => `<div class="hx-qe"><div class="hx-qd">${t}</div><div class="hx-qc">${rs.join('')}<span class="hx-qa">${ico('chevr', 14)}</span>${r}</div></div>`).join('')}</div>
-        <p class="hx-ql">Tự đổi hai chiều và lan theo chuỗi: SĐT chết → email dùng SĐT đó để khôi phục tính lại → Facebook dùng email đó tính lại. Dòng chưa có email / SĐT xác minh giữ giá trị người dùng đặt. Mọi lần đổi ghi ở <b>Báo cáo · Nhật ký sở hữu</b>: ai đổi (Người dùng / Tự động / Vọng gác) và vì sao.</p>
+        <p class="hx-ql">Đúp chuột vào ô Tình trạng sở hữu để xem vì sao; nút <b>Xuất</b> cạnh Bộ lọc ra Excel kèm cột Giải thích cho các dòng đang lọc. Mọi lần đổi ghi ở <b>Báo cáo · Nhật ký sở hữu</b>: ai đổi (Người dùng / Tự động / Vọng gác) và vì sao.</p>
       </div>`;
   }
   ACT.hxownq = () => { if (typeof closePop === 'function') closePop(); openModal(qDraw, true, 'hx-qm') };
-  /* ── 14b. Tự khớp sở hữu (phần chính ở DB: ahs_own_sync + trigger, sql hs_accountshs). Quy tắc chung mọi nền tảng:
-       dòng có liên kết xác minh (cột liên kết sang tab cũng có "Tình trạng sở hữu") → Lâu dài nếu còn ≥ 1 tài nguyên Lâu dài chưa Die;
-       Tạm thời nếu chỉ còn tài nguyên sống không Lâu dài; Mất nếu mọi tài nguyên đã Die / Mất. Hai chiều, lan theo chuỗi.
-       Chưa có tài nguyên xác minh nào → không thể Lâu dài (tối đa Tạm thời); chưa có mật khẩu → Không xác định (trừ Mất).
-     Ở trình duyệt (Báo cáo · Cần xử lý):
-       · "Sở hữu lệch xác minh": giá trị đang lưu ≠ giá trị suy ra từ tài nguyên đang liên kết (sửa tay đè, hoặc DB chưa bật tự khớp);
-       · "Lâu dài · chỉ còn 1 xác minh": 1 tài nguyên chết là rớt Tạm thời / Mất → nên thêm xác minh dự phòng.
-     Mỗi mục: cặp dòng → tài nguyên, nút mở bảng lọc sẵn theo nền tảng (bộ lọc hxwarn / hxone), Excel có ghi chú tài nguyên.
-     Nhật ký sở hữu (ahs_own_log, route own_log): dòng · trước → sau · ai đổi (người dùng / Tự động / Vọng gác) · lúc nào. */
-  const OWW = { k: null }, WK = 'hxwarn', W1 = 'hxone';
-  const ownDead = b => { const st = b && I.status[b.status_id]; return !!st && /^(die|chết|dead)$/i.test(String(st.label || '').trim()) };
-  function ownCalc() {
-    if (OWW.k === DVER) return OWW;
-    ownField(0);
-    const vf = {}, val = b => { const g = b && OWF.m[b.tab_id]; return g ? String((b.data && b.data[g.id]) || '').trim() : null };
-    const pwf = {};   // cột "Mật khẩu" (loại secret) của từng tab có theo dõi sở hữu
-    Object.keys(OWF.m).forEach(t => { const tb = I.tab[t]; vf[t] = tb ? tb.fields.filter(f => f.type === 'link' && OWF.m[f.link_tab]) : []; const p = tb && tb.fields.find(f => f.type === 'secret' && /mật khẩu|password/i.test(f.label || '')); pwf[t] = p ? p.id : null });
-    const warn = new Map(), one = new Map(), want = {}, put = (m, a) => { let x = m.get(a.tab_id); if (!x) m.set(a.tab_id, x = new Set()); x.add(a.id) };
-    for (const a of S.accs) {
-      const f = OWF.m[a.tab_id]; if (!f || !(vf[a.tab_id] || []).length) continue;   // chỉ tab có cột liên kết xác minh (SĐT là gốc)
-      const out = I.out[a.id] || {};
-      let any = false, rk = 0, n2 = 0;
-      for (const lf of vf[a.tab_id] || []) for (const d of out[lf.id] || []) {
-        const b = I.acc[d]; if (!b) continue; any = true;
-        const v = (val(b) || '').toLowerCase(), dead = ownDead(b), r = v === 'lâu dài' && !dead ? 2 : !dead && v !== 'mất' ? 1 : 0;
-        if (r === 2) n2++; if (r > rk) rk = r;
-      }
-      const cur = val(a) || '';
-      // có liên kết → suy từ tài nguyên; chưa có liên kết nào → không thể Lâu dài (tối đa Tạm thời), còn lại giữ
-      let w = any ? (rk === 2 ? 'Lâu dài' : rk === 1 ? 'Tạm thời' : 'Mất') : (cur.toLowerCase() === 'lâu dài' ? 'Tạm thời' : cur);
-      // chưa có mật khẩu (tab có cột Mật khẩu) → Không xác định (riêng Mất giữ nguyên)
-      const pk = pwf[a.tab_id];
-      if (pk && !String((a.data && a.data[pk]) || '').trim() && w.toLowerCase() !== 'mất') w = 'Không xác định';
-      if (!any && !w) continue;
-      want[a.id] = w;
-      if (cur.toLowerCase() !== w.toLowerCase()) put(warn, a);
-      else if (any && w === 'Lâu dài' && n2 === 1) put(one, a);
-    }
-    return Object.assign(OWW, { k: DVER, warn, one, want, vf, val });
-  }
   const ownWarn = () => ownCalc().warn;   // giữ tên cũ cho phần còn lại
   const FKEY = { [WK]: ['Sở hữu lệch', 'lệch xác minh', 'warn'], [W1]: ['Lâu dài', 'chỉ còn 1 xác minh', 'one'] };
   { const _cv = colVals; colVals = function (a, k) { if (FKEY[k]) { const x = ownCalc()[FKEY[k][2]].get(a.tab_id); return x && x.has(a.id) ? ['1'] : [] } return _cv.apply(this, arguments) } }
@@ -323,7 +392,7 @@
   };
   { const _rd = reportData; reportData = function () {
       const D = _rd.apply(this, arguments);
-      const a = ownIssue(D, 'warn', 'own', 'b', OWT, 'Tình trạng sở hữu đang lưu khác với giá trị suy ra từ email / SĐT xác minh đang liên kết (Lâu dài nếu còn ≥ 1 xác minh Lâu dài sống; Tạm thời nếu chỉ còn xác minh sống khác; Mất nếu tất cả đã Die / Mất). Thường do sửa tay đè lên.');
+      const a = ownIssue(D, 'warn', 'own', 'b', OWT, 'Tình trạng sở hữu đang lưu khác giá trị tính theo luật (Die → Mất · không mật khẩu → Không xác định · có xác minh Lâu dài sống & Live → Lâu dài · còn lại Tạm thời). Thường do DB chưa bật tự khớp hoặc vừa sửa tay — chạy lại tự khớp là khớp');
       const b = ownIssue(D, 'one', 'own1', 'w', OW1, 'Đang Lâu dài nhờ đúng 1 email / SĐT — tài nguyên đó Die là tự rớt Tạm thời / Mất. Nên thêm xác minh dự phòng.');
       D.issues.splice(1, 0, a, b); D.issueN += a.ids.length + b.ids.length; return D;
     } }

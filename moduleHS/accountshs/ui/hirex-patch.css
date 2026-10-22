@@ -171,7 +171,21 @@ h3 .btn.hx-q{margin-left:6px;height:24px;width:24px;min-width:24px;padding:0;ver
 .hx-q3{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;font-size:13px;color:var(--ui-text-2)}
 .hx-qp{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;border:1px solid var(--ui-border);background:var(--ui-surface);font-weight:600;font-size:12px;white-space:nowrap;justify-self:start}
 .hx-qp::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ui-muted)}
-.hx-qp.g::before{background:var(--ui-success)}.hx-qp.w::before{background:var(--ui-warning,#f59e0b)}.hx-qp.b::before{background:var(--ui-danger)}
+.hx-qp.g::before{background:var(--ui-success)}.hx-qp.w::before{background:var(--ui-warning,#f59e0b)}.hx-qp.b::before{background:var(--ui-danger)}.hx-qp.n::before{background:var(--ui-muted)}
+.hx-qtb{width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm,8px);overflow:hidden}
+.hx-qtb th,.hx-qtb td{padding:8px 10px;border-bottom:1px solid var(--ui-border);text-align:left;vertical-align:top;line-height:1.5;color:var(--ui-text-2)}
+.hx-qtb th{font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted);background:var(--ui-surface-hover);font-weight:600}
+.hx-qtb tr:last-child td{border-bottom:0}.hx-qtb td b{color:var(--ui-text);white-space:nowrap}.hx-qtb .hx-qp{vertical-align:middle;margin:1px 0}
+/* đúp chuột ô Tình trạng sở hữu: giải thích */
+.pop.hx-owpop{max-width:420px;padding:10px 12px}
+.hx-owp{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.hx-owh{display:flex;align-items:center;gap:8px;color:var(--ui-text)}.hx-owh b{font-weight:600}.hx-owh .mut{font-size:12px;color:var(--ui-muted)}
+.hx-owp p{margin:0;color:var(--ui-text-2);line-height:1.55}
+.hx-owf{display:flex;justify-content:flex-end}
+.hx-owfh{margin-top:6px;font-size:12px;color:var(--ui-muted);line-height:1.5}
+.hx-owfld label .mut{margin-left:6px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--ui-muted)}
+.btn.hx-ownx span{display:inline}
+
 .hx-qt{flex:none;width:100%;height:auto;aspect-ratio:700/320;box-sizing:border-box;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm,8px);background:var(--ui-surface-hover);padding:6px}
 .hx-qt rect{fill:var(--ui-surface);stroke:var(--ui-border-strong,#cbd5e1);stroke-width:1}
 .hx-qt text{font-size:12.5px;fill:var(--ui-text)}

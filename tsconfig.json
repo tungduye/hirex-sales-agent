@@ -391,7 +391,9 @@
     ".next-tong-quan-3d-cuon-trang/types/**/*.ts",
     ".next-tong-quan-3d-cuon-trang/dev/types/**/*.ts",
     ".next-tong-quan-3d-su-kien/types/**/*.ts",
-    ".next-tong-quan-3d-su-kien/dev/types/**/*.ts"
+    ".next-tong-quan-3d-su-kien/dev/types/**/*.ts",
+    ".next-tong-quan-3d-bam-nguoi/types/**/*.ts",
+    ".next-tong-quan-3d-bam-nguoi/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

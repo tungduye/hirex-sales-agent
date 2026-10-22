@@ -355,20 +355,17 @@ begin
   end if;
 end $b$;
 
--- Tự khớp "Tình trạng sở hữu" theo phụ thuộc xác minh (chốt 2026-10-22 16:36, áp cho mọi nền tảng, kể cả Email):
---   · Dòng có liên kết xác minh = cột liên kết trỏ sang tab cũng có trường "Tình trạng sở hữu" (Email/SĐT xác minh, Email/SĐT khôi phục,
---     Email đăng nhập, WhatsApp xác minh, SĐT của Telegram…) — tự nhận cột/tab/nền tảng mới, không gắn cứng id.
---   · Giá trị suy ra từ các tài nguyên đó (tài nguyên "chết" = trạng thái Die):
---       Lâu dài   ← còn ít nhất 1 tài nguyên Lâu dài chưa chết (mất 1 trong 2 vẫn Lâu dài);
---       Tạm thời  ← không còn tài nguyên Lâu dài sống, nhưng còn tài nguyên sống Tạm thời / Không xác định / trống;
---       Mất       ← mọi tài nguyên đã chết hoặc Mất.
---     Hai chiều: email/SĐT nâng lên Lâu dài hoặc thêm liên kết Lâu dài → tự lên; chết / bị gỡ → tự xuống. Lan theo chuỗi (FB → Email → SĐT…).
---   · Bổ sung 2026-10-22 (chốt theo thực tế nền tảng): tab có cột liên kết xác minh (Facebook, Email, Zalo, LinkedIn, Telegram…) mà dòng
---     CHƯA có tài nguyên xác minh / khôi phục nào → không thể Lâu dài (tối đa Tạm thời — mất quyền đăng nhập là mất luôn, không có đường lấy lại).
---     Tab có cột "Mật khẩu" (loại secret) mà dòng chưa có mật khẩu → "Không xác định" (không có mật khẩu thì không điều khiển được tài khoản,
---     kể cả khi có xác minh; riêng "Mất" giữ nguyên). Email khôi phục chưa có mật khẩu → đếm như "Không xác định" nên không nâng Lâu dài cho dòng dùng nó.
---     Chỉ SĐT (tab không có cột liên kết xác minh) là gốc: giữ giá trị người dùng đặt.
---     Sửa tay vẫn giữ tới lần tài nguyên / mật khẩu của dòng đổi tiếp; ahs_own_sync() không tham số = quét lại toàn bộ.
+-- Tự khớp "Tình trạng sở hữu" (chốt 2026-10-23, áp cho mọi nền tảng có cột liên kết xác minh; tự nhận cột / tab / nền tảng mới, không gắn cứng id).
+--   Cột liên kết xác minh = cột kiểu link trỏ sang tab cũng có trường "Tình trạng sở hữu" (Email/SĐT xác minh, Email/SĐT khôi phục, Email đăng nhập…).
+--   Giá trị là KẾT QUẢ TÍNH (không sửa tay) theo 3 câu hỏi, xét theo thứ tự:
+--     1. Còn sống không?   trạng thái Die                       → Mất
+--     2. Mở được không?    tab có cột Mật khẩu mà dòng để trống → Không xác định
+--     3. Giữ được không?   còn ≥ 1 email / SĐT xác minh đang Lâu dài và chưa chết, và tài khoản đang Live → Lâu dài
+--                          còn lại (xác minh chỉ Tạm thời / Không xác định, chưa gắn xác minh, xác minh đã chết hết, hay đang kháng) → Tạm thời
+--   Tài nguyên "chết" = trạng thái Die hoặc sở hữu Mất. Lan theo chuỗi (Facebook → Email → SĐT…), hai chiều, hội tụ (tính 2 pha nâng / hạ).
+--   Tab gốc (có "Tình trạng sở hữu" nhưng không có cột liên kết xác minh, vd SĐT): người dùng đặt; chỉ tự xuống Mất khi Die và tự trả lại
+--   giá trị cũ khi sống lại (nếu chưa ai sửa tay sau đó).
+--   ahs_own_sync() không tham số = quét lại toàn bộ. Thêm dòng / đổi trạng thái / mật khẩu / sở hữu / liên kết → tính lại ngay (trigger).
 --   · Theo sự kiện: thêm / xoá liên kết → xét dòng nguồn; đổi sở hữu hoặc trạng thái 1 dòng → xét các dòng đang dùng nó để xác minh.
 --     Dòng vừa bị người sửa tay giữ nguyên tới lần tài nguyên của nó đổi tiếp.
 --   · Nhật ký ahs_own_log: mọi lần đổi sở hữu (và đổi trạng thái của dòng trong tab có theo dõi sở hữu) kèm nguồn: user / vonggac / crm /
@@ -402,13 +399,10 @@ begin
     create temp table ahs_own_w(id bigint primary key, tab_id bigint, fid text, cur text, val text, cause text) on commit drop;
     create temp table ahs_own_sc(id bigint primary key) on commit drop;
   else truncate ahs_own_w, ahs_own_sc; end if;
-  -- tab "có xác minh" = có ít nhất 1 cột liên kết sang tab cũng có "Tình trạng sở hữu" (tự nhận tab / nền tảng mới)
+  -- mọi dòng của tab có "Tình trạng sở hữu" (cả tab gốc: luật Die → Mất), gồm cả dòng chưa có liên kết nào
   insert into ahs_own_sc select a.id from ahs_accounts a
-   where a.tab_id in (select f.tab_id from ahs_fields f
-        join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
-        join ahs_fields o2 on o2.tab_id = f.link_tab and coalesce(o2.type, 'text') = 'select' and lower(btrim(o2.label)) = 'tình trạng sở hữu'
-        where f.type = 'link')
-     and ((p_src is null and p_dst is null) or a.id in (select unnest(p_src))) on conflict do nothing;      -- gồm cả dòng chưa có liên kết nào
+   where a.tab_id in (select tab_id from ahs_fields where coalesce(type, 'text') = 'select' and lower(btrim(label)) = 'tình trạng sở hữu')
+     and ((p_src is null and p_dst is null) or a.id in (select unnest(p_src))) on conflict do nothing;
   insert into ahs_own_sc select distinct l.src from ahs_links l join ahs_fields f on f.id = l.field_id and f.type = 'link'
     join ahs_fields o1 on o1.tab_id = f.tab_id and coalesce(o1.type, 'text') = 'select' and lower(btrim(o1.label)) = 'tình trạng sở hữu'
     join ahs_fields o2 on o2.tab_id = f.link_tab and coalesce(o2.type, 'text') = 'select' and lower(btrim(o2.label)) = 'tình trạng sở hữu'
@@ -442,24 +436,31 @@ begin
              where type = 'secret' and lower(label) ~ 'mật khẩu|password' order by tab_id, pos, id),
     calc as (
       select a.id, a.tab_id, oa.fid, btrim(coalesce(a.data->>oa.fid, '')) cur0, coalesce(wa.val, btrim(coalesce(a.data->>oa.fid, ''))) cur,
-        g.rk, g.top, g.det, (pf.pid is not null and btrim(coalesce(a.data->>pf.pid, '')) = '') nopw
-      from ahs_accounts a join cand c on c.id = a.id join o oa on oa.tab_id = a.tab_id join vt on vt.tab_id = a.tab_id
-        left join g on g.id = a.id left join pwf pf on pf.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id),
-    -- giá trị theo xác minh: có liên kết → suy từ tài nguyên; chưa có liên kết nào → không được Lâu dài (hạ xuống Tạm thời, còn lại giữ)
-    bs as (
-      select calc.*,
-        case when rk is null then (case when lower(cur) = 'lâu dài' then 'Tạm thời' else cur end)
-             when rk = 2 then 'Lâu dài' when rk = 1 then 'Tạm thời' else 'Mất' end base
-      from calc),
+        g.rk, g.top, g.det, (pf.pid is not null and btrim(coalesce(a.data->>pf.pid, '')) = '') nopw, vt.tab_id is not null verif,
+        lower(btrim(coalesce(st.label, ''))) in ('die', 'chết', 'dead') dead, lower(btrim(coalesce(st.label, ''))) in ('live', 'sống') live,
+        coalesce(nullif(btrim(st.label), ''), 'chưa có trạng thái') stl
+      from ahs_accounts a join cand c on c.id = a.id join o oa on oa.tab_id = a.tab_id left join vt on vt.tab_id = a.tab_id
+        left join g on g.id = a.id left join pwf pf on pf.tab_id = a.tab_id left join ahs_own_w wa on wa.id = a.id
+        left join ahs_statuses st on st.id = a.status_id),
+    -- tab gốc đã tự xuống Mất vì Die: khi sống lại trả về giá trị trước đó, nếu bản ghi nhật ký cuối của dòng vẫn là lần tự xuống ấy (chưa ai sửa tay)
+    rl as (select distinct on (l.acc_id) l.acc_id, l.old, l.src, l.cause from ahs_own_log l join calc on calc.id = l.acc_id and not calc.verif
+            where l.kind = 'own' order by l.acc_id, l.ts desc, l.id desc),
     fv as (
-      select bs.*,
-        case when nopw and lower(base) <> 'mất' then 'Không xác định' else base end val,
-        case when nopw and lower(base) <> 'mất' then 'Chưa có mật khẩu' || case when rk is null then ' và chưa có email / SĐT xác minh hay khôi phục nào' else ' (xác minh: ' || coalesce(det, '') || ')' end
-             when rk is null then 'Chưa có email / SĐT xác minh hay khôi phục nào → không thể Lâu dài'
-             when rk = 2 then 'Còn ' || top || ' đang Lâu dài và còn sống'
-             when rk = 1 then 'Không còn xác minh Lâu dài nào sống: ' || det
-             else 'Mọi xác minh đã Die / Mất: ' || det end cause
-      from bs),
+      select calc.*,
+        case when dead then 'Mất'
+             when not verif then (case when lower(cur) = 'mất' and rl.src = 'match' and rl.cause like 'Tài khoản đã Die%' then coalesce(rl.old, '') else cur end)
+             when nopw then 'Không xác định'
+             when rk = 2 and live then 'Lâu dài'
+             else 'Tạm thời' end val,
+        case when dead then 'Tài khoản đã Die → không còn sở hữu'
+             when not verif then 'Sống lại → trả về giá trị trước khi tự xuống Mất'
+             when nopw then 'Chưa có mật khẩu → chưa biết có vào được không' || case when det is null then ' · chưa gắn email / SĐT xác minh' else ' · xác minh: ' || det end
+             when rk = 2 and live then 'Còn ' || top || ' đang Lâu dài và còn sống'
+             when rk = 2 then 'Trạng thái "' || stl || '" → hiện chưa vào được, dù có ' || top || ' Lâu dài'
+             when rk = 1 then 'Chưa có xác minh nào công ty giữ lâu dài: ' || det
+             when rk = 0 then 'Mọi xác minh đã Die / Mất: ' || det || ' → chỉ dùng được khi còn đăng nhập'
+             else 'Chưa gắn email / SĐT xác minh nào → không khôi phục được nếu bị đăng xuất' end cause
+      from calc left join rl on rl.acc_id = calc.id),
     w as (insert into ahs_own_w(id, tab_id, fid, cur, val, cause)
           select id, tab_id, fid, cur0, val, cause from fv
            cross join lateral (select case lower(cur) when 'lâu dài' then 3 when 'tạm thời' then 2 when 'mất' then 0 else 1 end crk,
@@ -520,13 +521,24 @@ begin
   select array_agg(n.id) into pc from nt n join ot p on p.id = n.id
     join (select distinct on (tab_id) tab_id, id::text pid from ahs_fields where type = 'secret' and lower(label) ~ 'mật khẩu|password' order by tab_id, pos, id) pw on pw.tab_id = n.tab_id
    where (nullif(btrim(coalesce(n.data->>pw.pid, '')), '') is null) is distinct from (nullif(btrim(coalesce(p.data->>pw.pid, '')), '') is null);
-  if ch is not null or pc is not null then perform ahs_own_sync(coalesce(pc, array[]::bigint[]), coalesce(ch, array[]::bigint[]), src); end if;
+  if ch is not null or pc is not null then
+    perform ahs_own_sync(array(select distinct x from unnest(coalesce(ch, array[]::bigint[]) || coalesce(pc, array[]::bigint[])) x), coalesce(ch, array[]::bigint[]), src);
+  end if;
+  return null;
+end $f$;
+-- thêm dòng mới → tính ngay (giá trị người nhập chỉ là gợi ý; tab gốc giữ nguyên)
+create or replace function ahs_f_own_i() returns trigger language plpgsql as $f$
+begin
+  if current_setting('ahs.own_sync', true) = '1' then return null; end if;
+  perform ahs_own_sync((select array_agg(id) from nt), array[]::bigint[], coalesce(ahs_req_hdr('x-ahs-src'), 'khac'));
   return null;
 end $f$;
 drop trigger if exists ahs_trg_own_li on ahs_links;
 create trigger ahs_trg_own_li after insert on ahs_links referencing new table as nt for each statement execute function ahs_f_own_li();
 drop trigger if exists ahs_trg_own_ld on ahs_links;
 create trigger ahs_trg_own_ld after delete on ahs_links referencing old table as ot for each statement execute function ahs_f_own_ld();
+drop trigger if exists ahs_trg_own_i on ahs_accounts;
+create trigger ahs_trg_own_i after insert on ahs_accounts referencing new table as nt for each statement execute function ahs_f_own_i();
 drop trigger if exists ahs_trg_own_u on ahs_accounts;
 create trigger ahs_trg_own_u after update on ahs_accounts referencing old table as ot new table as nt for each statement execute function ahs_f_own_u();
 revoke all on function ahs_own_sync(bigint[], bigint[], text), ahs_req_hdr(text) from public, anon, authenticated;
