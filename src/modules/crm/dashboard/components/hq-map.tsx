@@ -1,13 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
+import { HqScene3D } from "@/modules/crm/dashboard/components/hq-3d";
 
 // HireX HQ, mức 2: the 2.5D office. Rooms sit on a tilted floor; people sit at desks in Phòng Rec / Phòng Sale and
 // move to Phòng họp while a calendar event is running. Avatars stand upright (counter-rotated) so names stay readable.
 // Zoom and rotate are local to this browser; every room opens the matching screen.
+
+// 2.5D or 3D (mức 3), remembered in this browser. 3D by default; the server always renders 2.5D first.
+type View = "2d" | "3d";
+const VIEW_KEY = "hirex_hq_view";
+const viewListeners = new Set<() => void>();
+const subscribeView = (notify: () => void) => { viewListeners.add(notify); window.addEventListener("storage", notify); return () => { viewListeners.delete(notify); window.removeEventListener("storage", notify); }; };
+const readView = (): View => { try { return window.localStorage.getItem(VIEW_KEY) === "2d" ? "2d" : "3d"; } catch { return "3d"; } };
+const serverView = (): View => "2d";
+const saveView = (view: View) => { try { window.localStorage.setItem(VIEW_KEY, view); } catch { /* storage unavailable: keeps 3D */ } viewListeners.forEach((notify) => notify()); };
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 const SCENE_W = 760, SCENE_H = 670, BASE_W = 1030, BASE_H = 590;
@@ -76,6 +86,7 @@ function Desks({ people, cols, rows, x0, y0, dx, dy }: { people: HqMember[]; col
 const BOT_ICON = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06111f" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" /><path d="M12 4v4M9 13h.01M15 13h.01" /></svg>;
 
 export function HqMap({ rooms, team, stats, floor }: { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor }) {
+  const view = useSyncExternalStore(subscribeView, readView, serverView);
   const holder = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
   const [zoom, setZoom] = useState(2);
@@ -88,7 +99,7 @@ export function HqMap({ rooms, team, stats, floor }: { rooms: HqRoom[]; team: Hq
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [view]);
   const scale = fit * ZOOMS[zoom];
   const rz = ROTATIONS[turn];
   const byKey = new Map(rooms.map((room) => [room.key, room]));
@@ -117,11 +128,18 @@ export function HqMap({ rooms, team, stats, floor }: { rooms: HqRoom[]; team: Hq
     <section className={cx(styles.glass, styles.mapWrap)} aria-label="Bản đồ văn phòng">
       <div className={styles.mapMain}>
         <div className={styles.mapTools}>
+          {view === "2d" ? <>
           <button type="button" onClick={() => setZoom((value) => Math.min(ZOOMS.length - 1, value + 1))} aria-label="Phóng to" disabled={zoom === ZOOMS.length - 1}>+</button>
           <button type="button" onClick={() => setZoom((value) => Math.max(0, value - 1))} aria-label="Thu nhỏ" disabled={zoom === 0}>−</button>
           <button type="button" onClick={() => setTurn((value) => (value + 1) % ROTATIONS.length)} aria-label="Xoay bản đồ">⟳</button>
           <span>Bấm vào phòng để mở màn tương ứng</span>
+          </> : <span>Văn phòng 3D · dữ liệu thật, cập nhật mỗi phút</span>}
+          <span className={styles.viewToggle} role="group" aria-label="Kiểu bản đồ">
+            <button type="button" aria-pressed={view === "2d"} onClick={() => saveView("2d")}>2.5D</button>
+            <button type="button" aria-pressed={view === "3d"} onClick={() => saveView("3d")}>3D</button>
+          </span>
         </div>
+        {view === "3d" ? <HqScene3D rooms={rooms} team={team} stats={stats} floor={floor} onUnsupported={() => saveView("2d")} /> : (
         <div ref={holder} className={styles.mapScroll}>
           <div className={styles.mapCanvas} style={{ width: BASE_W * scale, height: BASE_H * scale }}>
             <div className={styles.scene} style={sceneStyle}>
@@ -163,6 +181,7 @@ export function HqMap({ rooms, team, stats, floor }: { rooms: HqRoom[]; team: Hq
             </div>
           </div>
         </div>
+        )}
       </div>
       <aside className={styles.mapSide} aria-label="Các phòng">
         <div className={cx(styles.row, styles.panelHead)}><strong className={styles.panelTitle}>Các phòng</strong><span className={cx(styles.pill, styles.busy)}>Live</span></div>

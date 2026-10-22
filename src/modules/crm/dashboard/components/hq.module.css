@@ -160,3 +160,19 @@ a.item:hover { background: rgba(34, 211, 238, .05); }
 .sideNote { margin: 10px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--hq-muted); }
 .sideNote a { color: #67E8F9; }
 .teamAv { flex: 0 0 auto; }
+
+/* ---- Mức 3: văn phòng 3D ---- */
+.viewToggle { margin-left: auto; display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid rgba(129, 140, 248, .3); background: rgba(15, 23, 46, .7); }
+.mapTools .viewToggle button { width: auto; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; font-size: 12.5px; font-weight: 700; color: #C7D2FE; }
+.mapTools .viewToggle button[aria-pressed="true"] { background: #2563EB; color: #fff; }
+.scene3dWrap { position: relative; margin-top: 10px; }
+.scene3d { height: 600px; width: 100%; touch-action: none; }
+@media (max-width: 640px) { .scene3d { height: 440px; } }
+.mapTools3d { position: absolute; left: 14px; top: 10px; z-index: 3; display: flex; gap: 6px; }
+.mapTools3d button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(129, 140, 248, .3); background: rgba(15, 23, 46, .75); color: #C7D2FE; font-size: 16px; cursor: pointer; }
+.mapTools3d button:hover { border-color: rgba(165, 243, 252, .7); color: #fff; }
+.mapTools3d .toolOn { background: #2563EB; border-color: #3B82F6; color: #fff; }
+.scene3dLoading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--hq-muted); pointer-events: none; }
+.tooltip3d { position: absolute; z-index: 4; pointer-events: none; max-width: 260px; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(7, 11, 22, .92); border: 1px solid rgba(129, 140, 248, .4); box-shadow: 0 8px 30px rgba(0, 0, 0, .4); font-size: 12px; color: var(--hq-muted); }
+.tooltip3d strong { font-size: 13px; color: #F8FAFF; }
+.hint3d { margin: 0; padding: 6px 14px 10px; font-size: 11.5px; color: var(--hq-muted); }

@@ -381,7 +381,9 @@
     ".next-tong-quan-hq-chinh-sua/types/**/*.ts",
     ".next-tong-quan-hq-chinh-sua/dev/types/**/*.ts",
     ".next-tong-quan-hq-muc-2/types/**/*.ts",
-    ".next-tong-quan-hq-muc-2/dev/types/**/*.ts"
+    ".next-tong-quan-hq-muc-2/dev/types/**/*.ts",
+    ".next-tong-quan-bo-ban-tin/types/**/*.ts",
+    ".next-tong-quan-bo-ban-tin/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
