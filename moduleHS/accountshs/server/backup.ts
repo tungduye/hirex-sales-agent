@@ -47,28 +47,31 @@ export async function cfgSet(b: Record<string, unknown>): Promise<BackupCfg> {
 /** jsonb → chữ đúng như Postgres in ra (bản Python đọc jsonb dạng chuỗi): ", " và ": " giữa các phần tử */
 const pgJson = (v: unknown): string => Array.isArray(v) ? "[" + v.map(pgJson).join(", ") + "]"
   : v && typeof v === "object" ? "{" + Object.entries(v).map(([k, x]) => JSON.stringify(k) + ": " + pgJson(x)).join(", ") + "}" : JSON.stringify(v ?? null);
+/** đọc 1 bảng có id: chia theo khoảng id (mỗi khoảng 1000 id ≤ 1000 dòng = max_rows của PostgREST), 8 khoảng song song mỗi đợt.
+ *  Trước đây đọc nối đuôi 1000 dòng / lượt → bảng lịch sử 120k dòng mất cả phút, Vọng gác phải chờ bản an toàn này mới được ghi. */
+async function dumpIdTable(t: (typeof TABLES)[number], cols: string[]): Promise<string[]> {
+  const edge = async (asc: boolean) => (await run<{ id: number } | null>(sb().from(T[t]).select("id").order("id", { ascending: asc }).limit(1).maybeSingle()))?.id;
+  const [lo, hi] = await Promise.all([edge(true), edge(false)]);
+  if (lo === undefined || hi === undefined) return [];
+  const starts: number[] = []; for (let a = Number(lo); a <= Number(hi); a += 1000) starts.push(a);
+  const out: string[] = [];
+  for (let i = 0; i < starts.length; i += 8) {
+    const part = await Promise.all(starts.slice(i, i + 8).map((a) => run<Record<string, unknown>[]>(sb().from(T[t]).select(cols.join(",")).gte("id", a).lt("id", a + 1000).order("id").limit(1000))));
+    for (const rows of part) for (const r of rows) out.push(JSON.stringify(cols.map((c) => (c === "data" && r[c] && typeof r[c] === "object" ? pgJson(r[c]) : r[c] ?? null))));
+  }
+  return out;
+}
 async function dumpFull(): Promise<Buffer> {
+  const lu = await hasLogUser();
+  const parts = await Promise.all(TABLES.map(async (t) => {                          // các bảng đọc song song, ghi ra đúng thứ tự TABLES
+    const cols = t === "logs" && !lu ? COLS.logs.filter((c) => !c.startsWith("user_")) : COLS[t];   // DB của bản Python chưa có cột user_*
+    const rows = IDTAB.has(t) ? await dumpIdTable(t, cols)
+      : (await pages<Record<string, unknown>>((a, b) => cols.reduce((q, c) => q.order(c), sb().from(T[t]).select(cols.join(","))).range(a, b))).map((r) => JSON.stringify(cols.map((c) => r[c] ?? null)));
+    return { t, cols, rows };
+  }));
   const lines: string[] = [JSON.stringify({ ahs: "backup", v: 4, ts: now(), tables: TABLES })];
   const cnt: Record<string, number> = {};
-  const lu = await hasLogUser();
-  for (const t of TABLES) {
-    const cols = t === "logs" && !lu ? COLS.logs.filter((c) => !c.startsWith("user_")) : COLS[t];   // DB của bản Python chưa có cột user_*
-    lines.push(JSON.stringify({ t, cols }));
-    let n = 0;
-    if (IDTAB.has(t)) {
-      let last = -1;
-      for (;;) {
-        const rows = await run<Record<string, unknown>[]>(sb().from(T[t]).select(cols.join(",")).gt("id", last).order("id").limit(1000));                 // max_rows của PostgREST
-        if (!rows.length) break;
-        for (const r of rows) lines.push(JSON.stringify(cols.map((c) => (c === "data" && r[c] && typeof r[c] === "object" ? pgJson(r[c]) : r[c] ?? null))));
-        n += rows.length; last = Number(rows[rows.length - 1].id);
-      }
-    } else {
-      const all = await pages<Record<string, unknown>>((a, b) => cols.reduce((q, c) => q.order(c), sb().from(T[t]).select(cols.join(","))).range(a, b));
-      for (const r of all) { lines.push(JSON.stringify(cols.map((c) => r[c] ?? null))); n++; }
-    }
-    cnt[t] = n;
-  }
+  for (const { t, cols, rows } of parts) { lines.push(JSON.stringify({ t, cols })); for (const l of rows) lines.push(l); cnt[t] = rows.length; }
   lines.push(JSON.stringify({ end: cnt }));
   return gzipSync(Buffer.from(lines.join("\n") + "\n", "utf8"), { level: 5 });
 }

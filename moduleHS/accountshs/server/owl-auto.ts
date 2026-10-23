@@ -1,6 +1,8 @@
 import "server-only";
 
-import { HsError, T, now, pages, run, sb } from "./db";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+import { HsError, T, chunks, now, pages, run, sb } from "./db";
 import { queuedNote } from "./checker";
 import { enqueueOwl, owlEngine, owlHeal, owlTracked } from "./owl-run";
 import type { Id } from "../types";
@@ -71,8 +73,28 @@ function cookiePlan(tab: TabF, tabs: TabF[]): Plan[] {
   }
   return plan;
 }
-async function accById(aid: Id) { const r = await run<{ id: Id; tab_id: Id; data: Record<string, unknown> } | null>(sb().from(T.accounts).select("id,tab_id,data").eq("id", aid).maybeSingle()); return r; }
-async function linksFrom(aid: Id, fid: Id) { const r = await pages<{ dst: Id }>((a, b) => sb().from(T.links).select("dst").eq("src", aid).eq("field_id", fid).order("id").range(a, b)); return r.map((x) => x.dst); }
+type AccR = { id: Id; tab_id: Id; data: Record<string, unknown> };
+/** nạp sẵn theo lô cho 1 yêu cầu nhiều nguồn (apiSources / apiRun): dòng nguồn + liên kết của chúng + dòng được liên kết tới.
+ *  Trước đây mỗi nguồn 1 lượt đọc dòng + mỗi cách lấy cookie 1 lượt đọc liên kết + 1 lượt đọc dòng liên kết → vài trăm FB = hàng nghìn lượt tuần tự. */
+const PRE = new AsyncLocalStorage<{ acc: Map<Id, AccR | null>; lk: Map<Id, Array<{ dst: Id; field_id: Id }>> }>();
+async function withPrefetch<R>(ids: Id[], fn: () => Promise<R>): Promise<R> {
+  const acc = new Map<Id, AccR | null>(), lk = new Map<Id, Array<{ dst: Id; field_id: Id }>>();
+  const loadAcc = async (xs: Id[]) => { const need = [...new Set(xs)].filter((x) => !acc.has(x)); need.forEach((x) => acc.set(x, null));
+    await Promise.all(chunks(need, 300).map(async (ch) => { for (const r of await run<AccR[]>(sb().from(T.accounts).select("id,tab_id,data").in("id", ch))) acc.set(r.id, { ...r, data: r.data || {} }); })); };
+  await loadAcc(ids);
+  ids.forEach((x) => lk.set(x, []));
+  await Promise.all(chunks([...new Set(ids)], 300).map(async (ch) => { for (const l of await pages<{ src: Id; dst: Id; field_id: Id }>((a, b) => sb().from(T.links).select("src,dst,field_id").in("src", ch).order("id").range(a, b))) lk.get(l.src)!.push({ dst: l.dst, field_id: l.field_id }); }));
+  await loadAcc([...lk.values()].flat().map((l) => l.dst));
+  return PRE.run({ acc, lk }, fn);
+}
+async function accById(aid: Id): Promise<AccR | null> {
+  const c = PRE.getStore(); if (c && c.acc.has(aid)) return c.acc.get(aid)!;
+  return run<AccR | null>(sb().from(T.accounts).select("id,tab_id,data").eq("id", aid).maybeSingle());
+}
+async function linksFrom(aid: Id, fid: Id) {
+  const c = PRE.getStore(); if (c && c.lk.has(aid)) return c.lk.get(aid)!.filter((l) => l.field_id === fid).map((l) => l.dst);
+  const r = await pages<{ dst: Id }>((a, b) => sb().from(T.links).select("dst").eq("src", aid).eq("field_id", fid).order("id").range(a, b)); return r.map((x) => x.dst);
+}
 async function resolveCookie(a: { id: Id; data: Record<string, unknown> }, item: Plan | null): Promise<string> {
   if (!item) return "";
   if (item.mode === "field") return String(a.data[String(item.field)] ?? "");
@@ -123,15 +145,20 @@ async function syncRows(script: Script, rows: Array<Record<string, unknown>>, ta
     else { const f = fieldMatch(tab.fields, (Array.isArray(cand) ? cand : [String(cand)]) as string[]); if (f) colmap[ck] = f.id; }
   }
   const keycol = (key as string) || script.sync.key; const keyfid = colmap[keycol];
-  const exist = new Map<string, Id>();
-  if (keyfid) for (const r of await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", tab.id).order("id").range(a, b))) {   // đọc theo trang (max_rows 1000)
-    const v = String(r.data[String(keyfid)] ?? "").trim().toLowerCase(); if (v) exist.set(v, r.id); }
+  const exist = new Map<string, Id>(), curData = new Map<Id, Record<string, unknown>>(), curOwn = new Map<Id, [Id, Id | null]>();
+  if (keyfid) for (const r of await pages<{ id: Id; data: Record<string, unknown>; dept_id: Id; owner_id: Id | null }>((a, b) => sb().from(T.accounts).select("id,data,dept_id,owner_id").eq("tab_id", tab.id).order("id").range(a, b))) {   // đọc theo trang (max_rows 1000)
+    const v = String(r.data[String(keyfid)] ?? "").trim().toLowerCase(); if (v) { exist.set(v, r.id); curData.set(r.id, r.data || {}); curOwn.set(r.id, [r.dept_id, r.owner_id]); } }
   const dept = await run<{ id: Id } | null>(sb().from(T.depts).select("id").order("pos").order("id").limit(1).maybeSingle());
   const did = dept?.id ?? 1;
   const st = await run<{ id: Id } | null>(sb().from(T.statuses).select("id").eq("tab_id", tab.id).order("pos").order("id").limit(1).maybeSingle());
   const sid = st?.id ?? null; const ts = now();
   const own = await ownerFn(owner, rows);
   const res = { created: 0, updated: 0, dup: 0, skipped: 0, tab: tab.name };
+  // Ghi theo lô (trước đây mỗi dòng 1 lượt đọc + 1 lượt ghi / thêm → vài nghìn dòng mất vài phút):
+  //   dòng đã có (theo cột khoá) → so với dữ liệu vừa đọc, chỉ dòng khác mới gửi; ahs_rows_merge gộp vào data ngay trong Postgres (không đè cột khác);
+  //   dòng mới → thêm 500 dòng / lệnh; khoá trùng trong cùng lượt → gộp vào dòng đang chờ thêm (như bản cũ: thêm rồi cập nhật).
+  const upd = new Map<Id, { id: Id; set: Record<string, string>; dept_id?: Id; owner_id?: Id | null }>();
+  const ins = new Map<string, Record<string, unknown>>(), insNoKey: Array<Record<string, unknown>> = [];
   for (const row of rows) {
     const data: Record<string, string> = {};
     for (const [ck, fid] of Object.entries(colmap)) { const v = row[ck]; if (v !== "" && v !== null && v !== undefined) data[String(fid)] = String(v); }
@@ -139,16 +166,28 @@ async function syncRows(script: Script, rows: Array<Record<string, unknown>>, ta
     const k = keycol ? String(row[keycol] ?? "").trim().toLowerCase() : "";
     const dw = own ? own(row) : null;
     if (k && exist.has(k)) {
-      const aid = exist.get(k)!; const cur = await run<{ data: Record<string, unknown>; dept_id: Id; owner_id: Id | null } | null>(sb().from(T.accounts).select("data,dept_id,owner_id").eq("id", aid).maybeSingle());
-      if (!cur) continue;
-      const nw = { ...cur.data, ...data }; const chg = dw != null && (cur.dept_id !== dw[0] || cur.owner_id !== dw[1]);
-      if (JSON.stringify(nw) === JSON.stringify(cur.data) && !chg) res.dup++;
-      else { if (chg) await run(sb().from(T.accounts).update({ data: nw, dept_id: dw![0], owner_id: dw![1], updated: ts }).eq("id", aid)); else await run(sb().from(T.accounts).update({ data: nw, updated: ts }).eq("id", aid)); res.updated++; }
+      const aid = exist.get(k)!, cd = curData.get(aid); if (!cd) continue;
+      const co = curOwn.get(aid)!, chg = dw != null && (co[0] !== dw[0] || co[1] !== dw[1]);
+      const diff = Object.entries(data).filter(([f, v]) => cd[f] !== v);
+      if (!diff.length && !chg) { res.dup++; continue; }
+      const u = upd.get(aid) ?? upd.set(aid, { id: aid, set: {} }).get(aid)!;
+      for (const [f, v] of diff) { u.set[f] = v; cd[f] = v; }
+      if (chg) { u.dept_id = dw![0]; u.owner_id = dw![1]; curOwn.set(aid, [dw![0], dw![1]]); }
+      res.updated++;
+    } else if (k && ins.has(k)) {
+      const r0 = ins.get(k)!, d0 = r0.data as Record<string, string>, nw = { ...d0, ...data };
+      const chg = dw != null && (r0.dept_id !== dw[0] || r0.owner_id !== dw[1]);
+      if (JSON.stringify(nw) === JSON.stringify(d0) && !chg) res.dup++;
+      else { r0.data = nw; if (chg) { r0.dept_id = dw![0]; r0.owner_id = dw![1]; } res.updated++; }
     } else {
-      const r = await run<{ id: Id }>(sb().from(T.accounts).insert({ tab_id: tab.id, dept_id: dw ? dw[0] : did, owner_id: dw ? dw[1] : null, status_id: sid, note: "", data, created: ts, updated: ts }).select("id").single());
-      if (k) exist.set(k, r.id); res.created++;
+      const r0 = { tab_id: tab.id, dept_id: dw ? dw[0] : did, owner_id: dw ? dw[1] : null, status_id: sid, note: "", data, created: ts, updated: ts };
+      if (k) ins.set(k, r0); else insNoKey.push(r0);
+      res.created++;
     }
   }
+  for (const ch of chunks([...upd.values()], 500)) await run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: ts }));
+  const newRows = [...ins.values(), ...insNoKey].map((r, i) => ({ ...r, created: ts + i * 1e-6 }));   // giữ đúng thứ tự thêm
+  for (const ch of chunks(newRows, 500)) await run(sb().from(T.accounts).insert(ch));
   return res;
 }
 
@@ -157,8 +196,8 @@ async function apiRun(b: Record<string, unknown>) {
   const s = scriptOf(b.script); if (!s) throw new HsError("Kịch bản không tồn tại");
   const tabs = await metaTabs(); const tab = tabByName(tabs, b.tab) || tabByName(tabs, s.tabs[0]); if (!tab) throw new HsError("Không tìm thấy tab");
   const mapping = b.map as Record<string, { mode?: string; field?: number; via?: number; target?: number }> | undefined;
-  const sources: Array<Record<string, unknown>> = [];
-  for (const aid of (Array.isArray(b.ids) ? b.ids : []) as Id[]) { const a = await accById(aid); if (a && a.tab_id === tab.id) sources.push(await resolveSource(a, tab, tabs, s, mapping)); }
+  const sources: Array<Record<string, unknown>> = [], sids = (Array.isArray(b.ids) ? b.ids : []) as Id[];
+  await withPrefetch(sids, async () => { for (const aid of sids) { const a = await accById(aid); if (a && a.tab_id === tab.id) sources.push(await resolveSource(a, tab, tabs, s, mapping)); } });
   if (!sources.length) throw new HsError("Không có nguồn hợp lệ");
   const payload = { script: s.id, defaults: s.defaults, sources, params: (b.params as Record<string, unknown>) || {} };
   const r = await run<{ id: Id }>(sb().from("ahs_jobs").insert({ kind: "owl", payload, status: "queued", progress: { status: "Chờ worker…", done: false, rows: [], logs: [] }, created: now(), by: "owl:" + s.id }).select("id").single());
@@ -185,7 +224,7 @@ async function apiSources(b: Record<string, unknown>) {
   const ids = (Array.isArray(b.ids) && b.ids.length ? b.ids : (await pages<{ id: Id }>((a, b) => sb().from(T.accounts).select("id").eq("tab_id", tab.id).order("id").range(a, b))).map((r) => r.id)) as Id[];
   const mapping = b.map as Record<string, { mode?: string; field?: number; via?: number; target?: number }> | undefined;
   const out: Array<Record<string, unknown>> = [];
-  for (const aid of ids) { const a = await accById(aid); if (!a || a.tab_id !== tab.id) continue; const src = await resolveSource(a, tab, tabs, s, mapping); const ck = String(src.cookie || ""); out.push({ id: aid, label: src.label, uid: src.uid || "", name: src.name || "", cookie_ok: Boolean(ck), cookie_via: src.cookie_via || "" }); }
+  await withPrefetch(ids, async () => { for (const aid of ids) { const a = await accById(aid); if (!a || a.tab_id !== tab.id) continue; const src = await resolveSource(a, tab, tabs, s, mapping); const ck = String(src.cookie || ""); out.push({ id: aid, label: src.label, uid: src.uid || "", name: src.name || "", cookie_ok: Boolean(ck), cookie_via: src.cookie_via || "" }); } });
   return { tab: { id: tab.id, name: tab.name }, plan: cookiePlan(tab, tabs), fields: tab.fields, sources: out };
 }
 async function apiBoot() {

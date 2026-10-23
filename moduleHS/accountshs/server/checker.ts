@@ -1,6 +1,6 @@
 import "server-only";
 
-import { HsError, T, bumpVer, log, now, orMissing, pages, run, sb, SRC } from "./db";
+import { HsError, T, bumpVer, chunks, log, now, orMissing, pages, run, sb, SRC } from "./db";
 import { snapshot } from "./backup";
 import { ALL_METAS, FB_CHECKERS, MOD_MAP, NODE_FALLBACK, WORKER_IDS, type CheckOpt, type CheckOut, type CheckerMeta, type CheckerMod } from "./checker-mods";
 import type { Id } from "../types";
@@ -138,41 +138,49 @@ async function ownImpact(since: number): Promise<number> {
   if (!since) return 0;
   try { const { count } = await sb().from("ahs_own_log").select("id", { count: "exact", head: true }).eq("src", "match").eq("origin", "vonggac").gte("ts", since); return count || 0; } catch { return 0; }
 }
-async function applyRes(cfg: Cfg, aid: Id, res: string, ts: number): Promise<boolean> {
-  const val = cfg[res]; if (res === "error" || val === null || val === undefined || val === "") return false;
-  const tab = Number(cfg.tab_id), tm = await tabMeta(tab);
-  if ((cfg.target ?? "status") === "status") {
-    if (!tm.st.has(Number(val))) return false;                                       // trạng thái đích không thuộc tab → không ghi
-    const r = await run<{ status_id: Id | null } | null>(sb().from(T.accounts).select("status_id").eq("id", aid).eq("tab_id", tab).maybeSingle());
-    if (r && r.status_id !== Number(val)) { await run(sb().from(T.accounts).update({ status_id: Number(val), updated: ts }).eq("id", aid).eq("tab_id", tab)); return true; }
-    return false;
+type Out = { id: Id; res: string; info: string; extra?: Record<string, unknown> };
+/** Ghi 1 LÔ kết quả (thay cho ghi từng dòng — trước đây mỗi dòng 3-5 lượt gọi DB + 1 lần trigger tự khớp sở hữu ≈ 100-300 ms/dòng):
+ *  1 lệnh lịch sử cyv_checks · 1 lệnh đọc trạng thái / dữ liệu hiện tại · 1 lệnh ghi (ahs_rows_merge, chỉ các dòng thật sự đổi)
+ *  → trigger lịch sử / tự khớp sở hữu chạy 1 lần cho cả lô. Quy tắc giữ nguyên: chỉ ghi trạng thái thuộc đúng tab, chỉ dòng của đúng tab,
+ *  "error" không đổi gì, cột thêm (extra) chỉ ghi khi khác. Trả về số dòng đã đổi. */
+async function applyMany(cid: string, cfg: Cfg, xf: Record<string, Id | null>, outs: Out[]): Promise<number> {
+  if (!outs.length) return 0;
+  const ts = now(), tab = Number(cfg.tab_id), tm = await tabMeta(tab), tgt = cfg.target ?? "status";
+  for (const ch of chunks(outs, 1000)) await run(sb().from(T.cyv_checks).insert(ch.map((o) => ({ ck: cid, acc_id: o.id, ts, res: o.res, info: String(o.info || "").slice(0, 120) }))));
+  const cur = new Map<Id, { status_id: Id | null; data: Record<string, unknown> }>();
+  const ids = [...new Set(outs.map((o) => o.id))];
+  await Promise.all(chunks(ids, 300).map(async (ch) => { for (const r of await run<Array<{ id: Id; status_id: Id | null; data: Record<string, unknown> | null }>>(sb().from(T.accounts).select("id,status_id,data").eq("tab_id", tab).in("id", ch))) cur.set(r.id, { status_id: r.status_id, data: r.data || {} }); }));
+  const items = new Map<Id, { id: Id; status_id?: Id; set?: Record<string, unknown> }>();
+  for (const o of outs) {
+    const r = cur.get(o.id); if (!r) continue;                                       // dòng đã xoá / không thuộc tab đang check
+    const it = items.get(o.id) ?? { id: o.id }, val = cfg[o.res];
+    if (o.res !== "error" && val !== null && val !== undefined && val !== "") {
+      if (tgt === "status") { if (tm.st.has(Number(val)) && r.status_id !== Number(val)) { it.status_id = Number(val); r.status_id = Number(val); } }
+      else { const fid = String(tgt); if (tm.fs.has(Number(fid)) && r.data[fid] !== val) { (it.set ??= {})[fid] = val; r.data[fid] = val; } }
+    }
+    if (o.extra) for (const [k, fid] of Object.entries(xf)) {
+      const v = o.extra[k]; if (!fid || v === null || v === undefined || r.data[String(fid)] === String(v)) continue;
+      (it.set ??= {})[String(fid)] = String(v); r.data[String(fid)] = String(v);
+    }
+    if (it.status_id !== undefined || it.set) items.set(o.id, it);
   }
-  const fid = String(cfg.target); if (!tm.fs.has(Number(fid))) return false;
-  const r = await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", aid).eq("tab_id", tab).maybeSingle());
-  if (!r) return false; const d = { ...(r.data || {}) }; if (d[fid] === val) return false;
-  d[fid] = val; await run(sb().from(T.accounts).update({ data: d, updated: ts }).eq("id", aid)); return true;
+  const list = [...items.values()];
+  for (const ch of chunks(list, 500)) await SRC.run({ src: "vonggac", name: "Vọng gác" }, () => run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: ts })));   // nhật ký sở hữu: đổi do Vọng gác
+  return list.length;
 }
-async function applyExtra(aid: Id, extra: Record<string, unknown> | undefined, ts: number, xf: Record<string, Id | null>): Promise<boolean> {
-  if (!extra || !Object.keys(xf).length) return false;
-  const r = await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", aid).maybeSingle());
-  if (!r) return false; const d = { ...(r.data || {}) }; let ch = false;
-  for (const [k, fid] of Object.entries(xf)) if (fid && extra[k] !== null && extra[k] !== undefined && d[String(fid)] !== String(extra[k])) { d[String(fid)] = String(extra[k]); ch = true; }
-  if (ch) await run(sb().from(T.accounts).update({ data: d, updated: ts }).eq("id", aid));
-  return ch;
-}
-/** áp 1 kết quả: ghi lịch sử cyv_checks + cập nhật trạng thái/cột. Trả về có đổi dữ liệu không. */
-async function applyOne(cid: string, cfg: Cfg, xf: Record<string, Id | null>, out: { id: Id; res: string; info: string; extra?: Record<string, unknown> }): Promise<boolean> {
-  return SRC.run({ src: "vonggac", name: "Vọng gác" }, () => applyOneNow(cid, cfg, xf, out));   // nhật ký sở hữu: đổi trạng thái do Vọng gác
-}
-async function applyOneNow(cid: string, cfg: Cfg, xf: Record<string, Id | null>, out: { id: Id; res: string; info: string; extra?: Record<string, unknown> }): Promise<boolean> {
-  const ts = now();
-  await run(sb().from(T.cyv_checks).insert({ ck: cid, acc_id: out.id, ts, res: out.res, info: String(out.info || "").slice(0, 120) }));
-  const a1 = await applyRes(cfg, out.id, out.res, ts); const a2 = await applyExtra(out.id, out.extra, ts, xf);
-  return a1 || a2;
+/** Hàng đợi ghi của 1 lượt chạy: gom kết quả, ghi theo lô (≥ 50 dòng hoặc mỗi giây), tuần tự; chưa ghi khi bản sao lưu an toàn chưa xong. */
+function flush(J: NodeJob, cid: string, cfg: Cfg, xf: Record<string, Id | null>): Promise<void> {
+  if (J.snap || !J.buf?.length) return J.wq ?? Promise.resolve();
+  const part = J.buf.splice(0);
+  J.wq = (J.wq ?? Promise.resolve()).then(async () => {
+    try { const n = await applyMany(cid, cfg, xf, part); J.written = (J.written || 0) + part.length; if (n) { J.changed += n; await bumpSoon(); } }
+    catch (e) { J.err_msg = "Lỗi ghi kết quả: " + (e instanceof Error ? e.message : String(e)); }
+  });
+  return J.wq;
 }
 
 /* ───────── job trong tiến trình (checker thuần) ───────── */
-interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string; phase?: string; snap?: Promise<unknown>; held?: Array<Promise<unknown>> }
+interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string; phase?: string; snap?: Promise<unknown>; buf?: Out[]; wq?: Promise<void>; written?: number }
 const JOBS = new Map<string, NodeJob>();
 
 async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>, mod?: CheckerMod, rows?: Array<{ id: Id; data: Record<string, unknown> }>) {
@@ -187,7 +195,8 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
   let have: Record<number, Record<string, string>> = {};
   try { have = await preloadExtra(cid, cfg, meta, xon, items.map((i) => i.id), rows, () => J.snap); } catch (e) { J.err_msg = "Không đọc được cột tên có sẵn: " + (e instanceof Error ? e.message : String(e)); }
   const optOf = (id: Id): CheckOpt => (have[id] ? { ...opt, have: have[id] } : opt);
-  J.phase = "";
+  J.phase = ""; J.buf = []; J.written = 0;
+  const tick = setInterval(() => { void flush(J, cid, cfg, xf); }, 1000);          // ghi theo lô mỗi giây (và khi đủ 50 dòng — xem consume)
   try {
     if (m.check_batch) {
       const bs = meta.batch || items.length || 1;
@@ -196,7 +205,7 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
         let rs: CheckOut[];
         try { rs = await m.check_batch(chunk.map((c) => c.value), opt); }
         catch (e) { if (e instanceof Error && e.name === "Abort") { J.stop = true; J.err_msg = e.message; break; } rs = chunk.map(() => ({ res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" })); }
-        for (let k = 0; k < chunk.length; k++) await consume(cid, cfg, xf, J, m, chunk[k], rs[k]);
+        for (let k = 0; k < chunk.length; k++) consume(cid, cfg, xf, J, m, chunk[k], rs[k]);
       }
     } else if (m.check) {
       let i = 0;
@@ -210,14 +219,17 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
             let r2: CheckOut; try { r2 = await m.check!(it.value, optOf(it.id)); } catch (e) { r2 = { res: "error", info: e instanceof Error ? e.message.slice(0, 80) : "err" }; }
             r = r2.res === "die" ? { ...r, info: r.info + " · đã kiểm 2 lần" } : r2.res === "live" ? r2 : { res: "error", info: "Die chưa chắc (lần 2: " + r2.info + ") — giữ nguyên trạng thái" };
           }
-          await consume(cid, cfg, xf, J, m, it, r, Date.now() - t0);
+          consume(cid, cfg, xf, J, m, it, r, Date.now() - t0);
         }
       });
       await Promise.all(workers);
     }
   } catch (e) { J.err_msg = e instanceof Error ? e.message : String(e); }
   finally {
-    if (J.held?.length) { J.phase = "Đang ghi kết quả vào dữ liệu…"; await Promise.all(J.held); }
+    clearInterval(tick);
+    if (J.snap) { J.phase = "Đang chờ bản sao lưu an toàn xong rồi ghi kết quả…"; await J.snap; J.snap = undefined; }
+    const left = (J.buf?.length || 0); if (left) J.phase = `Đang ghi ${left.toLocaleString("vi")} kết quả cuối…`;
+    await flush(J, cid, cfg, xf);
     J.running = false; J.ended = now(); J.phase = "";
     const c2 = await cfgGet(cid); c2.last = J.ended;
     try { const mt = m.meta?.(); if (mt && mt.credit != null) c2.credit = mt.credit; } catch { /* */ }
@@ -228,13 +240,13 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
     await log("cyv_" + cid, J.done, `Vọng gác ${meta.name}: ${J.live} live · ${J.die} die · ${J.error} lỗi · đổi ${J.changed}${oi ? ` · sở hữu đổi theo ${oi}` : ""}${J.by === "auto" ? " (định kỳ)" : ""}`).catch(() => undefined);
   }
 }
-async function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJob, m: CheckerMod, it: { id: Id; value: string }, r: CheckOut, ms = 0) {
+function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJob, m: CheckerMod, it: { id: Id; value: string }, r: CheckOut, ms = 0) {
   if (J.stop) return;
   J.done++; J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   J.recent.unshift({ id: it.id, v: m.show ? m.show(it.value) : it.value, res: r.res, info: r.info, ms, ts: now() }); J.recent.length = Math.min(J.recent.length, 60);
-  const apply = async () => { try { if (await applyOne(cid, cfg, xf, { id: it.id, res: r.res, info: r.info, extra: r.extra })) { J.changed++; await bumpSoon(); } } catch { /* lỗi ghi 1 dòng: bỏ qua */ } };
-  if (J.snap) { if (!J.phase) J.phase = "Đang sao lưu an toàn — kết quả sẽ ghi ngay khi xong…"; (J.held ??= []).push(J.snap.then(apply)); return; }   // check vẫn chạy tiếp; chưa ghi dòng nào trước khi bản an toàn xong
-  await apply();
+  (J.buf ??= []).push({ id: it.id, res: r.res, info: r.info, extra: r.extra });
+  if (J.snap) { if (!J.phase) J.phase = "Đang sao lưu an toàn — kết quả sẽ ghi ngay khi xong…"; return; }   // check vẫn chạy tiếp; chưa ghi dòng nào trước khi bản an toàn xong
+  if (J.buf.length >= 50) void flush(J, cid, cfg, xf);
 }
 /** ahs_ver + 1 khi có dòng đổi (để client/Cú vọ thấy), tối đa 1 lần / 3 giây trong lúc chạy */
 let lastBump = 0;
@@ -256,19 +268,23 @@ async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: strin
   for (const e of exs) { const f = await xfield(cid, cfg, e); if (f) fids.push([e.k, String(f), e.junk ? new RegExp(e.junk, "i") : null, e.stale ? new RegExp(e.stale) : null]); }
   if (!fids.length) return {};
   const want = new Set(aids); const out: Record<number, Record<string, string>> = {};
-  const ts = now();
+  const junk = (d: Record<string, unknown>) => { const set: Record<string, string> = {}; for (const [, fid, jr] of fids) { const v = String(d[fid] ?? ""); if (v && jr && jr.test(v)) set[fid] = ""; } return set; };
+  const dirty: Id[] = [];
   for (const r of preRows ?? await pages<{ id: Id; data: Record<string, unknown> }>((a, b) => sb().from(T.accounts).select("id,data").eq("tab_id", Number(cfg.tab_id)).order("id").range(a, b))) {
-    const d = { ...(r.data || {}) }; let ch = false;
-    for (const [k, fid, jr, sr] of fids) {
-      let v = String(d[fid] ?? "");
-      if (v && jr && jr.test(v)) { d[fid] = ""; v = ""; ch = true; }
+    const d = r.data || {}, jk = junk(d);
+    for (const [k, fid, , sr] of fids) {
+      const v = fid in jk ? "" : String(d[fid] ?? "");
       if (want.has(r.id)) (out[r.id] ??= {})[k] = v && sr && sr.test(v) ? "" : v;
     }
-    if (ch) {
-      if (beforeWrite) await beforeWrite();                                           // ghi (dọn rác) chỉ sau khi bản sao lưu an toàn xong
-      // dọn rác: đọc lại dòng NGAY trước khi ghi (rows có thể đã cũ vài giây → không đè sửa của người dùng)
-      const fr = preRows ? await run<{ data: Record<string, unknown> } | null>(sb().from(T.accounts).select("data").eq("id", r.id).maybeSingle()) : { data: r.data };
-      if (fr) { const d2 = { ...(fr.data || {}) }; let c2 = false; for (const [, fid, jr] of fids) { const v = String(d2[fid] ?? ""); if (v && jr && jr.test(v)) { d2[fid] = ""; c2 = true; } } if (c2) await run(sb().from(T.accounts).update({ data: d2, updated: ts }).eq("id", r.id)); }
+    if (Object.keys(jk).length) dirty.push(r.id);
+  }
+  if (dirty.length) {                                                                 // dọn rác theo lô (trước đây đọc + ghi từng dòng)
+    if (beforeWrite) await beforeWrite();                                             // ghi chỉ sau khi bản sao lưu an toàn xong
+    const ts = now();
+    for (const ch of chunks(dirty, 300)) {                                            // đọc lại NGAY trước khi ghi → không đè sửa của người dùng
+      const items = (await run<Array<{ id: Id; data: Record<string, unknown> | null }>>(sb().from(T.accounts).select("id,data").in("id", ch)))
+        .map((r) => ({ id: r.id, set: junk(r.data || {}) })).filter((x) => Object.keys(x.set).length);
+      if (items.length) await run(sb().rpc("ahs_rows_merge", { p_items: items, p_ts: ts }));
     }
   }
   return out;
@@ -295,7 +311,7 @@ async function drainWorkerJob(cid: string): Promise<NodeJob | null> {
   if (res.length > applied) {
     const cfg = await cfgGet(cid); const meta = metaOf(cid)!; const xf: Record<string, Id | null> = {};
     for (const e of meta.extra || []) if (cfg["xf_" + e.k] !== "") { try { xf[e.k] = await xfield(cid, cfg, e); } catch { xf[e.k] = null; } }
-    for (let k = applied; k < res.length; k++) { try { if (await applyOne(cid, cfg, xf, res[k])) J.changed++; } catch { /* lỗi ghi 1 dòng: bỏ qua */ } }
+    for (const ch of chunks(res.slice(applied), 500)) { try { J.changed += await applyMany(cid, cfg, xf, ch); } catch { /* lỗi ghi 1 lô: bỏ qua như cũ */ } }
     if (J.changed) await bumpVer();
     await run(sb().from("ahs_jobs").update({ progress: { ...prog, applied: res.length } }).eq("id", row.id));
     if (!running) { cfg.last = now(); await cfgSet(cid, cfg); }

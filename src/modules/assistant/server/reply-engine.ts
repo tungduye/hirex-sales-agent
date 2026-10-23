@@ -15,7 +15,10 @@ import type { ActionContext } from "@/modules/assistant/server/assistant-proposa
 
 export type DraftResult = { ok: true; text: string; toolsUsed: string[] } | { ok: false; message: string };
 
-export async function draftReply(input: { conversationId: string; instruction: string; context: ActionContext; staffName: string | null; apiKey: string; model: string }): Promise<DraftResult> {
+/** brief: extra guidance, data and read-only tools for one kind of chat (e.g. a candidate chat). */
+export type DraftBrief = { instructions: string; context: unknown; tools?: string[] };
+
+export async function draftReply(input: { conversationId: string; instruction: string; context: ActionContext; staffName: string | null; apiKey: string; model: string; brief?: DraftBrief }): Promise<DraftResult> {
   const { context } = input;
   const scope = { workspaceId: context.workspaceId, userId: context.userId, context, proposals: [] };
   // Start from the conversation and the customer's record so most replies need no extra lookups.
@@ -26,13 +29,13 @@ export async function draftReply(input: { conversationId: string; instruction: s
     ? await runReadTool("chi_tiet_lien_he", { contact_id: contactId }, scope).catch(() => null)
     : null;
 
-  const allowed = new Set<string>(REPLY_ENGINE_TOOLS);
+  const allowed = new Set<string>([...REPLY_ENGINE_TOOLS, ...(input.brief?.tools ?? [])]);
   const tools = toolsFor(context.permissions, context.isAdmin).filter((tool) => allowed.has(tool.name) && !tool.proposal);
   const specs = openAiToolSpecs(tools);
-  const instructions = replyWriterInstructions({ now: new Date(), staffName: input.staffName, channel: typeof conversation.kenh === "string" ? conversation.kenh : null });
+  const instructions = [replyWriterInstructions({ now: new Date(), staffName: input.staffName, channel: typeof conversation.kenh === "string" ? conversation.kenh : null }), input.brief?.instructions].filter(Boolean).join("\n");
 
   const result = await runAssistant({
-    question: draftRequest({ hoi_thoai: conversation, khach: contact }, input.instruction),
+    question: draftRequest({ hoi_thoai: conversation, khach: contact, ...(input.brief ? { tuyen_dung: input.brief.context } : {}) }, input.instruction),
     history: [],
     tools,
     deps: {

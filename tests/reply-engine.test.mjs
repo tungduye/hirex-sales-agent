@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cleanDraft, draftRequest, MAX_DRAFT_CHARS, REPLY_ENGINE_TOOLS, replyWriterInstructions } from '../src/modules/assistant/core/reply-engine-core.ts';
+import { candidateReplyGuide, cleanDraft, draftRequest, MAX_DRAFT_CHARS, REPLY_ENGINE_TOOLS, replyWriterInstructions } from '../src/modules/assistant/core/reply-engine-core.ts';
 import { ASSISTANT_TOOLS, toolsFor } from '../src/modules/assistant/core/assistant-tools.ts';
 
 test('Hole only uses existing read-only tools', () => {
@@ -41,4 +41,14 @@ test('Hole never sends: the action and engine only return text', () => {
   }
   assert.match(action, /hasPermission\("inbox\.reply"\)/);
   assert.match(action, /canAccessChannelAccount/);
+});
+
+test('Hole in a candidate chat answers the concern first and asks at most one thing', () => {
+  const guide = candidateReplyGuide();
+  assert.match(guide, /Trước hết trả lời đúng và đủ/u);
+  assert.match(guide, /TỐI ĐA một điều/u);
+  assert.match(guide, /Không hỏi lại điều ứng viên đã nói/u);
+  assert.match(guide, /bang_job/u);
+  const job = ASSISTANT_TOOLS.find((tool) => tool.name === 'bang_job');
+  assert.ok(job && !job.proposal, 'bang_job is read-only');
 });

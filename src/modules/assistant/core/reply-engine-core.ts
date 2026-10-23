@@ -11,6 +11,22 @@ export const REPLY_ENGINE_TOOLS = [
 
 export const MAX_DRAFT_CHARS = 2000;
 
+/**
+ * Extra guidance when the chat is one-to-one with a candidate (Hole in a Zalo/Facebook candidate chat). Hole writes
+ * like Trợ lý HireX (free, careful, answers the concern first) instead of following the 8-step script word by word;
+ * the Rec flow only tells it what is already known and what is still worth asking.
+ */
+export function candidateReplyGuide() {
+  return [
+    "ỨNG VIÊN (chat 1-1, tuyển dụng IT tiếng Nhật): nhắn như một Recer tư vấn tận tâm, không phải người bán job.",
+    "1) Trước hết trả lời đúng và đủ điều ứng viên vừa nói, hỏi hoặc đang băn khoăn (tuổi, nơi ở, khu vực, lương, công ty, quy trình…): đồng cảm, cụ thể, có lý do. Cần nói về job, lương, địa điểm, yêu cầu thì tra bang_job để dùng job thật đang mở.",
+    "2) Sau đó, chỉ khi tự nhiên, hỏi thêm TỐI ĐA một điều giúp gợi ý đúng job (hướng nghề, khu vực, tiếng Nhật, kinh nghiệm, điều ưu tiên khi chuyển hoặc lương mong muốn). Không hỏi lại điều ứng viên đã nói trong hội thoại, không hỏi dồn, không hỏi cho có. Ứng viên đang băn khoăn thì giải toả băn khoăn là chính.",
+    "3) Đã đủ hiểu và có job khớp: giới thiệu đúng 1 job (vị trí, nơi làm, khoảng lương; tên công ty chỉ khi bảng job cho phép nói), nói vì sao hợp với chính người này. Ứng viên quan tâm thì xin CV kèm lợi ích cho họ (gửi công ty xem trước, đề xuất mức tốt nhất). Ứng viên gửi CV thì cảm ơn và hẹn phản hồi.",
+    "4) Không khen chung chung (\"profile tốt\", \"rất phù hợp\") khi không có lý do từ job thật; không nhắc lại nguyên văn lời ứng viên; không nói lý do nội bộ (chưa chốt job, quy trình nội bộ…).",
+    "5) tuyen_dung.da_biet là ghi chép cũ và có thể thiếu hoặc lỗi thời: luôn ưu tiên những gì có trong hội thoại.",
+  ].join("\n");
+}
+
 export function replyWriterInstructions({ now, staffName, channel }: { now: Date; staffName: string | null; channel: string | null }) {
   const time = new Intl.DateTimeFormat("vi-VN", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(now);
   return [

@@ -176,7 +176,6 @@ async function previewAdd(d: DS, spec: Q.Spec, rows: Array<Record<string, string
   });
   return pvOut(items, ch, `thêm ${items.size} dòng vào ${tab.name}`, [], false, items.size);
 }
-async function pool<X>(xs: X[], n: number, fn: (x: X) => Promise<void>) { let i = 0; await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); })); }
 /** ghi các dòng đã duyệt: keys = [khóa…] | 'all'. Phần chưa duyệt vẫn chờ trong token */
 async function apply(b: Body) {
   const p = PENDING.get(String(b.token));
@@ -201,13 +200,15 @@ async function apply(b: Body) {
     const a = JSON.parse(g) as Q.Act, patch: O = a[0] === "status" ? { status_id: a[1], updated: t } : { owner_id: a[1], dept_id: odept.get(a[1] as Id), updated: t };
     for (const ch of chunks(ids, 400)) await run(sb().from(T.accounts).update(patch).in("id", ch));
   }
-  await pool(per, 8, async ([i, a]) => {
-    if (a[0] === "note") await run(sb().from(T.accounts).update({ note: a[1], updated: t }).eq("id", i));
-    else if (a[0] === "field") {
-      const r = await run<{ data: Record<string, unknown> | null } | null>(sb().from(T.accounts).select("data").eq("id", i).maybeSingle());
-      if (r) { const dt = { ...(r.data ?? {}) }; if (a[2] === "") delete dt[String(a[1])]; else dt[String(a[1])] = a[2]; await run(sb().from(T.accounts).update({ data: dt, updated: t }).eq("id", i)); }
-    }
-  });
+  // sửa ghi chú / ô theo lô: gộp mọi thay đổi của 1 dòng thành 1 bản vá, ghi 500 dòng / lệnh (ahs_rows_merge gộp vào data trong Postgres,
+  // không đọc dòng về) — trước đây đọc + ghi từng dòng (8 luồng) nên vài nghìn dòng mất vài phút
+  const pm = new Map<Id, { id: Id; note?: unknown; set?: O; del?: string[] }>();
+  for (const [i, a] of per) {
+    const x = pm.get(i) ?? pm.set(i, { id: i }).get(i)!;
+    if (a[0] === "note") x.note = a[1];
+    else if (a[0] === "field") { const k = String(a[1]); if (a[2] === "") { if (x.set) delete x.set[k]; (x.del ??= []).push(k); } else { (x.set ??= {})[k] = a[2]; if (x.del) x.del = x.del.filter((d) => d !== k); } }
+  }
+  for (const ch of chunks([...pm.values()], 500)) await run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: t }));
   for (const ch of chunks(ins, 500)) await run(sb().from(T.accounts).insert(ch));
   if (dele.length) await delAccountIds(dele);
   const left = p.items.size; if (!left) PENDING.delete(String(b.token));
