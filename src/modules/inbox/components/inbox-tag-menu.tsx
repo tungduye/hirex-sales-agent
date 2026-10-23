@@ -2,11 +2,12 @@
 
 import Image from "next/image";
 import { ChevronLeft, GripVertical, LoaderCircle, Plus, Search, Tag, Trash2, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import type { OmnichannelInboxConversation, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
+import { replaceInboxQuery } from "./inbox-url";
 
 // "Phân loại" next to the search box, like Zalo: filter by Tất cả / Chưa đọc and by tags (a tick filters at once),
 // and "Quản lý thẻ phân loại": drag to reorder, add, rename, recolour, see and change which conversations carry a
@@ -22,7 +23,6 @@ function TagIcon({ color, className = "size-4" }: { color: string | null; classN
 }
 
 export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagIds: string[]; unreadOnly: boolean; canManage: boolean; canDelete: boolean }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
@@ -40,15 +40,14 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
     return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClick); };
   }, [open]);
 
-  // A tick filters at once (no "Áp dụng"); several tags = conversations with at least one of them, like Zalo.
+  // A tick filters at once (no "Áp dụng"); several tags = only conversations that have every picked tag.
   const apply = (tagIds: string[], unread: boolean) => {
     const query = new URLSearchParams(searchParams.toString());
     query.delete("tag"); query.delete("tagMode"); query.delete("cursor"); query.delete("page");
     for (const id of tagIds) query.append("tag", id);
-    if (tagIds.length) query.set("tagMode", "any");
+    if (tagIds.length) query.set("tagMode", "all");
     if (unread) query.set("unread", "1"); else query.delete("unread");
-    const next = query.toString();
-    router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+    replaceInboxQuery(pathname, query);
   };
   // Ticked tags first (easy to untick), then the rest in the managed order; the search ignores marks and case.
   const needle = foldTag(tagQuery);
@@ -65,7 +64,7 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
       {([[false, "Tất cả"], [true, "Chưa đọc"]] as const).map(([unread, label]) => <label key={label} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
         <input type="radio" name="inbox-read-state" checked={props.unreadOnly === unread} onChange={() => apply(props.selectedTagIds, unread)} className="size-4 accent-blue-600"/>{label}
       </label>)}
-      <p className="mt-1 border-t border-slate-100 px-3 pb-1 pt-2 text-[12px] font-semibold text-slate-500">Theo thẻ phân loại{selected.size ? <span className="text-blue-700"> · đang chọn {selected.size}</span> : null}</p>
+      <p className="mt-1 border-t border-slate-100 px-3 pb-1 pt-2 text-[12px] font-semibold text-slate-500">Theo thẻ phân loại{selected.size ? <span className="text-blue-700"> · đang chọn {selected.size}{selected.size > 1 ? ", có đủ cả " + selected.size + " thẻ" : ""}</span> : null}</p>
       {props.tags.length > 5 ? <label className="relative mx-3 mb-1 block"><Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-slate-400"/>
         <input autoFocus value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="Tìm thẻ…" aria-label="Tìm thẻ phân loại" className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-7 text-xs outline-none focus:border-blue-400 focus:bg-white"/>
         {tagQuery ? <button type="button" onClick={() => setTagQuery("")} aria-label="Xóa tìm thẻ" className="absolute right-1 top-1 rounded p-1 text-slate-400 hover:text-slate-700"><X className="size-3.5"/></button> : null}</label> : null}

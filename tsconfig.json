@@ -421,7 +421,9 @@
     ".next-loc-theo-nguoi/types/**/*.ts",
     ".next-loc-theo-nguoi/dev/types/**/*.ts",
     ".next-soda-ca-nhan/types/**/*.ts",
-    ".next-soda-ca-nhan/dev/types/**/*.ts"
+    ".next-soda-ca-nhan/dev/types/**/*.ts",
+    ".next-doi-team-nhan-vien/types/**/*.ts",
+    ".next-doi-team-nhan-vien/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

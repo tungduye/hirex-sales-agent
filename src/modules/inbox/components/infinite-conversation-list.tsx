@@ -4,7 +4,7 @@ import Image from "next/image";
 import { ChannelLogo } from "@/modules/channels/components/channel-logo";
 import Link from "next/link";
 import { BellOff, Check, LoaderCircle, Pin, Search, Star, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelType } from "@/modules/channels/core/channel-contracts";
 import type { OmnichannelInboxConversation, OmnichannelInboxProfile, OmnichannelInboxTag } from "../types/omnichannel-inbox";
@@ -13,12 +13,12 @@ import { INBOX_CONVERSATION_EVENT, INBOX_MESSAGE_EVENT, type RealtimeMessageRow 
 import { appendPage, rowIndexFor } from "../core/group-merge";
 import { DRAFT_EVENT, draftStore, listDrafts } from "@/modules/channels/core/composer-drafts";
 import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
+import { clearViewCounts, countKeyOf, loadViewCounts, replaceInboxQuery, type ViewCounts } from "./inbox-url";
 
 interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null; view?: ViewMode; q?: string; unread?: boolean; groups?: string[] }
 
 type ViewMode = "all" | "waiting" | "mine" | "groups" | "other" | "important";
 const VIEW_KEY = "hirex.inbox.view";
-type ViewCounts = Record<ViewMode, number> & { capped: boolean };
 
 /** The list filters as a query string (no conversation, no cursor). */
 function filterQuery(filters: Filters) {
@@ -37,11 +37,8 @@ function filterQuery(filters: Filters) {
   return query;
 }
 
-// Tab badges per filter set, kept a minute so switching back and forth does not count again.
-const countCache = new Map<string, { at: number; counts: ViewCounts }>();
 
 export function InfiniteConversationList(props: { initialConversations: OmnichannelInboxConversation[]; initialHasNextPage: boolean; initialNextCursor: string | null; selectedConversationId: string | null; tags: OmnichannelInboxTag[]; filters: Filters; currentUserId: string | null; filterControl?: ReactNode; channelChips?: ReactNode; canUpdate?: boolean; canDelete?: boolean; profiles?: OmnichannelInboxProfile[] }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [conversations, setConversations] = useState(props.initialConversations);
@@ -68,9 +65,8 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   const navigate = useCallback((change: (query: URLSearchParams) => void) => {
     const query = new URLSearchParams(searchParams.toString());
     change(query);
-    const next = query.toString();
-    router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
-  }, [pathname, router, searchParams]);
+    replaceInboxQuery(pathname, query);
+  }, [pathname, searchParams]);
   const setViewMode = (mode: ViewMode) => {
     try { window.localStorage.setItem(VIEW_KEY, mode); } catch { /* storage unavailable */ }
     navigate((query) => query.set("view", mode));
@@ -111,20 +107,13 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
     });
   }, [props.initialConversations, props.initialHasNextPage, props.initialNextCursor, filterKey]);
 
-  // Tab badges load after the list, so they never slow it down.
-  const countKey = (() => { const query = filterQuery({ ...props.filters, view: "all" }); return query.toString(); })();
+  // Tab badges: asked for by the list frame together with the list (shared request), kept a minute per filter set.
+  const countKey = countKeyOf(filterQuery({ ...props.filters, view: "all" }));
   const counts = loadedCounts?.key === countKey ? loadedCounts.counts : null;
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      const cached = countCache.get(countKey);
-      if (cached && Date.now() - cached.at < 60_000) { setLoadedCounts({ key: countKey, counts: cached.counts }); return; }
-      fetch(`/api/inbox/view-counts${countKey ? `?${countKey}` : ""}`, { signal: controller.signal })
-        .then((response) => response.ok ? response.json() as Promise<ViewCounts> : null)
-        .then((value) => { if (value) { countCache.set(countKey, { at: Date.now(), counts: value }); setLoadedCounts({ key: countKey, counts: value }); } })
-        .catch(() => undefined);
-    }, 150);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    let live = true;
+    void loadViewCounts(countKey).then((value) => { if (live && value) setLoadedCounts({ key: countKey, counts: value }); });
+    return () => { live = false; };
   }, [countKey]);
 
   useEffect(() => {
@@ -204,7 +193,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
   const onRowsChanged = (rowIds: string[], change: RowChange) => {
     const ids = new Set(rowIds);
     setConversations((current) => "deleted" in change ? current.filter((item) => !ids.has(item.id)) : current.map((item) => ids.has(item.id) ? { ...item, ...change.patch } : item));
-    clearPick(); countCache.clear();
+    clearPick(); clearViewCounts();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   };
   // Picking: a click toggles one row, Shift+click picks every row between the last pick and this one.
@@ -248,7 +237,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
         : action === "MOVE_OTHER" ? { ...item, folder: "OTHER" } : action === "MOVE_PRIMARY" ? { ...item, folder: "PRIMARY" }
         : { ...item, assignedTo: input.assigneeId }));
     }
-    clearPick(); setLastBulk(done); countCache.clear();
+    clearPick(); setLastBulk(done); clearViewCounts();
     window.dispatchEvent(new Event(INBOX_REFRESH_EVENT));
   };
   const tabs: Array<[ViewMode, string]> = [["all", "All"], ["mine", "Của tôi"], ["groups", "Nhóm"], ["important", "Quan trọng"], ["waiting", "Chưa trả lời"]];
@@ -258,7 +247,7 @@ export function InfiniteConversationList(props: { initialConversations: Omnichan
       {bulkTarget ? <InboxBulkBar target={bulkTarget} rows={filterPick ? [] : pickedRows} canDelete={props.canDelete ?? false} onRowsChanged={onRowsChanged} visibleCount={visible.length} allVisiblePicked={pickedRows.length === visible.length} tags={allTags} profiles={props.profiles ?? []}
         onPickVisible={() => { setFilterPick(null); setPicked(new Set(visible.map((item) => item.id))); }} onPickFilter={() => void pickFilter()} pickingFilter={pickingFilter} onClear={clearPick}
         onTagCreated={(tag) => setCreatedTags((current) => [...current, tag])} onDone={onBulkDone}/> : null}
-      {lastBulk && !bulkTarget ? <BulkUndoNotice done={lastBulk} onClose={() => setLastBulk(null)} onUndone={() => { setLastBulk(null); countCache.clear(); window.dispatchEvent(new Event(INBOX_REFRESH_EVENT)); }}/> : null}
+      {lastBulk && !bulkTarget ? <BulkUndoNotice done={lastBulk} onClose={() => setLastBulk(null)} onUndone={() => { setLastBulk(null); clearViewCounts(); window.dispatchEvent(new Event(INBOX_REFRESH_EVENT)); }}/> : null}
       <div role="tablist" aria-label="Lọc nhanh hội thoại" className={`${bulkTarget ? "hidden" : "flex"} flex-nowrap items-center gap-0.5 overflow-x-auto [scrollbar-width:none]`}>{tabs.map(([key, label]) => {
         const active = viewMode === key;
         const urgent = key === "waiting";

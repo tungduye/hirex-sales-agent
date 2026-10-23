@@ -6,6 +6,7 @@ import { OmnichannelInboxView } from "./omnichannel-inbox-view";
 import type { OmnichannelInboxData } from "../types/omnichannel-inbox";
 
 import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
+import { countKeyOf, loadViewCounts } from "./inbox-url";
 
 /**
  * Suối Nguồn frame. The conversation list lives here (in the layout) and is loaded from the browser, so
@@ -38,7 +39,8 @@ export function InboxShell({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => { void load(query); }, [query, load]);
+  // The tab badges are asked for at the same time as the list (the list picks up the same request).
+  useEffect(() => { void load(query); void loadViewCounts(countKeyOf(new URLSearchParams(query))); }, [query, load]);
   useEffect(() => {
     const onRefresh = () => void load(queryRef.current);
     window.addEventListener(INBOX_REFRESH_EVENT, onRefresh);
