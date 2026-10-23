@@ -622,7 +622,7 @@
      Trước: 1 lệnh duy nhất cho 19.000 dòng → màn hình đứng im, không biết đang chạy hay đã hỏng.
      Giờ: chia lô (1.000–2.000 dòng / lệnh), thẻ tiến độ góc dưới phải "Đang cập nhật 6.000 / 19.000 dòng"; hỏng giữa chừng → báo rõ đã xong
      bao nhiêu dòng, nạp lại đúng hiện trạng. Xong hết mới nạp phần thay đổi 1 lần rồi vẽ lại (bảng chỉ vẽ vùng đang thấy).
-     Máy chủ: chụp bản an toàn ở lô đầu, ghi nhật ký 1 lần ở lô cuối (đủ số dòng). */
+     Máy chủ: ghi nhật ký 1 lần ở lô cuối (đủ số dòng). */
   function opCard(label, spin) {
     const el = document.createElement('div');
     el.className = 'ldw on hx-op'; el.setAttribute('role', 'status');
@@ -726,10 +726,7 @@
       };
       try {
         try {
-          if (path === 'delete_accounts') {   // xoá: chụp bản an toàn trước (sửa thì lịch sử dòng đã giữ bản cũ)
-            card.stage('Đang chụp bản an toàn…');
-            await send({ ...body, [key]: [], hx_batch: { i: 0, of: parts + 1, n, snap: 1 } }, 'bước chụp bản an toàn');
-          }
+          // không chụp bản sao toàn DB trước khi ghi: sửa → lịch sử dòng giữ bản cũ; xoá → ahs_tomb giữ nguyên dòng (khôi phục được)
           card.stage('Đang ghi');
           for (let i = 0; i < parts; i++) {
             const part = arr.slice(i * CH, (i + 1) * CH);

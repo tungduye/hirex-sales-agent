@@ -293,7 +293,9 @@ async function processRun(run: {
     // something else (process question, complaint, CV), which the model answers.
     const isRecruiter = String(bot.bot_type) === "RECRUITER";
     const scripted = isRecruiter && hasCoreProfile && !rejectionOverride && !result.handoffRequested && !result.stopBot &&
-      !["process_question", "complaint", "cv_shared"].includes(result.intent);
+      (!["process_question", "complaint", "cv_shared"].includes(result.intent) ||
+        // "Lương 60tr được không em?" is a question, but the script answers it (salary against the range, then the start).
+        (result.intent === "process_question" && salaryInText(latestText) !== null));
     // Salary and start date are also read from the candidate's own words, so a step never depends on the model
     // having filed them as facts.
     if (isRecruiter && lastOfferedJob) {

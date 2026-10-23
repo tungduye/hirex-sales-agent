@@ -2,7 +2,6 @@ import "server-only";
 
 import { Conflict, HsError, PAGE, T, bumpVer, chunks, getJsonSetting, isMissing, j, now, pages, run, sb, setSetting, toIds } from "./db";
 import { checkDb, firstField, firstStatus, histInfo, histPrune } from "./accounts-data";
-import { snapshot } from "./backup";
 import type { Account, BulkBody, BulkLinkItem, BulkReport, BulkRow, Epoch, Field, HistInfo, Id, MetaTable } from "../types";
 
 /* Các hàm ghi của v7.py (ROUTES) — giữ nguyên tên, tham số và kết quả trả về để client không đổi.
@@ -257,15 +256,25 @@ export async function massSet(b: Body) {
   return { ok: await mergeWrite(ids.map((id) => ({ id, ...base }))) };
 }
 
+/** xoá dòng: ahs_tomb giữ NGUYÊN dòng + liên kết (cột row) → khôi phục được mà không cần chụp toàn DB trước khi xoá. */
 export async function delAccountIds(raw: unknown) {
   const ids = toIds(raw), ts = now();
   for (const ch of chunks(ids, 500)) {
     const list = `(${ch.join(",")})`;
+    const [rows, links] = await Promise.all([
+      run<Array<{ id: Id; tab_id: Id; dept_id: Id; owner_id: Id | null } & Record<string, unknown>>>(sb().from(T.accounts).select("*").in("id", ch)),
+      pages<{ src: Id; dst: Id; field_id: Id }>((a, b) => sb().from(T.links).select("src,dst,field_id").or(`src.in.${list},dst.in.${list}`).order("id").range(a, b)),
+    ]);
+    const lk = new Map<Id, Array<{ src: Id; dst: Id; field_id: Id }>>();
+    for (const l of links) for (const i of new Set([l.src, l.dst])) (lk.get(i) ?? lk.set(i, []).get(i)!).push(l);
+    if (rows.length) await run(sb().from(T.tomb).insert(rows.map((r) => ({ id: r.id, ts, tab_id: r.tab_id, dept_id: r.dept_id, owner_id: r.owner_id, row: { ...r, links: lk.get(r.id) ?? [] } }))));
     await run(sb().from(T.links).delete().or(`src.in.${list},dst.in.${list}`));
-    const rows = await run<{ id: Id; tab_id: Id; dept_id: Id; owner_id: Id | null }[]>(sb().from(T.accounts).select("id,tab_id,dept_id,owner_id").in("id", ch));
-    if (rows.length) await run(sb().from(T.tomb).insert(rows.map((r) => ({ id: r.id, ts, tab_id: r.tab_id, dept_id: r.dept_id, owner_id: r.owner_id }))));
     await run(sb().from(T.accounts).delete().in("id", ch));
   }
+}
+/** xoá cấu trúc (tab / cột / trạng thái / bộ phận): giữ định nghĩa vào ahs_tomb (id = 0, tab_id trống → không tính là dòng xoá) */
+async function tombMeta(kind: string, row: Record<string, unknown>) {
+  await run(sb().from(T.tomb).insert({ id: 0, ts: now(), row: { kind, ...row } }));
 }
 export async function deleteAccounts(b: Body) { await delAccountIds(b.ids); return { ok: 1 }; }
 
@@ -570,6 +579,11 @@ export async function upsert(kind: keyof typeof COLS, b: Body) {
 
 export async function del(b: Body) {
   const t = String(b.table), i = num(b.id) ?? 0;
+  if (["depts", "owners", "tabs", "fields", "statuses", "devices"].includes(t)) {   // giữ định nghĩa trước khi xoá (tab: kèm cột + trạng thái)
+    const one = async (tb: keyof typeof T, col: string) => run<Record<string, unknown>[]>(sb().from(T[tb]).select("*").eq(col, i));
+    const self = await one(t as keyof typeof T, "id");
+    if (self.length) await tombMeta(t, t === "tabs" ? { tab: self[0], fields: await one("fields", "tab_id"), statuses: await one("statuses", "tab_id") } : { [t]: self[0] });
+  }
   if (t === "depts") {
     await delAccountIds(await idsWhere("accounts", "dept_id", i));
     const devs = await idsWhere("devices", "dept_id", i);
@@ -677,8 +691,8 @@ export async function histCfg(b: Body): Promise<HistInfo> {
   return histInfo();
 }
 export async function logClear() { await run(sb().from(T.logs).delete().gte("id", 0)); return { ok: true }; }
-/** sửa lỗi dữ liệu: luôn chụp bản an toàn trước (snapshot(True) của Python) */
-export async function repair() { await snapshot(true); return run(sb().rpc("ahs_repair", { p_now: now() })); }
+/** sửa lỗi dữ liệu (ahs_repair chỉ dọn dữ liệu mồ côi / chuẩn hoá; DB đã sao lưu định kỳ) */
+export async function repair() { return run(sb().rpc("ahs_repair", { p_now: now() })); }
 export { checkDb };
 
 /* ───────── nhãn dòng (nhật ký) ───────── */
@@ -703,13 +717,4 @@ export async function auditDetail(name: string, b: Body): Promise<string> {
   if (name === "bulk") return `${Array.isArray(b.rows) ? b.rows.length : 0} dòng`;
   if (name === "device_bulk") return `${Array.isArray(b.rows) ? b.rows.length : 0} máy`;
   return str(b.name);
-}
-export function needsSnap(name: string, b: Body): boolean {
-  const n = (x: unknown) => (Array.isArray(x) ? x.length : 0);
-  if (name === "delete_accounts") return n(b.ids) >= 20;
-  if (name === "delete") return ["depts", "tabs", "fields", "statuses", "owners"].includes(String(b.table));
-  // Sửa / nhập: trigger ahs_acc_hist đã giữ bản cũ của TỪNG dòng bị đổi (khôi phục được từ Lịch sử dòng) → không bắt người dùng
-  // chờ chụp toàn DB (~30 giây) trước mỗi lần sửa ≥ 20 dòng. Xoá vẫn chụp (xoá dòng thì lịch sử của dòng cũng mất theo).
-  if (name === "bulk" || name === "mass_set" || name === "rows_set") return false;
-  return false;
 }

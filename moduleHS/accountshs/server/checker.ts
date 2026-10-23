@@ -1,7 +1,6 @@
 import "server-only";
 
 import { HsError, T, bumpVer, chunks, log, now, orMissing, pages, run, sb, SRC } from "./db";
-import { snapshot } from "./backup";
 import { ALL_METAS, FB_CHECKERS, MOD_MAP, NODE_FALLBACK, WORKER_IDS, type CheckOpt, type CheckOut, type CheckerMeta, type CheckerMod } from "./checker-mods";
 import type { Id } from "../types";
 
@@ -168,9 +167,10 @@ async function applyMany(cid: string, cfg: Cfg, xf: Record<string, Id | null>, o
   for (const ch of chunks(list, 500)) await SRC.run({ src: "vonggac", name: "Vọng gác" }, () => run(sb().rpc("ahs_rows_merge", { p_items: ch, p_ts: ts })));   // nhật ký sở hữu: đổi do Vọng gác
   return list.length;
 }
-/** Hàng đợi ghi của 1 lượt chạy: gom kết quả, ghi theo lô (≥ 50 dòng hoặc mỗi giây), tuần tự; chưa ghi khi bản sao lưu an toàn chưa xong. */
+/** Hàng đợi ghi của 1 lượt chạy: gom kết quả, ghi theo lô (≥ 50 dòng hoặc mỗi giây), tuần tự. Không chụp toàn DB trước khi chạy: mỗi dòng đổi
+ *  đã có bản cũ trong Lịch sử dòng (ahs_acc_hist), cộng bản sao lưu định kỳ. */
 function flush(J: NodeJob, cid: string, cfg: Cfg, xf: Record<string, Id | null>): Promise<void> {
-  if (J.snap || !J.buf?.length) return J.wq ?? Promise.resolve();
+  if (!J.buf?.length) return J.wq ?? Promise.resolve();
   const part = J.buf.splice(0);
   J.wq = (J.wq ?? Promise.resolve()).then(async () => {
     try { const n = await applyMany(cid, cfg, xf, part); J.written = (J.written || 0) + part.length; if (n) { J.changed += n; await bumpSoon(); } }
@@ -180,7 +180,7 @@ function flush(J: NodeJob, cid: string, cfg: Cfg, xf: Record<string, Id | null>)
 }
 
 /* ───────── job trong tiến trình (checker thuần) ───────── */
-interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string; phase?: string; snap?: Promise<unknown>; buf?: Out[]; wq?: Promise<void>; written?: number }
+interface NodeJob { cid: string; running: boolean; stop: boolean; total: number; done: number; live: number; die: number; error: number; changed: number; started: number; ended: number; by: string; recent: Array<Record<string, unknown>>; scope: string; err_msg?: string; phase?: string; buf?: Out[]; wq?: Promise<void>; written?: number }
 const JOBS = new Map<string, NodeJob>();
 
 async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: string }>, mod?: CheckerMod, rows?: Array<{ id: Id; data: Record<string, unknown> }>) {
@@ -193,7 +193,7 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
   for (const e of meta.extra || []) if (xon.includes(e.k)) { try { xf[e.k] = await xfield(cid, cfg, e); } catch { xf[e.k] = null; } }
   // cột skip_filled (vd Tên FB): đọc sẵn giá trị đang có để checker bỏ qua dòng đã đủ + dọn giá trị rác (_preload_extra của core.py)
   let have: Record<number, Record<string, string>> = {};
-  try { have = await preloadExtra(cid, cfg, meta, xon, items.map((i) => i.id), rows, () => J.snap); } catch (e) { J.err_msg = "Không đọc được cột tên có sẵn: " + (e instanceof Error ? e.message : String(e)); }
+  try { have = await preloadExtra(cid, cfg, meta, xon, items.map((i) => i.id), rows); } catch (e) { J.err_msg = "Không đọc được cột tên có sẵn: " + (e instanceof Error ? e.message : String(e)); }
   const optOf = (id: Id): CheckOpt => (have[id] ? { ...opt, have: have[id] } : opt);
   J.phase = ""; J.buf = []; J.written = 0;
   const tick = setInterval(() => { void flush(J, cid, cfg, xf); }, 1000);          // ghi theo lô mỗi giây (và khi đủ 50 dòng — xem consume)
@@ -227,7 +227,6 @@ async function runNodeJob(cid: string, cfg: Cfg, items: Array<{ id: Id; value: s
   } catch (e) { J.err_msg = e instanceof Error ? e.message : String(e); }
   finally {
     clearInterval(tick);
-    if (J.snap) { J.phase = "Đang chờ bản sao lưu an toàn xong rồi ghi kết quả…"; await J.snap; J.snap = undefined; }
     const left = (J.buf?.length || 0); if (left) J.phase = `Đang ghi ${left.toLocaleString("vi")} kết quả cuối…`;
     await flush(J, cid, cfg, xf);
     J.running = false; J.ended = now(); J.phase = "";
@@ -245,7 +244,6 @@ function consume(cid: string, cfg: Cfg, xf: Record<string, Id | null>, J: NodeJo
   J.done++; J[r.res as "live" | "die" | "error"] = (J[r.res as "live" | "die" | "error"] || 0) + 1;
   J.recent.unshift({ id: it.id, v: m.show ? m.show(it.value) : it.value, res: r.res, info: r.info, ms, ts: now() }); J.recent.length = Math.min(J.recent.length, 60);
   (J.buf ??= []).push({ id: it.id, res: r.res, info: r.info, extra: r.extra });
-  if (J.snap) { if (!J.phase) J.phase = "Đang sao lưu an toàn — kết quả sẽ ghi ngay khi xong…"; return; }   // check vẫn chạy tiếp; chưa ghi dòng nào trước khi bản an toàn xong
   if (J.buf.length >= 50) void flush(J, cid, cfg, xf);
 }
 /** ahs_ver + 1 khi có dòng đổi (để client/Cú vọ thấy), tối đa 1 lần / 3 giây trong lúc chạy */
@@ -261,7 +259,7 @@ async function createWorkerJob(cid: string, cfg: Cfg, items: Array<{ id: Id; val
   await run(sb().from("ahs_jobs").insert({ kind: "cyv", payload, status: "queued", progress: { done: 0, total: items.length, applied: 0 }, created: now(), by: "cyv:" + cid }));
 }
 /** _preload_extra của core.py: cột skip_filled → đọc sẵn giá trị đang có (checker bỏ qua dòng đã đủ) + dọn giá trị rác (junk→'') cả tab; giá trị 'stale' giữ nguyên nhưng buộc đọc lại (trả ''). */
-async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: string[], aids: Id[], preRows?: Array<{ id: Id; data: Record<string, unknown> }>, beforeWrite?: () => Promise<unknown> | undefined): Promise<Record<number, Record<string, string>>> {
+async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: string[], aids: Id[], preRows?: Array<{ id: Id; data: Record<string, unknown> }>): Promise<Record<number, Record<string, string>>> {
   const exs = (meta.extra || []).filter((e) => e.skip_filled && xon.includes(e.k));
   if (!exs.length || !cfg.tab_id) return {};
   const fids: Array<[string, string, RegExp | null, RegExp | null]> = [];
@@ -279,7 +277,6 @@ async function preloadExtra(cid: string, cfg: Cfg, meta: CheckerMeta, xon: strin
     if (Object.keys(jk).length) dirty.push(r.id);
   }
   if (dirty.length) {                                                                 // dọn rác theo lô (trước đây đọc + ghi từng dòng)
-    if (beforeWrite) await beforeWrite();                                             // ghi chỉ sau khi bản sao lưu an toàn xong
     const ts = now();
     for (const ch of chunks(dirty, 300)) {                                            // đọc lại NGAY trước khi ghi → không đè sửa của người dùng
       const items = (await run<Array<{ id: Id; data: Record<string, unknown> | null }>>(sb().from(T.accounts).select("id,data").in("id", ch)))
@@ -394,10 +391,9 @@ async function start(cid: string, ids: Id[] | null, scope?: string, wait = false
   if (WORKER_IDS.has(cid) && alive) {                                              // giao worker Python: giữ cách cũ (đọc danh sách rồi xếp hàng)
     const items = await targets(c, sc === "selected" ? ids : null, sc === "unchecked", cid);
     if (!items.length) throw new HsError("Không có dòng nào cần check");
-    if (items.length > 50) await snapshot().catch(() => undefined);
     await createWorkerJob(cid, c, items); return { ok: 1, total: items.length };
   }
-  // Chạy trong Node: trả lời NGAY, phần nặng (đọc cả bảng, sao lưu an toàn, chuẩn bị cột) chạy nền và báo qua job.phase — giao diện không bị đơ.
+  // Chạy trong Node: trả lời NGAY, phần nặng (đọc cả bảng, chuẩn bị cột) chạy nền và báo qua job.phase — giao diện không bị đơ.
   const J: NodeJob = { cid, running: true, stop: false, total: sc === "selected" && ids ? ids.length : 0, done: 0, live: 0, die: 0, error: 0, changed: 0, started: now(), ended: 0, by: wait ? "auto" : "manual", recent: [], scope: sc, phase: "Đang đọc danh sách dòng…" };
   JOBS.set(cid, J);
   const ready = (async () => {
@@ -407,7 +403,6 @@ async function start(cid: string, ids: Id[] | null, scope?: string, wait = false
     catch (e) { throw new Error("Không đọc được danh sách dòng: " + (e instanceof Error ? e.message : String(e))); }
     if (!items.length) throw new HsError("Không có dòng nào cần check");
     J.total = items.length;
-    if (items.length > 50) { const sp = snapshot().catch(() => undefined); J.snap = sp; void sp.then(() => { if (J.snap === sp) { J.snap = undefined; if ((J.phase || "").startsWith("Đang sao lưu")) J.phase = ""; } }); }                 // core.start(): chụp bản an toàn trước lượt lớn — chạy song song, ghi dòng đầu tiên chỉ sau khi xong
     return { items, rows: sink.rows };
   })();
   void ready.then(
@@ -447,7 +442,7 @@ export async function checkerHandle(method: "GET" | "POST", path: string, qs: UR
     stateReset(cid, path === "cfg");
     if (path === "cfg") { await saveCfg(cid, b.cfg); return [{ ok: 1 }]; }
     if (path === "run") { if (b.cfg) { await saveCfg(cid, b.cfg); stateReset(cid, true); } }   // "Chạy ngay" gửi kèm cấu hình: lưu + chạy trong 1 lượt gọi
-    if (path === "run") return [await start(cid, Array.isArray(b.ids) ? (b.ids as Id[]) : null, b.scope as string | undefined)];   // trả lời ngay; đọc danh sách / sao lưu / chạy tiếp tục nền (job.phase)
+    if (path === "run") return [await start(cid, Array.isArray(b.ids) ? (b.ids as Id[]) : null, b.scope as string | undefined)];   // trả lời ngay; đọc danh sách / chạy tiếp tục nền (job.phase)
     if (path === "stop") return [await stop(cid)];
     return [{ error: "not found" }, 404];
   } catch (e) {

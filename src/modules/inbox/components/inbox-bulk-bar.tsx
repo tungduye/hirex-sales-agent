@@ -127,22 +127,22 @@ export function InboxBulkBar(props: {
     props.onRowsChanged(rows.map((row) => row.id), { deleted: true });
   };
 
-  const button = "inline-flex h-7 min-w-0 items-center gap-1 whitespace-nowrap rounded-md px-1 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-40 disabled:hover:bg-transparent";
+  const button = "inline-flex h-6 min-w-0 items-center gap-1 whitespace-nowrap rounded-md px-1 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-40 disabled:hover:bg-transparent";
   const item = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50";
   const aiOnAll = all((row) => row.takeoverMode === "BOT_ALLOWED"), aiOffAll = all((row) => row.takeoverMode !== "BOT_ALLOWED");
   const nickBot = ai && rows.length === 1 ? ai.bots.find((bot) => bot.id === ai.bindings[rows[0].channelAccountId]) ?? null : null;
-  return <div ref={rootRef} className="relative rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5" role="toolbar" aria-label="Thao tác với hội thoại đã chọn">
+  return <div ref={rootRef} className="relative rounded-lg border border-blue-200 bg-blue-50 px-2 py-1" role="toolbar" aria-label="Thao tác với hội thoại đã chọn">
     <div className="flex items-center gap-1.5 text-xs">
       <button type="button" onClick={props.onClear} aria-label="Bỏ chọn" title="Bỏ chọn (Esc)" className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-white hover:text-slate-800"><X className="size-4"/></button>
-      <span className="min-w-0 truncate font-bold text-blue-900">Đã chọn {countText}</span>
+      <span className="shrink-0 font-bold text-blue-900">{props.target.kind === "rows" ? `Đã chọn ${count}` : `Đã chọn ${countText}`}</span>
+      {props.target.kind === "rows" ? <span className="flex min-w-0 items-center gap-2 truncate text-[11px]">
+        {!props.allVisiblePicked && props.visibleCount > count ? <button type="button" onClick={props.onPickVisible} className="shrink-0 font-semibold text-blue-700 hover:underline">Chọn cả {props.visibleCount}</button> : null}
+        <button type="button" onClick={props.onPickFilter} disabled={props.pickingFilter} className="truncate font-semibold text-blue-700 hover:underline disabled:opacity-50" title="Mọi hội thoại khớp bộ lọc, tab và tìm kiếm (tối đa 5.000)">{props.pickingFilter ? "Đang đếm…" : "Tất cả theo bộ lọc"}</button>
+      </span> : null}
       {busy ? <LoaderCircle className="ml-auto size-4 shrink-0 animate-spin text-blue-600" aria-label="Đang làm"/> : null}
       {props.canDelete ? <button type="button" disabled={busy || !rowActions} title={rowHint ?? "Xóa hội thoại khỏi Suối Nguồn"} aria-label="Xóa hội thoại" onClick={() => setMenu(menu === "DELETE" ? null : "DELETE")} className={`${busy ? "" : "ml-auto"} shrink-0 rounded p-1 text-rose-600 hover:bg-white disabled:opacity-40`}><Trash2 className="size-4"/></button> : null}
     </div>
-    {props.target.kind === "rows" ? <div className="mt-0.5 flex flex-wrap gap-x-3 pl-6 text-[11px]">
-      {!props.allVisiblePicked && props.visibleCount > count ? <button type="button" onClick={props.onPickVisible} className="font-semibold text-blue-700 hover:underline">Chọn cả {props.visibleCount} đang hiện</button> : null}
-      <button type="button" onClick={props.onPickFilter} disabled={props.pickingFilter} className="font-semibold text-blue-700 hover:underline disabled:opacity-50" title="Mọi hội thoại khớp bộ lọc, tab và tìm kiếm (tối đa 5.000)">{props.pickingFilter ? "Đang đếm…" : "Chọn tất cả theo bộ lọc"}</button>
-    </div> : null}
-    <div className="mt-1 grid grid-cols-4 gap-0.5">
+    <div className="mt-0.5 grid grid-cols-4 gap-0.5">
       <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_ADD" ? null : "TAG_ADD")} className={button}><Tag className="size-3.5 shrink-0"/>Gắn nhãn</button>
       <button type="button" disabled={busy} onClick={() => setMenu(menu === "TAG_REMOVE" ? null : "TAG_REMOVE")} className={button}><TagsIcon className="size-3.5 shrink-0"/>Bỏ nhãn</button>
       <button type="button" disabled={busy} onClick={() => void run("MARK_READ", [], null)} className={button}><CheckCheck className="size-3.5 shrink-0"/>Đã đọc</button>

@@ -152,17 +152,15 @@ export async function handlePost(name: string, qs: URLSearchParams, req: Request
     // khỏi gọi thêm /delta (thêm 1 lượt mạng + 1 lần kiểm tra đăng nhập) sau mỗi thao tác
     const since = Number(b.hx_since) || 0, lzq = typeof b.hx_lz === "string" ? b.hx_lz : "";
     delete b.hx_since; delete b.hx_lz;
-    // thao tác hàng loạt rất lớn được trình duyệt chia lô (hx_batch = {i, of, n}): chụp bản an toàn ở lô đầu, ghi nhật ký 1 lần ở lô cuối (đủ số dòng)
+    // thao tác hàng loạt rất lớn được trình duyệt chia lô (hx_batch = {i, of, n}): ghi nhật ký 1 lần ở lô cuối (đủ số dòng)
     const hb = b.hx_batch && typeof b.hx_batch === "object" ? (b.hx_batch as { i: number; of: number; n: number; snap?: number }) : null;
     delete b.hx_batch;
-    // bước riêng trước khi ghi (trình duyệt hiện "Đang chụp bản an toàn…"): lô ghi nào cũng ngắn, không lô nào phải chờ chụp cả DB
-    // Sửa (rows_set / mass_set): mỗi dòng đổi đã có bản cũ trong lịch sử (trigger ahs_acc_hist) → bản an toàn toàn DB tối đa 1 lần / 10 phút
-    // như v7 (chụp toàn DB mất ~30 giây). Xoá hàng loạt: lịch sử của dòng bị xoá cũng mất theo → luôn chụp.
-    if (hb && hb.snap) { if (R.needsSnap(name, { ...b, [Array.isArray(b.items) ? "items" : "ids"]: new Array(Math.max(20, Number(hb.n) || 0)).fill(0) })) await B.snapshot(name === "delete_accounts"); return json({ snap: 1 }); }
+    // Không chụp bản sao toàn DB trước thao tác (DB đã sao lưu định kỳ, 1 chỗ): sửa → lịch sử dòng (ahs_acc_hist) giữ bản cũ;
+    // xoá → ahs_tomb giữ nguyên dòng + liên kết (cột row). Bước "snap" của trình duyệt cũ (còn trong cache) trả về ngay.
+    if (hb && hb.snap) return json({ snap: 1 });
     // mô tả nhật ký: xoá thì phải đọc tên trước khi xoá; còn lại đọc song song với lúc ghi
     const detP = hb ? Promise.resolve(`${Number(hb.n) || 0} dòng`) : R.auditDetail(name, b).catch(() => "");
     if (name === "delete_accounts" || name === "delete") await detP;
-    if ((!hb || Number(hb.i) === 0) && R.needsSnap(name, b)) await B.snapshot(!!hb);
     const wk = READ_ONLY.has(name) ? 0 : writeBegin();   // delta / thời gian thực không vượt qua lệnh ghi còn dở (db.ts safeTs)
     let r: Record<string, unknown> | undefined;
     try { r = (await asUser(() => Promise.resolve(fn(b)))) as Record<string, unknown> | undefined; } finally { if (wk) writeEnd(wk); }   // nguồn ghi = người dùng (nhật ký sở hữu)

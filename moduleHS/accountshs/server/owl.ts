@@ -5,7 +5,7 @@ import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
 import { HsError, T, chunks, getJsonSetting, log, now, orMissing, pages, run, sb, setSetting } from "./db";
 import { dataVersion, firstStatus, getDevices, getMeta, loadAccounts, loadLinks } from "./accounts-data";
 import { delAccountIds } from "./accounts-routes";
-import { BUCKET, snapshot } from "./backup";
+import { BUCKET } from "./backup";
 import * as Q from "./owl-query";
 import * as R from "./owl-rules";
 import * as H from "./owl-hint";
@@ -184,7 +184,6 @@ async function apply(b: Body) {
   if (!p || now() - p.ts > TTL) throw new HsError("Phiên xác nhận đã hết hạn - hãy yêu cầu lại");
   const keys = b.keys === undefined || b.keys === null || b.keys === "all" ? [...p.items.keys()] : Q.asList(b.keys as string[]).map(String).filter((k) => p.items.has(k));
   if (!keys.length) return { applied: 0, left: p.items.size };
-  await snapshot();
   const t = now(), dele: Id[] = [], grp = new Map<string, Id[]>(), per: Array<[Id, Q.Act]> = [], ins: O[] = [];
   let n = 0;
   for (const k of keys) {

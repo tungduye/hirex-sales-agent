@@ -165,7 +165,7 @@ export async function getDelta(since: number, lz = ""): Promise<Delta> {
       return ex.length ? q.not("tab_id", "in", `(${ex.join(",")})`) : q;
     }, Infinity, 8),                                                                   // sửa hàng loạt nghìn dòng: 8 trang song song
     getMeta(), getDevices(),
-    pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - DELTA_OVERLAP).order("id").order("ts").range(a, b)),
+    pages<{ id: Id }>((a, b) => sb().from(T.tomb).select("id").gte("ts", since - DELTA_OVERLAP).gt("id", 0).order("id").order("ts").range(a, b)),
     // dòng vừa đổi sang một tab "tải riêng" mà trình duyệt chưa nạp: báo như đã xoá khỏi trình duyệt
     // (không thì bản cũ vẫn nằm ở tab cũ; khi mở tab tải riêng đó, dòng sẽ về cùng tab)
     ex.length ? pages<{ id: Id }>((a, b) => sb().from(T.accounts).select("id").gte("updated", since - DELTA_OVERLAP).in("tab_id", ex).order("id").range(a, b)) : Promise.resolve([] as { id: Id }[]),

@@ -403,7 +403,9 @@
     ".next-ai-recruiter-kich-ban-rec/types/**/*.ts",
     ".next-ai-recruiter-kich-ban-rec/dev/types/**/*.ts",
     ".next-suoi-nguon-phan-loai/types/**/*.ts",
-    ".next-suoi-nguon-phan-loai/dev/types/**/*.ts"
+    ".next-suoi-nguon-phan-loai/dev/types/**/*.ts",
+    ".next-suoi-nguon-phan-loai-2/types/**/*.ts",
+    ".next-suoi-nguon-phan-loai-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

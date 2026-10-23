@@ -48,7 +48,7 @@ export async function cfgSet(b: Record<string, unknown>): Promise<BackupCfg> {
 const pgJson = (v: unknown): string => Array.isArray(v) ? "[" + v.map(pgJson).join(", ") + "]"
   : v && typeof v === "object" ? "{" + Object.entries(v).map(([k, x]) => JSON.stringify(k) + ": " + pgJson(x)).join(", ") + "}" : JSON.stringify(v ?? null);
 /** đọc 1 bảng có id: chia theo khoảng id (mỗi khoảng 1000 id ≤ 1000 dòng = max_rows của PostgREST), 8 khoảng song song mỗi đợt.
- *  Trước đây đọc nối đuôi 1000 dòng / lượt → bảng lịch sử 120k dòng mất cả phút, Vọng gác phải chờ bản an toàn này mới được ghi. */
+ *  Trước đây đọc nối đuôi 1000 dòng / lượt → bảng lịch sử 120k dòng mất cả phút. */
 async function dumpIdTable(t: (typeof TABLES)[number], cols: string[]): Promise<string[]> {
   const edge = async (asc: boolean) => (await run<{ id: number } | null>(sb().from(T[t]).select("id").order("id", { ascending: asc }).limit(1).maybeSingle()))?.id;
   const [lo, hi] = await Promise.all([edge(true), edge(false)]);
@@ -330,31 +330,32 @@ async function dbFp(): Promise<string> {
     own.length + own.reduce((s, o) => s + [...(o.name ?? "")].length, 0)].join("|");
 }
 const lastFp: Record<string, string> = {};
-let lastSafe = 0;
 /** Python chạy mọi việc sao lưu dưới LOCK → ở đây xếp hàng trong tiến trình */
 let queue: Promise<unknown> = Promise.resolve();
 const locked = <R>(fn: () => Promise<R>): Promise<R> => { const p = queue.then(fn, fn); queue = p.catch(() => undefined); return p; };
 
-export const doBackup = (kind: "manual" | "auto" | "safe" = "manual") => locked(() => backupNow(kind));
-async function backupNow(kind: "manual" | "auto" | "safe"): Promise<string[]> {
+// SAO LƯU 1 CHỖ: chỉ bản định kỳ (auto, giữ c.keep bản) + bản tạo tay (manual). Không chụp toàn DB trước thao tác nữa
+// (Vọng gác, Cú vọ, xoá / sửa hàng loạt, sửa lỗi DB): sửa → lịch sử dòng (ahs_acc_hist) giữ bản cũ; xoá → ahs_tomb.row giữ nguyên dòng.
+// Các bản "safe_*" cũ bị xoá hết ở lần chạy đầu (nặng, trùng với bản định kỳ).
+export const doBackup = (kind: "manual" | "auto" = "manual") => locked(() => backupNow(kind));
+async function backupNow(kind: "manual" | "auto"): Promise<string[]> {
   const c = await cfgGet(), fp = await dbFp();
-  if ((kind === "safe" || kind === "auto") && lastFp[kind] === fp) { if (kind === "auto") await setSetting("last_backup", now()); return []; }
-  if (kind === "safe" && ((await sb().from(T.accounts).select("id", { count: "exact", head: true })).count ?? 0) > 200000) return [];
+  if (kind === "auto" && lastFp[kind] === fp) { await setSetting("last_backup", now()); return []; }
   lastFp[kind] = fp;
   const b = `${kind}_${stamp()}`;
   await put(b + BK_EXT, await dumpFull(), "application/gzip");
   const out = [b + BK_EXT];
-  if (kind !== "safe" && c.formats.includes("xlsx")) { await put(b + ".xlsx", await writeXlsx(await xlsxAll()), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); out.push(b + ".xlsx"); }
-  if (kind !== "safe") await setSetting("last_backup", now());
+  if (c.formats.includes("xlsx")) { await put(b + ".xlsx", await writeXlsx(await xlsxAll()), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); out.push(b + ".xlsx"); }
+  await setSetting("last_backup", now());
   await prune("auto", Math.trunc(c.keep));
-  await prune("safe", 5);
+  await dropSafe();
   return out;
 }
-/** bản an toàn trước thao tác lớn: tối đa 1 bản / 10 phút; force (khôi phục, sửa lỗi DB) luôn chụp. */
-export async function snapshot(force = false) {
-  if (!force && Date.now() - lastSafe < 600_000) return;
-  lastSafe = Date.now();
-  await doBackup("safe");
+/** xoá các bản an toàn cũ (safe_*) — 1 lần mỗi tiến trình */
+let safeGone = false;
+async function dropSafe() {
+  if (safeGone) return;
+  try { await prune("safe", 0); safeGone = true; } catch { /* lần sau thử lại */ }
 }
 /** Sao lưu tự động (bk_loop): gọi từ internal/tick (worker) và sau mỗi thao tác ghi; đến hạn thì sao lưu + ghi nhật ký backup_auto. */
 let autoBusy = false;
@@ -362,6 +363,7 @@ export async function autoBackupIfDue(): Promise<string[]> {
   if (autoBusy) return [];
   autoBusy = true;
   try {
+    await dropSafe();
     const c = await cfgGet();
     if (!c.enabled || now() - (parseFloat(await getSetting("last_backup", "0")) || 0) < c.every_h * 3600) return [];
     const out = await doBackup("auto");
@@ -400,8 +402,7 @@ export function backupRestore(b: Record<string, unknown>) {
     const { name, body } = await backupFile(await bkName(b.name));
     const ext = bext(name);
     const c = await cfgGet(), aiCfg = await getSetting("ai_cfg", "");
-    lastSafe = Date.now();
-    await backupNow("safe");                                              // snapshot(True) — đang giữ khoá nên gọi thẳng
+    await backupNow("auto");   // trạng thái ngay trước khi khôi phục = 1 bản định kỳ cùng chỗ (trùng dữ liệu bản trước thì bỏ qua); đang giữ khoá nên gọi thẳng
     if (ext === "ahs") await restoreFull(body);
     else if (ext === "json") await loadJson(JSON.parse(body.toString("utf8").replace(/^﻿/, "")));
     else throw new HsError("Chỉ khôi phục từ bản sao lưu .ahs.gz (hoặc .json cũ)");
