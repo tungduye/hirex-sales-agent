@@ -405,10 +405,12 @@
     ".next-suoi-nguon-phan-loai/types/**/*.ts",
     ".next-suoi-nguon-phan-loai/dev/types/**/*.ts",
     ".next-suoi-nguon-phan-loai-2/types/**/*.ts",
-    ".next-suoi-nguon-phan-loai-2/dev/types/**/*.ts"
+    ".next-suoi-nguon-phan-loai-2/dev/types/**/*.ts",
+    ".next-ai-recruiter-hoi-luong/types/**/*.ts",
+    ".next-ai-recruiter-hoi-luong/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "runtime/bridge-retry-validation"
+    "runtime"
   ]
 }
