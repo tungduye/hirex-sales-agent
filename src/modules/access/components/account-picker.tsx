@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type PickerAccount = { id: string; channel: string; name: string; owner?: string | null; free?: boolean };
+import { type PickerAccount } from "../core/picker-accounts";
+export { toPickerAccounts, type PickerAccount } from "../core/picker-accounts";
 
 const CHANNELS: Array<[string, string]> = [["ZALO", "Zalo"], ["FACEBOOK", "Page"], ["FACEBOOK_PROFILE", "Cá nhân"], ["EMAIL", "Email"]];
 const channelName = (value: string) => CHANNELS.find(([key]) => key === value)?.[1] ?? value;
@@ -22,7 +23,7 @@ export function AccountPicker({ name, accounts, selected, ownerNote = false, dis
   // Chosen at load first, then by name; the order stays put while ticking.
   const ordered = useMemo(() => { const first = new Set(selected); return [...accounts].sort((a, b) => Number(first.has(b.id)) - Number(first.has(a.id)) || a.name.localeCompare(b.name, "vi")); }, [accounts, selected]);
   const needle = fold(query.trim());
-  const shown = ordered.filter((item) => (channel === "ALL" || item.channel === channel) && (!onlyChosen || chosen.has(item.id)) && (!needle || fold(`${item.name} ${item.owner ?? ""}`).includes(needle)));
+  const shown = ordered.filter((item) => (channel === "ALL" || item.channel === channel) && (!onlyChosen || chosen.has(item.id)) && (!needle || fold(`${item.name} ${item.owner ?? ""} ${item.detail ?? ""}`).includes(needle)));
   const counts = new Map<string, number>(); for (const item of accounts) counts.set(item.channel, (counts.get(item.channel) ?? 0) + 1);
   const toggle = (id: string) => setChosen((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const setShown = (on: boolean) => setChosen((current) => { const next = new Set(current); for (const item of shown) { if (on) next.add(item.id); else next.delete(item.id); } return next; });
@@ -38,7 +39,7 @@ export function AccountPicker({ name, accounts, selected, ownerNote = false, dis
     <ul className="grid max-h-72 gap-1 overflow-y-auto p-2 sm:grid-cols-2 xl:grid-cols-3">
       {shown.map((item) => { const on = chosen.has(item.id); return <li key={item.id}><label className={cn("flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-sm", on ? "border-blue-300 bg-blue-50/60" : "border-transparent hover:bg-slate-50")}>
         <input type="checkbox" checked={on} onChange={() => toggle(item.id)} className="size-4 shrink-0 accent-blue-600"/>
-        <span className="min-w-0 flex-1"><span className="block truncate text-slate-800">{item.name}</span><span className="block truncate text-[11px] text-slate-400">{channelName(item.channel)}{ownerNote ? item.owner ? <span className={on ? "font-semibold text-amber-700" : "text-amber-700"}> · {on ? `chuyển từ ${item.owner}` : `của ${item.owner}`}</span> : item.free ? <span> · chưa có người dùng chính</span> : null : null}</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-slate-800">{item.name}</span><span className="block truncate text-[11px] text-slate-400" title={item.detail ?? undefined}>{channelName(item.channel)}{item.detail ? <span className="text-slate-500"> · {item.detail}</span> : null}{item.needsReconnect ? <span className="text-rose-500"> · cần kết nối lại</span> : null}{ownerNote ? item.owner ? <span className={on ? "font-semibold text-amber-700" : "text-amber-700"}> · {on ? `chuyển từ ${item.owner}` : `của ${item.owner}`}</span> : item.free ? <span> · chưa có người dùng chính</span> : null : null}</span></span>
       </label></li>; })}
       {!shown.length ? <li className="col-span-full py-6 text-center text-sm text-slate-400">Không có tài khoản phù hợp</li> : null}
     </ul>

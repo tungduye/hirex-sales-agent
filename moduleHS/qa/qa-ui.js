@@ -28,6 +28,7 @@ const IC = {
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', note: '<path d="M15 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h6M8 13h8M8 17h5"/>',
   help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>', plus: '<path d="M12 5v14M5 12h14"/>',
   spark: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  max: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>', min: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>', panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
   hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
   chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2 0 0 0-2.5-1.5c-1.4 0-2.5.7-2.5 2s1.1 1.7 2.5 2 2.5.7 2.5 2-1.1 2-2.5 2a2.5 2 0 0 1-2.5-1.5M12 6.5v11"/>',
 };
@@ -46,7 +47,9 @@ async function post(a, body, q = '') { const r = await fetch(`${API}?action=${a}
 function toast(msg, ok) { const t = $('#qToast'); if (!t) return; const el = document.createElement('div'); el.className = 'toast' + (ok ? ' ok' : ''); el.innerHTML = ico(ok ? 'check' : 'alert', 16) + `<span>${esc(msg)}</span>`; t.append(el); setTimeout(() => el.remove(), 3500); }
 
 /* ================= trạng thái ================= */
-const ST = { runs: [], sel: '', tab: 'live', data: null, imgs: [], login: false, depth: 'auto', poll: 0, fpoll: 0, frame: -1, ctrl: false, busy: false, stream: null, sending: [], seen: new Set(), curAt: 0, gopen: new Set(), gclose: new Set(), xopen: new Set(), lf: 'all', side: false };
+const ST = { runs: [], sel: '', tab: 'live', data: null, imgs: [], login: false, depth: 'auto', poll: 0, fpoll: 0, frame: -1, ctrl: false, busy: false, stream: null, sending: [], seen: new Set(), curAt: 0, gopen: new Set(), gclose: new Set(), xopen: new Set(), lf: 'all', side: false, zoom: false, nochat: lsGet('qa.nochat') === '1', chatW: +lsGet('qa.chatw') || 0 };
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* trình duyệt chặn lưu: bỏ qua */ } }
 const LIVE = new Set(['starting', 'running', 'waiting', 'paused', 'reporting', 'idle']);
 const WORKING = new Set(['starting', 'running', 'reporting']);
 /** trạng thái → [chấm, nhãn ngắn] */
@@ -74,17 +77,17 @@ function render() {
 /* ---------- lượt mới ---------- */
 function newHtml() {
   return `<button type="button" class="btn ghost icon q-sidebtn q-sidefloat" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-hero"><div class="q-hero-in">
-    <h2>Kiểm thử phần mềm</h2><p class="mut">Dán link, nói muốn test gì. Agent tự thao tác, bạn xem trực tiếp.</p>
+    <h2>Kiểm thử phần mềm</h2>
     <form class="q-new" id="qNew" autocomplete="off">
-      <label class="q-url">${ico('globe', 16)}<input class="in" id="qUrl" placeholder="https://… link cần test" inputmode="url" spellcheck="false"></label>
-      <div class="q-goal" id="qGoalBox"><textarea class="in" id="qGoal" rows="3" placeholder="Muốn test gì? (dán ảnh nếu có)"></textarea><div class="q-thumbs" id="qThumbs"></div></div>
+      <label class="q-url">${ico('globe', 16)}<input class="in" id="qUrl" placeholder="Nhập link trình duyệt cần kiểm thử" inputmode="url" spellcheck="false"></label>
+      <div class="q-goal" id="qGoalBox"><textarea class="in" id="qGoal" rows="3" placeholder="Mô tả những gì cần kiểm thử — có thể dán ảnh minh hoạ"></textarea><div class="q-thumbs" id="qThumbs"></div></div>
       <div class="q-login" id="qLogin" hidden><input class="in sm" id="qUser" placeholder="Tài khoản" autocomplete="off"><input class="in sm" id="qPass" type="password" placeholder="Mật khẩu" autocomplete="new-password"></div>
       <div class="q-bar"><button type="button" class="btn ghost icon" data-a="pick" title="Đính kèm ảnh (hoặc dán / kéo thả)">${ico('clip', 16)}</button><button type="button" class="btn ghost icon" data-a="login" title="Tài khoản đăng nhập (AI chỉ thấy {{user}} / {{pass}}, không lưu)">${ico('key', 16)}</button>
-        <div class="seg q-depth" title="Thời gian test tối đa">${BUDGETS.map(([v, l, t]) => `<button type="button" data-depth="${v}" title="${t}">${l}</button>`).join('')}</div>
-        <span class="grow"></span><button type="submit" class="btn pri" id="qRun" title="Chạy (Ctrl + Enter)">${ico('play', 15)}Bắt đầu</button></div>
+        <div class="q-seg q-depth" title="Thời gian kiểm thử tối đa">${BUDGETS.map(([v, l, t]) => `<button type="button" data-depth="${v}" title="${t}">${l}</button>`).join('')}<span class="q-segcur"></span></div>
+        <span class="grow"></span><button type="submit" class="btn pri" id="qRun" title="Ctrl + Enter">${ico('play', 14)}Bắt đầu kiểm thử</button></div>
       <input type="file" id="qFile" accept="image/png,image/jpeg,image/webp" multiple hidden>
     </form>
-    <div class="q-ex"><span class="mut">Gợi ý</span>${EXAMPLES.map(t => `<button type="button" class="q-exi" data-ex="${esc(t)}">${ico('arrow', 14)}<span>${esc(t)}</span></button>`).join('')}</div>
+    <div class="q-ex">${EXAMPLES.map(t => `<button type="button" class="q-exi" data-ex="${esc(t)}">${esc(t)}</button>`).join('')}</div>
   </div></div>`;
 }
 function bindNew() {
@@ -99,10 +102,10 @@ function bindNew() {
 }
 function paintForm() {
   if (!$('#qNew')) return;
-  ROOT.querySelectorAll('[data-depth]').forEach(b => b.classList.toggle('on', b.dataset.depth === String(ST.depth)));
+  ROOT.querySelectorAll('[data-depth]').forEach(b => b.classList.toggle('on', b.dataset.depth === String(ST.depth))); requestAnimationFrame(() => segs($('#qNew'), !$('#qNew')?._seg)); if ($('#qNew')) $('#qNew')._seg = 1;
   $('#qLogin').hidden = !ST.login; ROOT.querySelector('[data-a=login]').classList.toggle('on', ST.login);
   $('#qThumbs').innerHTML = ST.imgs.map((x, i) => `<span class="q-th"><img src="${x.url}" alt=""><button type="button" data-rm="${i}" title="Bỏ ảnh">${ico('x', 12)}</button></span>`).join('');
-  $('#qRun').disabled = ST.busy; $('#qRun').innerHTML = ST.busy ? `${ico('loader', 15, 'spin')}Đang mở…` : `${ico('play', 15)}Bắt đầu`;
+  $('#qRun').disabled = ST.busy; $('#qRun').innerHTML = `${ico('play', 14)}Bắt đầu kiểm thử`;
 }
 function addImgs(fs) {
   for (const f of fs) { if (ST.imgs.length >= 6) { toast('Tối đa 6 ảnh'); break; } if (f.size > 8 * 1048576) { toast('Ảnh tối đa 8 MB'); continue; } ST.imgs.push({ f, url: URL.createObjectURL(f) }); }
@@ -129,26 +132,27 @@ function upload(fd, onp) {
     x.send(fd);
   });
 }
-/** Màn "đang mở" hiện ngay khi bấm Bắt đầu — không đứng ở form chờ máy chủ. */
-function startingHtml(url, label) {
-  return `<header class="q-rh"><button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b>${esc(hostOf(url))}</b><span><span class="q-pill"><span class="dot warn pulse"></span>Đang khởi động</span></span></div></header>
-    <div class="q-empty"><div class="q-boot">${ico('loader', 18, 'spin')}<span id="qBootT">${esc(label)}</span></div><div class="q-bootbar"><i id="qBootB"></i></div></div>`;
+/** Màn "đang khởi động" hiện ngay khi bấm Bắt đầu: 3 bước Chuẩn bị → Kết nối máy chủ → Khởi chạy trình duyệt. */
+const BOOT = ['Chuẩn bị', 'Kết nối máy chủ', 'Khởi chạy trình duyệt'];
+function startingHtml(url) {
+  return `<header class="q-rh"><button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b>${esc(hostOf(url))}</b></div></header>
+    <div class="q-empty"><div class="q-boot" id="qBoot">${ico('loader', 20, 'spin')}<b class="q-shine">${BOOT[0]}</b><ol>${BOOT.map((t, i) => `<li data-i="${i}"${i ? '' : ' class="on"'}><i></i><span>${t}</span></li>`).join('')}</ol></div></div>`;
 }
+function bootStep(i) { const b = $('#qBoot'); if (!b) return; b.querySelector('b').textContent = BOOT[i]; b.querySelectorAll('li').forEach(li => { const k = +li.dataset.i; li.className = k < i ? 'ok' : k === i ? 'on' : ''; }); }
 async function run() {
   const url = $('#qUrl').value.trim(), goal = $('#qGoal').value.trim();
-  if (!url) { $('#qUrl').focus(); toast('Nhập link cần test'); return; }
+  if (!url) { $('#qUrl').focus(); toast('Nhập link cần kiểm thử'); return; }
   if (ST.busy) return;
   const B = BUDGETS.find(x => String(x[0]) === String(ST.depth)) || BUDGETS[0], login = ST.login ? [$('#qUser').value, $('#qPass').value] : null, imgs = ST.imgs.slice();
   ST.busy = true;
-  const m = $('#qMain'); m.innerHTML = startingHtml(url, imgs.length ? 'Đang chuẩn bị ảnh…' : 'Đang mở trình duyệt…'); m._vid = 'boot';
-  const say = (t, pct) => { const e = $('#qBootT'), bar = $('#qBootB'); if (e) e.textContent = t; if (bar && pct != null) bar.style.width = pct + '%'; };
+  const m = $('#qMain'); m.innerHTML = startingHtml(url); m._vid = 'boot';
   try {
     const fd = new FormData(); fd.append('url', url); fd.append('goal', goal); fd.append('max_steps', B[3]); fd.append('minutes', B[0]);
     if (login) { fd.append('user', login[0]); fd.append('pass', login[1]); }
     for (const x of imgs) { const f = await shrink(x.f); fd.append('img', f, f.name || 'anh.jpg'); }
-    say(imgs.length ? 'Đang tải ảnh lên… 0%' : 'Đang mở trình duyệt…', 5);
-    const d = await upload(fd, p => say(p < 100 ? `Đang tải ảnh lên… ${p}%` : 'Đang mở trình duyệt…', 5 + p * 0.6));
-    say('Đang mở trình duyệt…', 80);
+    bootStep(1);
+    const d = await upload(fd, p => { if (p >= 100) bootStep(2); });
+    bootStep(2);
     ST.imgs = []; ST.login = false; ST.busy = false;
     loadList(); select(d.id);
   } catch (e) {
@@ -162,14 +166,14 @@ async function loadList() { try { ST.runs = (await get('list')).runs || []; } ca
 function paintHist() {
   const el = $('#qHist'); if (!el) return;
   if (!ST.runs.length) { el.innerHTML = `<div class="q-empty sm"><span>Chưa có lượt test</span></div>`; return; }
-  el.innerHTML = ST.runs.map(r => { const [dot, lb] = STL[r.status] || ['', r.status]; return `<div class="q-hi${r.id === ST.sel ? ' on' : ''}" data-run="${r.id}" data-id="${r.id}" role="button" tabindex="0">
-    <span class="dot ${dot}" title="${lb}"></span><span class="q-hm"><b>${esc(r.title || hostOf(r.url))}</b><span>${esc(hostOf(r.url))} · ${dm(r.created)} ${hm(r.created)}</span></span>
-    ${r.score != null ? `<span class="q-sc ${r.score >= 80 ? 'ok' : r.score >= 55 ? 'warn' : 'err'}">${r.score}</span>` : ''}<button type="button" class="btn ghost icon sm q-hx" data-a="delh" title="Xoá">${ico('trash', 14)}</button></div>`; }).join('');
+  el.innerHTML = ST.runs.map(r => { const [, lb] = STL[r.status] || ['', r.status]; return `<div class="q-hi${r.id === ST.sel ? ' on' : ''}" data-run="${r.id}" data-id="${r.id}" role="button" tabindex="0">
+    <span class="q-hm"><b>${esc(r.title || hostOf(r.url))}</b><span>${LIVE.has(r.status) ? esc(lb) : `${dm(r.created)} ${hm(r.created)}`}</span></span>
+    ${r.score != null ? `<span class="q-sc">${r.score}</span>` : ''}<button type="button" class="btn ghost icon sm q-hx" data-a="delh" title="Xoá">${ico('trash', 14)}</button></div>`; }).join('');
 }
 
 /* ================= một lượt test ================= */
 function select(id) {
-  stopStream(); ST.sel = id; ST.data = null; ST.frame = -1; ST.ctrl = false; ST.sending = []; ST.seen = new Set(); ST.gopen = new Set(); ST.gclose = new Set(); ST.xopen = new Set(); ST.lf = 'all'; ST.side = false; ST.planOpen = null; ST.tab = 'live'; ROOT.querySelector('.q-app')?.classList.remove('side');
+  stopStream(); ST.sel = id; ST.data = null; ST.frame = -1; ST.ctrl = false; ST.sending = []; ST.seen = new Set(); ST.gopen = new Set(); ST.gclose = new Set(); ST.xopen = new Set(); ST.lf = 'all'; ST.planKey = ''; ST.planOpen = null; ST.stick = true; ST.side = false; ST.planOpen = null; ST.tab = 'live'; ROOT.querySelector('.q-app')?.classList.remove('side');
   const m = $('#qMain'); if (m) { m._vid = ''; m._vtab = ''; }
   paintHist(); paintMain(); poll();
 }
@@ -189,19 +193,18 @@ function paintMain() {
   if (d.error) { m.innerHTML = `<div class="q-empty">${ico('alert', 22)}<span>${esc(d.error)}</span></div>`; m._vid = ''; return; }
   const same = m._vid === ST.sel && m._vtab === ST.tab;
   if (!same) {
-    m.innerHTML = `<header class="q-rh" id="qHead"></header><div class="q-tabs" id="qTabs"></div><div class="q-body${ST.tab === 'live' ? ' q-lv' : ''}" id="qBody">${ST.tab === 'live' ? liveHtml() : ''}</div>`;
+    m.innerHTML = `<div class="q-top"><header class="q-rh" id="qHead"></header><div class="q-tabs" id="qTabs"></div></div><div class="q-body${ST.tab === 'live' ? ' q-lv' : ''}" id="qBody">${ST.tab === 'live' ? liveHtml() : ''}</div>`;
     m._vid = ST.sel; m._vtab = ST.tab; ST.seen = new Set();
     if (ST.tab === 'live') bindLive();
   }
   paintHead(); paintTabs();
   if (ST.tab === 'live') paintLive();
-  else { const b = $('#qBody'), keep = b.scrollTop, html = ST.tab === 'report' ? reportHtml() : logHtml(); if (b._h !== html) { b.innerHTML = html; b._h = html; b.scrollTop = keep; } }
+  else { const b = $('#qBody'), keep = b.scrollTop, html = ST.tab === 'report' ? reportHtml() : logHtml(); if (b._h !== html) { const was = b._h; b.innerHTML = html; b._h = html; b.scrollTop = keep; segs(b, !was); if (ST.tab === 'report' && !was) reveal(b); } }
 }
 function paintHead() {
-  const d = ST.data, s = d.state, R = d.report, [dot, lb] = STL[s.status] || ['', s.status], done = !LIVE.has(s.status);
-  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b>${esc(R?.title || s.title || hostOf(d.run.url))}</b><span><span class="q-pill"><span class="dot ${dot}"></span>${esc(lb)}</span><span class="mut">${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}</span></span></div><span class="grow"></span>
-    ${done ? `<button type="button" class="btn sm" data-a="rerun" title="Chạy lại với cùng link và yêu cầu">${ico('play', 14)}Chạy lại</button>` : ''}
-    ${R ? `<a class="btn ghost icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 16)}</a>` : ''}<a class="btn ghost icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 16)}</a><button type="button" class="btn ghost icon" data-a="del" title="Xoá lượt test">${ico('trash', 16)}</button>`;
+  const d = ST.data, s = d.state, R = d.report, [, lb] = STL[s.status] || ['', s.status], done = !LIVE.has(s.status);
+  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b title="${esc(lb)} · ${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}">${esc(R?.title || s.title || hostOf(d.run.url))}</b></div><span class="grow"></span>
+<div class="q-bg">${done ? `<button type="button" class="btn" data-a="rerun" title="Chạy lại với cùng link và yêu cầu">${ico('play', 14)}Chạy lại</button>` : ''}${R ? `<a class="btn icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 15)}</a>` : ''}<a class="btn icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 15)}</a><button type="button" class="btn icon q-del" data-a="del" title="Xoá lượt test">${ico('trash', 15)}</button></div>`;
   const h = $('#qHead'); if (h._h !== html) { h.innerHTML = html; h._h = html; }
 }
 const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${pad(t % 60)}`; };
@@ -216,31 +219,75 @@ function paintCtl() {
     : st === 'paused' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop') + `<button type="button" class="btn sm icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển">${ico('hand', 14)}</button>`
     : st === 'waiting' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop')
     : st === 'idle' ? B('stop', 'x', 'Đóng trình duyệt') : !LIVE.has(st) ? B('rerun', 'play', 'Chạy lại') : '';
-  const meta = working && st !== 'starting' ? `<span class="q-meta num" title="Bước đã chạy / tối đa · thời gian / giới hạn">${stepN}/${stepMax} bước${budget ? ` · ${mmss(used)} / ${mmss(budget)}` : ''}</span>` : '';
-  const html = meta + btns; if (el._h !== html) { el.innerHTML = html; el._h = html; }
+  const meta = working && st !== 'starting' ? `<span class="q-meta num" title="Bước đã chạy / tối đa · thời gian / giới hạn">${stepN}/${stepMax}<em>·</em>${budget ? `${mmss(used)} / ${mmss(budget)}` : mmss(used)}</span>` : '';
+  const html = meta || btns ? `<div class="q-bg sm">${meta}${btns}</div>` : ''; if (el._h !== html) { el.innerHTML = html; el._h = html; }
   const pct = working ? Math.min(100, Math.max(stepN / stepMax, budget ? used / budget : 0) * 100) : st === 'reporting' ? 100 : 0;
   pr.classList.toggle('on', working || st === 'reporting'); pr.classList.toggle('ind', st === 'starting' || st === 'reporting'); pr.firstElementChild.style.width = pct + '%';
 }
+/** Nút xem: ẩn / hiện trò chuyện · phóng to (toàn màn hình, vẫn thấy trò chuyện). */
+function paintView() {
+  const v = $('#qView'); if (!v) return;
+  const html = `<button type="button" class="btn icon${ST.nochat ? '' : ' on'}" data-a="chat" title="${ST.nochat ? 'Hiện' : 'Ẩn'} trò chuyện">${ico('panel', 14)}</button><button type="button" class="btn icon" data-a="zoom" title="${ST.zoom ? 'Thu nhỏ (Esc)' : 'Phóng to toàn màn hình'}">${ico(ST.zoom ? 'min' : 'max', 14)}</button>`;
+  if (v._h !== html) { v.innerHTML = html; v._h = html; }
+  $('.q-live')?.classList.toggle('nochat', ST.nochat); ROOT.querySelector('.q-app')?.classList.toggle('zoom', ST.zoom);
+}
+function setZoom(on) {
+  ST.zoom = on; paintView();
+  try { if (on && !document.fullscreenElement) ROOT.requestFullscreen?.().catch(() => {}); else if (!on && document.fullscreenElement === ROOT) document.exitFullscreen?.().catch(() => {}); } catch { /* không cho toàn màn hình: chỉ phóng trong khung */ }
+  requestAnimationFrame(() => segs(ROOT, true));
+}
+/** Kéo vạch giữa màn hình và trò chuyện để đổi cỡ (lưu lại cho lần sau). */
+function bindSplit() {
+  const sp = $('#qSplit'), lv = $('.q-live'); if (!sp || !lv) return;
+  sp.onpointerdown = e => {
+    if (e.button !== 0) return; e.preventDefault(); sp.setPointerCapture(e.pointerId); lv.classList.add('drag');
+    const r = lv.getBoundingClientRect(), max = Math.min(640, r.width - 360);
+    sp.onpointermove = ev => { const w = Math.round(Math.max(280, Math.min(max, r.right - ev.clientX))); ST.chatW = w; lv.style.setProperty('--chatw', w + 'px'); };
+    sp.onpointerup = () => { sp.onpointermove = sp.onpointerup = null; lv.classList.remove('drag'); if (ST.chatW) lsSet('qa.chatw', ST.chatW); };
+  };
+  sp.ondblclick = () => { ST.chatW = 0; lv.style.removeProperty('--chatw'); lsSet('qa.chatw', ''); };
+}
 /** Kế hoạch test agent lập lúc đầu (trường hợp + thời gian ước tính); tick dần khi chạy. */
 function paintPlan() {
-  const el = $('#qPlan'), P = ST.data.state.plan; if (!el) return;
-  if (!P || !P.cases?.length) { if (el.innerHTML) { el.innerHTML = ''; el._h = ''; } return; }
-  const n = P.cases.filter(c => c.st === 'done').length, open = ST.planOpen ?? WORKING.has(ST.data.state.status);
+  const el = $('#qPlan'), st = ST.data.state, P = st.plan; if (!el) return;
+  if (!P || !P.cases?.length) { if (el.innerHTML) { el.innerHTML = ''; el._h = ''; el._l = ''; } return; }
+  const n = P.cases.filter(c => c.st === 'done').length, working = WORKING.has(st.status) || st.status === 'waiting' || st.status === 'paused';
+  const di = P.cases.findIndex(c => c.st === 'doing'), cur = di >= 0 ? P.cases[di] : null;
+  // sang bước mới → mở ra vài giây cho thấy đang ở đâu rồi tự thu lại; xong hết → mở hẳn
+  const key = `${ST.sel}|${P.cases.length}|${di}|${cur?.name || ''}`;
+  if (ST.planKey !== key) { const firstSeen = !ST.planKey; ST.planKey = key; if (cur && working) { ST.planOpen = null; ST.planPeek = Date.now() + (firstSeen ? 2500 : 4000); clearTimeout(ST.planTm); ST.planTm = setTimeout(paintPlan, (firstSeen ? 2500 : 4000) + 30); } }
+  const auto = !working || n === P.cases.length || Date.now() < (ST.planPeek || 0), open = ST.planOpen ?? auto;
   const IC2 = { done: ['check', 'ok'], doing: ['loader', 'run'], todo: ['minus', ''], skip: ['x', 'skip'] };
-  const html = `<button type="button" class="q-ph${open ? ' on' : ''}" data-a="plan">${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut">${n}/${P.cases.length}${P.minutes ? ` · ~${P.minutes} phút` : ''}</span><span class="q-pbar"><i style="width:${n / P.cases.length * 100}%"></i></span></button>${open ? `<ol class="q-pl">${P.cases.map(c => { const [i, k] = IC2[c.st] || IC2.todo; return `<li class="${k}" title="${esc(c.why || '')}">${ico(i, 13, k === 'run' ? 'spin' : '')}<span>${esc(c.name)}</span></li>`; }).join('')}</ol>` : ''}`;
-  if (el._h !== html) { el.innerHTML = html; el._h = html; }
+  const head = `${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut num">${n}/${P.cases.length}${P.minutes ? ` ~${P.minutes} phút` : ''}</span>${cur && working ? `<span class="q-pnow"><span class="q-shine">${esc(cur.name)}</span><em class="num">${di + 1}/${P.cases.length}</em></span>` : ''}`;
+  const list = `<ol class="q-pl">${P.cases.map((c, i) => { const [ic, k] = IC2[c.st] || IC2.todo; return `<li class="${k}${i === di ? ' cur' : ''}" title="${esc(c.why || '')}">${ico(ic, 13, k === 'run' ? 'spin' : '')}<span>${esc(c.name)}</span></li>`; }).join('')}</ol>`;
+  if (el._h !== head || !el.firstChild) { if (!el.firstChild) el.innerHTML = `<button type="button" class="q-ph" data-a="plan"></button><div class="q-plw"><div></div></div>`; el.firstChild.innerHTML = head; el._h = head; }
+  if (el._l !== list) { el.querySelector('.q-plw>div').innerHTML = list; el._l = list; }
+  el.firstChild.classList.toggle('on', open); el.classList.toggle('open', open); el.classList.toggle('peek', open && ST.planOpen == null && working);
+  const ol = el.querySelector('.q-pl'), li = ol?.querySelector('li.cur'); if (ol && li && open) ol.scrollTop = Math.max(0, li.offsetTop - ol.clientHeight / 2);
 }
 function paintTabs() {
-  const s = ST.data.state, R = ST.data.report;
-  $('#qTabs').innerHTML = [['live', 'monitor', 'Trực tiếp'], ['report', 'file', 'Báo cáo'], ['log', 'list', 'Nhật ký']].map(([k, i, l]) => `<button type="button" class="${ST.tab === k ? 'on' : ''}" data-tab="${k}">${ico(i, 15)}${l}${k === 'log' ? `<em>${(s.log || []).length}</em>` : k === 'report' && s.status === 'reporting' ? ico('loader', 12, 'spin') : k === 'report' && R ? `<em class="q-sc ${R.verdict.score >= 80 ? 'ok' : R.verdict.score >= 55 ? 'warn' : 'err'}">${R.verdict.score}</em>` : ''}</button>`).join('');
+  const s = ST.data.state, R = ST.data.report, el = $('#qTabs');
+  const html = `<div class="q-seg">${[['live', 'monitor', 'Trực tiếp'], ['report', 'file', 'Báo cáo'], ['log', 'list', 'Nhật ký']].map(([k, i, l]) => `<button type="button" class="${ST.tab === k ? 'on' : ''}" data-tab="${k}">${ico(i, 14)}${l}${k === 'log' ? `<em>${(s.log || []).length}</em>` : k === 'report' && s.status === 'reporting' ? ico('loader', 12, 'spin') : k === 'report' && R ? `<em>${R.verdict.score}</em>` : ''}</button>`).join('')}<span class="q-segcur"></span></div>`;
+  if (el._h !== html) { const first = !el._h; el.innerHTML = html; el._h = html; segs(el, first); }
+}
+/** Nhóm nút dạng viên thuốc (HeroUI): nền trắng trượt tới nút đang chọn. */
+function segs(root = ROOT, instant = false) {
+  if (!root) return;
+  for (const g of root.querySelectorAll('.q-seg')) {
+    const on = g.querySelector('button.on'), cur = g.querySelector('.q-segcur'); if (!cur) continue;
+    if (!on) { cur.style.opacity = '0'; continue; }
+    if (instant) cur.style.transition = 'none';
+    cur.style.opacity = '1'; cur.style.width = on.offsetWidth + 'px'; cur.style.transform = `translateX(${on.offsetLeft - 3}px)`;
+    if (instant) { void cur.offsetWidth; cur.style.transition = ''; }
+  }
 }
 
 /* ---------- Trực tiếp: trình duyệt + trò chuyện ---------- */
 function liveHtml() {
   const d = ST.data;
-  return `<div class="q-live"><section class="q-browser"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span><span class="q-onair" id="qAir"></span><div class="q-ctl" id="qCtl"></div></div><div class="q-prog" id="qProg"><i></i></div>
+  return `<div class="q-live${ST.nochat ? ' nochat' : ''}"${ST.chatW ? ` style="--chatw:${ST.chatW}px"` : ''}><section class="q-browser"><div class="q-stage"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span><div class="q-ctl" id="qCtl"></div><div class="q-bg sm q-view" id="qView"></div></div><div class="q-prog" id="qProg"><i></i></div>
       <div class="q-screen" id="qScreen" tabindex="0"><img id="qFrame" alt="Màn hình trình duyệt kiểm thử" draggable="false"><div class="q-cur" id="qCur" hidden>${ico('pointer', 22)}<i></i></div>
-        <div class="q-phase" id="qPhase" hidden></div><div class="q-take" id="qTake" hidden></div><div class="q-load" id="qLoad">${ico('loader', 18, 'spin')}</div></div></section>
+        <div class="q-phase" id="qPhase" hidden></div><div class="q-take" id="qTake" hidden></div><div class="q-load" id="qLoad">${ico('loader', 18, 'spin')}</div></div></div></section><div class="q-split" id="qSplit" title="Kéo để đổi cỡ khung trò chuyện · bấm đúp để về mặc định"></div>
     <section class="q-chat"><div class="q-plan" id="qPlan"></div><div class="q-feed" id="qFeed"></div><div class="q-typing" id="qTyping" hidden></div><div class="q-quick" id="qQuick"></div>
       <form class="q-cmp" id="qCmp"><textarea class="in" id="qSay" rows="1" placeholder="Nhắn agent…"></textarea><button type="submit" class="btn pri icon" title="Gửi (Enter)">${ico('send', 16)}</button></form></section></div>`;
 }
@@ -261,56 +308,59 @@ function bindLive() {
   ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; };
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendSay(); } };
   $('#qCmp').onsubmit = e => { e.preventDefault(); sendSay(); };
-  img.onload = () => { $('#qLoad')?.remove(); if (ST.stream) ST.stream.ok = true; };
-  startStream();
+  bindSplit(); bindStick(); startStream();
 }
-/* Video trực tiếp: <img> nhận luồng MJPEG; 6 giây không có hình (proxy chặn luồng) → đổi sang hỏi từng ảnh. */
-function startStream() {
-  stopStream(); const img = $('#qFrame'), s = ST.data?.state; if (!img || !s) return;
-  const id = ST.sel, live = LIVE.has(s.status);
-  if (!live) { img.src = `${API}?action=frame&id=${id}&f=${s.frame || 0}`; return; }
-  const st = ST.stream = { id, ok: false, poll: false };
-  img.src = `${API}?action=stream&id=${id}&k=${Date.now()}`;
-  img.onerror = () => { if (ST.stream === st && !st.poll) { st.poll = true; framePoll(); } };
-  st.tm = setTimeout(() => { if (ST.stream === st && !st.ok) { st.poll = true; framePoll(); } }, 12000);
-}
-function stopStream() { if (ST.stream) { clearTimeout(ST.stream.tm); ST.stream = null; } clearTimeout(ST.fpoll); const img = $('#qFrame'); if (img && /action=stream/.test(img.src)) img.src = ''; }
-function framePoll() {
-  clearTimeout(ST.fpoll); const img = $('#qFrame'), s = ST.data?.state; if (!img || !s) return;
-  if (s.frame !== ST.frame) { ST.frame = s.frame; const n = new Image(); n.onload = () => { if ($('#qFrame') === img) { img.src = n.src; $('#qLoad')?.remove(); } }; n.src = `${API}?action=frame&id=${ST.sel}&f=${s.frame}`; }
-  if (LIVE.has(s.status)) ST.fpoll = setTimeout(framePoll, 350);
+/* Hình trực tiếp: hỏi ảnh mới ~5 lần / giây khi agent đang làm (máy chủ trả 204 nếu chưa có ảnh mới → rất nhẹ), 1 lần / giây khi chờ,
+   dừng thì lấy ảnh cuối. Ảnh mới tải xong mới thay (không nháy). Ổn định qua Cloudflare hơn luồng video dài. */
+const FR = { t: 0, busy: false, tm: 0, url: '', id: '' };
+function startStream() { stopStream(); FR.t = 0; FR.id = ST.sel; frameTick(); }
+function stopStream() { clearTimeout(FR.tm); FR.tm = 0; }
+async function frameTick() {
+  clearTimeout(FR.tm); FR.tm = 0;
+  const img = $('#qFrame'), id = ST.sel; if (!img || !id || !ST.data?.state) return;
+  if (FR.id !== id) { FR.id = id; FR.t = 0; }
+  if (!FR.busy) {
+    FR.busy = true;
+    try {
+      const r = await fetch(`${API}?action=frame&id=${id}&t=${FR.t}`, { cache: 'no-store' });
+      if (r.status === 200 && id === ST.sel) {
+        FR.t = +r.headers.get('X-Frame-T') || Date.now();
+        const u = URL.createObjectURL(await r.blob()), n = new Image();
+        n.onload = () => { const cur = $('#qFrame'); if (cur && id === ST.sel) { cur.src = u; if (FR.url && FR.url !== u) URL.revokeObjectURL(FR.url); FR.url = u; $('#qLoad')?.remove(); } else URL.revokeObjectURL(u); };
+        n.src = u;
+      } else if (r.status === 204 && FR.url) $('#qLoad')?.remove();
+    } catch { /* mạng chập chờn: lần sau */ } finally { FR.busy = false; }
+  }
+  const st = ST.data?.state?.status, ms = WORKING.has(st) || st === 'waiting' ? 200 : LIVE.has(st) ? 1000 : 0;
+  if (ms && id === ST.sel) FR.tm = setTimeout(frameTick, document.visibilityState === 'hidden' ? 2500 : ms);
 }
 function paintLive() {
   const d = ST.data, s = d.state, live = LIVE.has(s.status), ph = s.phase;
   const a = $('#qAddr'); if (a) a.textContent = s.url || d.run.url;
-  // luồng video: dừng hẳn → hiện ảnh cuối; chạy lại (nhắn sau khi xong) → mở luồng mới
-  const img = $('#qFrame'); if (img) { const streaming = /action=stream/.test(img.src); if (live && !streaming && !ST.stream?.poll) startStream(); else if (!live && (streaming || !img.src || ST.stream)) { stopStream(); img.src = `${API}?action=frame&id=${ST.sel}&f=${s.frame || 0}`; } }
-  if (!live && s.frame) $('#qLoad')?.remove();
-  if (ST.stream?.poll) framePoll();
-  $('#qAir').innerHTML = live ? `<i></i>Live` : 'Ảnh cuối'; $('#qAir').classList.toggle('on', live);
+  if (live && !FR.tm && !FR.busy) frameTick();   // đang chạy lại (nhắn sau khi xong) → hỏi ảnh tiếp
   const take = ST.ctrl || ['waiting', 'paused'].includes(s.status);
-  $('#qScreen').classList.toggle('q-ctl', take);
+  $('#qScreen').classList.toggle('q-ctl', take); $('#qScreen').classList.toggle('beam', WORKING.has(s.status) && !take);
   const tk = $('#qTake'); tk.hidden = !take;
   if (take) tk.innerHTML = s.status === 'waiting' ? `${ico('hand', 14)}<span>${esc(s.ask?.kind === 'login' ? 'Đăng nhập trên màn hình' : s.ask?.kind === 'otp' ? 'Nhập mã trên màn hình' : 'Agent chờ bạn trả lời')}</span><button type="button" class="btn pri sm" data-a="go">Tiếp tục</button>`
     : `${ico('hand', 14)}<span>Bạn đang điều khiển</span><button type="button" class="btn sm" data-a="ctrl">Trả lại agent</button>`;
   // pha đang làm (góc dưới màn hình)
   const P = $('#qPhase'), showPh = live && ph && !take && s.status !== 'idle';
   P.hidden = !showPh;
-  if (showPh) { const [i, k] = PH[ph.k] || ['loader', 'load']; const key = ph.k + ph.label; if (P.dataset.k !== key) { P.dataset.k = key; P.className = 'q-phase ' + k; P.innerHTML = `${i ? ico(i, 14, k === 'load' ? 'spin' : '') : '<span class="q-dots"><i></i><i></i><i></i></span>'}<span>${esc(ph.label || '')}</span>`; } }
+  if (showPh) { const [i, k] = PH[ph.k] || ['loader', 'load']; const key = ph.k + ph.label; if (P.dataset.k !== key) { P.dataset.k = key; P.className = 'q-phase ' + k; P.innerHTML = `${i ? ico(i, 14, k === 'load' ? 'spin' : '') : ''}<span class="${k === 'think' ? 'q-shine' : ''}">${esc(ph.label || '')}</span>`; } }
   // con trỏ ảo
   const c = s.cursor, cur = $('#qCur');
   if (c && c.at !== ST.curAt && live) { ST.curAt = c.at; cur.hidden = false; cur.style.left = c.x * 100 + '%'; cur.style.top = c.y * 100 + '%'; cur.classList.toggle('user', c.k === 'user'); if (c.k === 'click' || c.k === 'user') { cur.classList.remove('tap'); void cur.offsetWidth; cur.classList.add('tap'); } clearTimeout(cur._h); cur._h = setTimeout(() => { cur.hidden = true; }, 4000); }
   if (!live) cur.hidden = true;
-  paintCtl(); paintPlan(); paintFeed();
+  paintView(); paintCtl(); paintPlan(); paintFeed();
   // dòng "đang làm" cuối khung chat + gợi ý nhanh + ô nhắn
   const ty = $('#qTyping'), working = WORKING.has(s.status) && !take;
   ty.hidden = !working;
-  if (working) { const lab = s.status === 'reporting' ? 'Đang viết báo cáo' : s.status === 'starting' ? (ph?.label || 'Đang khởi động') : ph?.k === 'think' ? (s.thought ? 'Đang nghĩ: ' + s.thought : 'Đang suy nghĩ') : (ph?.label || 'Đang làm'); if (ty.dataset.t !== lab) { ty.dataset.t = lab; ty.innerHTML = `<span class="q-dots"><i></i><i></i><i></i></span><span class="q-tl">${esc(lab)}</span>`; } }
+  if (working) { const lab = s.status === 'reporting' ? 'Đang viết báo cáo' : s.status === 'starting' ? (ph?.label || 'Đang khởi động') : ph?.k === 'think' ? (s.thought ? 'Đang nghĩ · ' + s.thought : 'Đang suy nghĩ') : (ph?.label || 'Đang làm'); if (ty.dataset.t !== lab) { ty.dataset.t = lab; ty.innerHTML = `${ico('loader', 13, 'spin')}<span class="q-tl q-shine">${esc(lab)}</span>`; } }
   const q = $('#qQuick'), chips = s.status === 'waiting' ? (s.ask?.kind === 'login' || s.ask?.kind === 'otp' ? [['go', 'Đã xong'], ['say', 'Bỏ qua đăng nhập']] : [['go', 'Tiếp tục']])
     : s.status === 'idle' || s.status === 'done' ? (d.report ? [['say', 'Test thêm'], ['say', 'Giải thích lỗi nặng nhất'], ['tab', 'Báo cáo']] : [['say', 'Test tiếp']]) : [];
   const qh = chips.map(([k, t]) => `<button type="button" class="btn sm" data-q="${k}" data-t="${esc(t === 'Test thêm' ? 'Test kỹ thêm các trường hợp còn lại' : t)}">${esc(t)}</button>`).join('');
   if (q.dataset.h !== qh) { q.dataset.h = qh; q.innerHTML = qh; }
-  const ta = $('#qSay'), ph2 = s.status === 'waiting' ? 'Trả lời agent…' : live ? 'Nhắn agent…' : 'Nhắn để test tiếp…';
+  const ta = $('#qSay'), ph2 = s.status === 'waiting' ? 'Trả lời agent…' : live ? 'Nhắn cho agent…' : 'Nhắn để kiểm thử tiếp…';
   if (ta.placeholder !== ph2) ta.placeholder = ph2;
 }
 /** Khung chat = tin nhắn (người dùng / agent / hệ thống) + từng bước test, xếp theo thời gian; chỉ thêm phần mới (không vẽ lại cả khung). */
@@ -343,12 +393,12 @@ function groupHtml(b, live) {
 }
 function msgHtml(m, key) {
   if (m.who === 'user') return `<div class="q-msg u${m.pending ? ' pend' : ''}"><div class="q-bub">${esc(m.text)}</div></div>`;
-  if (m.who === 'sys') return `<div class="q-sys">${esc(m.text)}</div>`;
+  if (m.who === 'sys') return `<div class="q-sys">${esc(String(m.text || '').replace(/^Đã đóng trình duyệt.*$/, 'Trình duyệt đã đóng · nhắn để test tiếp'))}</div>`;
   const open = ST.xopen.has(key);
-  if (m.kind === 'note') { const l = (NOTE[m.note] || NOTE.bug)[1]; return `<div class="q-ncard${open ? ' on' : ''}" data-tg="${key}" title="${esc(l)}"><div class="q-nt"><i class="q-sd ${SEV[m.sev] ?? ''}"></i><b>${esc(m.text)}</b><span class="q-sev2 ${SEV[m.sev] ?? ''}">${SEVL[m.sev] || l}</span></div>${open && m.detail ? `<p>${esc(m.detail)}</p>${m.shot ? `<button type="button" class="btn ghost sm" data-shot="${esc(m.shot)}">${ico('image', 14)}Màn hình</button>` : ''}` : ''}</div>`; }
+  if (m.kind === 'note') { const l = (NOTE[m.note] || NOTE.bug)[1]; return `<div class="q-ncard${open ? ' on' : ''}" data-tg="${key}" title="${esc(l)}"><div class="q-nt"><span class="q-nl ${SEV[m.sev] ?? ''}">Phát hiện</span><b>${esc(m.text)}</b><span class="q-sev2 ${SEV[m.sev] ?? ''}">${SEVL[m.sev] || l}</span></div>${open && m.detail ? `<p>${esc(m.detail)}</p>${m.shot ? `<button type="button" class="btn ghost sm" data-shot="${esc(m.shot)}">${ico('image', 14)}Màn hình</button>` : ''}` : ''}</div>`; }
   if (m.kind === 'done') { const sc = m.score ?? ST.data?.report?.verdict?.score, k = sc >= 80 ? 'ok' : sc >= 55 ? 'warn' : 'err'; return `<div class="q-done"><span class="q-dsc ${k}">${sc ?? '–'}</span><div class="q-dt">${md(String(m.text || '').split('\n')[0].replace(/\*\*/g, '').replace(/^Báo cáo:\s*/, '').replace(/\s*·\s*\d+\/100.*$/, ''))}</div><button type="button" class="btn sm" data-tab="report">Báo cáo</button></div>`; }
-  const long = String(m.text || '').length > 260;
-  return `<div class="q-msg a${m.kind === 'ask' ? ' ask' : ''}"><div class="q-bub${long && !open ? ' clamp' : ''}">${md(m.text)}</div>${long ? `<button type="button" class="q-more" data-tg="${key}">${open ? 'Thu gọn' : 'Xem thêm'}</button>` : ''}</div>`;
+  const long = String(m.text || '').length > 170;
+  return `<div class="q-msg a${m.kind === 'ask' ? ' ask' : ''}"><div class="q-bub"><div class="q-bt${long && !open ? ' clamp' : ''}">${md(m.text)}</div></div>${long ? `<button type="button" class="q-more" data-tg="${key}">${open ? 'Thu gọn' : 'Xem thêm'}</button>` : ''}</div>`;
 }
 /** Vẽ theo khối có khoá: chỉ khối mới / khối đổi mới vẽ lại (không giật, không mất chỗ đang đọc). */
 function paintFeed() {
@@ -359,13 +409,13 @@ function paintFeed() {
   blocks.forEach((b, i) => {
     const h = b.g ? groupHtml(b, live && i === lastG) : msgHtml(b.m, b.key);
     let el = have.get(b.key);
-    if (!el) { el = document.createElement('div'); el.dataset.key = b.key; el.className = 'q-blk'; el.innerHTML = h; el._h = h; if (!first) fresh(el, b); }
+    if (!el) { el = document.createElement('div'); el.dataset.key = b.key; el.className = b.g ? 'q-blk g' : b.m?.who === 'agent' && !['note', 'done'].includes(b.m.kind) ? 'q-blk a' : 'q-blk'; el.innerHTML = h; el._h = h; if (!first) fresh(el, b); }
     else if (el._h !== h) { el.innerHTML = h; el._h = h; }
     have.delete(b.key);
     const pos = prev ? prev.nextSibling : f.firstChild; if (el !== pos) f.insertBefore(el, pos); prev = el;
   });
   for (const el of have.values()) el.remove();
-  if (first || atEnd) f.scrollTop = f.scrollHeight;
+  if (first || ST.stick || atEnd) f.scrollTop = f.scrollHeight;
 }
 /** Khối mới xuất hiện: tin của agent gõ ra từng chữ (như Gemini, ≤ 0.7 giây); kết quả cuối bật nhẹ; còn lại hiện thẳng — không hiệu ứng thừa. */
 function fresh(el, b) {
@@ -377,8 +427,16 @@ function fresh(el, b) {
   const total = nodes.reduce((a, [, t]) => a + t.length, 0); if (!total) return;
   for (const [n] of nodes) n.data = '';
   const dur = Math.min(700, total * 14), t0 = performance.now();
-  const step = now => { let k = Math.ceil(total * Math.min(1, (now - t0) / dur)); for (const [n, t] of nodes) { const c = Math.min(t.length, k); n.data = t.slice(0, c); k -= c; } if (now - t0 < dur) requestAnimationFrame(step); };
+  const step = now => { let k = Math.ceil(total * Math.min(1, (now - t0) / dur)); for (const [n, t] of nodes) { const c = Math.min(t.length, k); n.data = t.slice(0, c); k -= c; } stickBottom(); if (now - t0 < dur) requestAnimationFrame(step); };
   requestAnimationFrame(step);
+}
+/** Khung chat bám đáy: có tin mới / khung đổi cỡ thì tự cuộn xuống tin mới nhất — trừ khi người dùng đang cuộn lên đọc lại. */
+function stickBottom() { const f = $('#qFeed'); if (f && ST.stick) f.scrollTop = f.scrollHeight; }
+function bindStick() {
+  const f = $('#qFeed'); if (!f) return; ST.stick = true;
+  f.addEventListener('scroll', () => { ST.stick = f.scrollHeight - f.scrollTop - f.clientHeight < 60; }, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(stickBottom).observe(f);
+  f.addEventListener('load', stickBottom, true);
 }
 function toggleFeed(set, key) { if (set === 'g') { const was = ST.gopen.has(key) || (!ST.gclose.has(key) && $(`[data-g="${key}"]`)?.classList.contains('on')); if (was) { ST.gopen.delete(key); ST.gclose.add(key); } else { ST.gclose.delete(key); ST.gopen.add(key); } } else { if (ST.xopen.has(key)) ST.xopen.delete(key); else ST.xopen.add(key); } paintFeed(); }
 function tap(x, y) { const cur = $('#qCur'); if (!cur) return; cur.hidden = false; cur.classList.add('user'); cur.style.left = x * 100 + '%'; cur.style.top = y * 100 + '%'; cur.classList.remove('tap'); void cur.offsetWidth; cur.classList.add('tap'); clearTimeout(cur._h); cur._h = setTimeout(() => { cur.hidden = true; }, 2500); }
@@ -386,7 +444,7 @@ const cmd = c => post('cmd', c, '&id=' + ST.sel).catch(e => toast(e.message));
 async function sendSay(text) {
   const ta = $('#qSay'), t = (text ?? ta?.value ?? '').trim(); if (!t || !ST.sel) return;
   const cid = Math.random().toString(36).slice(2, 10);
-  ST.sending.push({ cid, text: t, at: Date.now() }); if (text == null && ta) { ta.value = ''; ta.style.height = 'auto'; }
+  ST.sending.push({ cid, text: t, at: Date.now() }); ST.stick = true; if (text == null && ta) { ta.value = ''; ta.style.height = 'auto'; }
   paintFeed();
   try { const r = await post('say', { text: t, cid }, '&id=' + ST.sel); if (r.resumed) toast('Đang mở lại trình duyệt để làm tiếp', 1); }
   catch (e) { ST.sending = ST.sending.filter(p => p.cid !== cid); paintFeed(); toast(e.message); if (ta && !ta.value) ta.value = t; }
@@ -400,7 +458,7 @@ const vnd = n => (Math.round(n * USD_VND / 100) * 100).toLocaleString('vi-VN') +
 const sevRank = { cao: 0, 'trung bình': 1, 'thấp': 2 };
 const SEVL = { cao: 'Cao', 'trung bình': 'Vừa', 'thấp': 'Thấp' };
 const kpi = (l, v, sub, cls = '') => `<div class="q-kpi ${cls}"><span>${l}</span><b>${v}</b>${sub ? `<em>${sub}</em>` : ''}</div>`;
-const sec = (t, body, n, extra = '') => body ? `<section class="q-sec"><h3>${t}${n != null ? `<em>${n}</em>` : ''}<span class="grow"></span>${extra}</h3>${body}</section>` : '';
+const sec = (t, body, n, extra = '', cls = '') => body ? `<section class="q-sec${cls ? ' ' + cls : ''}"><h3>${t}${n != null ? `<em>${n}</em>` : ''}<span class="grow"></span>${extra}</h3><div class="q-sb">${body}</div></section>` : '';
 function speed(s) {
   const navs = s.metrics?.navs || [], M = s.metrics || {}, mx = k => Math.max(0, ...navs.map(x => x[k] || 0)), avg = k => navs.length ? Math.round(navs.reduce((a, x) => a + (x[k] || 0), 0) / navs.length) : 0;
   const v = (n, unit, bad) => n ? `<b class="${bad ? 'bad' : ''}">${unit === 's' ? (n / 1000).toFixed(1) : n}<i>${unit}</i></b>` : '<b class="mut">–</b>';
@@ -413,8 +471,13 @@ function costHtml(s) {
   return `<table class="q-tb q-cost"><thead><tr><th>Model</th><th class="r">Lượt gọi</th><th class="r">Token vào</th><th class="r">Đã cache</th><th class="r">Token ra</th><th class="r">USD</th><th class="r">≈ VNĐ</th></tr></thead><tbody>${rows.map(([m, x]) => `<tr><td>${esc(m)}${x.role ? ` <span class="mut">· ${esc(x.role)}</span>` : ''}</td><td class="r num">${x.calls}</td><td class="r num">${(x.in || 0).toLocaleString('vi-VN')}</td><td class="r num mut">${(x.cached || 0).toLocaleString('vi-VN')}</td><td class="r num">${(x.out || 0).toLocaleString('vi-VN')}</td><td class="r num">$${(x.usd || 0).toFixed(4)}</td><td class="r num">${vnd(x.usd || 0)}</td></tr>`).join('')}${by.length > 1 ? `<tr class="tot"><td>Tổng</td><td class="r num">${U.calls}</td><td class="r num">${U.in.toLocaleString('vi-VN')}</td><td class="r num mut">${U.cached.toLocaleString('vi-VN')}</td><td class="r num">${U.out.toLocaleString('vi-VN')}</td><td class="r num">$${U.usd.toFixed(4)}</td><td class="r num">${vnd(U.usd)}</td></tr>` : ''}</tbody></table><p class="q-note">Giá ước tính theo bảng giá OpenAI, quy đổi ${USD_VND.toLocaleString('vi-VN')} ₫ / USD. Dùng key riêng của dự án HS.</p>`;
 }
 function issueRow(x) {
-  const l = (NOTE[x.type] || NOTE.bug)[1];
-  return `<div class="q-is"><span class="q-sev ${SEV[x.severity] ?? ''}">${SEVL[x.severity] || ''}</span><div class="q-ib"><div class="q-it"><b>${esc(x.title)}</b><span class="mut">${l}</span></div>${x.evidence || x.detail ? `<p class="mut">${esc(x.evidence || x.detail)}</p>` : ''}${x.fix ? `<p class="q-fix">${esc(x.fix)}</p>` : ''}</div>${x.shot ? `<button type="button" class="btn ghost icon sm" data-shot="${esc(x.shot)}" title="Xem màn hình">${ico('image', 14)}</button>` : ''}</div>`;
+  return `<tr class="${x.severity === 'cao' ? 'hi' : ''}"><td class="q-lv2 ${SEV[x.severity] ?? ''}">${SEVL[x.severity] || ''}</td><td><b>${esc(x.title)}</b></td><td class="mut">${esc(x.fix || '')}</td><td class="r">${x.shot ? `<button type="button" class="btn ghost icon sm" data-shot="${esc(x.shot)}" title="Xem màn hình">${ico('image', 14)}</button>` : ''}</td></tr>`;
+}
+const issTable = a => `<table class="q-tb q-iss2"><thead><tr><th>Mức</th><th>Vấn đề</th><th>Cách sửa</th><th></th></tr></thead><tbody>${a.map(issueRow).join('')}</tbody></table>`;
+/** Mở báo cáo: điểm đếm lên + các mục hiện dần (chỉ lần đầu mở, ~0.4 giây). */
+function reveal(b) {
+  const sc = b.querySelector('.q-sc2 b'); if (sc) { const v = +sc.textContent || 0, t0 = performance.now(); const f = now => { const k = Math.min(1, (now - t0) / 500), e = 1 - Math.pow(1 - k, 3); sc.textContent = Math.round(v * e); if (k < 1) requestAnimationFrame(f); }; requestAnimationFrame(f); }
+  b.querySelectorAll('.q-rep>*').forEach((el, i) => { el.style.setProperty('--i', Math.min(i, 6)); el.classList.add('q-bf'); });
 }
 function reportHtml() {
   const d = ST.data, R = d.report, s = d.state;
@@ -424,18 +487,18 @@ function reportHtml() {
   const iss = [...R.issues].sort((a, b) => (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3));
   const dur = (s.ended || Date.now()) - (s.started || d.run.created);
   return `<div class="q-rep">
-    <section class="q-sum"><div class="q-sc2 ${k}"><b>${v.score}</b><span>/100</span></div><div class="q-sumt"><b class="${k}">${esc(v.status)}</b><p>${esc(v.summary)}</p></div><a class="btn" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 14)}Word</a></section>
-    <div class="q-kpis">${kpi('Trường hợp đạt', `${pass}<i>/ ${R.cases.length}</i>`, fail ? `${fail} lỗi` : '', fail ? 'bad' : '')}${kpi('Vấn đề', R.issues.length, hi ? `${hi} mức cao` : '', hi ? 'bad' : '')}${kpi('Số bước', s.step || 0)}${kpi('Thời gian', secs(dur))}</div>
-    ${sec('Vấn đề cần xử lý', iss.length ? `<div class="q-iss">${iss.map(issueRow).join('')}</div>` : '<p class="mut">Không thấy vấn đề.</p>', iss.length)}
-    ${sec('Trường hợp kiểm thử', R.cases.length ? `<table class="q-tb q-cases"><thead><tr><th>Kết quả</th><th>Trường hợp</th><th>Các bước</th><th>Mong đợi</th><th>Thực tế</th></tr></thead><tbody>${R.cases.map(c => { const [, kk, l] = RES[c.result] || RES.skip; return `<tr><td><span class="q-res ${kk}"><i></i>${l}</span></td><td><b>${esc(c.name)}</b></td><td class="mut">${esc(c.steps)}</td><td>${esc(c.expected)}</td><td>${esc(c.actual)}</td></tr>`; }).join('')}</tbody></table>` : '', R.cases.length)}
+    <section class="q-sum"><div class="q-hrow"><div class="q-sc2 ${k}"><b>${v.score}</b><span>/100</span></div><div class="q-sumt"><b class="${k}">${esc(v.status)}</b><p>${esc(v.summary)}</p></div><a class="btn" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 14)}Word</a></div>
+    <div class="q-kpis">${kpi('Trường hợp đạt', `${pass}<i>/ ${R.cases.length}</i>`, '', fail ? 'bad' : '')}${kpi('Vấn đề', R.issues.length, hi ? `${hi} mức cao` : '', hi ? 'bad' : '')}${kpi('Số bước', s.step || 0)}${kpi('Thời gian', secs(dur))}</div></section>
+    ${sec('Vấn đề cần xử lý', iss.length ? issTable(iss) : '<p class="mut">Không thấy vấn đề.</p>', iss.length, '', iss.length ? 'flush' : '')}
+    ${sec('Trường hợp kiểm thử', R.cases.length ? `<table class="q-tb q-cases"><thead><tr><th>Trường hợp</th><th>Mong đợi</th><th>Thực tế</th><th>Kết quả</th></tr></thead><tbody>${R.cases.map(c => { const [, kk, l] = RES[c.result] || RES.skip; return `<tr class="${kk === 'err' ? 'hi' : kk === 'warn' ? 'md' : ''}"><td><b>${esc(c.name)}</b></td><td class="mut">${esc(c.expected)}</td><td>${esc(c.actual)}</td><td><span class="q-res ${kk}">${l}</span></td></tr>`; }).join('')}</tbody></table>` : '', R.cases.length, '', 'flush')}
     ${sec('Tốc độ', `${speed(s)}${R.perf.summary ? `<p>${esc(R.perf.summary)}</p>` : ''}${R.perf.items.length ? `<ul class="q-ul">${R.perf.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`)}
-    ${sec('Đề xuất kỹ thuật', R.tech.length ? `<table class="q-tb q-tech"><thead><tr><th>Vấn đề</th><th>Nên làm</th></tr></thead><tbody>${R.tech.map(t => `<tr><td class="mut">${esc(t.problem)}</td><td>${esc(t.suggest)}</td></tr>`).join('')}</tbody></table>` : '', R.tech.length)}
+    ${sec('Đề xuất kỹ thuật', R.tech.length ? `<table class="q-tb q-tech"><thead><tr><th>Vấn đề</th><th>Nên làm</th></tr></thead><tbody>${R.tech.map(t => `<tr><td class="mut">${esc(t.problem)}</td><td>${esc(t.suggest)}</td></tr>`).join('')}</tbody></table>` : '', R.tech.length, '', 'flush')}
     ${sec('Chức năng', `<p>${esc(R.feature)}</p><ol class="q-mech">${R.mechanism.map(x => `<li>${esc(x)}</li>`).join('')}</ol>`)}
     ${sec('Nên test thêm', R.next.length ? `<div class="q-next">${R.next.map(x => `<button type="button" class="q-nx" data-more="${esc(x)}" title="Nhờ agent test ngay">${ico('play', 14)}<span>${esc(x)}</span></button>`).join('')}</div>` : '', R.next.length)}
-    ${sec('Chi phí AI', costHtml(s))}
+    ${sec('Chi phí AI', costHtml(s), null, '', 'flush')}
   </div>`;
 }
-function notesHtml(s) { const n = s.notes || []; return n.length ? sec('Phát hiện trong lúc test', `<div class="q-iss">${n.map(issueRow).join('')}</div>`, n.length) : ''; }
+function notesHtml(s) { const n = s.notes || []; return n.length ? sec('Phát hiện trong lúc test', issTable(n), n.length, '', 'flush') : ''; }
 
 /* ---------- Nhật ký ---------- */
 function logHtml() {
@@ -444,18 +507,17 @@ function logHtml() {
   const rows = L.filter(x => ST.lf === 'bad' ? !x.ok : ST.lf === 'note' ? x.kind === 'note' : true);
   const MINOR = new Set(['scroll', 'wait', 'hover', 'press', 'back', 'dialog']);
   const tidy = r => String(r || '').replace(/\s*Xong sau [\d.,]+ giây\.?/g, '').replace(/Không thấy thay đổi chữ trên trang\.\s*/g, '').replace(/^Hiện thêm: /, '').trim();
-  let pc = null; const body = rows.map(x => {
-    const head = (x.case || '') !== pc ? `<div class="q-lh">${esc(x.case || 'Khác')}</div>` : ''; pc = x.case || '';
-    const res = tidy(x.res), slow = x.ms > 2000, t = x.ms >= 1000 ? `<span class="q-lt num${slow ? ' slow' : ''}" title="${slow ? 'Chậm — ' : ''}mất ${secs(x.ms)}">${secs(x.ms)}</span>` : '<span class="q-lt"></span>';
-    if (MINOR.has(x.kind) && x.ok) return head + `<div class="q-lr minor">${ico(KIND[x.kind] || 'pointer', 14)}<span class="q-lm">${esc(x.label)}</span>${t}</div>`;
-    return head + `<div class="q-lr${x.ok ? '' : ' bad'}${x.kind === 'note' ? ' nt' : ''}">
-      ${x.shot ? `<button type="button" class="q-thumb" data-shot="${esc(x.shot)}" title="Xem màn hình"><img loading="lazy" decoding="async" src="${imgUrl(x.shot)}" alt=""></button>` : `<span class="q-k">${ico(KIND[x.kind] || 'pointer', 16)}</span>`}
-      <div class="q-lm"><b>${esc(x.label)}</b>${res ? `<p>${esc(res)}</p>` : ''}</div>${t}</div>`;
+  const t0 = s.started || ST.data.run.created || 0, at = x => x.t != null ? x.t : x.at ? x.at - t0 : 0;
+  let pc = null, gi = 0; const body = rows.map(x => {
+    const c = x.case || 'Khác', head = c !== pc ? `<tr class="q-lg"><td colspan="5"><span>${String(++gi).padStart(2, '0')}</span>${esc(c)}</td></tr>` : ''; pc = c;
+    const res = tidy(x.res), slow = x.ms > 2000, minor = MINOR.has(x.kind) && x.ok;
+    const cls = [x.ok ? '' : 'bad', x.kind === 'note' ? 'nt' : '', minor ? 'minor' : ''].filter(Boolean).join(' ');
+    return head + `<tr class="${cls}"><td class="q-lt0 num">${mmss(at(x))}</td><td class="q-la"><span>${ico(x.ok ? KIND[x.kind] || 'pointer' : 'alert', 13)}${esc(x.label)}</span></td><td class="q-lres" title="${esc(res)}">${esc(res)}</td><td class="r num${slow ? ' slow' : ''}">${x.ms >= 100 ? secs(x.ms) : ''}</td><td class="q-lsh">${x.shot ? `<button type="button" class="q-thumb" data-shot="${esc(x.shot)}" title="Xem màn hình"><img loading="lazy" decoding="async" src="${imgUrl(x.shot)}" alt=""></button>` : ''}</td></tr>`;
   }).join('');
   const tech = (t, a, f) => a?.length ? `<details class="q-det"><summary>${ico('next', 14, 'q-chev')}${t}<em>${a.length}</em></summary><ul>${a.slice(-30).map(f).join('')}</ul></details>` : '';
   const seg = [['all', 'Tất cả', L.length], ['bad', 'Lỗi', nBad], ['note', 'Phát hiện', nNote]].map(([k, l, n]) => `<button type="button" class="${ST.lf === k ? 'on' : ''}" data-lf="${k}">${l}<em>${n}</em></button>`).join('');
   const techs = tech('Lỗi JavaScript', M.pageerror, x => `<li>${esc(x.text)}</li>`) + tech('Lỗi console', M.console, x => `<li>${esc(x.text)}</li>`) + tech('HTTP lỗi', M.http, x => `<li><b>${x.status}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Request hỏng', M.failed, x => `<li>${esc(x.err)} · ${esc(x.url)}</li>`) + tech('Request chậm (> 1,5 s)', M.slow, x => `<li><b>${secs(x.ms)}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Tốc độ từng trang', M.navs, x => `<li>${esc(x.url)} · phản hồi ${x.ttfb} ms · DOM ${x.dcl} ms · tải ${x.load} ms · LCP ${x.lcp} ms · CLS ${x.cls} · ${x.size_kb ?? x.size ?? 0} KB</li>`);
-  return `<div class="q-logw"><div class="q-lbar"><div class="seg">${seg}</div></div><div class="q-ll">${body || `<div class="q-empty sm"><span>Không có bước nào</span></div>`}</div>${techs ? `<div class="q-techs"><div class="q-lh">Kỹ thuật</div>${techs}</div>` : ''}</div>`;
+  return `<div class="q-logw"><div class="q-lbar"><div class="q-seg">${seg}<span class="q-segcur"></span></div></div><div class="q-ll">${body ? `<table class="q-ltb"><thead><tr><th>Lúc</th><th>Hành động</th><th>Kết quả</th><th class="r">Mất</th><th></th></tr></thead><tbody>${body}</tbody></table>` : `<div class="q-empty sm"><span>Không có bước nào</span></div>`}</div>${techs ? `<div class="q-techs"><div class="q-lh">Kỹ thuật</div>${techs}</div>` : ''}</div>`;
 }
 /* ---------- Xem ảnh từng bước: ←/→ chuyển bước, Esc đóng, ảnh kế bên tải sẵn ---------- */
 const LB = { list: [], i: 0 };
@@ -504,8 +566,10 @@ async function onClick(e) {
   const a = t.closest('[data-a]')?.dataset.a;
   if (!a) return;
   const s = ST.data?.state;
-  if (a === 'plan') { ST.planOpen = !(ST.planOpen ?? WORKING.has(s?.status)); paintPlan(); return; }
+  if (a === 'plan') { ST.planOpen = !$('#qPlan')?.classList.contains('open'); clearTimeout(ST.planTm); paintPlan(); return; }
   if (a === 'rerun') { const r = ST.data?.run; if (!r) return; const fd = new FormData(); fd.append('url', r.url); fd.append('goal', r.goal || ''); fd.append('max_steps', r.max_steps || 50); fd.append('minutes', r.minutes || 'auto'); try { const x = await post('start', fd); await loadList(); select(x.id); } catch (er) { toast(er.message); } return; }
+  if (a === 'chat') { ST.nochat = !ST.nochat; lsSet('qa.nochat', ST.nochat ? '1' : ''); paintView(); if (!ST.nochat) { const f = $('#qFeed'); if (f) f.scrollTop = f.scrollHeight; } return; }
+  if (a === 'zoom') { setZoom(!ST.zoom); return; }
   if (a === 'side') { ST.side = !ST.side; ROOT.querySelector('.q-app').classList.toggle('side', ST.side); return; }
   if (a === 'new') { stopStream(); clearTimeout(ST.poll); ST.sel = ''; ST.data = null; paintHist(); paintMain(); }
   else if (a === 'pick') $('#qFile').click();
@@ -538,6 +602,9 @@ export function mount(root) {
     const tg = t.closest('[data-tg]'); if (tg) { e.preventDefault(); toggleFeed('x', tg.dataset.tg); }
   }, { signal: ON.signal });
   root.addEventListener('keydown', e => { const h = e.target.closest?.('.q-hi'); if (h && e.key === 'Enter') select(h.dataset.run); if (h && e.key === 'Delete') delRun(h.dataset.id); }, { signal: ON.signal });
+  addEventListener('resize', () => segs(ROOT, true), { signal: ON.signal });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && ST.zoom && $('#qLb')?.hidden !== false && !ROOT?.querySelector('.q-ov')) setZoom(false); }, { signal: ON.signal });
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && ST.zoom) { ST.zoom = false; paintView(); } }, { signal: ON.signal });
   render(); loadList().then(() => { const r = ST.runs.find(x => WORKING.has(x.status) || x.status === 'waiting'); if (r) select(r.id); });
   const t = setInterval(() => { if (ST.runs.some(x => LIVE.has(x.status))) loadList(); }, 6000);
   ON.signal.addEventListener('abort', () => clearInterval(t));

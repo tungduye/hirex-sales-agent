@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { AccountPicker, type PickerAccount } from "./account-picker";
+import { AccountPicker, toPickerAccounts, type PickerAccount } from "./account-picker";
 
 // "Phân quyền thành viên": one row per member; the editing form (two account checklists of every channel account)
 // is built only when the row is opened, so the page stays light however many members and accounts there are.
 
 type Profile = { id: string; full_name: string; email: string; role_id: string; manager_id: string | null; all_channel_accounts: boolean; department?: string | null; avatar_url?: string | null };
-type Account = { id: string; channel_type: string; display_name: string | null; external_account_id: string; primary_profile_id: string | null };
+type Account = { id: string; channel_type: string; display_name: string | null; external_account_id: string; primary_profile_id: string | null; status?: string | null };
 
 function initials(value: string) { const parts = value.trim().split(/\s+/u).filter(Boolean); return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0] ?? ""}` : value.slice(0, 2)).toLocaleUpperCase("vi-VN"); }
 
@@ -44,7 +44,7 @@ export function MemberAccessList({ profiles, roles, accounts, grants, action }: 
 function MemberForm({ profile, profiles, roles, accounts, granted, blocked, nameOf, action }: {
   profile: Profile; profiles: Profile[]; roles: Array<{ id: string; name: string }>; accounts: Account[]; granted: string[]; blocked: Set<string>; nameOf: Map<string, string>; action: (data: FormData) => void | Promise<void>;
 }) {
-  const pickerAccounts: PickerAccount[] = accounts.map((item) => ({ id: item.id, channel: item.channel_type, name: item.display_name || item.external_account_id, owner: item.primary_profile_id && item.primary_profile_id !== profile.id ? nameOf.get(item.primary_profile_id) ?? null : null, free: !item.primary_profile_id }));
+  const pickerAccounts: PickerAccount[] = toPickerAccounts(accounts, (item) => ({ owner: item.primary_profile_id && item.primary_profile_id !== profile.id ? nameOf.get(item.primary_profile_id) ?? null : null, free: !item.primary_profile_id }));
   const primaryIds = accounts.filter((item) => item.primary_profile_id === profile.id).map((item) => item.id);
   const select = "mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
   return <form action={action} className="border-t border-slate-200 bg-slate-50/50 p-5"><input type="hidden" name="profileId" value={profile.id}/><div className="grid gap-5 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,2fr)]">

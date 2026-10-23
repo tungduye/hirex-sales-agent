@@ -296,7 +296,11 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   void refreshStaleBridgeHealth(accountRows, accountContext.workspaceId).catch(() => undefined);
   const mappedAccounts = accountRows.map(mapAccount);
   if (mappedAccounts.some((item) => !item)) return emptyData({ selectedChannelType, selectedPage, profiles, tags, error: "Chưa đọc được danh sách tài khoản kênh." });
-  const accounts = (mappedAccounts as OmnichannelInboxAccount[]).filter((account) => account.id !== stableMetadata.botAccountId);
+  // The Zalo Trợ lý nick (Soda) answers staff by itself: only its main user sees it, read-only, and its chats count
+  // nowhere (no "Chưa trả lời", no badges).
+  const botAccountId = stableMetadata.botAccountId;
+  const accounts = (mappedAccounts as OmnichannelInboxAccount[]).filter((account) => account.id !== botAccountId || account.primaryProfileId === accountContext.userId)
+    .map((account) => account.id === botAccountId ? { ...account, assistantBot: true } : account);
   // Phạm vi: Của tôi / Team / Tất cả (what is shown by default; access is unchanged).
   const managers = ((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" ? [{ id: row.id, managerId: typeof row.manager_id === "string" ? row.manager_id : null }] : []);
   const owned = accounts.map((account) => ({ id: account.id, primaryProfileId: account.primaryProfileId ?? null }));
@@ -345,6 +349,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     }
     return { ...emptyData({ selectedChannelType, selectedPage, error: "" }), error: null, accountUnread };
   }
+  // Soda's chats never wait for anyone: left out of the badges and the "Chưa trả lời" tab.
+  const countedAccountIds = botAccountId ? listAccountIds.filter((id) => id !== botAccountId) : listAccountIds;
   if (filters.mode === "ids") {
     // Every conversation the filters and tab select (for "apply to all filter results"), at most 5,000.
     const { data: idData, error: idError } = listAccountIds.length ? await supabase.rpc("inbox_matching_conversation_ids", {
@@ -358,8 +364,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   }
   if (filters.mode === "counts") {
     // Tab badges, asked for separately so they never hold up the list.
-    const { data: countData, error: countError } = listAccountIds.length ? await supabase.rpc("inbox_view_counts", {
-      p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
+    const { data: countData, error: countError } = countedAccountIds.length ? await supabase.rpc("inbox_view_counts", {
+      p_account_ids: countedAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
       p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
       p_search: search || null, p_user_id: accountContext.userId, p_unread_only: unreadOnly,
     }) : { data: [], error: null };
@@ -372,8 +378,9 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   // Tags, first-message dates, the tab and search are decided in the database over every conversation
   // (migration 114), then this page's rows are loaded by id.
   const listStartedAt = performance.now();
-  const { data: listData, error: listError } = listAccountIds.length ? await supabase.rpc("inbox_list_conversations", {
-    p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
+  const pageAccountIds = view === "waiting" ? countedAccountIds : listAccountIds;
+  const { data: listData, error: listError } = pageAccountIds.length ? await supabase.rpc("inbox_list_conversations", {
+    p_account_ids: pageAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
     p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
     p_view: view, p_search: search || null, p_user_id: accountContext.userId, p_limit: PAGE_SIZE + 1,
     p_before_at: cursor?.at ?? null, p_before_id: cursor?.id ?? null, p_unread_only: unreadOnly,
@@ -444,7 +451,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
       subject: safeInboxPreview(typeof row.subject === "string" ? row.subject : null), status: row.status as OmnichannelInboxConversation["status"],
       takeoverMode: row.takeover_mode as OmnichannelInboxConversation["takeoverMode"], assignedTo: typeof row.assigned_to === "string" ? row.assigned_to : null,
       lastMessageAt: typeof row.last_message_at === "string" ? row.last_message_at : null, unreadCount: row.unread_count as number,
-      isPinned: preference(row.metadata,"appPinned"), isMyPin: myPins.has(row.id), isImportant: preference(row.metadata,"important"), aiBotId: aiBotOf(row.metadata),
+      isPinned: preference(row.metadata,"appPinned"), isMyPin: myPins.has(row.id), isImportant: preference(row.metadata,"important"), aiBotId: aiBotOf(row.metadata), assistantBot: row.channel_account_id === botAccountId,
       mentionPendingAt: typeof row.mention_pending_at === "string" ? row.mention_pending_at : null,
       isMuted: preference(row.metadata,"muted"), folder: conversationFolder(row.metadata),
       latestText: safeInboxPreview(row.channel_type === "ZALO" ? zaloProviderDisplayText(typeof message?.text_content === "string" ? message.text_content : null) : typeof message?.text_content === "string" ? message.text_content : null),

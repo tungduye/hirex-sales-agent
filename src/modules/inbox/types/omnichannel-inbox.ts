@@ -20,6 +20,8 @@ export interface OmnichannelInboxAccount {
   /** Thị trường of the nick (IT, IT_JP, OTHER; null = Khác) and Bộ phận of its main user, for the people filter. */
   market?: string | null;
   ownerDepartment?: string | null;
+  /** The Zalo Trợ lý nick (Soda): shown only to its main user, read-only. */
+  assistantBot?: boolean;
 }
 
 export interface OmnichannelInboxConversation {
@@ -43,6 +45,8 @@ export interface OmnichannelInboxConversation {
   /** Phiên bản AI chosen for this conversation (null = the nick's bot). */
   aiBotId: string | null;
   isMuted: boolean;
+  /** A chat of the Zalo Trợ lý nick (Soda): read-only, counted nowhere. */
+  assistantBot?: boolean;
   folder: "PRIMARY" | "OTHER";
   latestText: string | null;
   latestDirection: "INBOUND" | "OUTBOUND" | null;
@@ -191,6 +195,8 @@ export interface OmnichannelConversationDetail {
   accountExternalId: string | null;
   /** Main user of the opened nick, when it is someone else (composer warns "Đang trả lời bằng nick của …"). */
   accountOwnerName?: string | null;
+  /** A chat of the Zalo Trợ lý nick (Soda): read only, Soda answers by itself; tags, pins still work. */
+  assistantBot?: boolean;
   /** Zalo group: who is who (sender id -> name/avatar), our own nicks included; empty for other chats. */
   participants: Record<string, { name: string; avatarUrl: string | null; member?: boolean }>;
 }

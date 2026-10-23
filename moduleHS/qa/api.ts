@@ -155,7 +155,12 @@ export async function handle(req: Request) {
       if (a === "list") return json({ ok: true, runs: list() });
       if (a === "state") { const d = dir(id), run = rj<Partial<Run>>(path.join(d, "run.json"), {}); return json({ ok: true, run: { url: run.url, goal: run.goal, images: run.images || [], created: run.created, by_name: run.by_name, max_steps: run.max_steps, minutes: run.minutes ?? "auto" }, state: state(id), report: rj(path.join(d, "report.json"), null) }); }
       if (a === "stream") return stream(id, req.signal);
-      if (a === "frame") return file(id, "frame.jpg", "image/jpeg");
+      if (a === "frame") {   // ảnh trực tiếp: ?t=<mốc ảnh đã có> → 204 khi chưa có ảnh mới
+        const f = path.join(dir(id), "frame.jpg"); let st: fs.Stats; try { st = fs.statSync(/*turbopackIgnore: true*/ f); } catch { return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }); }
+        const t = Math.floor(st.mtimeMs); if (+(q.get("t") || 0) >= t) return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+        let b: Buffer; try { b = fs.readFileSync(/*turbopackIgnore: true*/ f); } catch { return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } }); }
+        return new Response(new Uint8Array(b), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store", "X-Frame-T": String(t) } });
+      }
       if (a === "img") { const n = q.get("n") || ""; return file(id, n, /png$/.test(n) ? "image/png" : "image/jpeg"); }
       if (a === "docx") {
         const d = dir(id), R = rj<QaReport | null>(path.join(d, "report.json"), null), run = rj<Partial<Run>>(path.join(d, "run.json"), {}), s = state(id); if (!R) return json({ ok: false }, 404);

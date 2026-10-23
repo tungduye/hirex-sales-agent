@@ -22,7 +22,7 @@ export function AppShell({ children, account, workspaceAdmin }: { children: Reac
   // so does "Tài nguyên", which shows the account manager site inside HireX.
   const fullBleed = pathname === "/" || pathname === "/inbox" || pathname.startsWith("/inbox/") || pathname === "/accounts" || pathname === "/utilities" || pathname === "/assistant" || pathname.startsWith("/assistant/c/");
   // "Tài nguyên" has its own toolbar: hide the top bar on desktop (phones keep it for the menu button).
-  const noTopBar = pathname === "/accounts";
+  const noTopBar = pathname === "/accounts" || pathname === "/utilities";   // Tiện ích: bỏ thanh trên (máy lớn) để Kiểm thử / Cuộc họp được cao
   // The main menu can shrink to an icon column; the choice is remembered in this browser.
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { try { setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* storage unavailable */ } }, []);

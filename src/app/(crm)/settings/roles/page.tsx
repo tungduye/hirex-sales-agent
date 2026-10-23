@@ -46,7 +46,7 @@ export default async function RolesPage() {
     <section id="members" className="scroll-mt-24 space-y-4">
       <SectionHeading title="Phân quyền thành viên" description="Chọn vai trò và giới hạn những Email, Facebook hoặc Zalo mà từng người được phép sử dụng." count={`${data.profiles.length} thành viên`}/>
       <MemberAccessList profiles={data.profiles as Array<{ id: string; full_name: string; email: string; role_id: string; manager_id: string | null; all_channel_accounts: boolean }>} roles={data.roles}
-        accounts={data.accounts as Array<{ id: string; channel_type: string; display_name: string | null; external_account_id: string; primary_profile_id: string | null }>}
+        accounts={data.accounts as Array<{ id: string; channel_type: string; display_name: string | null; external_account_id: string; primary_profile_id: string | null; status: string | null }>}
         grants={Object.fromEntries([...grantMap].map(([id, set]) => [id, [...set]]))} action={assignProfileAccess}/>
     </section>
   </div>;

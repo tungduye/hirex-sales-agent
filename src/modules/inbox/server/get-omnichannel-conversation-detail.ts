@@ -182,6 +182,10 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
   ]);
   if (accountError || messageError || !channelAccount) return { status: "error", conversation: null };
   const ownerId = text((channelAccount as Record<string, unknown>).primary_profile_id);
+  // Soda (the Zalo Trợ lý nick): only its main user may open its chats, and only to read.
+  const { data: botSetting } = await accountClient.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", accountContext.workspaceId).maybeSingle();
+  const assistantBot = Boolean(botSetting?.enabled && botSetting.channel_account_id === row.channel_account_id);
+  if (assistantBot && ownerId !== accountContext.userId) return { status: "not_found", conversation: null };
   // The lookups below do not depend on each other: they start together and are awaited once (fewer round trips).
   const ownerNamePromise = ownerId && ownerId !== accountContext.userId
     ? Promise.resolve(accountClient.from("profiles").select("full_name").eq("id", ownerId).eq("workspace_id", accountContext.workspaceId).maybeSingle()).then((result) => text(result.data?.full_name))
@@ -353,6 +357,7 @@ export async function getOmnichannelConversationDetail(conversationId: string): 
       businessSuiteUrl: channelType === "FACEBOOK" ? businessSuiteInboxUrl(text(channelAccount.external_account_id)) : null,
       sendLock,
       accountOwnerName,
+      assistantBot,
     },
   };
 }

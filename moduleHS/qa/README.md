@@ -26,9 +26,11 @@ Nối bên ngoài: `src/app/api/hs/qa/[[...p]]/route.ts`, tab Kiểm thử trong
 `HS_QA_MODEL` (mặc định gpt-5.6-luna, chọn thao tác) · `HS_QA_REPORT_MODEL` (gpt-5.6-sol, viết báo cáo) · `HS_QA_DIR` · `HS_QA_CHROME` (đường dẫn trình duyệt).
 Trình duyệt: Chromium của Playwright; không có thì tự dùng Microsoft Edge / Chrome cài trên máy.
 
-## Bản 2 (23/10/2026)
-- Xem trực tiếp: worker dùng CDP screencast (~12 hình/giây khi màn hình đổi) → `frame.jpg`; web phát qua `action=stream` (MJPEG, `<img>`), 6 giây không có hình thì tự đổi sang hỏi từng ảnh. Con trỏ ảo (`state.cursor`) chỉ chỗ agent sắp bấm.
-- Trò chuyện: `action=say` (nhắn bất cứ lúc nào). Xong việc worker viết báo cáo rồi chờ 10 phút (`idle`) nhận tin tiếp; trình duyệt đã đóng thì `say` chạy lại worker với `--resume` (giữ nhật ký, trò chuyện, phát hiện). Mỗi tin giữa chừng +10 bước.
-- Trạng thái: `state.phase` = open / load / look / think / act / wait / pause / report / idle (+ nhãn) → giao diện hiện đang làm gì.
-- Chi phí: Luna cho từng bước (lịch sử chỉ nối thêm → OpenAI cache phần đầu), Terra cho bước bị kẹt và báo cáo; `state.usage` ghi token + ước tính USD. Ví dụ test form đăng nhập 10 bước + báo cáo ≈ $0.05.
-- Key: `HS_OPENAI_API_KEY` (key riêng moduleHS, chung với Ghi âm) — không có thì dùng `OPENAI_API_KEY`. Đổi model: `HS_QA_MODEL`, `HS_QA_SMART_MODEL`, `HS_QA_REPORT_MODEL`.
+## Giao diện (bản chốt 23/10)
+- Phong cách: viền mảnh trắng – đỏ (reUI / shadcn) + vài điểm sáng kiểu Magic UI (nền lưới chấm + quầng đỏ ở Lượt mới, viền sáng chạy quanh màn hình khi agent làm, chữ "đang nghĩ" lấp lánh). Không chấm tròn / nhãn màu; chỉ lỗi và nút Dừng màu đỏ.
+- Nút hành động gom thành nhóm liền khối `.q-bg` (1 khung viền, vạch ngăn thẳng): Word · Mở trang · Xoá; tiến độ · Tạm dừng · Dừng · Tự điều khiển; Ẩn/hiện trò chuyện · Phóng to.
+- Trực tiếp: màn hình luôn vừa khung (cả ngang lẫn cao); kéo vạch giữa màn hình và trò chuyện để đổi cỡ (280–640px, bấm đúp về mặc định, nhớ trong trình duyệt); ẩn trò chuyện; Phóng to = phủ cả cửa sổ + toàn màn hình nếu trình duyệt cho, Esc để thoát.
+- Hình trực tiếp: hỏi `action=frame&t=<lần trước>` ~5 lần/giây khi agent làm (204 nếu chưa có ảnh mới), 1 lần/giây khi chờ.
+- Trò chuyện 3 lớp: lời agent = thẻ nền hồng đỏ nhạt (dài > 3 dòng thì gọn) · hành động = dòng nhỏ trên đường ray xám · tiến trình = dải riêng trên ô nhắn.
+- Báo cáo: khối tóm tắt (điểm + 4 số) rồi các bảng có đầu xám; dòng lỗi tô hồng, "cần xem" tô vàng nhạt. Nhật ký: 1 bảng log liền (Lúc · Hành động · Kết quả · Mất · Ảnh), nhóm theo trường hợp đánh số.
+- CSS / JS tải qua `action=asset&v=<mtime>` (né cache 4 giờ của Cloudflare) — sửa qa.css / qa-ui.js là có ngay, không cần build.
