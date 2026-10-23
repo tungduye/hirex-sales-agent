@@ -6,9 +6,9 @@ test('lists only verified locations',()=>{
  assert.match(approvedIntroReply({candidate_type:'BrSE'},jobs),/Hà Nội, HCM và Nhật/);
  assert.doesNotMatch(approvedIntroReply({candidate_type:'BrSE'},jobs.slice(0,1)),/HCM|Nhật/);
 });
-test('approved Hanoi combined question is exact',()=>assert.equal(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội'},jobs),'Em có vị trí BrSE tại Hà Nội, cần người có thể trao đổi công việc với khách Nhật.\n\nHiện anh sử dụng tiếng Nhật trong công việc thế nào ạ. Anh chia sẻ thêm giúp em thời gian từng sống hoặc làm việc bên Nhật nhé'));
+test('Hanoi combined question is full and polite',()=>assert.equal(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội'},jobs),'Dạ ở Hà Nội bên em đang có vị trí BrSE, công việc cần trao đổi trực tiếp với khách Nhật anh ạ.\n\nĐể em giới thiệu job sát nhất với anh, anh cho em hỏi hiện anh dùng tiếng Nhật ở mức nào và đã từng sống hoặc làm việc bên Nhật bao lâu rồi ạ.'));
 test('partial answers ask only the missing fact; zero years completes profile',()=>{
- assert.doesNotMatch(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội',japanese_level:'N2'},jobs),/sử dụng tiếng Nhật/);
+ assert.doesNotMatch(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội',japanese_level:'N2'},jobs),/tiếng Nhật ở mức nào/);
  assert.doesNotMatch(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội',japan_years:0},jobs),/bên Nhật/);
  assert.equal(approvedIntroReply({candidate_type:'BrSE',location:'Hà Nội',japanese_level:'N2',japan_years:0},jobs),null);
 });
@@ -18,5 +18,5 @@ test('no invented vacancy or requirement',()=>{
 });
 test('question punctuation removed including opening',()=>assert.equal(withoutQuestionMarks('Anh ạ? Anh nhé？？'),'Anh ạ. Anh nhé.'));
 test('job data "Japan" is said "Nhật"',()=>{
- assert.match(approvedIntroReply({candidate_type:'BrSE',location:'Nhật'},jobs),/^Em có vị trí BrSE tại Nhật,/);
+ assert.match(approvedIntroReply({candidate_type:'BrSE',location:'Nhật'},jobs),/^Dạ ở Nhật bên em đang có vị trí BrSE,/);
 });

@@ -108,3 +108,14 @@ test('both writers get the situational acknowledgement rule and the ban on flatt
     assert.ok(!text.includes('lợi thế lớn với BrSE)'), 'old flattering example removed');
   }
 });
+
+test('steps 5–8 follow the Rec team sample after a job is offered', async () => {
+  const { holaInstructions: rules, REC_STEPS: steps } = await import('../src/modules/rec-flow/core/rec-flow.ts');
+  assert.match(steps[4].template[0], /anh đã từng apply công ty này chưa ạ/u);
+  assert.match(steps[5].template.join(' '), /Anh expect lương khoảng nào và nếu đáp ứng được thì lúc nào anh sang được ạ/u);
+  assert.match(steps[6].template.join(' '), /CV hiện tại hoặc CV cũ/u);
+  const text = rules();
+  assert.match(text, /ĐÃ APPLY RỒI/u);
+  assert.match(text, /chỉ nói khi JOBS/u);
+  assert.match(text, /Không viện cớ không thật/u);
+});

@@ -2,7 +2,7 @@ import "server-only";
 import { approvedIntroReply, withoutQuestionMarks } from "../core/approved-intro-flow";
 import { initialRecruiterOpening, withFirstGreeting } from "../core/recruiter-opening";
 import { recoverIntroMemory } from "../core/intro-memory";
-import { CV_REQUEST, jobIntroduction, nextJobIntroduction, nextScriptJob, SALARY_QUESTION, salaryFollowup, salaryInText, startDateInText } from "../core/recruiter-script";
+import { appliedAnswer, CV_CLOSING, cvRequest, jobIntroduction, nextJobIntroduction, nextScriptJob, NO_CV_REPLY, processPitch, SALARY_QUESTION, salaryFollowup, salaryInText, startDateInText, startFollowup } from "../core/recruiter-script";
 import { introductionQuestion, missingIntroField } from "../core/profile-disclosure-gate";
 import { containsJobDisclosure } from "../core/anonymous-job-preview";
 import { candidateBurst, shapeReply } from "../core/reply-shaping";
@@ -99,7 +99,7 @@ async function processRun(run: {
         db
           .from("ai_recruiter_jobs")
           .select(
-            "external_job_id,priority,sale_stage,company_name,job_title,candidate_type,location,japanese_level_min,japan_years_min,salary_range,process_summary,summary,selling_points,requirements,jd_link,avoid_reason_tags",
+            "external_job_id,priority,sale_stage,company_name,job_title,candidate_type,location,japanese_level_min,japan_years_min,salary_range,process_summary,rank_salary_note,summary,selling_points,requirements,jd_link,avoid_reason_tags",
           )
           .eq("workspace_id", run.workspace_id)
           .eq("bot_id", run.bot_id)
@@ -230,7 +230,14 @@ async function processRun(run: {
       ? state.offered_job_ids.filter((value): value is string => typeof value === "string")
       : [];
     const lastOfferedJob = (jobs ?? []).find((job) => job.external_job_id === offeredJobIds.at(-1));
-    const rejectionKind = String(bot.bot_type) === "RECRUITER" ? recruiterRejectionKind(latestText) : "NONE";
+    const lastBotText = [...contextMessages].reverse().find((message) => message.role === "OUTBOUND")?.text ?? "";
+    // "Anh đã từng apply công ty này chưa ạ" / "anh từng biết bên này chưa": "rồi" moves to the next job, "chưa" to the process.
+    const applied = String(bot.bot_type) === "RECRUITER" && lastOfferedJob ? appliedAnswer(latestText, lastBotText) : null;
+    const rejectionKind =
+      String(bot.bot_type) !== "RECRUITER" ? "NONE"
+        : applied === "applied" ? "KNOWN_REASON"
+        : applied === "not_applied" ? "NONE"
+        : recruiterRejectionKind(latestText);
     if (rejectionKind === "KNOWN_REASON" && lastOfferedJob?.company_name) {
       const rejected = Array.isArray(profileBase.rejected_companies)
         ? profileBase.rejected_companies.filter((value): value is string => typeof value === "string")
@@ -240,7 +247,7 @@ async function processRun(run: {
     const rejectionOverride =
       String(bot.bot_type) === "RECRUITER"
         // First or second job offered (by how many were offered; the job data may not mark its sale stage).
-        ? recruiterRejectionOverride({ text: latestText, lastSaleStage: offeredJobIds.length >= 2 ? "second_job" : offeredJobIds.length === 1 ? "first_job" : lastOfferedJob?.sale_stage })
+        ? recruiterRejectionOverride({ text: latestText, kind: rejectionKind, lastSaleStage: offeredJobIds.length >= 2 ? "second_job" : offeredJobIds.length === 1 ? "first_job" : lastOfferedJob?.sale_stage })
         : null;
     const rejectedCompanies = new Set(
       (Array.isArray(profileBase.rejected_companies) ? profileBase.rejected_companies : [])
@@ -289,7 +296,6 @@ async function processRun(run: {
       !["process_question", "complaint", "cv_shared"].includes(result.intent);
     // Salary and start date are also read from the candidate's own words, so a step never depends on the model
     // having filed them as facts.
-    const lastBotText = [...contextMessages].reverse().find((message) => message.role === "OUTBOUND")?.text ?? "";
     if (isRecruiter && lastOfferedJob) {
       const salary = supportedFacts.find((fact) => fact.fieldKey === "expected_salary")?.value ?? result.profileUpdates.expected_salary ?? salaryInText(latestText);
       if (typeof salary === "string" && salary.trim() && !supportedFacts.some((fact) => fact.fieldKey === "expected_salary")) {
@@ -386,42 +392,59 @@ async function processRun(run: {
     const guidedAvailability =
       String(bot.bot_type) !== "RECRUITER" && learnedSalary
         ? availabilityFollowup(profileBase.expected_salary, profileBase.availability, selectedMatchJob?.company_name)
-        : scripted && lastOfferedJob && learnedNow("expected_salary") && !profileBase.availability
-          ? salaryFollowup(profileBase.expected_salary, lastOfferedJob)
-          : null;
-    // Start date known (salary too) → the CV; experience told but no salary → the salary.
-    const guidedCv = scripted && lastOfferedJob && learnedNow("availability") && profileBase.expected_salary && profileBase.cv_received !== true ? CV_REQUEST : null;
-    const guidedSalary = scripted && lastOfferedJob && !profileBase.expected_salary && !learnedNow("expected_salary") &&
-      ["brse_experience", "management_experience", "years_experience", "japanese_client_experience"].some(learnedNow) ? SALARY_QUESTION : null;
+        : null;
+    // Recruiter script after the job was offered (core/recruiter-script.ts, the Rec team's sample):
+    // not applied → the process + salary and start; salary told → the range + start; both known → salary note + CV.
+    let guidedScript: string | null = null;
+    if (scripted && lastOfferedJob && !guidedAlternative) {
+      const salaryNow = learnedNow("expected_salary"), startNow = learnedNow("availability");
+      const salary = typeof profileBase.expected_salary === "string" && profileBase.expected_salary.trim() ? profileBase.expected_salary.trim() : null;
+      const start = Boolean(profileBase.availability);
+      const experienceNow = ["brse_experience", "management_experience", "years_experience", "japanese_client_experience"].some(learnedNow);
+      if (applied === "not_applied" || salaryNow || startNow || (experienceNow && !salary)) {
+        guidedScript =
+          salary && start ? (profileBase.cv_received !== true ? cvRequest(lastOfferedJob, salaryNow ? salary : null) : null)
+            : salary ? salaryFollowup(salary, lastOfferedJob)
+            : start ? startFollowup(lastOfferedJob)
+            : processPitch(lastOfferedJob);
+      }
+    }
+    // The CV arrived, or the candidate has none ready after being asked: the closing line, then a person takes over.
+    const cvAsked = /\bcv\b/iu.test(lastBotText);
+    const scriptStop =
+      isRecruiter && lastOfferedJob && !rejectionOverride
+        ? cvEvidence ? { reply: CV_CLOSING, stopBot: true, notification: "CV_RECEIVED" }
+          : noCvYet && cvAsked ? { reply: NO_CV_REPLY, stopBot: true, notification: "NO_CV_YET" }
+          : null
+        : null;
+    const stopReply = rejectionOverride ?? scriptStop;
     const selectedJobId =
       guidedPrimary || guidedAlternative
         ? (jobMatches[0]?.jobId ?? null)
         : result.selectedJobId && validJobIds.has(result.selectedJobId) && jobMatches.some((match) => match.jobId === result.selectedJobId)
           ? result.selectedJobId
           : null;
-    const replyParts = rejectionOverride
-      ? [rejectionOverride.reply]
+    const replyParts = stopReply
+      ? [stopReply.reply]
       : guidedPrimary
         ? [guidedPrimary]
         : guidedCollection
           ? [guidedCollection]
           : guidedAvailability
             ? [guidedAvailability]
-            : guidedCv
-              ? [guidedCv]
-              : guidedSalary
-                ? [guidedSalary]
             : guidedAlternative
               ? [guidedAlternative]
-              : result.replyParts;
+              : guidedScript
+                ? [guidedScript]
+                : result.replyParts;
     const unsupportedOffer = (jobs ?? []).some(
-      (job) => mentionsJob(replyParts.join(" "), job) && !jobMatches.some((match) => match.jobId === job.external_job_id),
+      (job) => mentionsJob(replyParts.join(" "), job) && !jobMatches.some((match) => match.jobId === job.external_job_id) && !offeredJobIds.includes(job.external_job_id),
     );
     const disclosureBlocked = String(bot.bot_type) === "RECRUITER" && !hasCoreProfile;
     // Collect the four introductory facts before offering even anonymous jobs.
     // Keep the approved opening and ground each subsequent question in known facts.
     const plannedIntro =
-      disclosureBlocked && !rejectionOverride && !result.handoffRequested && !result.stopBot
+      disclosureBlocked && !stopReply && !result.handoffRequested && !result.stopBot
         ? (guidedCollection ?? approvedIntroReply(profileBase, jobsForGeneration))
         : null;
     // Never send the same question twice in a row: if the candidate's answer was not understood, let the model's own
@@ -434,9 +457,8 @@ async function processRun(run: {
       : plannedIntro;
     // Mid-script, a reply that wandered to another job is replaced by the script's next question, not a generic one.
     const scriptNext = scripted && lastOfferedJob
-      ? !profileBase.expected_salary ? SALARY_QUESTION
-        : !profileBase.availability ? "Anh dự kiến có thể bắt đầu công việc mới từ thời điểm nào nhé."
-        : profileBase.cv_received !== true ? CV_REQUEST : null
+      ? !profileBase.expected_salary || !profileBase.availability ? SALARY_QUESTION
+        : profileBase.cv_received !== true ? cvRequest(lastOfferedJob, null) : null
       : null;
     const gatedParts = introReply ? [introReply] : unsupportedOffer ? [scriptNext ?? clarificationReply(profileBase)] : replyParts;
     const shapedParts = (guidedCollection ? [guidedCollection] : shapeReply(gatedParts.map(humanizeRecruiterReply), run.id)).map(
@@ -446,16 +468,16 @@ async function processRun(run: {
     const safeReplyParts = String(bot.bot_type) === "RECRUITER" ? withFirstGreeting(shapedParts, contextMessages) : shapedParts;
     const verifiedResult = {
       ...result,
-      ...(rejectionOverride
+      ...(stopReply
         ? {
             selectedJobId: null,
             jobMatches: [],
             replyParts: safeReplyParts,
-            askedQuestion: !rejectionOverride.stopBot,
-            stopBot: rejectionOverride.stopBot,
+            askedQuestion: !stopReply.stopBot,
+            stopBot: stopReply.stopBot,
             handoffRequested: false,
-            handoffReason: rejectionOverride.notification ?? "",
-            conversationStatus: rejectionOverride.stopBot ? ("PAUSED" as const) : ("DISCUSSING_PROCESS" as const),
+            handoffReason: stopReply.notification ?? "",
+            conversationStatus: stopReply.stopBot ? ("PAUSED" as const) : ("DISCUSSING_PROCESS" as const),
           }
         : {
             selectedJobId: unsupportedOffer ? null : selectedJobId,
@@ -521,13 +543,15 @@ async function processRun(run: {
         })),
         { onConflict: "workspace_id,conversation_id,field_key" },
       );
-    if (result.handoffRequested)
-      await db
+    const takeOver = () =>
+      db
         .from("omnichannel_conversations")
         .update({ takeover_mode: "HUMAN_TAKEOVER" })
         .eq("workspace_id", run.workspace_id)
         .eq("id", run.conversation_id)
         .eq("takeover_mode", "BOT_ALLOWED");
+    // CV received / no CV yet: the closing line goes out first (sending needs BOT_ALLOWED), then a person takes over.
+    if (result.handoffRequested && !scriptStop) await takeOver();
     if (verifiedResult.askedQuestion && !verifiedResult.stopBot && !verifiedResult.handoffRequested)
       await db.from("ai_recruiter_scheduled_actions").insert({
         workspace_id: run.workspace_id,
@@ -559,7 +583,7 @@ async function processRun(run: {
         .maybeSingle();
       autoCooldown = Boolean(recent);
     }
-    const terminalReply = Boolean(rejectionOverride?.stopBot);
+    const terminalReply = Boolean(stopReply?.stopBot);
     if (autoAuthorized && autoCooldown && !verifiedResult.handoffRequested && !verifiedResult.stopBot) {
       await db
         .from("ai_recruiter_runs")
@@ -607,6 +631,7 @@ async function processRun(run: {
         .from("ai_recruiter_runs")
         .update({ status: sent ? "SENT" : "QUEUED" })
         .eq("id", run.id);
+      if (scriptStop && sent) await takeOver();
       return sent ? "SENT" : "QUEUED";
     }
     return "DRAFT_READY";
