@@ -1,9 +1,10 @@
 import type * as Three from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { HqFloor, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
-import { COFFEE, FIRST_CORRIDOR, NORTH_STRIP, type HqLayout, type LayoutRoom } from "@/modules/crm/dashboard/core/hq-layout";
+import type { HqFeedItem, HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
+import { addSeason } from "@/modules/crm/dashboard/components/hq-3d-season";
+import { COFFEE, FIRST_CORRIDOR, NORTH_STRIP, seasonOf, type HqLayout, type LayoutRoom } from "@/modules/crm/dashboard/core/hq-layout";
 import {
-  carpetTexture, concreteTexture, floorText, glow, label, marbleTexture, screen, seeded, skyTexture, techTexture, windowsTexture, woodTexture, type T,
+  carpetTexture, concreteTexture, floorText, FONT, glow, label, marbleTexture, screen, seeded, skyTexture, techTexture, windowsTexture, woodTexture, type T,
 } from "@/modules/crm/dashboard/components/hq-3d-draw";
 
 // The building of HireX HQ mức 3: a floor of an office tower at night (or day, by Vietnam time), rooms with glass
@@ -74,7 +75,7 @@ export interface World {
   slots: Map<string, Slot>; meetingSeats: Slot[];
   pickables: Three.Object3D[]; rails: Map<string, Three.Mesh[]>; floors: Map<string, Three.Mesh>;
   plate: Box;
-  update: (data: { rooms: HqRoom[]; stats: HqStats; floor: HqFloor }) => void;
+  update: (data: { rooms: HqRoom[]; stats: HqStats; floor: HqFloor; feed: HqFeedItem[]; team: HqMember[] }) => void;
   tick: (time: number, camera: Three.Camera) => void;
   highlight: (room: string | null) => void;
   /** Centre and size of a room on this floor (for the camera). */
@@ -463,8 +464,8 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
   place("tableCoffeeGlass", 560, -40, { scale: 1.2 });
   place("lampSquareFloor", 625, -170, { scale: 1.3 }); place("pottedPlant", 625, 90, { scale: 1.2 });
   zoneLabel("Lounge", 470, 95);
-  for (let z = 200; z <= PLATE.z1 - 60; z += 170) { place(z % 340 === 200 ? "pottedPlant" : "bookcaseOpen", 625, z, { scale: 1.2, rot: -Math.PI / 2 }); place("plantSmall2", 520, z + 40, { scale: 1.6 }); }
-  if (PLATE.z1 - 60 >= 200) zoneLabel("Góc xanh", 470, 185);
+  for (let z = 300; z <= PLATE.z1 - 60; z += 170) { place(z % 340 === 300 ? "pottedPlant" : "bookcaseOpen", 625, z, { scale: 1.2, rot: -Math.PI / 2 }); place("plantSmall2", 520, z + 40, { scale: 1.6 }); }
+  if (PLATE.z1 - 60 >= 300) zoneLabel("Góc xanh", 470, 285);
   for (let x = -600; x <= 600; x += 200) place("pottedPlant", x, PLATE.z0 + 18, { scale: 1 });
   // Lift (only when the company has more than one floor).
   if (layout.floors.length > 1) {
@@ -480,6 +481,63 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
     root.add(lift);
   }
 
+  // ---- Lễ tân: the company sign on the counter; a LED strip above the wall screen runs what is happening ----
+  const flat = (width: number, height: number, draw: (context: CanvasRenderingContext2D, w: number, h: number) => void) => {
+    const element = document.createElement("canvas"); element.width = Math.round(width * 8); element.height = Math.round(height * 8);
+    draw(element.getContext("2d")!, element.width, element.height);
+    const map = new THREE.CanvasTexture(element); map.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map, transparent: true, toneMapped: false }));
+  };
+  if (ground0) {
+    const sign = flat(76, 18, (context, w, h) => {
+      context.fillStyle = "rgba(7,11,22,.92)"; context.fillRect(0, 0, w, h);
+      context.shadowColor = "#22D3EE"; context.shadowBlur = 24; context.fillStyle = "#A5F3FC"; context.textBaseline = "middle";
+      context.font = `800 ${Math.round(h * 0.5)}px ${FONT}`; context.fillText("INTALENT", w * 0.06, h * 0.42);
+      context.shadowBlur = 0; context.fillStyle = "#C7D2FE"; context.font = `600 ${Math.round(h * 0.24)}px ${FONT}`; context.fillText("HireX HQ", w * 0.68, h * 0.46);
+    });
+    sign.position.set(-510, 21, -368); root.add(sign);
+  }
+  const tickerCanvas = document.createElement("canvas"); tickerCanvas.width = 4096; tickerCanvas.height = 64;
+  const tickerTexture = new THREE.CanvasTexture(tickerCanvas); tickerTexture.colorSpace = THREE.SRGBColorSpace; tickerTexture.wrapS = THREE.RepeatWrapping;
+  const ticker = new THREE.Mesh(new THREE.PlaneGeometry(220, 13), new THREE.MeshBasicMaterial({ map: tickerTexture, toneMapped: false }));
+  tickerTexture.repeat.set(220 / 13 * 64 / 4096, 1);
+  ticker.position.set(ground0 ? -485 : -420, 101, -436.5); root.add(ticker);
+  const tickerFrame = new THREE.Mesh(new THREE.BoxGeometry(226, 17, 2), frameMaterial); tickerFrame.position.set(ticker.position.x, 101, -438); tickerFrame.userData.sharedMaterial = true; root.add(tickerFrame);
+  let tickerText = "";
+  const drawTicker = (items: HqFeedItem[]) => {
+    const text = (items.length ? items.map((item) => `${item.at} · ${item.kind}: ${item.text}`) : ["Chào mừng đến HireX HQ · Intalent Việt Nam"]).join("   ✦   ") + "   ✦   ";
+    if (text === tickerText) return;
+    tickerText = text;
+    const context = tickerCanvas.getContext("2d")!;
+    context.fillStyle = "#05070f"; context.fillRect(0, 0, 4096, 64);
+    context.font = `700 40px ${FONT}`; context.textBaseline = "middle";
+    const width = Math.max(1, context.measureText(text).width);
+    context.fillStyle = "#FBBF24"; // LED look: amber on black
+    for (let x = 0; x < 4096; x += width) context.fillText(text, x, 34);
+    tickerTexture.needsUpdate = true;
+  };
+  tickers.push((time) => { tickerTexture.offset.x = (time * 0.02) % 1; });
+
+  // ---- Tường vinh danh (Lounge): who got the most campaign replies; the first one also wears a cup ----
+  const honour = screen(THREE, 120, 84);
+  honour.group.position.set(PLATE.x1 - 6, 64, 110); honour.group.rotation.y = -Math.PI / 2;
+  root.add(honour.group);
+  const cup = new THREE.Group();
+  const gold = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.9, roughness: 0.25, emissive: 0x92400e, emissiveIntensity: 0.3 });
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(9, 5, 14, 20, 1, true), gold); bowl.position.y = 26;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 10, 10), gold); neck.position.y = 14;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(7, 8, 4, 20), gold); base.position.y = 7;
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(22, 5, 22), frameMaterial); plinth.position.y = 2.5; plinth.userData.sharedMaterial = true;
+  const shine = glow(THREE, 0xfbbf24, 46, 0.4); shine.position.y = 26;
+  cup.add(bowl, neck, base, plinth, shine);
+  cup.position.set(PLATE.x1 - 28, 0, 200); root.add(cup);
+  tickers.push((time) => { cup.rotation.y = time * 0.6; });
+  zoneLabel("Vinh danh", PLATE.x1 - 120, 228, "rgba(253,230,138,.85)", 12);
+
+  // ---- The season (Halloween, Noel, Tết) ----
+  const seasonTick = addSeason(THREE, root, floorPlan, seasonOf(new Date()));
+  if (seasonTick) tickers.push((time) => seasonTick(time));
+
   // ---- Live labels (rebuilt on each update) ----
   const liveLabels = new THREE.Group();
   root.add(liveLabels);
@@ -487,7 +545,10 @@ export function buildWorld(THREE: T, scene: Three.Scene, kit: Kit, sun: Three.Di
   const toneOf = new Map<string, number>();
   const dimmed = (key: string) => Boolean(focus && focus !== key && PEOPLE_ROOMS.has(kindOf.get(key) ?? ""));
 
-  const update: World["update"] = ({ rooms, stats, floor }) => {
+  const update: World["update"] = ({ rooms, stats, floor, feed, team }) => {
+    drawTicker(feed);
+    const best = team.filter((person) => person.campaignReplies > 0).sort((a, b) => b.campaignReplies - a.campaignReplies || a.name.localeCompare(b.name, "vi")).slice(0, 4);
+    honour.draw("🏆 Vinh danh · phản hồi chiến dịch", best.length ? best.map((person, index) => ({ text: `${index + 1}. ${person.name}`, value: person.campaignReplies.toLocaleString("vi-VN"), color: index === 0 ? "#FDE68A" : undefined })) : [{ text: "Chưa có phản hồi chiến dịch" }], "#FBBF24");
     const nowNight = isNight();
     if (nowNight !== night) { night = nowNight; setNight(nowNight); }
     focus = floor === "ALL" ? null : floor;

@@ -7,16 +7,15 @@ import "server-only";
 //      nick kênh, nhóm Zalo của khách, chiến dịch, mẫu content, lịch hẹn, tab / trạng thái / trường của Tài nguyên, kỹ năng & vị trí CV, địa điểm.
 //    - Văn bản tự do (khai thác thuật ngữ): toàn bộ Tài liệu (bản Human + Tài liệu HireX), hội thoại với Soda, biên bản + bản gốc các cuộc họp trước,
 //      mô tả job, nội dung mẫu. Lấy từ tiếng Anh / viết tắt / cụm viết hoa xuất hiện lặp lại, xếp hạng theo tần suất × số nguồn (TF × độ phủ).
-// 2) Cách đọc: người Việt đọc thuật ngữ nước ngoài theo kiểu Việt ("BrSE" → "bờ rích", "HireX" → "hai rếch") nên bộ nhận giọng viết sai.
-//    Mỗi thuật ngữ có danh sách "cách nghe nhầm": viết tay cho thuật ngữ cốt lõi + tự sinh cho chữ viết tắt (đọc từng chữ cái kiểu Việt / Anh)
-//    + AI sinh một lần cho thuật ngữ mới khi huấn luyện (lưu vĩnh viễn ở runtime/hs-record/lexicon/aliases.json — mỗi từ chỉ tốn một lần).
+// 2) Cách nghe nhầm — học từ ÂM THANH THẬT, không đoán phiên âm: căn bản "nghe thô" (bộ nhận giọng không biết ngữ cảnh) với bản "chuẩn"
+//    (phiên âm có ngữ cảnh HireX) của cùng đoạn âm thanh, lấy các chỗ lệch mà bản chuẩn là một mục từ điển (xem learnFromAudio).
+//    Nguồn: cuộc họp đã bật phụ đề + file họp gửi vào (lexicon-train.mjs --audio). Ngoài ra chỉ thêm biến thể số ("AM1" → "AM 1").
 // 3) Sửa câu (fixText): quy hoạch động trên đồ thị các cách tách câu (đường đi tốt nhất / Viterbi): mỗi đoạn 1–6 từ hoặc giữ nguyên, hoặc thay bằng
 //    thuật ngữ khớp (khớp chính xác > khớp âm Việt > khớp gần đúng theo khoảng cách Levenshtein trên khoá âm). Có hàng rào chống thay nhầm từ thường.
 import fs from "node:fs";
 import path from "node:path";
 import { createPrivilegedClient } from "@/lib/supabase/privileged";
 import { decryptCredential } from "@/modules/integrations/gmail/server/credential-encryption";
-import { postOpenAIResponse, responseOutputText } from "@/lib/openai/responses";
 import { C, st, fp, rj } from "./data";
 import { meetContext } from "./context";
 
@@ -55,61 +54,56 @@ function lev(a: string, b: string) {
 const STOP = new Set(("a anh ai bao ba bac ban bi bo bon cac cai can cho chi chu chua co con cu cua cung da dang danh day de den di do du duoc dau ga gi giua gio ha hai hay het ho hoi hon hom kia khi khac khong la lai lam len luc ma minh moi mot muon nam nao nay ne neu nghi ngay nhan nhe nhieu nhu nhung no noi nua o oi ong qua ra rat roi sang sao se so sau sang ta tai tam thay the thi tho thoi tien toi tot tra tren trong tu tuan ui va van ve vi vien viec vo voi vua xem xong y yes ok oke okay no the and for you this that with from have are not was").split(" "));
 
 /* ================= nguồn cố định ================= */
-/** Thuật ngữ cốt lõi + cách người Việt hay đọc / bộ nhận giọng hay viết (viết tay, theo các buổi họp thực tế). */
-const CORE: [string, Kind, string[]][] = [
-  ["Intalent", "sys", ["in ta lần", "in ta lừn", "in tà lừn", "in ta len", "in talent", "intelen", "in tơ len"]],
-  ["Intalent Việt Nam", "sys", ["in ta lần việt nam"]],
-  ["HireX", "sys", ["hai rếch", "hai rex", "hai ếch", "hai rét", "hia rếch", "hire x", "hai ơ ếch", "hai rếch x", "hai-rếch"]],
-  ["Soda", "sys", ["so đa", "sô đa", "xô đa", "sô-đa", "sổ đa", "sò đa", "xo da"]],
-  ["Suối Nguồn", "sys", ["suối nguồn", "xuối nguồn", "suối ngồn"]],
-  ["Hola", "sys", ["hô la", "hô-la", "hồ la", "ô la"]],
-  ["Hole", "sys", ["hô lê", "hôn", "hô", "hồ lê", "hô le"]],
-  ["Human", "sys", ["hiu mần", "hiu man", "hiu mần", "hiu-man", "hiu men", "hu man"]],
-  ["Tài nguyên", "sys", ["tài nguyên"]], ["Vọng gác", "sys", ["vọng gác"]], ["Cú vọ", "sys", ["cú vọ", "cu vo"]],
-  ["KIT", "sys", ["kít", "kịt"]], ["AI Recruiter", "sys", ["ai ri cờ ru tơ", "ây ai ri cru tơ", "ai recruiter", "ai rì cờ ru tơ", "ai rếch ru tơ"]],
-  ["Kho content", "sys", ["kho con ten", "kho côn ten", "kho content"]], ["Kho mẫu", "sys", ["kho mẫu"]],
-  ["Tài liệu", "sys", ["tài liệu"]], ["Lịch hẹn", "sys", ["lịch hẹn"]], ["Tiện ích", "sys", ["tiện ích"]], ["Kiểm thử", "sys", ["kiểm thử"]],
-  ["Gửi nhóm Zalo", "sys", ["gửi nhóm da lô", "gửi nhóm za lô"]], ["Chiến dịch", "sys", ["chiến dịch"]], ["Scan CV", "sys", ["xì can xi vi", "scan xi vi", "sờ can cv"]],
-  ["BrSE", "term", ["bờ rích", "bờ rít", "bờ ríc", "bi rơ ét", "bi ét", "bi a ét", "bê rê ét", "bờ rờ ét", "bơ rít", "b r s e", "brs", "bờ rít sơ", "bờ-rích"]],
-  ["Comtor", "term", ["côm tơ", "com tơ", "côm-tơ", "com to", "cổm tơ", "côm tờ"]],
-  ["CV", "term", ["xi vi", "si vi", "xê vê", "cê vê", "cờ vờ"]], ["JD", "term", ["giây đi", "di đi", "gi đi", "chây đi", "j d"]], ["UV", "term", ["u vê", "diu vi", "u vi"]],
-  ["AM1", "term", ["am một", "a em một", "ây em một", "a mờ một", "am 1"]], ["AM2", "term", ["am hai", "a em hai", "ây em hai", "a mờ hai", "am 2"]], ["AM", "term", ["ây em", "a em", "a mờ"]],
-  ["KPI", "term", ["ca pê i", "cây pi ai", "kờ pi ai", "kê pi ai", "ca pi ai"]], ["Rec", "term", ["réc", "rếch", "rét", "rek", "rếc"]], ["Sale", "term", ["seo", "sêu", "xeo", "xêu", "xen", "sên"]],
-  ["Recer", "term", ["ré cơ", "rếch cơ", "ri xơ"]], ["R&D", "term", ["a en đi", "a and đi", "r and d", "rờ và đê", "a en di"]], ["CTV", "term", ["cê tê vê", "xê tê vê", "c t v"]],
-  ["Parttime", "term", ["pát tham", "pát thai", "part time"]], ["Fulltime", "term", ["phun tham", "phun thai", "full time"]],
-  ["owner", "term", ["ô nơ", "âu nơ", "ao nơ"]], ["Hot Do", "term", ["hót đô", "hốt đô", "hot đô"]], ["X1", "term", ["ích một", "x một"]], ["X2", "term", ["ích hai", "x hai"]],
-  ["Zalo", "term", ["da lô", "za lô", "gia lô", "da-lô", "zà lô"]], ["Facebook", "term", ["phây búc", "phây búc", "phê búc", "phây"]], ["LinkedIn", "term", ["linh kin", "linh đin", "lin kờ in", "linh ke đin", "link in"]],
-  ["Gmail", "term", ["gờ mail", "gờ meo", "gi meo", "gmail"]], ["Telegram", "term", ["tê lê gram", "te le gram"]], ["WhatsApp", "term", ["oát sáp", "oắt sáp", "whats app"]],
-  ["checklive", "term", ["chéc lai", "check lai", "chét lai", "chếch lai"]], ["Live", "term", ["lai"]], ["Die", "term", ["đai"]], ["proxy", "term", ["prốc xi", "phờ rốc xi", "rốc xi"]],
-  ["deploy", "term", ["đi ploi", "đi-ploi", "đì ploi", "đi plôi"]], ["release", "term", ["ri li", "ri lít", "ri lis"]], ["build", "term", ["bin", "biu", "bin đờ"]], ["bug", "term", ["bấc", "bắc", "búc"]],
-  ["fix", "term", ["phích", "phít", "fíc"]], ["test", "term", ["tét", "tếch"]], ["tester", "term", ["tét tơ", "tét-tơ"]], ["Dev", "term", ["đép", "đeo", "đép vờ"]], ["PM", "term", ["pi em", "pê mờ", "pi am"]],
-  ["BA", "term", ["bi ây", "bê a"]], ["QA", "term", ["kiu ây", "qui a", "kiu ê"]], ["PMO", "term", ["pi em ô"]], ["HR", "term", ["hát rờ", "ếch a", "hát a"]], ["HRD", "term", ["hát rờ đê"]], ["HRM", "term", ["hát rờ mờ"]],
-  ["offer", "term", ["óp phơ", "ốp phờ", "óp-phơ", "ốp phơ"]], ["onboard", "term", ["on bót", "ôn bót", "on bo"]], ["interview", "term", ["in tơ viu"]], ["deadline", "term", ["đét lai", "đết lai", "đét-lai"]],
-  ["meeting", "term", ["mít tinh"]], ["report", "term", ["ri pót", "ri po"]], ["feedback", "term", ["phít bách", "phít bác", "phi bách"]], ["data", "term", ["đa ta", "đây ta", "đata"]], ["dashboard", "term", ["đát bót", "đát bo"]],
-  ["template", "term", ["tem pờ lết", "tem plết", "tem lết"]], ["content", "term", ["con ten", "côn ten", "con-ten"]], ["prompt", "term", ["prom", "phờ rom", "rôm"]], ["token", "term", ["tô ken", "tô-ken"]],
-  ["OpenAI", "term", ["ô pần ai", "ô pen ai", "open ai"]], ["GPT", "term", ["gi pi ti", "giê pê tê", "ji pi ti"]], ["ChatGPT", "term", ["chát gi pi ti", "chát gờ pê tê"]], ["API", "term", ["a pi ai", "ây pi ai", "a pê i"]],
-  ["UI", "term", ["diu ai", "u i"]], ["UX", "term", ["diu ích", "u ích"]], ["UI/UX", "term", ["diu ai diu ích", "u i u ích"]], ["web", "term", ["guép", "oép", "quép"]], ["app", "term", ["áp", "ép"]], ["link", "term", ["linh"]],
-  ["Supabase", "tech", ["xu pa bêch", "su pa bết", "súp pờ bết"]], ["Next.js", "tech", ["nếch gi ét", "néc gi ét", "next js"]], ["Cloudflare", "tech", ["clau phle", "cờ lao phờ le"]], ["n8n", "tech", ["en tám en", "n tám n"]],
-  ["JLPT", "term", ["giây eo pi ti", "gi eo pê tê"]], ["N1", "term", ["en một", "n một"]], ["N2", "term", ["en hai", "n hai"]], ["N3", "term", ["en ba", "n ba"]], ["N4", "term", ["en bốn"]], ["N5", "term", ["en năm"]],
-  ["A3", "term", ["a ba"]], ["mẫu A3", "term", ["mẫu a ba"]], ["Hạng 1", "term", ["hạng một"]], ["Tình trạng CV", "term", ["tình trạng xi vi"]], ["PV1", "term", ["pê vê một", "phỏng vấn một"]], ["PV2", "term", ["pê vê hai"]],
-  ["Lâu dài", "term", ["lâu dài"]], ["Tạm thời", "term", ["tạm thời"]], ["Không xác định", "term", ["không xác định"]],
+/** Thuật ngữ cốt lõi của HireX (chỉ tên chuẩn — cách nghe nhầm học từ âm thanh thật, không viết tay). */
+const CORE: [string, Kind][] = [
+  ["Intalent", "sys"],
+  ["Intalent Việt Nam", "sys"],
+  ["HireX", "sys"],
+  ["Soda", "sys"],
+  ["Suối Nguồn", "sys"],
+  ["Hola", "sys"],
+  ["Hole", "sys"],
+  ["Human", "sys"],
+  ["Tài nguyên", "sys"], ["Vọng gác", "sys"], ["Cú vọ", "sys"],
+  ["KIT", "sys"], ["AI Recruiter", "sys"],
+  ["Kho content", "sys"], ["Kho mẫu", "sys"],
+  ["Tài liệu", "sys"], ["Lịch hẹn", "sys"], ["Tiện ích", "sys"], ["Kiểm thử", "sys"],
+  ["Gửi nhóm Zalo", "sys"], ["Chiến dịch", "sys"], ["Scan CV", "sys"],
+  ["BrSE", "term"],
+  ["Comtor", "term"],
+  ["CV", "term"], ["JD", "term"], ["UV", "term"],
+  ["AM1", "term"], ["AM2", "term"], ["AM", "term"],
+  ["KPI", "term"], ["Rec", "term"], ["Sale", "term"],
+  ["Recer", "term"], ["R&D", "term"], ["CTV", "term"],
+  ["Parttime", "term"], ["Fulltime", "term"],
+  ["owner", "term"], ["Hot Do", "term"], ["X1", "term"], ["X2", "term"],
+  ["Zalo", "term"], ["Facebook", "term"], ["LinkedIn", "term"],
+  ["Gmail", "term"], ["Telegram", "term"], ["WhatsApp", "term"],
+  ["checklive", "term"], ["Live", "term"], ["Die", "term"], ["proxy", "term"],
+  ["deploy", "term"], ["release", "term"], ["build", "term"], ["bug", "term"],
+  ["fix", "term"], ["test", "term"], ["tester", "term"], ["Dev", "term"], ["PM", "term"],
+  ["BA", "term"], ["QA", "term"], ["PMO", "term"], ["HR", "term"], ["HRD", "term"], ["HRM", "term"],
+  ["offer", "term"], ["onboard", "term"], ["interview", "term"], ["deadline", "term"],
+  ["meeting", "term"], ["report", "term"], ["feedback", "term"], ["data", "term"], ["dashboard", "term"],
+  ["template", "term"], ["content", "term"], ["prompt", "term"], ["token", "term"],
+  ["OpenAI", "term"], ["GPT", "term"], ["ChatGPT", "term"], ["API", "term"],
+  ["UI", "term"], ["UX", "term"], ["UI/UX", "term"], ["web", "term"], ["app", "term"], ["link", "term"],
+  ["Supabase", "tech"], ["Next.js", "tech"], ["Cloudflare", "tech"], ["n8n", "tech"],
+  ["JLPT", "term"], ["N1", "term"], ["N2", "term"], ["N3", "term"], ["N4", "term"], ["N5", "term"],
+  ["A3", "term"], ["mẫu A3", "term"], ["Hạng 1", "term"], ["Tình trạng CV", "term"], ["PV1", "term"], ["PV2", "term"],
+  ["Lâu dài", "term"], ["Tạm thời", "term"], ["Không xác định", "term"],
 ];
 /** Địa điểm hay nhắc (Việt Nam + Nhật). */
 const PLACES = ["Hà Nội", "Hồ Chí Minh", "TP.HCM", "Sài Gòn", "Đà Nẵng", "Hải Phòng", "Cần Thơ", "Huế", "Nha Trang", "Đà Lạt", "Vũng Tàu", "Bắc Ninh", "Bắc Giang", "Hưng Yên", "Hải Dương", "Quảng Ninh", "Hạ Long", "Thái Nguyên", "Vĩnh Phúc", "Nam Định", "Thanh Hóa", "Nghệ An", "Vinh", "Hà Tĩnh", "Quảng Bình", "Quảng Trị", "Quảng Nam", "Quảng Ngãi", "Bình Định", "Quy Nhơn", "Phú Yên", "Khánh Hòa", "Ninh Thuận", "Bình Thuận", "Đắk Lắk", "Gia Lai", "Kon Tum", "Lâm Đồng", "Bình Dương", "Đồng Nai", "Biên Hòa", "Long An", "Tây Ninh", "Bình Phước", "Bà Rịa", "Tiền Giang", "Bến Tre", "Vĩnh Long", "Trà Vinh", "Sóc Trăng", "An Giang", "Kiên Giang", "Phú Quốc", "Cà Mau", "Bạc Liêu", "Hòa Bình", "Sơn La", "Lào Cai", "Sa Pa", "Yên Bái", "Hà Giang", "Cao Bằng", "Lạng Sơn", "Tuyên Quang", "Phú Thọ", "Ninh Bình", "Thái Bình", "Hà Nam", "Cầu Giấy", "Đống Đa", "Thanh Xuân", "Hoàn Kiếm", "Ba Đình", "Nam Từ Liêm", "Bắc Từ Liêm", "Hai Bà Trưng", "Long Biên", "Hoàng Mai", "Mỹ Đình", "Duy Tân", "Tokyo", "Osaka", "Nagoya", "Yokohama", "Kyoto", "Fukuoka", "Sapporo", "Kobe", "Sendai", "Hiroshima", "Saitama", "Chiba", "Okinawa", "Nhật Bản", "Việt Nam", "Singapore", "Úc", "Sydney", "Melbourne", "Hàn Quốc", "Seoul"];
-const PLACE_AL: Record<string, string[]> = { "TP.HCM": ["hát xê mờ", "hồ chí minh", "hcm", "tê pê hồ chí minh"], Tokyo: ["tô ki ô", "tô-ki-ô", "tô ky ô"], Osaka: ["ô sa ca", "ô-sa-ka"], Nagoya: ["na gô da", "na gô ya"], Yokohama: ["dô cô ha ma"], Kyoto: ["ki ô tô", "kyo tô"], Fukuoka: ["phu cu ô ca"], Sydney: ["xít ni"], Singapore: ["xinh ga po", "sing ga po"] };
 
-/** Đọc chữ viết tắt từng chữ cái: kiểu Việt và kiểu Anh. */
-const LET: Record<string, [string, string]> = { a: ["a", "ây"], b: ["bê", "bi"], c: ["xê", "xi"], d: ["đê", "đi"], e: ["e", "i"], f: ["ép", "ép"], g: ["gờ", "gi"], h: ["hát", "ết"], i: ["i", "ai"], j: ["gi", "giây"], k: ["ca", "kây"], l: ["lờ", "eo"], m: ["em", "em"], n: ["en", "en"], o: ["ô", "âu"], p: ["pê", "pi"], q: ["qui", "kiu"], r: ["rờ", "a"], s: ["ét", "ét"], t: ["tê", "ti"], u: ["u", "diu"], v: ["vê", "vi"], w: ["vê kép", "đáp bờ liu"], x: ["ích", "ích"], y: ["i dài", "oai"], z: ["dét", "di"] };
 const NUM = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
 /** Số đọc thành chữ (0–99): 1 → "một", 15 → "mười lăm", 21 → "hai mươi mốt". */
 const numVi = (n: number): string => n < 10 ? NUM[n] : n < 20 ? "mười" + (n % 10 ? " " + (n % 10 === 5 ? "lăm" : NUM[n % 10]) : "") : NUM[Math.floor(n / 10)] + " mươi" + (n % 10 ? " " + (n % 10 === 1 ? "mốt" : n % 10 === 5 ? "lăm" : NUM[n % 10]) : "");
-function spellAliases(canon: string) {
-  const out: string[] = [];
-  if (/\d/.test(canon) && !/\d{3,}/.test(canon)) out.push(canon.replace(/(\d+)\.(\d+)/g, "$1 chấm $2").replace(/\d+/g, (d) => " " + numVi(+d) + " ").replace(/\s+/g, " ").trim());   // "New 1" → "new một", "Hạng 12" → "hạng mười hai"
-  for (const w of canon.split(/[\s/]+/)) {
-    if (!/^[A-Za-z0-9&]{2,6}$/.test(w) || !/[A-Z].*[A-Z]|[A-Z]\d|\d[A-Z]/.test(w)) continue;
-    for (const k of [0, 1]) out.push(canon.replace(w, [...w.toLowerCase()].map((ch) => /\d/.test(ch) ? NUM[+ch] : ch === "&" ? "và" : LET[ch]?.[k] || ch).join(" ")));
-  }
+/** Biến thể số (không phải phiên âm): "AM1" → "AM 1", "New 1" → "new một", "Hạng 12" → "hạng mười hai". */
+function numberAliases(canon: string) {
+  const out: string[] = []; if (!/\d/.test(canon) || /\d{3,}/.test(canon)) return out;
+  const split = canon.replace(/([A-Za-z])(\d)/g, "$1 $2"); if (split !== canon) out.push(split);
+  out.push(canon.replace(/(\d+)\.(\d+)/g, "$1 chấm $2").replace(/\d+/g, (d) => " " + numVi(+d) + " ").replace(/\s+/g, " ").trim());
   return out;
 }
 
@@ -182,35 +176,79 @@ function humanDocs(ws: string): { name: string; group: string; text: string }[] 
   } catch { return []; }
 }
 
-/* ================= cách nghe nhầm do AI sinh (học dần, lưu vĩnh viễn) ================= */
+/* ================= học cách nghe nhầm từ ÂM THANH THẬT =================
+   Không đoán phiên âm. Mỗi đoạn âm thanh thật có 2 bản chữ của cùng nội dung:
+     - bản "nghe thô": bộ nhận giọng không biết ngữ cảnh (phụ đề trình duyệt lúc họp — live.jsonl; hoặc model phiên âm không prompt cho file họp gửi vào)
+     - bản "chuẩn": phiên âm có ngữ cảnh HireX + đã sửa theo từ điển (transcript.txt; hoặc model phiên âm có prompt)
+   Căn hai bản theo từng đoạn (bỏ phiếu vị trí bằng các từ hiếm → quy hoạch động khoảng cách sửa), lấy các chỗ bản thô viết khác
+   mà bản chuẩn là đúng một mục từ điển → "cách nghe nhầm" thật (ví dụ thô "bờ rích" ↔ chuẩn "BrSE"). Đếm số lần, lưu learned.json. */
 const LDIR = () => path.join(/*turbopackIgnore: true*/ C.data, "lexicon");
-const ALIAS_FILE = () => path.join(LDIR(), "aliases.json");
-let aliasBusy = false;
-/** Chỉ chạy khi huấn luyện (train): AI viết cách đọc cho các thuật ngữ nước ngoài / viết tắt chưa học. Trả về số từ đã học + token đã dùng. */
-async function learnAliases(entries: Entry[], max = Infinity, until = Infinity) {
-  const out = { learned: 0, input: 0, output: 0, calls: 0, left: 0 }; if (aliasBusy || !C.key) return out; aliasBusy = true;
-  try {
-    const known = rj<Record<string, string[]>>(ALIAS_FILE(), {});
-    const todo = entries.filter((e) => !(e.c in known) && foreign(e.c) && ["sys", "term", "tech", "customer", "job", "code", "mined", "nick", "place"].includes(e.k)).sort((a, b) => b.w - a.w).slice(0, max);
-    out.left = todo.length;
-    for (let i = 0; i < todo.length; i += 100) {
-      if (Date.now() > until) break;                                                         // hết thời gian cho phép: lần sau học tiếp
-      const batch = todo.slice(i, i + 100).map((e) => e.c);
-      const ins = "Bạn giúp bộ nhận giọng nói tiếng Việt (Google, vi-VN) trong các cuộc họp của công ty tuyển dụng IT Intalent. Với MỖI thuật ngữ / tên riêng trong danh sách, liệt kê 2–5 cách người Việt hay ĐỌC nó và bộ nhận giọng hay VIẾT RA (phiên âm kiểu Việt, tách âm, đọc từng chữ cái, dấu sai), viết thường. Ví dụ: \"BrSE\" → [\"bờ rích\",\"bờ rít\",\"bi a ét\"], \"HireX\" → [\"hai rếch\",\"hai ếch\"], \"Comtor\" → [\"côm tơ\"], \"Monstarlab\" → [\"môn sờ ta láp\",\"mon sta lab\"]. Không thêm giải thích. Trả về JSON: {\"items\":[{\"term\":\"...\",\"spoken\":[\"...\"]}]}.";
-      try {
-        const r = await postOpenAIResponse({ apiKey: C.key, timeoutMs: 120000, body: { model: C.text, instructions: ins, input: batch.join("\n"), reasoning: { effort: "low" },
-          text: { format: { type: "json_schema", name: "aliases", strict: true, schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, required: ["term", "spoken"], properties: { term: { type: "string" }, spoken: { type: "array", items: { type: "string" } } } } } } } } } } });
-        if (!r.ok) { console.warn("[Cuộc họp] học cách đọc:", r.status); break; }
-        const res = await r.json() as { usage?: { input_tokens?: number; output_tokens?: number } }; out.calls++; out.input += res.usage?.input_tokens || 0; out.output += res.usage?.output_tokens || 0;
-        const j = JSON.parse(responseOutputText(res)) as { items: { term: string; spoken: string[] }[] };
-        const got = new Map(j.items.map((x) => [x.term, x.spoken]));
-        for (const t of batch) { known[t] = (got.get(t) || []).map(S).filter((s) => s && s.length <= 60 && nrm(s) !== nrm(t)).slice(0, 6); out.learned++; out.left--; }
-        fs.mkdirSync(LDIR(), { recursive: true }); fs.writeFileSync(ALIAS_FILE(), JSON.stringify(known));
-      } catch (e) { console.warn("[Cuộc họp] học cách đọc lỗi:", e instanceof Error ? e.message : e); break; }
+const LEARN_FILE = () => path.join(LDIR(), "learned.json");
+const CORPUS = () => path.join(LDIR(), "corpus");
+type Learned = Record<string, Record<string, number>>;
+const toks = (s: string) => String(s || "").split(/\s+/).map((w) => ({ w, t: tnorm(w), n: nrm(w).replace(/ /g, "") })).filter((x) => x.t);
+function alignLearn(raw: string, ref: string, byNorm: Map<string, Entry>, out: Learned) {
+  const R = toks(raw), F = toks(ref); if (!R.length || !F.length) return 0;
+  const pos = new Map<string, number[]>(); F.forEach((x, i) => { if (!STOP.has(x.n) && x.n.length > 2) { const a = pos.get(x.n); if (a) a.push(i); else pos.set(x.n, [i]); } });
+  let j = 0, got = 0;
+  for (let i = 0; i < R.length; i += 24) {
+    const ch = R.slice(i, i + 24), vote = new Map<number, number>();
+    ch.forEach((x, o) => { for (const p of pos.get(x.n) || []) if (p >= j - 150 && p <= j + 2500) { const st0 = p - o; vote.set(st0, (vote.get(st0) || 0) + 1); } });
+    let best = -1, bv = 1; for (const [k, v] of vote) if (v > bv) { bv = v; best = k; }
+    if (best < 0) continue;
+    const a0 = Math.max(0, best - 4), Fw = F.slice(a0, best + ch.length + 8), n = ch.length, m = Fw.length;
+    // khoảng cách sửa theo từ (DP) + truy vết
+    const D: number[][] = Array.from({ length: n + 1 }, (_, x) => Array.from({ length: m + 1 }, (_, y) => (x === 0 ? y : y === 0 ? x : 0)));
+    for (let x = 1; x <= n; x++) for (let y = 1; y <= m; y++) D[x][y] = Math.min(D[x - 1][y] + 1, D[x][y - 1] + 1, D[x - 1][y - 1] + (ch[x - 1].n === Fw[y - 1].n ? 0 : 1));
+    let y0 = 0, bm = Infinity; for (let y = 0; y <= m; y++) if (D[n][y] < bm) { bm = D[n][y]; y0 = y; }   // kết thúc ở chỗ khớp nhất (căn nửa toàn cục)
+    const ops: ["=" | "~", number, number][] = []; let x = n, y = y0;
+    while (x > 0 && y > 0) { if (D[x][y] === D[x - 1][y - 1] + (ch[x - 1].n === Fw[y - 1].n ? 0 : 1)) { ops.push([ch[x - 1].n === Fw[y - 1].n ? "=" : "~", x - 1, y - 1]); x--; y--; } else if (D[x][y] === D[x - 1][y] + 1) { ops.push(["~", x - 1, -1]); x--; } else { ops.push(["~", -1, y - 1]); y--; } }
+    ops.reverse(); j = a0 + y0;
+    // các đoạn lệch liền nhau → cặp (thô, chuẩn)
+    for (let k = 0; k < ops.length; ) {
+      if (ops[k][0] === "=") { k++; continue; }
+      const rs: number[] = [], fs2: number[] = []; while (k < ops.length && ops[k][0] !== "=") { if (ops[k][1] >= 0) rs.push(ops[k][1]); if (ops[k][2] >= 0) fs2.push(ops[k][2]); k++; }
+      if (!rs.length || !fs2.length || rs.length > 6 || fs2.length > 6) continue;
+      const refTxt = fs2.map((q) => Fw[q].w).join(" "), e = byNorm.get(nrm(refTxt)); if (!e) continue;
+      const rawTxt = rs.map((q) => ch[q].w).join(" ").replace(/[.,;:!?…]+$/g, "");
+      if (!plausible(rawTxt, e.c, byNorm)) continue;
+      (out[e.c] ||= {})[rawTxt.toLocaleLowerCase("vi")] = ((out[e.c] || {})[rawTxt.toLocaleLowerCase("vi")] || 0) + 1; got++;
     }
-  } finally { aliasBusy = false; }
+  }
+  return got;
+}
+/** Cặp nghe nhầm có thật không (lọc chỗ căn lệch nội dung): khoá âm phải gần nhau, không phải số, không trùng tên mục khác, tên chuẩn đủ dài. */
+function plausible(raw: string, canon: string, byNorm?: Map<string, Entry>) {
+  const r = nrm(raw), c = nrm(canon); if (!r || r === c || r.length < 2 || c.replace(/ /g, "").length < 3) return false;
+  if (/^[\d ]+$/.test(r) || /\d/.test(r) !== /\d/.test(c)) return false;
+  if (byNorm?.has(r)) return false;
+  // bản thô toàn chữ tiếng Việt có dấu ("lý do") mà tên chuẩn là chữ nước ngoài ("list job") → nhiều khả năng căn lệch, bỏ
+  if (foreign(canon) && !foreign(raw) && /[^\x00-\x7F]/.test(raw)) return false;                                                         // bản thô là một mục từ điển khác ("linkedin" ≠ "link")
+  const a = r.split(" ").map(ph).join(""), b = c.split(" ").map(ph).join("");
+  if (a[0] !== b[0] && !(/^[szc]/.test(a) && /^[szc]/.test(b))) return false;              // âm đầu phải giống (s/x/c gần nhau)
+  const sim = 1 - lev(a, b) / Math.max(a.length, b.length), len = Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  return sim >= 0.55 && len >= 0.5;
+}
+/** Học từ mọi cặp (thô, chuẩn) đang có: cuộc họp đã bật phụ đề + file họp đã gửi vào (corpus/*.raw.txt ↔ *.ref.txt). */
+function learnFromAudio(entries: Entry[]) {
+  const byNorm = new Map(entries.map((e) => [nrm(e.c), e])), out: Learned = {}; let pairs = 0, hits = 0;
+  for (const m of [...st().meta.values()].filter((x) => x.kind === "meeting")) {
+    let ref = ""; try { ref = fs.readFileSync(fp(m.slug, "transcript.txt"), "utf8"); } catch { continue; }
+    let raw = ""; try { raw = fs.readFileSync(fp(m.slug, "live.jsonl"), "utf8").split("\n").map((l) => { try { const j = JSON.parse(l); return j.fin === false || (j.src && j.src !== "vi") ? "" : String(j.raw || j.text || ""); } catch { return ""; } }).filter(Boolean).join(" "); } catch { continue; }
+    if (raw.length < 40) continue; pairs++; hits += alignLearn(raw, ref, byNorm, out);
+  }
+  try { for (const f of fs.readdirSync(CORPUS()).filter((x) => x.endsWith(".raw.txt"))) { const ref = path.join(CORPUS(), f.replace(/\.raw\.txt$/, ".ref.txt")); if (!fs.existsSync(ref)) continue; pairs++; hits += alignLearn(fs.readFileSync(path.join(CORPUS(), f), "utf8"), fs.readFileSync(ref, "utf8"), byNorm, out); } } catch { /* chưa có file họp */ }
+  fs.mkdirSync(LDIR(), { recursive: true }); fs.writeFileSync(LEARN_FILE(), JSON.stringify(out));
+  return { pairs, hits, terms: Object.keys(out).length };
+}
+/** Cách nghe nhầm đã học từ âm thanh thật (giữ cặp gặp ≥ 2 lần, hoặc 1 lần nếu đủ dài và không phải từ thường). */
+function learnedAliases(): Record<string, string[]> {
+  const L = rj<Learned>(LEARN_FILE(), {}), out: Record<string, string[]> = {};
+  for (const [c, m] of Object.entries(L)) out[c] = Object.entries(m).filter(([a, n]) => plausible(a, c) && (n >= 2 || (a.length >= 5 && !a.split(" ").every((w) => STOP.has(nrm(w)))))).map(([a]) => a);
   return out;
 }
+/** Bản chữ chuẩn của các file họp đã gửi vào (để biết từ nào thực sự hay được nói). */
+function corpusRefs() { try { return fs.readdirSync(CORPUS()).filter((x) => x.endsWith(".ref.txt")).map((f) => fs.readFileSync(path.join(CORPUS(), f), "utf8")); } catch { return []; } }
 
 /* ================= dựng từ điển ================= */
 async function build(ws: string): Promise<Entry[]> {
@@ -223,8 +261,8 @@ async function build(ws: string): Promise<Entry[]> {
     const cur = map.get(key); if (cur) { cur.w = Math.max(cur.w, w); for (const x of a) if (!cur.a.includes(x)) cur.a.push(x); return; }
     map.set(key, { c, k, w, a: [...a] });
   };
-  for (const [c, k, a] of CORE) add(c, k, 1.6, a);
-  for (const p of PLACES) add(p, "place", 1.1, PLACE_AL[p] || []);
+  for (const [c, k] of CORE) add(c, k, 1.6);                                                // chỉ tên chuẩn — không dùng phiên âm viết tay
+  for (const p of PLACES) add(p, "place", 1.1);
   const ctx = await meetContext(ws).catch(() => null);
   // tên người: bỏ đuôi bộ phận / chức danh ("Phan Ngọc - AM", "Cường J3", "Chị Ngọc Manager") — tên gốc vẫn giữ làm một cách gọi
   for (const p of ctx?.people || []) {
@@ -258,10 +296,13 @@ async function build(ws: string): Promise<Entry[]> {
     try { corpus.push({ src: "meeting", text: fs.readFileSync(fp(m.slug, "transcript.txt"), "utf8").slice(0, 200000) }); } catch { /* chưa có */ }
     try { corpus.push({ src: "minutes", text: fs.readFileSync(fp(m.slug, "minutes.json"), "utf8").replace(/[{}[\]"]/g, " ").slice(0, 60000) }); } catch { /* chưa có */ }
   }
+  // file họp đã gửi vào (bản chuẩn): khai thác thuật ngữ + tăng trọng số từ thực sự được nói
+  const refs = corpusRefs(); for (const t of refs) corpus.push({ src: "audio", text: t });
   for (const x of mine(corpus)) add(x.c, "mined", 0.6 + Math.min(0.6, x.score / 40));
-  // cách đọc: tự sinh cho chữ viết tắt + AI đã học
-  const learned = rj<Record<string, string[]>>(ALIAS_FILE(), {});
-  for (const e of map.values()) { for (const a of spellAliases(e.c)) if (!e.a.includes(a)) e.a.push(a); for (const a of learned[e.c] || []) if (!e.a.includes(a)) e.a.push(a); }
+  if (refs.length) { const all = " " + refs.map((t) => nrm(t)).join(" ") + " "; for (const e of map.values()) { const k = " " + nrm(e.c) + " "; if (k.length < 5) continue; let n = 0, i = -1; while ((i = all.indexOf(k, i + 1)) >= 0 && n < 50) n++; if (n) e.w += Math.min(0.5, Math.log10(1 + n) / 2.5); } }
+  // biến thể số + cách nghe nhầm học từ âm thanh thật
+  const learned = learnedAliases();
+  for (const e of map.values()) { for (const a of numberAliases(e.c)) if (!e.a.includes(a)) e.a.push(a); for (const a of learned[e.c] || []) if (!e.a.includes(a)) e.a.push(a); }
   return [...map.values()];
 }
 
@@ -306,8 +347,6 @@ function save(ws: string, entries: Entry[], at = Date.now(), stats: Record<strin
 function load(ws: string): (Lex & { mt: number }) | null {
   const f = LFILE(ws), mt = mtime(f); if (!mt) return null;
   const saved = rj<{ at?: number; entries?: Entry[] }>(f, {}); if (!saved.entries?.length) return null;
-  const learned = rj<Record<string, string[]>>(ALIAS_FILE(), {});
-  for (const e of saved.entries) for (const a of learned[e.c] || []) if (!e.a.includes(a)) e.a.push(a);
   return Object.assign(index(saved.entries), { at: saved.at || mt, mt });
 }
 const summary = (entries: Entry[]) => [...new Set(entries.map((e) => e.k))].map((k) => `${k} ${entries.filter((e) => e.k === k).length}`).join(", ");
@@ -318,20 +357,21 @@ export async function getLex(ws = ""): Promise<Lex> {
   const fresh = load(ws); if (fresh) { cache.set(ws, fresh); return fresh; }
   if (hit) return hit;
   if (!building.has(ws)) building.set(ws, (async () => { const entries = await build(ws); save(ws, entries); console.log(`[Cuộc họp] Từ điển ngữ cảnh (lần đầu, chưa huấn luyện AI): ${entries.length} mục`); const l = load(ws)!; cache.set(ws, l); return l; })().finally(() => building.delete(ws)));
-  try { return await building.get(ws)!; } catch { const l = Object.assign(index(CORE.map(([c, k, a]) => ({ c, k, w: 1.6, a }))), { mt: -1 }); cache.set(ws, l); return l; }
+  try { return await building.get(ws)!; } catch { const l = Object.assign(index(CORE.map(([c, k]) => ({ c, k, w: 1.6, a: [] as string[] }))), { mt: -1 }); cache.set(ws, l); return l; }
 }
 /**
  * HUẤN LUYỆN (chạy khi người dùng ra lệnh, ví dụ chat "Huấn luyện ghi âm full db"):
- * đọc lại toàn bộ dữ liệu HireX → dựng từ điển → AI học cách đọc cho mọi thuật ngữ mới chưa học (tốn ít token, mỗi từ một lần) → lưu file.
- * Trả về thống kê để báo lại người dùng.
+ * đọc lại toàn bộ dữ liệu HireX → dựng từ điển → học cách nghe nhầm từ âm thanh thật (cuộc họp đã bật phụ đề + file họp gửi vào)
+ * → dựng lại có gắn cách nghe nhầm → lưu file. Không gọi AI. Trả về thống kê để báo lại người dùng.
  */
-export async function train(ws = "", opts: { ai?: boolean; seconds?: number } = {}) {
+export async function train(ws = "") {
   const t0 = Date.now(), before = rj<{ entries?: Entry[] }>(LFILE(ws), {}).entries || [];
-  let entries = await build(ws);
-  const ai = opts.ai === false ? { learned: 0, input: 0, output: 0, calls: 0, left: 0 } : await learnAliases(entries, Infinity, opts.seconds ? t0 + opts.seconds * 1000 : Infinity);
-  if (ai.learned) entries = await build(ws);                                               // dựng lại để gắn cách đọc vừa học
+  const first = await build(ws), learn = learnFromAudio(first), entries = await build(ws);
   const old = new Set(before.map((e) => e.c)), added = entries.filter((e) => !old.has(e.c));
-  const stats = { entries: entries.length, kinds: summary(entries), added: added.length, addedSample: added.slice(0, 30).map((e) => `${e.c} (${KIND_VI[e.k]})`), aiLearned: ai.learned, aiLeft: ai.left, aiCalls: ai.calls, aiTokens: ai.input + ai.output, ms: Date.now() - t0 };
+  const refs = corpusRefs(), allRef = " " + refs.map((t) => nrm(t)).join(" ") + " ";
+  const spoken = refs.length ? entries.filter((e) => nrm(e.c).length >= 3 && allRef.includes(" " + nrm(e.c) + " ")).sort((a, b) => b.w - a.w) : [];
+  const L = learnedAliases(), sample = Object.entries(L).filter(([, a]) => a.length).slice(0, 20).map(([c, a]) => `${a.slice(0, 3).join(" / ")} → ${c}`);
+  const stats = { entries: entries.length, kinds: summary(entries), added: added.length, addedSample: added.slice(0, 30).map((e) => `${e.c} (${KIND_VI[e.k]})`), audioPairs: learn.pairs, audioHits: learn.hits, learnedTerms: Object.values(L).filter((a) => a.length).length, learnedSample: sample, spoken: spoken.length, spokenSample: spoken.slice(0, 25).map((e) => e.c), ms: Date.now() - t0 };
   save(ws, entries, Date.now(), stats); cache.delete(ws);
   return stats;
 }
@@ -396,7 +436,7 @@ export function protect(text: string, hits: Map<string, number>, lex: Lex) {
 /** Cụm cho bộ nhận giọng của trình duyệt (contextual biasing nếu trình duyệt hỗ trợ): ưu tiên thuật ngữ HireX, tên người, khách hàng. */
 export function phrases(lex: Lex, n = 400) {
   const rank: Record<Kind, number> = { sys: 9, term: 8, person: 7, customer: 6, job: 5, tag: 5, code: 4, place: 4, tech: 4, nick: 3, doc: 2, mined: 2 };
-  return [...lex.entries].sort((a, b) => rank[b.k] - rank[a.k] || b.w - a.w).slice(0, n).map((e) => ({ p: e.c, b: Math.round((1 + rank[e.k] / 3) * 10) / 10 }));
+  return [...lex.entries].sort((a, b) => rank[b.k] - rank[a.k] || b.w - a.w).slice(0, n).map((e) => ({ p: e.c, b: Math.round((1 + rank[e.k] / 3) * 10) / 10, k: e.k }));
 }
 /** Thuật ngữ thực sự xuất hiện trong cuộc họp (đếm từ phụ đề + bản gốc), dùng cho prompt phiên âm và bảng thuật ngữ của biên bản. */
 export function topHits(lex: Lex, hits: Map<string, number>, n = 60) {

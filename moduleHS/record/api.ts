@@ -136,18 +136,19 @@ const POST: Record<string, (c: Ctx) => unknown> = {
   /** Phụ đề (miễn phí): một câu trình duyệt vừa nghe xong → sửa tên / thuật ngữ theo từ điển học từ dữ liệu HireX → lọc câu rác → dịch bằng Google (miễn phí).
    *  Trả về: dòng đầu JSON {text} (câu đã sửa), phần sau là bản dịch. Không gọi OpenAI. */
   live_tr: ({ f }) => {
-    const m = need(f.session_id), to = lang(f.lang), raw = scriptClean(normText(f.text || "").slice(0, 4000)), enc = new TextEncoder();
+    const m = need(f.session_id), to = lang(f.lang), src = lang(f.src) || "vi", raw = scriptClean(normText(f.text || "").slice(0, 4000)), enc = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(ctl) {
-        const lex = await getLex(m.ws || "").catch(() => null), fx = lex ? fixText(raw, lex) : { text: raw, hits: new Map<string, number>() };
+        // từ điển chỉ áp cho tiếng Việt (người Việt nói tên / thuật ngữ HireX); tiếng Nhật / Anh giữ nguyên lời trình duyệt nghe
+        const lex = await getLex(m.ws || "").catch(() => null), fx = lex && src === "vi" ? fixText(raw, lex) : { text: raw, hits: new Map<string, number>() };
         const t = dropEcho(fx.text, [], "");
         ctl.enqueue(enc.encode(JSON.stringify({ text: t }) + "\n"));
         let tr = "";
         if (t && to) {
           const pr = lex ? protect(t, fx.hits, lex) : { text: t, back: (x: string) => x };
-          try { tr = pr.back(await gTranslate(pr.text, to)); if (tr) ctl.enqueue(enc.encode(tr)); } catch (e) { console.warn("[Cuộc họp] Google Dịch lỗi:", e instanceof Error ? e.message : e); }
+          try { tr = pr.back(await gTranslate(pr.text, to, src)); if (tr) ctl.enqueue(enc.encode(tr)); } catch (e) { console.warn("[Cuộc họp] Google Dịch lỗi:", e instanceof Error ? e.message : e); }
         }
-        if (t) { fs.mkdirSync(dir(m.slug), { recursive: true }); fs.appendFileSync(fp(m.slug, "live.jsonl"), JSON.stringify({ t: Date.now(), k: +f.k || 0, fin: f.fin !== "0", text: t, tr, lang: to }) + "\n"); }
+        if (t) { fs.mkdirSync(dir(m.slug), { recursive: true }); fs.appendFileSync(fp(m.slug, "live.jsonl"), JSON.stringify({ t: Date.now(), k: +f.k || 0, fin: f.fin !== "0", src, raw, text: t, tr, lang: to }) + "\n"); }
         ctl.close();
       },
     });

@@ -194,3 +194,17 @@ export function buildHqLayout(members: LayoutMember[]): HqLayout {
   const key = result.map((floor) => floor.rooms.map((room) => `${room.key}@${room.x0},${room.z0},${room.x1},${room.z1}#${room.seats.length}`).join("|")).join("/");
   return { floors: result, seatOf, key };
 }
+
+/** Decoration of the season, by Vietnam date: Halloween (15/10–1/11), Noel (10/12–26/12), Tết (2 weeks before → 1 week after mùng 1). */
+export type HqSeason = "halloween" | "christmas" | "tet" | null;
+const TET: Record<number, string> = { 2026: "2026-02-17", 2027: "2027-02-06", 2028: "2028-01-26", 2029: "2029-02-13", 2030: "2030-02-03", 2031: "2031-01-23", 2032: "2032-02-11" };
+export function seasonOf(at: Date): HqSeason {
+  const vn = new Date(at.getTime() + 7 * 3_600_000);
+  const year = vn.getUTCFullYear(), month = vn.getUTCMonth() + 1, day = vn.getUTCDate();
+  const tet = TET[year] ? Date.parse(`${TET[year]}T00:00:00Z`) : null;
+  const today = Date.UTC(year, month - 1, day);
+  if (tet !== null && today >= tet - 14 * 86_400_000 && today <= tet + 7 * 86_400_000) return "tet";
+  if ((month === 10 && day >= 15) || (month === 11 && day === 1)) return "halloween";
+  if (month === 12 && day >= 10 && day <= 26) return "christmas";
+  return null;
+}

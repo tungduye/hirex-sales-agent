@@ -61,34 +61,38 @@ Dùng cho: prompt phiên âm (tên người + thuật ngữ), từ khoá phụ �
 - Xong thì lưu vào **Tài liệu › Tài liệu HireX › Biên bản cuộc họp** (bảng `hirex_documents`) để Soda đọc được ("gần nhất R&D họp gì"); tạo lại thì cập nhật đúng tài liệu đó.
 - Tạo lại: dùng lại bản phiên âm đã có, chỉ viết lại biên bản. Bản ghi cũ (Excel / điền mẫu) vẫn xem và tải được như trước.
 
-## Phụ đề trực tiếp
-- Một bộ nhận dạng (OpenAI realtime `gpt-live-transcribe`), tự nhận tiếng Việt / English / 日本語 khi người nói đổi qua lại; không còn chọn ngôn ngữ nói hay Google / OpenAI. Nút Gốc · VI · EN · JA chỉ đổi ngôn ngữ hiển thị (dịch).
-- Mỗi câu 2 bước: chữ nháp hiện ngay khi đang nói → nói xong câu, trình duyệt gửi lại âm thanh của đúng câu đó (WAV, `live_fix`) cho model phiên âm chính kèm ngữ cảnh HireX → thay bằng chữ chuẩn (thường 1–2 giây), rồi mới dịch.
-- Realtime không nối được → tự cắt đoạn 3 giây gửi lên máy chủ (cũng có ngữ cảnh).
-- Biên bản vẫn phiên âm lại từ file ghi âm đầy đủ sau cuộc họp (3 phần chạy song song).
+## Dịch hội thoại trực tiếp (23/10, miễn phí)
+- Combobox **Hội thoại** ở màn chính: *Việt ↔ Nhật (dịch 2 chiều)* (mặc định) · *Việt ↔ English (dịch 2 chiều)* · *Chỉ tiếng Việt* · *Tắt* (dừng nghe + ẩn khung). Mở trang luôn bật.
+- Nghe: Web Speech API của Chrome / Edge (máy nhận giọng của Google, miễn phí). Mỗi lúc chỉ nghe được **một** thứ tiếng → nút **Tiếng Việt | 日本語** trên khung,
+  hoặc phím **Space** lúc đang ghi, để đổi người đang nói (Google Meet cũng bắt chọn ngôn ngữ nói; Meet biết ai nói vì mỗi người một micro).
+- Hiển thị 2 cột (Tiếng Việt | 日本語): lời gốc ở cột người nói, bản dịch ở cột kia, lượt mới ở dưới, tự cuộn.
+  Các câu chốt của cùng người nói được **nối vào một lượt** cho tới khi im > 1,4 giây / đổi người nói / quá 320 ký tự → không còn dòng 1–2 chữ rồi nhảy dòng.
+- Dịch: `live_tr` sửa tên / thuật ngữ (chỉ với tiếng Việt) → Google Dịch (gtx, miễn phí), thuật ngữ được giữ nguyên. Không gọi OpenAI lúc đang họp.
+- **Đọc to bản dịch** (nút loa trên khung, nhớ theo máy): đọc bản dịch bằng giọng có sẵn của trình duyệt / Windows (miễn phí) — kiểu Meet "speech translation" / tai nghe phiên dịch.
+  Lúc máy đọc thì tạm ngừng nghe để micro không bắt lại tiếng loa; bấm đổi người nói là ngắt đọc. Nên đeo tai nghe. Thiếu giọng tiếng Việt thì thêm trong Cài đặt Windows › Giọng nói.
+- `live.jsonl` của mỗi cuộc họp lưu `{t,k,fin,src,raw,text,tr,lang}` — `raw` (chữ trình duyệt nghe) dùng lại để học từ điển.
 
-## Phụ đề trực tiếp + từ điển ngữ cảnh (23/10)
-- **Phụ đề — một chế độ duy nhất, miễn phí:** combobox **Phụ đề** ở màn chính: *Lời gốc (tiếng Việt)* (mặc định) · *Lời gốc + dịch English* · *Lời gốc + dịch 日本語* · *Tắt* (dừng nghe + ẩn hẳn khung).
-  Trình duyệt nghe tiếng Việt (Chrome / Edge — Web Speech API) → câu chốt → `live_tr` sửa tên / thuật ngữ theo từ điển → nếu chọn dịch thì Google Dịch (miễn phí, giữ nguyên thuật ngữ) hiện thêm dòng dưới lời gốc.
-  Đổi ngôn ngữ giữa chừng thì dịch bù các câu đã có. Không gọi OpenAI lúc đang họp. (Bản dịch đầy đủ sau họp — trả phí — chọn ở "Tạo lại".)
-- **Từ điển ngữ cảnh (`lexicon.ts`)** — học từ toàn bộ dữ liệu HireX, **chỉ khi ra lệnh huấn luyện** (không tự chạy theo giờ), lưu `runtime/hs-record/lexicon/<workspace>.json`:
-  thành viên (HireX / Tài nguyên / Human, bỏ đuôi "- AM", "J3"…), ~800 khách hàng Human, bộ mã Human (vị trí, hạng, tình trạng CV…), job, nhãn Suối Nguồn, nick kênh, nhóm Zalo khách,
-  chiến dịch, mẫu content, lịch hẹn, Tài nguyên (tab / trạng thái / trường), kỹ năng & vị trí CV, địa điểm VN + Nhật;
-  khai thác thuật ngữ từ văn bản (toàn bộ Tài liệu Human + Tài liệu HireX, hội thoại Soda, bản gốc + biên bản các cuộc họp trước, mô tả job, nội dung mẫu) theo tần suất × số nguồn.
-- **Cách nghe nhầm:** viết tay cho thuật ngữ cốt lõi ("bờ rích" → BrSE, "hai rếch" → HireX, "so đa" → Soda…), tự sinh khi đọc chữ cái / số ("am một" → AM1, "new một" → New 1),
-  và AI học một lần cho thuật ngữ mới khi huấn luyện (`gpt-5.6-luna`, ~30 token / thuật ngữ, lưu vĩnh viễn `runtime/hs-record/lexicon/aliases.json`).
-- **Thuật toán sửa câu (`fixText`):** quy hoạch động trên đồ thị các cách tách câu (đường đi điểm cao nhất): mỗi đoạn 1–6 tiếng giữ nguyên hoặc thay bằng mục khớp
-  — khớp cả dấu > khớp không dấu (đủ dài) > khớp âm Việt (gi/d/r, tr/ch, s/x, c/t cuối, n/ng cuối) > gần đúng Levenshtein. Hàng rào: từ thường một mình không bao giờ bị thay,
-  so khớp có dấu để "đẹp" không thành "Dev", "dài" không thành "Die"; tên một chữ ("Hải") chỉ viết hoa khi có anh / chị / em đứng trước.
-- **Trình duyệt nghe đúng hơn:** gửi ~400 cụm từ HireX qua `SpeechRecognition.phrases` (contextual biasing) nếu trình duyệt hỗ trợ; không hỗ trợ thì bỏ qua.
-- **Sau cuộc họp (OpenAI, trả phí — giữ nguyên):** thuật ngữ phụ đề đã nghe thấy được đưa lên đầu prompt phiên âm `gpt-transcribe`; bản gốc sửa lại bằng `fixText`;
-  biên bản (`gpt-5.6-sol`, suy luận cao) nhận thêm bảng "thuật ngữ / tên riêng đã nhận ra trong cuộc họp này" (tên chuẩn · loại · cách hay nghe nhầm) bên cạnh bối cảnh HireX.
+## Từ điển ngữ cảnh (`lexicon.ts`)
+- Học từ toàn bộ dữ liệu HireX, **chỉ khi ra lệnh huấn luyện**, lưu `runtime/hs-record/lexicon/<workspace>.json`:
+  thành viên (HireX / Tài nguyên / Human), ~800 khách hàng Human, bộ mã Human, job, nhãn Suối Nguồn, nick kênh, nhóm Zalo khách, chiến dịch, mẫu content, lịch hẹn,
+  Tài nguyên (tab / trạng thái / trường), kỹ năng & vị trí CV, địa điểm; khai thác thuật ngữ từ Tài liệu Human + HireX, hội thoại Soda, bản gốc + biên bản cuộc họp trước.
+- **Đã bỏ** cách học phiên âm do AI đoán ("bờ rích" → BrSE…) — không hiệu quả. File cũ `aliases.json` không còn được đọc.
+- **Học từ âm thanh thật:** cùng một file họp được phiên âm 2 lần — bản thô (`gpt-4o-mini-transcribe`, không gợi ý — gần với tai trình duyệt) và bản chuẩn
+  (`gpt-transcribe` + ngữ cảnh HireX). Căn hai bản bằng quy hoạch động (mốc từ hiếm + khoảng cách sửa theo từ), chỗ bản chuẩn là thuật ngữ trong từ điển mà bản thô nghe khác
+  → ghi "cách nghe nhầm" (lọc: giống âm ≥ 0,55, cùng âm đầu, không phải số, không phải chữ Việt thường thay cho chữ nước ngoài). Lưu `lexicon/learned.json`.
+  Phụ đề các cuộc họp thật (`live.jsonl` so với `transcript.txt`) cũng được học như vậy. Bản chuẩn còn cho biết từ nào thực sự hay được nói → được ưu tiên.
+- **Sửa câu (`fixText`):** quy hoạch động trên các cách tách câu (đường đi điểm cao nhất), mỗi đoạn 1–6 tiếng giữ nguyên hoặc thay bằng mục khớp
+  — khớp cả dấu > không dấu (đủ dài) > khớp âm Việt > gần đúng Levenshtein. Từ thường một mình không bị thay; tên một chữ chỉ sửa khi có anh / chị / em đứng trước.
+- **Trình duyệt nghe đúng hơn:** gửi ~400 cụm từ HireX qua `SpeechRecognition.phrases` nếu trình duyệt hỗ trợ.
+- **Sau cuộc họp (OpenAI, trả phí — giữ nguyên):** thuật ngữ đã nghe thấy đưa lên đầu prompt `gpt-transcribe`; bản gốc sửa bằng `fixText`;
+  biên bản (`gpt-5.6-sol`, suy luận cao) nhận thêm bảng thuật ngữ / tên riêng của cuộc họp.
 
 ## Huấn luyện từ điển (chạy tay)
 **Lệnh cho Claude:** khi người dùng chat **"Huấn luyện ghi âm full db"** (hoặc ý tương tự), chạy ở thư mục gốc HireX trên máy:
 ```
-node moduleHS/record/lexicon-train.mjs --seconds 130     # lặp lại tới khi in "còn 0 từ chưa học" (mỗi lần chạy ≤ 3 phút)
-node moduleHS/record/lexicon-train.mjs --no-ai           # chỉ đọc lại dữ liệu, không gọi AI (miễn phí)
+node moduleHS/record/lexicon-train.mjs                          # đọc lại DB + tài liệu + cặp âm thanh đã có (miễn phí, vài giây)
+node moduleHS/record/lexicon-train.mjs --audio --seconds 150    # có file họp mới trong runtime/hs-record/lexicon/audio/ → phiên âm 2 lần rồi học
+                                                                # (cắt đoạn 10 phút, chạy tiếp được; lặp tới khi in "còn 0 đoạn"; ~$0,45 / giờ âm thanh, key HS)
 ```
-Rồi báo lại: số mục, mục mới, số từ AI vừa học, token đã dùng, ví dụ câu đã sửa. Web tự nạp file mới, không cần khởi động lại.
-Chưa từng huấn luyện thì lần đầu web tự dựng từ dữ liệu (không AI). Lần huấn luyện đầu 23/10/2026: 2.632 mục, AI học 2.222 từ, ~60.000 token.
+Rồi báo lại: số mục, mục mới, số chỗ nghe nhầm học được, ví dụ câu đã sửa. Web tự nạp file mới, không cần khởi động lại.
+23/10/2026: 2.634 mục; học từ 4 file họp (~3 giờ, ~$1,4): 230 thuật ngữ thực sự được nói, cách nghe nhầm: "in talent" → Intalent, "set up" → setup.

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type * as Three from "three";
-import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
+import type { HqFeedItem, HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
 import type { HqSelection } from "@/modules/crm/dashboard/components/hq-map";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 import type { People } from "@/modules/crm/dashboard/components/hq-3d-people";
@@ -16,7 +16,7 @@ import type { Effects } from "@/modules/crm/dashboard/components/hq-3d-effects";
 // Drag to turn, scroll to zoom, right-drag to move; hover shows who / what, a click opens the room's screen.
 // The building is built once; each data refresh (every minute) only updates numbers, screens and people.
 
-type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; layout: HqLayout; level: number; selected: HqSelection; onSelect: (selection: HqSelection) => void; onUnsupported: () => void };
+type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; feed: HqFeedItem[]; layout: HqLayout; level: number; selected: HqSelection; onSelect: (selection: HqSelection) => void; onUnsupported: () => void };
 type Hover = { x: number; y: number; title: string; sub: string } | null;
 type Pick = { title: string; sub: string; href: string | null; personId?: string };
 type LogLine = { id: number; at: string; text: string; tone: "alert" | "ok" | "info" };
@@ -77,10 +77,10 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
 // Camera at home, for a floor of the old size (z −490…490); bigger floors move it back proportionally.
 const CAMERA_OFFSET = { x: -640, y: 860, z: 1030 };
 
-export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, onSelect, onUnsupported }: Props) {
+export function HqScene3D({ rooms, team, stats, floor, feed, layout, level, selected, onSelect, onUnsupported }: Props) {
   const holder = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
-  const dataRef = useRef<Data>({ rooms, team, stats, floor, layout, level });
+  const dataRef = useRef<Data>({ rooms, team, stats, floor, feed, layout, level });
   const [hover, setHover] = useState<Hover>(null);
   const [spinning, setSpinning] = useState(false);
   const [progress, setProgress] = useState<string | null>("Đang tải văn phòng 3D…");
@@ -93,7 +93,7 @@ export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, 
 
   useEffect(() => {
     const before = dataRef.current;
-    dataRef.current = { rooms, team, stats, floor, layout, level };
+    dataRef.current = { rooms, team, stats, floor, feed, layout, level };
     const engine = engineRef.current;
     if (!engine) return;
     if (engine.built !== `${layout.key}#${level}`) engine.build(layout, level);
@@ -102,7 +102,7 @@ export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, 
     engine.people.setGuest(stats.interviewNow);
     const lines = playChanges(engine, before, dataRef.current);
     if (lines.length) setLog((current) => [...lines.map((line) => ({ ...line, id: ++logId.current })), ...current].slice(0, 5));
-  }, [rooms, team, stats, floor, layout, level]);
+  }, [rooms, team, stats, floor, feed, layout, level]);
 
   useEffect(() => {
     const element = holder.current;

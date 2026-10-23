@@ -429,7 +429,9 @@
     ".next-loc-nhan-bam-nhanh/types/**/*.ts",
     ".next-loc-nhan-bam-nhanh/dev/types/**/*.ts",
     ".next-tong-quan-tu-mo-rong/types/**/*.ts",
-    ".next-tong-quan-tu-mo-rong/dev/types/**/*.ts"
+    ".next-tong-quan-tu-mo-rong/dev/types/**/*.ts",
+    ".next-tong-quan-dot-2/types/**/*.ts",
+    ".next-tong-quan-dot-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

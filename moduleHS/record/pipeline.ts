@@ -66,8 +66,8 @@ export async function transcribe(file: string, prompt: string, type = "audio/mpe
 
 /* ============ phụ đề / dịch trực tiếp ============ */
 /** Dịch nhanh miễn phí qua Google Dịch (endpoint công khai của Google Translate, không cần key). Lỗi → ném lỗi để nơi gọi tự chuyển sang OpenAI. */
-export async function gTranslate(text: string, to: string): Promise<string> {
-  const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text.slice(0, 4500))}`;
+export async function gTranslate(text: string, to: string, from = "auto"): Promise<string> {
+  const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text.slice(0, 4500))}`;
   const r = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0" } });
   if (!r.ok) throw new Error("google_translate " + r.status);
   const j = (await r.json()) as unknown[];

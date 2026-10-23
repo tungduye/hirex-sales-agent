@@ -6,6 +6,7 @@
 const API = '/api/hs/qa';
 let ROOT = null, ON = null;
 const IC = {
+  down: '<path d="m6 9 6 6 6-6"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
   clip: '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
@@ -203,9 +204,11 @@ function paintMain() {
 }
 function paintHead() {
   const d = ST.data, s = d.state, R = d.report, [, lb] = STL[s.status] || ['', s.status], done = !LIVE.has(s.status);
-  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b title="${esc(lb)} · ${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}">${esc(d.run.name || R?.title || s.title || hostOf(d.run.url))}</b></div><span class="grow"></span>
+  const hasPlan = ST.tab === 'live' && s.plan?.cases?.length;
+  const html = `<div class="q-tz"><button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b title="${esc(lb)} · ${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}">${esc(d.run.name || R?.title || s.title || hostOf(d.run.url))}</b></div>${hasPlan ? `<button type="button" class="btn ghost icon q-pdd" id="qPdd" data-a="plan" title="Kế hoạch test">${ico('down', 15)}</button>` : ''}</div><span class="grow"></span>
 <div class="q-bg">${done ? `<button type="button" class="btn" data-a="rerun" title="Chạy lại với cùng link và yêu cầu">${ico('play', 14)}Chạy lại</button>` : ''}${R ? `<a class="btn icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 15)}</a>` : ''}<a class="btn icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 15)}</a><button type="button" class="btn icon q-del" data-a="del" title="Xoá lượt test">${ico('trash', 15)}</button></div>`;
   const h = $('#qHead'); if (h._h !== html) { h.innerHTML = html; h._h = html; }
+  $('#qPdd')?.classList.toggle('on', !!$('#qPlan')?.classList.contains('open'));
 }
 const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${pad(t % 60)}`; };
 /** Thanh điều khiển của trình duyệt: tiến độ (bước · thời gian / ngân sách) + Tạm dừng / Tiếp tục / Dừng / Điều khiển. */
@@ -267,13 +270,12 @@ function paintPlan() {
   // sang bước mới → mở ra vài giây cho thấy đang ở đâu rồi tự thu lại; xong hết → mở hẳn
   const key = `${ST.sel}|${P.cases.length}|${di}|${cur?.name || ''}`;
   if (ST.planKey !== key) { const firstSeen = !ST.planKey; ST.planKey = key; if (cur && working) { ST.planOpen = null; ST.planPeek = Date.now() + (firstSeen ? 2500 : 4000); clearTimeout(ST.planTm); ST.planTm = setTimeout(paintPlan, (firstSeen ? 2500 : 4000) + 30); } }
-  const auto = !working || n === P.cases.length || Date.now() < (ST.planPeek || 0), open = ST.planOpen ?? auto;
+  const auto = working && Date.now() < (ST.planPeek || 0), open = ST.planOpen ?? auto;   // sang bước mới thì tự xổ ra vài giây rồi co lại; bấm mũi tên ở tiêu đề để mở / đóng
   const IC2 = { done: ['check', 'ok'], doing: ['loader', 'run'], todo: ['minus', ''], skip: ['x', 'skip'] };
-  const head = `${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut num">${n}/${P.cases.length}</span>${cur && working ? `<span class="q-pnow"><span class="q-shine">${esc(cur.name)}</span></span>` : ''}${P.minutes ? `<span class="q-pmin">Khoảng ${P.minutes} phút</span>` : ''}`;
   const list = `<ol class="q-pl">${P.cases.map((c, i) => { const [ic, k] = IC2[c.st] || IC2.todo; return `<li class="${k}${i === di ? ' cur' : ''}" title="${esc(c.why || '')}">${ico(ic, 13, k === 'run' ? 'spin' : '')}<span>${esc(c.name)}</span></li>`; }).join('')}</ol>`;
-  if (el._h !== head || !el.firstChild) { if (!el.firstChild) el.innerHTML = `<button type="button" class="q-ph" data-a="plan"></button><div class="q-plw"><div></div></div>`; el.firstChild.innerHTML = head; el._h = head; }
+  if (!el.firstChild) el.innerHTML = `<div class="q-plw"><div></div></div>`;
   if (el._l !== list) { el.querySelector('.q-plw>div').innerHTML = list; el._l = list; }
-  el.firstChild.classList.toggle('on', open); el.classList.toggle('open', open); el.classList.toggle('peek', open && ST.planOpen == null && working);
+  el.classList.toggle('open', open); $('#qPdd')?.classList.toggle('on', open); el.classList.toggle('peek', open && ST.planOpen == null && working);
   const ol = el.querySelector('.q-pl'), li = ol?.querySelector('li.cur'); if (ol && li && open) ol.scrollTop = Math.max(0, li.offsetTop - ol.clientHeight / 2);
 }
 function paintTabs() {

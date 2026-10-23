@@ -889,3 +889,22 @@
 .hs-qa .q-techs{margin:0;gap:6px}
 .hs-qa .q-techs .q-det{box-shadow:none;border:1px solid var(--q-line2);background:#FAFAFA}
 @container qmain (max-width:620px){.hs-qa .q-ltb{min-width:0}.hs-qa .q-ltb .q-lres,.hs-qa .q-ltb th:nth-child(3){display:none}.hs-qa .q-rep.q-logw{padding-left:12px;padding-right:12px}}
+
+/* ======================= thanh trên: vùng tiêu đề (nền xám) tách khỏi vùng tab (nền trắng); kế hoạch mở bằng mũi tên cạnh tiêu đề ======================= */
+.hs-qa .q-top{padding-left:0;background:#fff}
+.hs-qa .q-top .q-tz{order:0;flex:0 1 auto;display:flex;align-items:center;gap:4px;min-width:0;max-width:40%;padding:0 8px 0 16px;background:#F4F4F5;border-right:1px solid var(--q-line);box-shadow:inset 0 -1px 0 var(--q-line)}
+.hs-qa .q-top .q-tz .q-rt{max-width:none;flex:0 1 auto;min-width:0}
+.hs-qa .q-top .q-tz .q-rt b{font-size:14px;color:var(--q-fg)}
+.hs-qa .q-top>.q-tabs{margin-left:16px}
+.hs-qa .q-pdd{flex:none;width:28px;height:28px;color:var(--q-mut)}
+.hs-qa .q-pdd svg{transition:transform .25s var(--q-ease)}
+.hs-qa .q-pdd.on{color:var(--q-fg);background:#fff;box-shadow:0 0 0 1px var(--q-line)}
+.hs-qa .q-pdd.on svg{transform:rotate(180deg)}
+.hs-qa .q-plan:not(.open){border-bottom:0!important}
+.hs-qa .q-plan .q-pl{padding-top:6px}
+@container qmain (max-width:700px){
+  .hs-qa .q-top .q-tz{max-width:none;padding-left:8px}
+  .hs-qa .q-top .q-tz .q-rt{display:none}
+  .hs-qa .q-top>.q-tabs{margin-left:8px}
+}
+.hs-qa .q-top .q-tz .q-pdd{order:2;margin-left:2px}

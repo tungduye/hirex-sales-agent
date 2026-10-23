@@ -303,7 +303,7 @@ export function HqStage({ data }: { data: HqData }) {
     <div ref={stageRef} className={cx(styles.stage, tv && styles.stageTv)}>
       <div className={styles.stageMap}>
         {view === "3d"
-          ? <HqScene3D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} layout={layout} level={shownLevel} selected={selected} onSelect={go} onUnsupported={() => saveHqView("2d")} />
+          ? <HqScene3D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} feed={data.feed} layout={layout} level={shownLevel} selected={selected} onSelect={go} onUnsupported={() => saveHqView("2d")} />
           : <HqMap2D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} layout={layout} level={shownLevel} selected={selected} onSelect={go} />}
         {layout.floors.length > 1 ? (
           <nav className={cx(styles.glass, styles.lift)} aria-label="Thang máy">

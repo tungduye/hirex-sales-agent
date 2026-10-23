@@ -36,6 +36,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
   const group = new THREE.Group();
   parent.add(group);
   let picks: Three.Object3D[] = [];
+  let topId: string | null = null; // most campaign replies: a cup over their head (Tường vinh danh shows the list)
   let now = 0;
 
   const play = (actor: Actor, name: string) => {
@@ -71,9 +72,14 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
     const tag = label(THREE, text.length > 24 ? `${text.slice(0, 23)}…` : text, { height: 11, border: person.tone === "alert" ? "rgba(244,63,94,.85)" : undefined });
     tag.position.y = 91;
     actor.labels.add(head, tag);
+    if (person.id === topId) {
+      const cupTag = label(THREE, "🏆 Nhiều phản hồi nhất", { height: 11, bg: "#FEF3C7", color: "#713f12", border: "rgba(251,191,36,1)" });
+      cupTag.position.y = person.tone === "busy" ? 119 : 105;
+      actor.labels.add(cupTag);
+    }
     if (person.isNew) {
       const welcome = label(THREE, "🎉 Thành viên mới", { height: 11, bg: "#FEF3C7", color: "#713f12", border: "rgba(251,191,36,1)" });
-      welcome.position.y = person.tone === "busy" ? 119 : 105;
+      welcome.position.y = (person.tone === "busy" ? 119 : 105) + (person.id === topId ? 14 : 0);
       actor.labels.add(welcome);
     }
     actor.head = head;
@@ -127,6 +133,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
   };
 
   const sync: People["sync"] = (team, time) => {
+    topId = team.filter((person) => person.campaignReplies > 0).sort((a, b) => b.campaignReplies - a.campaignReplies || a.name.localeCompare(b.name, "vi"))[0]?.id ?? null;
     const wanted = new Map<string, { person: HqMember; slot: Slot }>();
     const byName = (a: HqMember, b: HqMember) => a.name.localeCompare(b.name, "vi") || a.id.localeCompare(b.id);
     // In a meeting: Phòng họp (Tầng 1); otherwise their own desk, when it is on this floor.

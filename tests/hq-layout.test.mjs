@@ -80,3 +80,13 @@ test('desks walk out through the door to the corridor above the room', () => {
     assert.ok(seat.x < sale.door - 40, 'the door column is free of desks');
   }
 });
+
+test('decoration follows the Vietnam calendar', async () => {
+  const { seasonOf } = await import('../src/modules/crm/dashboard/core/hq-layout.ts');
+  assert.equal(seasonOf(new Date('2026-10-23T14:00:00Z')), 'halloween');
+  assert.equal(seasonOf(new Date('2026-10-31T18:00:00Z')), 'halloween', 'already 1/11 in Vietnam');
+  assert.equal(seasonOf(new Date('2026-11-02T03:00:00Z')), null);
+  assert.equal(seasonOf(new Date('2026-12-24T12:00:00Z')), 'christmas');
+  assert.equal(seasonOf(new Date('2027-02-01T03:00:00Z')), 'tet', 'five days before Tết 2027');
+  assert.equal(seasonOf(new Date('2027-03-01T03:00:00Z')), null);
+});
