@@ -42,7 +42,8 @@ const spread = () => 1 + Math.random() * 35; // play a minute's events over the 
 function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogLine, "id">> {
   const lines: Array<Omit<LogLine, "id">> = [];
   const was = new Map(before.team.map((person) => [person.id, person.waiting]));
-  let envelopes = 0, ticks = 0;
+  let envelopes = 0, ticks = 0, bubbles = 0;
+  const beforeReplies = new Map(before.team.map((person) => [person.id, person.campaignReplies]));
   for (const person of after.team) {
     const previous = was.get(person.id);
     if (previous === undefined) {
@@ -59,11 +60,17 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
       for (let index = 0; index < Math.min(-change, 2) && ticks < 10; index += 1, ticks += 1) engine.effects.reply(at, spread());
       lines.push({ at: clock(), text: `${person.name} đã trả lời ${-change} hội thoại`, tone: "ok" });
     }
+    const gained = person.campaignReplies - (beforeReplies.get(person.id) ?? person.campaignReplies);
+    if (gained > 0) {
+      for (let index = 0; index < Math.min(gained, 3) && bubbles < 10; index += 1, bubbles += 1) engine.effects.campaignReply(at, spread());
+      lines.push({ at: clock(), text: `+${gained} phản hồi chiến dịch · ${person.name}`, tone: "info" });
+    }
   }
   const cvs = (after.stats.cvToday ?? 0) - (before.stats.cvToday ?? 0);
   if (cvs > 0 && before.stats.cvToday !== null) { for (let index = 0; index < Math.min(cvs, 5); index += 1) engine.effects.cv(spread()); lines.push({ at: clock(), text: `+${cvs} CV mới vào Kho CV`, tone: "info" }); }
   const replies = (after.stats.replies ?? 0) - (before.stats.replies ?? 0);
-  if (replies > 0 && before.stats.replies !== null) { for (let index = 0; index < Math.min(replies, 4); index += 1) engine.effects.firework(spread()); lines.push({ at: clock(), text: `+${replies} phản hồi chiến dịch Zalo`, tone: "info" }); }
+  if (replies > 0 && before.stats.replies !== null) { for (let index = 0; index < Math.min(replies, 4); index += 1) engine.effects.firework(spread()); if (!bubbles) lines.push({ at: clock(), text: `+${replies} phản hồi chiến dịch Zalo`, tone: "info" }); }
+  if (after.stats.interviewNow && after.stats.interviewNow !== before.stats.interviewNow) lines.push({ at: clock(), text: `Ứng viên đến phỏng vấn: ${after.stats.interviewNow}`, tone: "info" });
   return lines;
 }
 
@@ -92,6 +99,7 @@ export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, 
     if (engine.built !== `${layout.key}#${level}`) engine.build(layout, level);
     engine.world.update(dataRef.current);
     engine.people.sync(team, (performance.now() - engine.started) / 1000);
+    engine.people.setGuest(stats.interviewNow);
     const lines = playChanges(engine, before, dataRef.current);
     if (lines.length) setLog((current) => [...lines.map((line) => ({ ...line, id: ++logId.current })), ...current].slice(0, 5));
   }, [rooms, team, stats, floor, layout, level]);
@@ -168,6 +176,7 @@ export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, 
           const data = dataRef.current;
           world.update(data);
           engine.people.sync(data.team, (performance.now() - started) / 1000);
+          engine.people.setGuest(data.stats.interviewNow);
           // New members (joined in the last days) get a welcome the first time their floor is shown.
           data.team.filter((person) => person.isNew && !welcomed.has(person.id) && engine.people.positionOf(person.id)).forEach((person, index) => {
             welcomed.add(person.id);

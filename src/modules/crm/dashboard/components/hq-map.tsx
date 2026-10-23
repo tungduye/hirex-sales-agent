@@ -172,6 +172,7 @@ export function HqMap2D({ rooms, team, stats, floor, layout, level, selected, on
                 {meeting.length
                   ? meeting.slice(0, 6).map((person, index) => <Person key={person.id} person={person} left={box.width / 2 - 70 + (index % 3) * 70} top={box.height / 2 - 30 + Math.floor(index / 3) * 92} onPick={pickPerson} />)
                   : <Upright {...centre(box)}><span className={styles.tag}>{stats.meetingsToday} lịch hôm nay</span></Upright>}
+                {stats.interviewNow ? <Upright left={box.width - 40} top={box.height - 40}><span className={cx(styles.mapAv, styles.rViolet)} style={{ background: "#EDE9FE" }}>UV</span><span className={styles.tag}>Ứng viên · {stats.interviewNow}</span></Upright> : null}
               </>);
               if (item.kind === "ai") return room(item.key, box, <>
                 <div className={cx(styles.desk, stats.aiActive ? styles.deskOn : null)} style={{ left: box.width / 2 - 17, top: box.height * 0.45 }} />

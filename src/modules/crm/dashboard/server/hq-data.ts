@@ -22,10 +22,19 @@ export type HqFloor = string;
 export interface HqKpi { key: string; room: string; label: string; value: number | null; note: string; href: string; tone: "alert" | "info" | "meet" | "plain" }
 export interface HqRoom { key: string; name: string; meta: string; href: string; tone: "cyan" | "red" | "violet" | "green" }
 export interface HqFeedItem { kind: string; tone: "info" | "alert" | "meet" | "plain"; text: string; at: string; href: string | null }
-/** market = the Thị trường most of their nicks belong to; isNew = joined in the last 7 days; meeting = a calendar event is running. */
-export interface HqMember { id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null; meeting: boolean; market: string | null; isNew: boolean }
+/** A nick a member is the main user of, as shown on their card. */
+export interface HqNick { id: string; name: string; channel: string; waiting: number; live: boolean }
+/**
+ * market = the Thị trường most of their nicks belong to; isNew = joined in the last 7 days; meeting = a calendar event is
+ * running; nicks / today = their nicks (with what waits) and today's calendar; campaignReplies = replies to the Zalo
+ * campaigns sent from their nicks (an increase flies a reply bubble to their desk).
+ */
+export interface HqMember {
+  id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null;
+  meeting: boolean; market: string | null; isNew: boolean; nicks: HqNick[]; today: Array<{ time: string; title: string; kind: string; now: boolean }>; campaignReplies: number;
+}
 /** The numbers drawn on the office map (null = the member may not see that part). */
-export interface HqStats { waiting: number | null; tagged: number | null; sent: number | null; replies: number | null; running: number | null; aiActive: number | null; cvToday: number | null; meetingsToday: number }
+export interface HqStats { waiting: number | null; tagged: number | null; sent: number | null; replies: number | null; running: number | null; aiActive: number | null; cvToday: number | null; meetingsToday: number; interviewNow: string | null }
 /** What a room shows when it is picked on the map (a summary of its screen). */
 export interface HqDetails {
   inbox: { waiting: number; personal: number; tagged: number; important: number; unowned: number; capped: boolean; people: Array<{ id: string; name: string; waiting: number }> } | null;
@@ -63,7 +72,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   const [isAdmin, accessible, { data: profileRows }, { data: nickRows }] = await Promise.all([
     isWorkspaceAdmin(), getAccessibleChannelAccountIds(),
     db.from("profiles").select("id,full_name,department,manager_id,avatar_url,created_at").eq("workspace_id", workspaceId),
-    db.from("channel_accounts").select("primary_profile_id,market").eq("workspace_id", workspaceId).is("deleted_at", null).not("primary_profile_id", "is", null),
+    db.from("channel_accounts").select("primary_profile_id,market,display_name").eq("workspace_id", workspaceId).is("deleted_at", null).not("primary_profile_id", "is", null),
   ]);
   const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null, avatarUrl: typeof row.avatar_url === "string" && row.avatar_url.startsWith("https://") ? row.avatar_url : null,
     isNew: typeof row.created_at === "string" && now - Date.parse(row.created_at) < 7 * 86_400_000 }));
@@ -76,6 +85,8 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     votes.set(market, (votes.get(market) ?? 0) + 1);
     marketVotes.set(row.primary_profile_id, votes);
   }
+  const ownersOfNickName = new Map<string, string[]>();
+  for (const row of (nickRows ?? []) as Row[]) if (typeof row.display_name === "string" && typeof row.primary_profile_id === "string") ownersOfNickName.set(row.display_name, [...(ownersOfNickName.get(row.display_name) ?? []), row.primary_profile_id]);
   const marketOf = (id: string) => { const votes = [...(marketVotes.get(id) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); return votes[0] && votes[0][0] !== "OTHER" ? votes[0][0] : null; };
   // ?tang=<phòng>: one bộ phận's room (rec, sale, am, …); anything unknown shows the whole company.
   const floor: HqFloor = floorParam && profiles.some((person) => roomOfDepartment(person.department) === floorParam) ? floorParam : "ALL";
@@ -86,7 +97,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   // ---- Suối Nguồn: the "Chưa trả lời" rule, per nick (migration 139) ----
   const inbox = (async () => {
     if (!can("inbox.view")) return null;
-    let query = db.from("channel_accounts").select("id,status,primary_profile_id,channel_type").eq("workspace_id", workspaceId).is("deleted_at", null);
+    let query = db.from("channel_accounts").select("id,status,primary_profile_id,channel_type,display_name").eq("workspace_id", workspaceId).is("deleted_at", null);
     if (accessible) query = query.in("id", accessible.length ? accessible : [NO_ID]);
     const [{ data: accounts }, { data: bot }] = await Promise.all([query, db.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", workspaceId).maybeSingle()]);
     const botId = bot?.enabled && typeof bot.channel_account_id === "string" ? bot.channel_account_id : null; // Soda's nick is not in Suối Nguồn
@@ -95,6 +106,15 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     const ownerOfNick = new Map(nicks.map((row) => [String(row.id), typeof row.primary_profile_id === "string" ? row.primary_profile_id : null]));
     const { data } = await supabase.rpc("inbox_waiting_by_account", { p_account_ids: nicks.map((row) => String(row.id)), p_user_id: account.userId });
     const byOwner = new Map<string, number>();
+    // Each member's nicks for their card (what waits on each), whatever room is highlighted.
+    const waitingOfNick = new Map(((data ?? []) as Row[]).map((row) => [String(row.channel_account_id), Number(row.waiting) || 0]));
+    const nicksByOwner = new Map<string, HqNick[]>();
+    for (const row of nicks) {
+      const owner = typeof row.primary_profile_id === "string" ? row.primary_profile_id : null;
+      if (!owner) continue;
+      const nick: HqNick = { id: String(row.id), name: String(row.display_name ?? "Nick"), channel: String(row.channel_type), waiting: waitingOfNick.get(String(row.id)) ?? 0, live: row.status === "CONNECTED" };
+      nicksByOwner.set(owner, [...(nicksByOwner.get(owner) ?? []), nick].sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "vi")));
+    }
     let waiting = 0, important = 0, tagged = 0, unowned = 0, capped = false;
     for (const row of (data ?? []) as Row[]) {
       const owner = ownerOfNick.get(String(row.channel_account_id)) ?? null;
@@ -104,7 +124,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
       waiting += count; tagged += Number(row.tagged) || 0; important += Number(row.important) || 0;
       if (owner) byOwner.set(owner, (byOwner.get(owner) ?? 0) + count); else unowned += count;
     }
-    return { waiting, important, tagged, unowned, capped, byOwner, liveNicks: nicks.filter((row) => row.channel_type === "ZALO" && row.status === "CONNECTED").length };
+    return { waiting, important, tagged, unowned, capped, byOwner, nicksByOwner, liveNicks: nicks.filter((row) => row.channel_type === "ZALO" && row.status === "CONNECTED").length };
   })();
 
   // ---- Lịch hẹn (today) ----
@@ -115,12 +135,18 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     const today = result?.occurrences ?? [];
     const inMeeting = new Map<string, string>();
     for (const item of today) if (item.start <= now && now < item.end) for (const id of [item.createdBy, ...item.attendees.filter((a) => !a.declined).map((a) => a.id)]) inMeeting.set(id, item.title);
+    // Each member's day (as organiser or attendee), for their card.
+    const byPerson = new Map<string, Array<{ time: string; title: string; kind: string; now: boolean }>>();
+    for (const item of today) for (const id of new Set([item.createdBy, ...item.attendees.filter((a) => !a.declined).map((a) => a.id)])) {
+      byPerson.set(id, [...(byPerson.get(id) ?? []), { time: `${time(item.start)}–${time(item.end)}`, title: item.title, kind: KIND_LABEL[item.kind] ?? item.kind, now: item.start <= now && now < item.end }]);
+    }
+    const interview = today.find((item) => item.kind === "PHONG_VAN" && item.start <= now && now < item.end) ?? null;
     const next = today.find((item) => item.start > now) ?? null;
     const events = today.map((item) => ({
       id: `${item.eventId}-${item.start}`, time: `${time(item.start)}–${time(item.end)}`, title: item.title, kind: KIND_LABEL[item.kind] ?? item.kind,
       who: [item.createdByName, ...item.attendees.filter((a) => !a.declined && a.id !== item.createdBy).map((a) => a.name)].slice(0, 4).join(", "), now: item.start <= now && now < item.end,
     }));
-    return { today: today.length, interviews: today.filter((item) => item.kind === "PHONG_VAN").length, inMeeting, next, events, scope: result?.scope === "ALL" ? "Công ty" : "Team" };
+    return { today: today.length, interviews: today.filter((item) => item.kind === "PHONG_VAN").length, inMeeting, byPerson, interviewNow: interview?.title ?? null, next, events, scope: result?.scope === "ALL" ? "Công ty" : "Team" };
   })();
 
   // ---- CV (same rows as the CV screen: active CVs the member may see) ----
@@ -145,7 +171,13 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
       : { count: 0 };
     const top = list.slice().sort((a, b) => Number(b.status === "RUNNING") - Number(a.status === "RUNNING") || b.replies - a.replies).slice(0, 6)
       .map((row) => ({ id: row.id, name: row.name, status: row.status, sent: row.sent, replies: row.replies, owner: row.ownerName }));
-    return { running: list.filter((row) => row.status === "RUNNING").length, sent: list.reduce((sum, row) => sum + row.sent, 0), replies: list.reduce((sum, row) => sum + row.replies, 0), repliesToday: repliesToday ?? 0, campaigns: top };
+    // Replies are credited to the main users of the nicks that send the campaign.
+    const repliesByOwner = new Map<string, number>();
+    for (const row of list) {
+      const owners = new Set(row.senderNames.flatMap((name) => ownersOfNickName.get(name) ?? []));
+      for (const owner of owners) repliesByOwner.set(owner, (repliesByOwner.get(owner) ?? 0) + row.replies);
+    }
+    return { running: list.filter((row) => row.status === "RUNNING").length, sent: list.reduce((sum, row) => sum + row.sent, 0), replies: list.reduce((sum, row) => sum + row.replies, 0), repliesToday: repliesToday ?? 0, campaigns: top, repliesByOwner };
   })();
 
   // ---- Gửi nhóm Zalo ----
@@ -244,7 +276,8 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
       const replying = typingNow.has(person.id);
       const status = meeting ? { status: "Đang họp", tone: "meet" as const } : waiting >= 100 ? { status: "Cần xem", tone: "alert" as const } : replying ? { status: "Đang nhắn", tone: "busy" as const } : { status: "—", tone: "idle" as const };
       const doing = [meeting ? `Họp: ${meeting}` : replying ? "Đang trả lời tin" : null, inboxData ? `${n(waiting)} chưa trả lời` : null].filter(Boolean).join(" · ") || "Chưa có hoạt động";
-      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, meeting: Boolean(meeting), market: marketOf(person.id), isNew: person.isNew, ...status };
+      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, meeting: Boolean(meeting), market: marketOf(person.id), isNew: person.isNew,
+        nicks: inboxData?.nicksByOwner.get(person.id) ?? [], today: calendarData.byPerson.get(person.id) ?? [], campaignReplies: campaignData?.repliesByOwner.get(person.id) ?? 0, ...status };
     })
     .sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "vi"))
     .slice(0, 400);
@@ -274,7 +307,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     kpis, rooms, feed: feedItems, team, canSeeTeam: seesAll || visiblePeople.size > 1,
     stats: {
       waiting: inboxData?.waiting ?? null, tagged: inboxData?.tagged ?? null, sent: campaignData?.sent ?? null, replies: campaignData?.replies ?? null,
-      running, aiActive: aiData?.active ?? null, cvToday: cvData?.today ?? null, meetingsToday: calendarData.today,
+      running, aiActive: aiData?.active ?? null, cvToday: cvData?.today ?? null, meetingsToday: calendarData.today, interviewNow: calendarData.interviewNow,
     },
     details: {
       inbox: inboxData ? { waiting: inboxData.waiting, personal: inboxData.waiting - inboxData.tagged, tagged: inboxData.tagged, important: inboxData.important, unowned: inboxData.unowned, capped: inboxData.capped, people } : null,

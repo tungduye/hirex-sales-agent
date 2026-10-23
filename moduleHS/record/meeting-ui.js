@@ -197,7 +197,7 @@ const pickBtn = (cls, inner) => `<button type="button" class="in cb ${cls}" aria
    Không còn Chủ đề / Mẫu / Từ vựng: máy chủ tự lấy ngữ cảnh (thành viên, màn hình, thuật ngữ) từ dữ liệu HireX như Soda. */
 const S = { tab: LS.get('tab', 'rec') === 'tts' ? 'tts' : 'rec', st: 'idle', title: '', named: false, live: ['src', 'en', 'ja'].includes(LS.get('live', 'src')) ? LS.get('live', 'src') : 'src', nameMode: LS.get('nm', 'ai') === 'manual' ? 'manual' : 'ai', attn: 0, up: null };
 /* Phụ đề trực tiếp: luôn bật mặc định (nghe tiếng Việt, tự sửa tên / thuật ngữ HireX); chỉ có 1 lựa chọn "Phụ đề: Hiện / Tắt" ở màn chính — tắt thì ẩn hẳn khung phụ đề. */
-S.cap = LS.get('cap', '1') !== '0'; S.src = 'vi';
+S.cap = true; S.src = 'vi';   // mở trang là luôn bật; chọn "Tắt" chỉ có tác dụng tới khi tải lại trang
 
 /* ================= Khung chính ================= */
 function renderApp() {
@@ -215,7 +215,7 @@ function renderApp() {
   </section>
   <section class="rc-b" id="pTts" hidden></section>
  </main>
- <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="dot" id="liveDot"></span><b class="lpt">Phụ đề</b><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
+ <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
  </div><div id="toast"></div><input type="file" id="fAudio" hidden accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.ogg,.opus,.aac,.flac,.amr,.wma,.mp4,.webm,.mkv,.mov">`;
   $('#ttl').oninput = e => { S.title = e.target.value; S.named = !!e.target.value.trim(); };
   $('#ttl').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
@@ -505,7 +505,7 @@ function wsStop() {
 /** Phụ đề: Hiện / Tắt (combobox ở màn chính). Tắt = dừng nghe + ẩn hẳn khung phụ đề. */
 /** Phụ đề: Lời gốc / Dịch sang English / Dịch sang 日本語 (Google Dịch, miễn phí) / Tắt. Đổi ngôn ngữ giữa chừng thì dịch bù các câu đã có. */
 const CAPL = { src: 'Lời gốc (tiếng Việt)', en: 'Lời gốc + dịch English', ja: 'Lời gốc + dịch 日本語' };
-function setCap(on, lang = S.live) { S.cap = on; S.live = lang; LS.set('cap', on ? '1' : '0'); LS.set('live', lang); ROOT.classList.toggle('nocap', !on); renderOpts(); liveToggle(); if (on) liveFill(); }
+function setCap(on, lang = S.live) { S.cap = on; S.live = lang; LS.set('live', lang); ROOT.classList.toggle('nocap', !on); renderOpts(); liveToggle(); if (on) liveFill(); }
 async function liveFill() {
   const to = target(); if (!to) { renderLive(); return; }
   const todo = [...LV.lines.values()].filter(l => l.text && !l.part && !l.req && !l.tr[to]).sort((a, b) => b.k - a.k).slice(0, 40);
@@ -542,7 +542,6 @@ function lineHtml(l) {
 }
 function renderLive() {
   const box = $('#live'); if (!box) return; box.classList.toggle('big', LV.big);
-  $('#liveDot').className = 'dot ' + (!S.cap ? '' : S.st === 'rec' ? (WSR.rec ? 'rec' : 'rec pulse') : S.st === 'paused' ? 'warn' : '');
   ROOT.classList.toggle('nocap', !S.cap);
   if (!S.cap) { const bb = $('#liveB'); if (bb.dataset.e !== 'off') { bb.innerHTML = `<div class="live-e">${ico('captions', 30)}<span>Phụ đề đang tắt</span></div>`; bb.dataset.e = 'off'; LV.dom.clear(); } return; }
   if ($('#liveB').dataset.e === 'off') { $('#liveB').innerHTML = ''; $('#liveB').dataset.e = ''; }

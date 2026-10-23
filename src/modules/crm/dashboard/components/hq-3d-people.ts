@@ -27,6 +27,8 @@ export interface People {
   sync: (team: HqMember[], time: number) => void; tick: (time: number, delta: number) => void; pickables: () => Three.Object3D[]; dispose: () => void;
   /** Where a member is right now (at the desk, walking, in the meeting), or null when they have no seat. */
   positionOf: (id: string) => { x: number; y: number; z: number } | null;
+  /** A phỏng vấn is running: a candidate sits in Phòng họp (Tầng 1) with the event's title; null = nobody. */
+  setGuest: (title: string | null) => void;
 }
 
 export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: World, layout: HqLayout, cloneSkinned: (object: Three.Object3D) => Three.Object3D): People {
@@ -148,16 +150,53 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
       }
     }
     picks = [...actors.values()].map((actor) => actor.head);
+    // Screens light up for people at work; ≥100 waiting → the screen blinks red (see tick).
     for (const slot of world.slots.values()) if (slot.screenGlow) (slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0;
-    for (const actor of actors.values()) if (actor.slot.screenGlow && actor.person.tone !== "idle") (actor.slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0.75;
+    for (const actor of actors.values()) {
+      const glowMaterial = actor.slot.screenGlow?.material as Three.MeshBasicMaterial | undefined;
+      if (!glowMaterial) continue;
+      glowMaterial.color.setHex(actor.person.tone === "alert" ? 0xfb7185 : 0x67e8f9);
+      glowMaterial.opacity = actor.person.tone === "idle" ? 0 : 0.75;
+    }
+  };
+
+  // The candidate of a running interview (decoration from the calendar; not a member).
+  let guest: { root: Three.Group; mixer: Three.AnimationMixer | null; labels: Three.Group } | null = null;
+  let guestTitle: string | null = null;
+  const setGuest: People["setGuest"] = (title) => {
+    if (title === guestTitle) return;
+    guestTitle = title;
+    if (guest) { guest.mixer?.stopAllAction(); group.remove(guest.root); disposeTree(guest.labels); guest = null; }
+    const seatSlot = world.meetingSeats[world.meetingSeats.length - 1];
+    if (!title || !seatSlot || [...actors.values()].some((actor) => actor.slot.key === seatSlot.key)) return;
+    const gltf = kit.characters.get("male-c") ?? kit.characters.values().next().value ?? null;
+    const root = new THREE.Group();
+    let mixer: Three.AnimationMixer | null = null;
+    if (gltf) {
+      const model = cloneSkinned(gltf.scene);
+      model.scale.setScalar(S);
+      model.traverse((child) => { child.userData.sharedGeometry = true; child.userData.sharedMaterial = true; });
+      root.add(model);
+      mixer = new THREE.AnimationMixer(model);
+      const sit = gltf.animations.find((clip) => clip.name === "sit");
+      if (sit) mixer.clipAction(sit).play();
+    }
+    const labels = new THREE.Group();
+    const tag = label(THREE, `Ứng viên · ${title.length > 26 ? `${title.slice(0, 25)}…` : title}`, { height: 11, bg: "#EDE9FE", color: "#3b0764", border: "rgba(167,139,250,1)" });
+    tag.position.y = 91; labels.add(tag); root.add(labels);
+    root.position.set(seatSlot.sit.x, SIT_Y, seatSlot.sit.z); root.rotation.y = seatSlot.facing;
+    group.add(root);
+    guest = { root, mixer, labels };
   };
 
   const tick: People["tick"] = (time, delta) => {
     now = time;
+    guest?.mixer?.update(delta);
     let walkers = 0;
     for (const actor of actors.values()) if (actor.state !== "sit") walkers += 1;
     for (const actor of actors.values()) {
       actor.mixer?.update(delta);
+      if (actor.person.tone === "alert" && actor.slot.screenGlow) (actor.slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0.35 + 0.5 * Math.abs(Math.sin(time * 3));
       if (actor.bubble) actor.bubble.position.y = 105 + Math.sin(time * 3 + actor.root.position.x) * 1.5;
       if (actor.state === "walk") {
         const target = actor.path[0];
@@ -192,5 +231,5 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
 
   const positionOf: People["positionOf"] = (id) => { const actor = actors.get(id); return actor ? { x: actor.root.position.x, y: 0, z: actor.root.position.z } : null; };
 
-  return { sync, tick, positionOf, pickables: () => picks, dispose: () => { for (const actor of [...actors.values()]) remove(actor); parent.remove(group); } };
+  return { sync, tick, positionOf, setGuest, pickables: () => picks, dispose: () => { setGuest(null); for (const actor of [...actors.values()]) remove(actor); parent.remove(group); } };
 }

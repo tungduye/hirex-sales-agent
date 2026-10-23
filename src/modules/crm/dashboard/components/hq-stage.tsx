@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { HqData, HqMember, HqRoom } from "@/modules/crm/dashboard/server/hq-data";
@@ -184,15 +184,50 @@ function RoomSummary({ room, data, rooms, layout, onPick, onFloor }: { room: str
   </>;
 }
 
+const CHANNEL: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Facebook Page", FACEBOOK_PROFILE: "Facebook", EMAIL: "Email" };
+
 function PersonCard({ person, onClose }: { person: HqMember; onClose: () => void }) {
   const router = useRouter();
+  // The assistant panel opens with the question typed in; the member reads it, changes it if needed and sends it.
+  const ask = () => window.dispatchEvent(new CustomEvent("hirex:assistant-draft", { detail: { text: `Tình hình hôm nay của ${person.name}: tin chưa trả lời theo từng nick, lịch hẹn và chiến dịch đang chạy?` } }));
   return <>
     <div className={styles.drawerHead}><strong>{person.name}</strong><span>{person.department ?? "Chưa có bộ phận"} · {STATUS[person.tone]}{person.isNew ? " · Thành viên mới 🎉" : ""}</span></div>
-    <div className={styles.personTop}><HqAvatar person={person} size={56} /><div className={styles.tiles}><Tile label="Chưa trả lời" value={person.waiting} tone={person.tone === "alert" ? "red" : "cyan"} /></div></div>
+    <div className={styles.personTop}><HqAvatar person={person} size={56} /><div className={styles.tiles}>
+      <Tile label="Chưa trả lời" value={person.waiting} tone={person.tone === "alert" ? "red" : "cyan"} />
+      <Tile label="Phản hồi chiến dịch" value={person.campaignReplies} tone="violet" />
+    </div></div>
     <p className={styles.drawerNote}>{person.doing}. Số chưa trả lời = Suối Nguồn lọc “Người phụ trách: {person.name}”, tab Chưa trả lời.</p>
+    <h4 className={styles.drawerH}>Nick ({person.nicks.length})</h4>
+    {person.nicks.length ? person.nicks.slice(0, 8).map((nick) => (
+      <button key={nick.id} type="button" className={styles.drawerLine} onClick={() => openInbox(router, `/inbox/all?view=waiting&account=${encodeURIComponent(nick.id)}`)} title="Mở Suối Nguồn của nick này">
+        <span><span className={styles.nickName}><i className={nick.live ? styles.dotLive : styles.dotOff} />{nick.name}</span><small>{CHANNEL[nick.channel] ?? nick.channel}{nick.live ? "" : " · mất kết nối"}</small></span>
+        <b className={styles.mono}>{n(nick.waiting)}</b>
+      </button>
+    )) : <p className={styles.drawerEmpty}>Chưa là người dùng chính của nick nào.</p>}
+    {person.nicks.length > 8 ? <p className={styles.drawerNote}>và {person.nicks.length - 8} nick khác.</p> : null}
+    <h4 className={styles.drawerH}>Lịch hôm nay</h4>
+    {person.today.length ? person.today.map((event, index) => (
+      <div key={index} className={cx(styles.drawerLine, event.now && styles.drawerNow)}><span>{event.title}<small>{event.kind}</small></span><b className={styles.mono}>{event.time}</b></div>
+    )) : <p className={styles.drawerEmpty}>Không có lịch hôm nay.</p>}
     <button type="button" className={styles.drawerOpen} onClick={() => openInbox(router, `/inbox/all?view=waiting&owner=${encodeURIComponent(person.id)}`)}>Mở Suối Nguồn của {person.name} →</button>
+    <button type="button" className={styles.drawerGhost} onClick={ask}>Hỏi Trợ lý về {person.name}</button>
     <button type="button" className={styles.drawerGhost} onClick={onClose}>Đóng</button>
   </>;
+}
+
+const fold = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/giu, "d").toLowerCase();
+
+/** Tìm người: type a name, pick → the camera goes to their desk (or Phòng họp) and their card opens. */
+function PersonSearch({ team, onPick, onClose }: { team: HqMember[]; onPick: (id: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const found = team.filter((member) => !query.trim() || fold(`${member.name} ${member.department ?? ""}`).includes(fold(query.trim()))).slice(0, 8);
+  return (
+    <div className={cx(styles.glass, styles.searchPop)} role="dialog" aria-label="Tìm người">
+      <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm người theo tên, bộ phận…" aria-label="Tìm người"
+        onKeyDown={(event) => { if (event.key === "Enter" && found[0]) onPick(found[0].id); if (event.key === "Escape") { event.stopPropagation(); onClose(); } }} />
+      {found.length ? found.map((member) => <PersonRow key={member.id} person={member} onPick={onPick} />) : <p className={styles.drawerEmpty}>Không có ai khớp “{query}”.</p>}
+    </div>
+  );
 }
 
 export function HqStage({ data }: { data: HqData }) {
@@ -204,6 +239,11 @@ export function HqStage({ data }: { data: HqData }) {
   useEffect(() => { const timer = window.setTimeout(() => setKpiOpen(readPanels().kpi), 0); return () => window.clearTimeout(timer); }, []);
   const toggleKpi = () => setKpiOpen((value) => { try { window.localStorage.setItem(PANEL_KEY, JSON.stringify({ kpi: !value })); } catch { /* per-browser convenience only */ } return !value; });
   const pick = (selection: HqSelection) => { setSelected(selection); if (selection) setDrawer(null); };
+  const [searching, setSearching] = useState(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  // Chế độ TV: full screen, the camera visits each room (and anyone who needs a look) by itself, numbers stay live.
+  const [tv, setTv] = useState(false);
+  const goRef = useRef<(selection: HqSelection) => void>(() => undefined);
   const pickPerson = (id: string) => go({ type: "person", id });
   const close = () => { setSelected(null); setDrawer(null); };
   useEffect(() => {
@@ -233,9 +273,34 @@ export function HqStage({ data }: { data: HqData }) {
     pick(selection);
   };
   const teamShown = data.floor === "ALL" ? data.team : data.team.filter((member) => roomOfDepartment(member.department) === data.floor);
+  useEffect(() => { goRef.current = go; });
+  const tour: HqSelection[] = [{ type: "room", key: "inbox" }, ...peopleRoomList.map((room) => ({ type: "room" as const, key: room.key })), { type: "room", key: "tower" }, { type: "room", key: "meeting" },
+    ...data.team.filter((member) => member.tone === "alert").slice(0, 3).map((member) => ({ type: "person" as const, id: member.id })), { type: "room", key: "cv" }];
+  const tourKey = tour.map((stop) => stop ? (stop.type === "room" ? stop.key : stop.id) : "").join(",");
+  useEffect(() => {
+    if (!tv) return;
+    const stops = tourKey.split(",").map((key): HqSelection => data.team.some((member) => member.id === key) ? { type: "person", id: key } : { type: "room", key });
+    let index = 0;
+    const next = () => { goRef.current(stops[index % stops.length]); index += 1; };
+    next();
+    const timer = window.setInterval(next, 9000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tourKey stands for the stops
+  }, [tv, tourKey]);
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) { setTv(false); setSelected(null); } };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleTv = () => {
+    if (tv) { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); setTv(false); setSelected(null); return; }
+    setSearching(false); setDrawer(null);
+    void stageRef.current?.requestFullscreen?.().catch(() => undefined);
+    setTv(true);
+  };
 
   return (
-    <div className={styles.stage}>
+    <div ref={stageRef} className={cx(styles.stage, tv && styles.stageTv)}>
       <div className={styles.stageMap}>
         {view === "3d"
           ? <HqScene3D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} layout={layout} level={shownLevel} selected={selected} onSelect={go} onUnsupported={() => saveHqView("2d")} />
@@ -276,13 +341,17 @@ export function HqStage({ data }: { data: HqData }) {
       </div>
 
       <div className={cx(styles.glass, styles.dock)} role="toolbar" aria-label="Bảng thông tin">
+        <button type="button" aria-pressed={searching} onClick={() => setSearching((value) => !value)} title="Tìm người trên bản đồ" aria-label="Tìm người">⌕ Tìm</button>
         <button type="button" aria-pressed={kpiOpen} onClick={toggleKpi}>Chỉ số</button>
         <button type="button" aria-pressed={drawer === "feed"} onClick={() => { setSelected(null); setDrawer((value) => value === "feed" ? null : "feed"); }}>Đang diễn ra{data.feed.length ? <i>{data.feed.length}</i> : null}</button>
         <button type="button" aria-pressed={drawer === "team"} onClick={() => { setSelected(null); setDrawer((value) => value === "team" ? null : "team"); }}>Đội ngũ</button>
         <span className={styles.dockSep} />
         <button type="button" aria-pressed={view === "2d"} onClick={() => saveHqView("2d")}>2.5D</button>
         <button type="button" aria-pressed={view === "3d"} onClick={() => saveHqView("3d")}>3D</button>
+        <span className={styles.dockSep} />
+        <button type="button" aria-pressed={tv} onClick={toggleTv} title="Chế độ TV: chiếu lên màn hình lớn, toàn màn hình, tự đi qua từng phòng (Esc để thoát)" aria-label={tv ? "Thoát chế độ TV" : "Chế độ TV"}>{tv ? "Thoát TV" : "TV"}</button>
       </div>
+      {searching ? <PersonSearch team={data.team} onPick={(id) => { setSearching(false); go({ type: "person", id }); }} onClose={() => setSearching(false)} /> : null}
 
       {open ? (
         <aside className={cx(styles.glass, styles.drawer)} aria-label="Thông tin">

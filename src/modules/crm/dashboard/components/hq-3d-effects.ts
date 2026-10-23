@@ -6,7 +6,7 @@ import { FONT, glow, label, type T } from "@/modules/crm/dashboard/components/hq
 //   a member got new unanswered messages → envelopes fly from Trạm tin nhắn to their desk;
 //   a member's waiting count went down → a green tick rises over them (they replied);
 //   new CVs today → files fly from the lobby into Kho CV;
-//   new campaign replies → a small firework over Tháp phát sóng;
+//   new campaign replies → a small firework over Tháp phát sóng, and a reply bubble flies to whoever runs the campaign;
 //   a new member (joined in the last days, or just added) → confetti and "Chào mừng" over their desk.
 
 export type P3 = { x: number; y: number; z: number };
@@ -22,6 +22,7 @@ export interface Effects {
   cv: (delay: number) => void;
   firework: (delay: number) => void;
   welcome: (at: () => P3 | null, name: string, delay: number) => void;
+  campaignReply: (to: () => P3 | null, delay: number) => void;
   tick: (time: number, delta: number) => void;
   dispose: () => void;
 }
@@ -52,6 +53,12 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
     context.beginPath(); context.moveTo(30, 12); context.lineTo(82, 12); context.lineTo(100, 30); context.lineTo(100, 116); context.lineTo(30, 116); context.closePath(); context.fill(); context.stroke();
     context.fillStyle = "#22D3EE"; for (let line = 0; line < 4; line += 1) context.fillRect(42, 44 + line * 16, line === 3 ? 30 : 46, 6);
     context.font = `800 28px ${FONT}`; context.fillStyle = "#0e7490"; context.fillText("CV", 44, 36);
+  });
+  const bubbleTexture = icon(THREE, (context) => {
+    context.fillStyle = "#A5B4FC"; context.strokeStyle = "#0b1224"; context.lineWidth = 5;
+    context.beginPath(); context.roundRect(12, 18, 104, 72, 22); context.fill(); context.stroke();
+    context.beginPath(); context.moveTo(34, 88); context.lineTo(26, 114); context.lineTo(56, 89); context.closePath(); context.fill(); context.stroke();
+    context.fillStyle = "#1e1b4b"; for (const x of [40, 64, 88]) { context.beginPath(); context.arc(x, 54, 8, 0, Math.PI * 2); context.fill(); }
   });
   const tickTexture = icon(THREE, (context) => {
     context.fillStyle = "#34D399"; context.beginPath(); context.arc(64, 64, 52, 0, Math.PI * 2); context.fill();
@@ -123,6 +130,7 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
   };
 
   const envelope: Effects["envelope"] = (to, delay) => fly(envelopeTexture, () => INBOX, () => { const point = to(); return point ? { ...point, y: point.y + 62 } : null; }, delay, { size: 22, height: 90, duration: 2.6, badge: "+1 tin" });
+  const campaignReply: Effects["campaignReply"] = (to, delay) => fly(bubbleTexture, () => TOWER_TOP, () => { const point = to(); return point ? { ...point, y: point.y + 62 } : null; }, delay, { size: 22, height: 110, duration: 2.8, badge: "+1 phản hồi", badgeColor: "#6366F1" });
   const cv: Effects["cv"] = (delay) => fly(fileTexture, () => LOBBY_DOOR, () => CV_SHELVES, delay, { size: 24, height: 120, duration: 3, badge: "+1 CV", badgeColor: "#0891B2" });
 
   const reply: Effects["reply"] = (at, delay) => {
@@ -208,7 +216,7 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
   };
 
   return {
-    envelope, reply, cv, firework, welcome, tick,
-    dispose: () => { for (const item of running) remove(item.objects); running.clear(); items.length = 0; parent.remove(group); envelopeTexture.dispose(); fileTexture.dispose(); tickTexture.dispose(); },
+    envelope, reply, cv, firework, welcome, campaignReply, tick,
+    dispose: () => { for (const item of running) remove(item.objects); running.clear(); items.length = 0; parent.remove(group); envelopeTexture.dispose(); fileTexture.dispose(); tickTexture.dispose(); bubbleTexture.dispose(); },
   };
 }
