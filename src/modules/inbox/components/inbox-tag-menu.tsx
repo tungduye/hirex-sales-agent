@@ -15,6 +15,7 @@ import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
 /** Zalo-like palette. */
 export const TAG_COLORS = ["#E53935", "#F4511E", "#FB8C00", "#F6BF26", "#33B679", "#0B8043", "#039BE5", "#2563EB", "#3F51B5", "#8E24AA", "#D81B60", "#616161"];
 const DEFAULT_COLOR = "#E53935";
+const foldTag = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/gu, "d").replace(/Đ/gu, "D").toLowerCase().replace(/\s+/gu, " ").trim();
 
 function TagIcon({ color, className = "size-4" }: { color: string | null; className?: string }) {
   return <Tag className={`${className} shrink-0`} style={{ color: color ?? "#94a3b8", fill: color ?? "#94a3b8" }} strokeWidth={1.5} aria-hidden="true"/>;
@@ -26,6 +27,7 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = new Set(props.selectedTagIds);
   const active = props.selectedTagIds.length + (props.unreadOnly ? 1 : 0);
@@ -48,6 +50,9 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
     const next = query.toString();
     router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
   };
+  // Ticked tags first (easy to untick), then the rest in the managed order; the search ignores marks and case.
+  const needle = foldTag(tagQuery);
+  const shownTags = props.tags.filter((tag) => !needle || foldTag(tag.name).includes(needle)).sort((a, b) => Number(selected.has(b.id)) - Number(selected.has(a.id)));
   const toggleTag = (id: string) => apply(selected.has(id) ? props.selectedTagIds.filter((item) => item !== id) : [...props.selectedTagIds, id], props.unreadOnly);
 
   return <div ref={rootRef} className="shrink-0">
@@ -60,10 +65,14 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
       {([[false, "Tất cả"], [true, "Chưa đọc"]] as const).map(([unread, label]) => <label key={label} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
         <input type="radio" name="inbox-read-state" checked={props.unreadOnly === unread} onChange={() => apply(props.selectedTagIds, unread)} className="size-4 accent-blue-600"/>{label}
       </label>)}
-      <p className="mt-1 border-t border-slate-100 px-3 pb-1 pt-2 text-[12px] font-semibold text-slate-500">Theo thẻ phân loại</p>
+      <p className="mt-1 border-t border-slate-100 px-3 pb-1 pt-2 text-[12px] font-semibold text-slate-500">Theo thẻ phân loại{selected.size ? <span className="text-blue-700"> · đang chọn {selected.size}</span> : null}</p>
+      {props.tags.length > 5 ? <label className="relative mx-3 mb-1 block"><Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-slate-400"/>
+        <input autoFocus value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="Tìm thẻ…" aria-label="Tìm thẻ phân loại" className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-7 text-xs outline-none focus:border-blue-400 focus:bg-white"/>
+        {tagQuery ? <button type="button" onClick={() => setTagQuery("")} aria-label="Xóa tìm thẻ" className="absolute right-1 top-1 rounded p-1 text-slate-400 hover:text-slate-700"><X className="size-3.5"/></button> : null}</label> : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {props.tags.length === 0 ? <p className="px-3 py-2 text-xs text-slate-500">Chưa có thẻ phân loại nào.</p>
-          : props.tags.map((tag) => <label key={tag.id} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
+          : shownTags.length === 0 ? <p className="px-3 py-2 text-xs text-slate-500">Không có thẻ nào khớp “{tagQuery}”.</p>
+          : shownTags.map((tag) => <label key={tag.id} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
             <input type="checkbox" checked={selected.has(tag.id)} onChange={() => toggleTag(tag.id)} className="size-4 shrink-0 accent-blue-600"/>
             <TagIcon color={tag.color}/><span className="min-w-0 flex-1 truncate">{tag.name}</span>
           </label>)}
@@ -90,6 +99,7 @@ function TagManager(props: { tags: OmnichannelInboxTag[]; canDelete: boolean; on
   const [detail, setDetail] = useState<Detail | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const orderBefore = useRef<string>("");
 
   useEffect(() => {
@@ -121,10 +131,15 @@ function TagManager(props: { tags: OmnichannelInboxTag[]; canDelete: boolean; on
         onSaved={(tag, created) => { setTags((current) => created ? [...current, tag] : current.map((item) => item.id === tag.id ? tag : item)); setDetail(null); refreshInbox(); }}
         onDeleted={(id) => { setTags((current) => current.filter((item) => item.id !== id)); setDetail(null); refreshInbox(); }}/> : <>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3"><h2 className="text-[15px] font-bold text-slate-900">Quản lý thẻ phân loại</h2><button type="button" onClick={props.onClose} aria-label="Đóng" className="rounded-md p-1 text-slate-500 hover:bg-slate-100"><X className="size-5"/></button></div>
-        <p className="shrink-0 px-4 pb-1 pt-3 text-[13px] text-slate-600">Danh sách thẻ phân loại</p>
+        <p className="shrink-0 px-4 pb-1 pt-3 text-[13px] text-slate-600">Danh sách thẻ phân loại <span className="text-slate-400">· {tags.length}</span></p>
+        {tags.length > 5 ? <label className="relative mx-4 mb-2 block shrink-0"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-slate-400"/>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm thẻ…" aria-label="Tìm thẻ phân loại" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[13px] outline-none focus:border-blue-400 focus:bg-white"/>
+          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm thẻ" className="absolute right-1.5 top-1.5 rounded p-1 text-slate-400 hover:text-slate-700"><X className="size-4"/></button> : null}</label> : null}
         <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pb-2" aria-label="Kéo để sắp xếp">
-          {tags.length === 0 ? <li className="py-6 text-center text-sm text-slate-500">Chưa có thẻ phân loại nào.</li> : tags.map((tag) => <li key={tag.id}
-            draggable onDragStart={(event) => { setDragging(tag.id); orderBefore.current = tags.map((item) => item.id).join(","); event.dataTransfer.effectAllowed = "move"; }}
+          {tags.length === 0 ? <li className="py-6 text-center text-sm text-slate-500">Chưa có thẻ phân loại nào.</li>
+            : query && !tags.some((tag) => foldTag(tag.name).includes(foldTag(query))) ? <li className="py-6 text-center text-sm text-slate-500">Không có thẻ nào khớp “{query}”.</li>
+            : tags.filter((tag) => !query || foldTag(tag.name).includes(foldTag(query))).map((tag) => <li key={tag.id}
+            draggable={!query} onDragStart={(event) => { setDragging(tag.id); orderBefore.current = tags.map((item) => item.id).join(","); event.dataTransfer.effectAllowed = "move"; }}
             onDragOver={(event) => { event.preventDefault(); moveOver(tag.id); }} onDragEnd={() => { setDragging(null); void saveOrder(tags); }}
             className={`flex items-center gap-2 ${dragging === tag.id ? "opacity-50" : ""}`}>
             <span className="cursor-grab p-1 text-slate-400 active:cursor-grabbing" title="Kéo để đổi thứ tự"><GripVertical className="size-4"/></span>

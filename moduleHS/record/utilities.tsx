@@ -2,20 +2,31 @@
 
 // Mục "Tiện ích" của HireX: tab Cuộc họp (Meeting Hub) · tab Kiểm thử phần mềm (moduleHS/qa: agent tự test web, báo cáo).
 // Giao diện Cuộc họp là code gốc (meeting-ui.js) vẽ vào khung .hs-rec; Kiểm thử (qa-ui.js) vẽ vào .hs-rec.hs-qa. Chỉ nạp ở trình duyệt.
-import "./meeting.css";
-import "../qa/qa.css";
 import { useEffect, useRef, useState } from "react";
 import { FlaskConical, Mic } from "lucide-react";
 
 type Boot = Record<string, unknown>;
 declare global { interface Window { __HS_REC_BOOT?: Boot } }
+type UiModule = { mount: (root: HTMLElement, boot?: Boot) => () => void };
+
+/** Nạp giao diện gốc (JS + CSS) qua /api/hs/qa?action=asset&v=<phiên bản> thay vì gói của Next: Cloudflare / trình duyệt giữ file JS
+ *  của Next tới 4 giờ nên sửa xong người dùng vẫn thấy bản cũ. Link có số phiên bản (giờ sửa file) → sửa là thấy ngay, không sửa thì dùng bộ nhớ đệm. */
+let VER: Promise<string> | null = null;
+const ver = () => (VER ??= fetch("/api/hs/qa?action=ver", { cache: "no-store" }).then((r) => r.json()).then((j: { v?: string }) => j.v || String(Date.now())).catch(() => String(Date.now())));
+async function loadUi(js: "qa.js" | "meeting.js", css: "qa.css" | "meeting.css"): Promise<UiModule> {
+  const v = await ver(), href = `/api/hs/qa?action=asset&f=${css}&v=${v}`;
+  let link = document.querySelector<HTMLLinkElement>(`link[data-hs-ui="${css}"]`);
+  if (!link) { link = document.createElement("link"); link.rel = "stylesheet"; link.dataset.hsUi = css; document.head.append(link); }
+  if (link.getAttribute("href") !== href) link.href = href;
+  return import(/* webpackIgnore: true */ /* turbopackIgnore: true */ `/api/hs/qa?action=asset&f=${js}&v=${v}`) as Promise<UiModule>;
+}
 
 function MeetingRoot({ boot }: { boot: Boot }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let alive = true, off: (() => void) | undefined;
     window.__HS_REC_BOOT = boot;
-    void import("./meeting-ui.js").then((ui) => { if (alive && ref.current) off = ui.mount(ref.current, boot); });
+    void loadUi("meeting.js", "meeting.css").then((ui) => { if (alive && ref.current) off = ui.mount(ref.current, boot); });
     return () => { alive = false; off?.(); };
   }, [boot]);
   return <div ref={ref} className="hs-rec" />;
@@ -25,7 +36,7 @@ function QaRoot() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let alive = true, off: (() => void) | undefined;
-    void import("../qa/qa-ui.js").then((ui) => { if (alive && ref.current) off = ui.mount(ref.current); });
+    void loadUi("qa.js", "qa.css").then((ui) => { if (alive && ref.current) off = ui.mount(ref.current); });
     return () => { alive = false; off?.(); };
   }, []);
   return <div ref={ref} className="hs-rec hs-qa h-full" />;

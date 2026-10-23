@@ -20,7 +20,8 @@ export const C = {
   data: path.resolve(E("HS_RECORD_DIR", path.join(/*turbopackIgnore: true*/ process.cwd(), "runtime", "hs-record"))),
   pub: (E("HS_RECORD_PUBLIC_URL") || E("APP_BASE_URL")).replace(/\/+$/, ""),
   get ffmpeg() { return ffmpegPath(); },
-  get key() { return (process.env.OPENAI_API_KEY || "").trim(); },
+  // key riêng của các dự án moduleHS (HS_OPENAI_API_KEY) để theo dõi token tách khỏi Soda; chưa đặt thì dùng key chung
+  get key() { return (process.env.HS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "").trim(); },
   text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), minutes: E("HS_RECORD_MINUTES_MODEL", "gpt-5.6-sol"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"), liveModel: E("HS_RECORD_LIVE_TEXT_MODEL"),
   seg: Math.max(300, +E("TRANSCRIBE_SEGMENT_SECONDS", "1800")), br: E("AUDIO_BITRATE", "24k"), slice: Math.max(5000, +E("RECORD_SLICE_MS", "5000")),
   ttsMax: Math.max(500, +E("TTS_MAX_CHARS", "60000")), cmin: +E("CODE_MIN", "3"), cmax: +E("CODE_MAX", "6"), maxMB: +E("MAX_UPLOAD_MB", "512"),

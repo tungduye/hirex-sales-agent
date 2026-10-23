@@ -30,3 +30,8 @@ Project nhỏ thì để phẳng, mỗi chức năng 1 file, như `record/`.
   - Trong mạng nội bộ: `http://<IP máy anh Tùng>:3005` (IP ghi trong `runtime\hs-preview.txt`).
   - Qua Cloudflare: trỏ `tienich.hat11.io.vn` → `http://<IP>:3005`. Đi qua https thì micro mới dùng được.
 - **Khi deploy:** bản xem trước tự nghỉ trong lúc `release.ps1` / `restart-web.ps1` chạy, xong thì tự bật lại. Cache dev nằm ở `runtime\hs-preview\next`. Log ghi ở `runtime\hs-preview.log`.
+
+## Key OpenAI (23/10/2026)
+- `HS_OPENAI_API_KEY` trong `.env.local`: Ghi âm (record/data.ts `C.key`) và Kiểm thử (qa/api.ts) — để xem riêng token của dự án HS trên OpenAI.
+- Soda và Cú vọ (Tài nguyên) dùng `OPENAI_API_KEY` chung của HireX.
+- Soda ↔ Cú vọ: câu hỏi tài nguyên rõ ràng được Cú vọ trả lời thẳng (accountshs/server/soda.ts `sodaFast`, không gọi model Soda); câu trả lời có thẻ kết quả (accountshs/soda-card.tsx) với nút "Mở trong Tài nguyên" → host.tsx chuyển trang, Cú vọ hỏi lại đúng câu (dùng lại cách hiểu đã có, owl.ts `RECENT`), nút "Quay lại Trợ lý".

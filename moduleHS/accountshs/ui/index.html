@@ -7554,4 +7554,42 @@ document.addEventListener('keydown',e=>{CA.lastBtn=null},true);
   /* đang ghi: chặn phím (gõ, Enter, phím tắt) để không ra lệnh chồng; F5 / Ctrl+R vẫn dùng được */
   addEventListener('keydown', e => { if (!BUSY.el) return; if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && /^r$/i.test(e.key))) return; e.preventDefault(); e.stopImmediatePropagation() }, true);
 })();
+
+/* ── 9. Soda (Trợ lý HireX) ↔ Tài nguyên: cùng bộ tra cứu Cú vọ bên dưới.
+      hx: 'owl-show' {spec} — Soda bấm "Xem trên bảng" / trả lời khi đang ở Tài nguyên → lọc bảng ĐÚNG như Cú vọ lọc (đúng tab, phạm vi, owner,
+      đúng các dòng, nạp tab "tải riêng" nếu cần), không mở khung Cú vọ, không hỏi lại AI (chạy lại điều kiện: ai_chat {spec}).
+      hx: 'owl-ask' {text} — dự phòng khi không có điều kiện: mở khung Cú vọ và hỏi câu đó. Chờ dữ liệu sẵn sàng tối đa 30 giây. */
+(function () {
+  const ready = () => typeof S !== 'undefined' && S.accs && S.accs.length && typeof api === 'function' && typeof renderAll === 'function';
+  const wait = async () => { for (let n = 0; n < 150 && !ready(); n++) await new Promise(r => setTimeout(r, 200)); return ready(); };
+  async function show(sp, ids, tabs) {
+    const want = [].concat(sp.tab != null && sp.tab !== 'all' ? [sp.tab] : [], tabs || []).map(Number).filter((x, i, a) => a.indexOf(x) === i && I.tab[x]);
+    for (const t of want) { try { if (typeof lzLoaded === 'function' && !lzLoaded(t)) await lzEnsure(t) } catch (e) { } }
+    try { closeAll() } catch (e) { }
+    S.tab = sp.tab != null && I.tab[sp.tab] ? sp.tab : 'all'; S.ov = false; S.devf = null; S.q = ''; S.st = new Set(); S.tf = new Set(); S.sel.clear(); S.focus = null; setConds([]);
+    const ows = [].concat(sp.owner ?? []).map(i => I.own[i]).filter(Boolean);
+    S.dept = sp.dept != null ? sp.dept : ows.length === 1 ? ows[0].dept_id : 'all'; S.owner = ows.length === 1 ? ows[0].id : null; S.sub = sp.sub !== false; scopeCalc();
+    S.idf = ids ? { tab: S.tab, set: new Set(ids), k: Date.now(), n: ids.length } : null;
+    const s0 = [].concat(sp.sort || [])[0]; if (s0 && s0.field != null && s0.field !== 'inlinks') S.sort[S.tab] = { k: String(s0.field), d: s0.dir === 'desc' ? -1 : 1 }; else delete S.sort[S.tab];
+    S.page = 1; savePref(); navPush(); renderAll();
+  }
+  let seq = 0;
+  addEventListener('message', async e => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.hx === 'owl-show' && e.data.spec && typeof e.data.spec === 'object') {
+      const k = ++seq; if (!(await wait()) || k !== seq) return;
+      let r = null; try { r = await api('ai_chat', { spec: e.data.spec }) } catch (er) { }
+      if (k !== seq) return;
+      const sp = (r && r.spec) || e.data.spec, pv = r && r.preview;
+      show(sp, (r && r.ids) || (pv && pv.ids) || [], r && r.tabs);
+      return;
+    }
+    if (e.data.hx !== 'owl-ask') return;
+    const text = String(e.data.text || '').trim().slice(0, 400); if (!text || !(await wait())) return;
+    const A = window.AIB && window.AIB.state, p = document.getElementById('aip');
+    if (!(A && A.cfg && A.cfg.on && typeof ACT !== 'undefined' && ACT.ai)) return;
+    S.ov = false; if (!(A.open && p && !p.hidden)) ACT.ai();
+    setTimeout(() => ACT.ai_ask({ dataset: { q: text } }), 80);
+  });
+})();
 </script></body></html>

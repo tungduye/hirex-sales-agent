@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { ASSISTANT_TOOLS } from "@/modules/assistant/core/assistant-tools";
 import { parseAnswer, type Inline } from "@/modules/assistant/core/assistant-markdown";
 import type { ActionPreview, CardAction, ChatMessage } from "@/modules/assistant/core/assistant-conversation";
+import { CuvoCards, cuvoAfterAnswer, splitCuvo, stripCuvo } from "../../../../moduleHS/accountshs/soda-card";   // thẻ Cú vọ (Tài nguyên) — moduleHS
 
 const TOOL_LABELS = new Map(ASSISTANT_TOOLS.map((tool) => [tool.name, tool.label]));
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -74,7 +75,7 @@ export function useAssistantChat(options: { pagePath: string; allowDocuments: bo
   const ask = useCallback(async (question: string) => {
     const text = question.trim();
     if (!text || busy) return;
-    const history = messages.filter((message) => !message.error).map(({ role, content }) => ({ role, content: content.slice(0, 8000) })).slice(-40);
+    const history = messages.filter((message) => !message.error).map(({ role, content }) => ({ role, content: stripCuvo(content).slice(0, 8000) })).slice(-40);
     setMessages((current) => [...current, { role: "user", content: text }]);
     setBusy(true);
     try {
@@ -92,6 +93,7 @@ export function useAssistantChat(options: { pagePath: string; allowDocuments: bo
       if (data?.ok && data.answer) {
         const actions = (data.pendingActions ?? []).map((action) => ({ ...action, state: "pending" as const }));
         setMessages((current) => [...current, { role: "assistant", content: data.answer!, toolsUsed: data.toolsUsed ?? [], actions }]);
+        cuvoAfterAnswer(data.answer, !options.pagePath.startsWith("/assistant"));
         if (typeof data.remainingToday === "number") setRemaining(data.remainingToday);
       } else {
         setMessages((current) => [...current, { role: "assistant", content: data?.message ?? "Trợ lý đang không phản hồi. Vui lòng thử lại.", error: true }]);
@@ -150,13 +152,20 @@ export function ChatMessages({ messages, busy, documentsOn, onDecide, onNavigate
       <div key={index} className={cn("whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-blue-600 px-3.5 py-2.5 text-white", large ? "ml-auto w-fit max-w-[85%] text-[15px] leading-6" : "ml-8 text-sm")}>{message.content}</div>
     ) : (
       <div key={index} className={cn(large ? "text-[15px] leading-7" : "mr-4 text-sm leading-6", message.error ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700" : "text-slate-800")}>
-        {message.error ? message.content : <Answer text={message.content} onNavigate={onNavigate} />}
+        {message.error ? message.content : <AnswerCards text={message.content} onNavigate={onNavigate} panel={!large} />}
         {message.actions?.map((action) => <ActionCard key={action.id} action={action} onDecide={onDecide} onNavigate={onNavigate} />)}
         {message.toolsUsed && message.toolsUsed.length > 0 && <p className="mt-2 text-[11px] text-slate-400">Đã tra: {message.toolsUsed.map((name) => TOOL_LABELS.get(name) ?? name).join(" · ")}</p>}
       </div>
     ))}
     {busy && <p className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />Đang tra cứu dữ liệu…{documentsOn ? " (đọc tài liệu có thể mất tới 1 phút)" : ""}</p>}
   </>;
+}
+
+/** Câu trả lời + thẻ Cú vọ đi kèm (nếu có, xem moduleHS/accountshs/soda-card.tsx). */
+function AnswerCards({ text, onNavigate, panel }: { text: string; onNavigate: () => void; panel: boolean }) {
+  const { text: body, cards } = useMemo(() => splitCuvo(text), [text]);
+  // Tra tài nguyên trả lời thẳng (fast): chỉ hiện thẻ kết quả như khung chat Tài nguyên, không lặp lại bằng chữ.
+  return <>{cards.some((c) => c.fast) ? null : <Answer text={body} onNavigate={onNavigate} />}{cards.length > 0 && <CuvoCards cards={cards} panel={panel} />}</>;
 }
 
 export function ActionCard({ action, onDecide, onNavigate }: { action: CardAction; onDecide: (id: string, decision: "confirm" | "cancel", text?: string) => void; onNavigate: () => void }) {

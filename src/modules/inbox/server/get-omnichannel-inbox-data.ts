@@ -17,6 +17,7 @@ import { isAutomatedSender, isGroupConversation, isZaloGroupThread } from "@/mod
 import { ambiguousGroupKeys, groupKeyOf, mergeGroupCopies } from "@/modules/inbox/core/group-merge";
 import { FacebookPageAdapter } from "@/modules/channels/adapters/facebook/facebook-adapter";
 import { resolveScope, scopeAccounts, teamOf } from "@/modules/inbox/core/inbox-scope";
+import { accountsInGroups, cleanGroups } from "@/modules/inbox/core/account-tree";
 
 // Keep the first paint compact. The conversation list is paginated and realtime
 // updates still bring newly active threads to the top.
@@ -25,7 +26,7 @@ const ZALO_HEALTH_REFRESH_MS = 60 * 1000;
 
 interface AccountRow {
   id: unknown; channel_type: unknown; display_name: unknown; status: unknown;
-  operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown; primary_profile_id?: unknown;
+  operator_enabled: unknown; provider_health_status: unknown; provider_health_checked_at: unknown; primary_profile_id?: unknown; market?: unknown;
 }
 interface ConversationRow {
   mention_pending_at?: unknown;
@@ -37,7 +38,7 @@ interface MessageRow {
   received_at: unknown; sent_at: unknown; created_at: unknown;
 }
 interface PreviewRow extends MessageRow { last_inbound_at: unknown }
-interface ProfileRow { id: unknown; full_name: unknown; all_channel_accounts: unknown; manager_id?: unknown }
+interface ProfileRow { id: unknown; full_name: unknown; all_channel_accounts: unknown; manager_id?: unknown; department?: unknown }
 interface ProfileChannelAccessRow { profile_id: unknown; channel_account_id: unknown }
 interface TagRow { id: unknown; name: unknown; color: unknown }
 interface TagLinkRow { conversation_id: unknown; tag_id: unknown }
@@ -46,7 +47,7 @@ interface ActionRow { id: unknown; conversation_id: unknown; text_content: unkno
 const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
   const client = createPrivilegedClient();
   const [{ data: profiles }, { data: tags }, { data: access }, { data: bot }] = await Promise.all([
-    client.from("profiles").select("id,full_name,all_channel_accounts,manager_id").eq("workspace_id", workspaceId).order("full_name"),
+    client.from("profiles").select("id,full_name,all_channel_accounts,manager_id,department").eq("workspace_id", workspaceId).order("full_name"),
     client.from("conversation_tags").select("id,name,color").eq("workspace_id", workspaceId).order("sort_order", { nullsFirst: false }).order("name"),
     client.from("profile_channel_account_access").select("profile_id,channel_account_id").eq("workspace_id", workspaceId),
     client.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", workspaceId).maybeSingle(),
@@ -149,7 +150,7 @@ function healthLabel(row: AccountRow, channelType: ChannelType): string {
 function mapAccount(row: AccountRow): OmnichannelInboxAccount | null {
   if (typeof row.id !== "string" || typeof row.channel_type !== "string" || !CHANNEL_TYPES.includes(row.channel_type as ChannelType) || typeof row.status !== "string" || !CHANNEL_ACCOUNT_STATUSES.includes(row.status as never)) return null;
   const channelType = row.channel_type as ChannelType;
-  return { id: row.id, channelType, displayName: typeof row.display_name === "string" && row.display_name.trim() ? row.display_name : `${channelType} account`, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType), primaryProfileId: typeof row.primary_profile_id === "string" ? row.primary_profile_id : null };
+  return { id: row.id, channelType, displayName: typeof row.display_name === "string" && row.display_name.trim() ? row.display_name : `${channelType} account`, status: row.status as OmnichannelInboxAccount["status"], healthLabel: healthLabel(row, channelType), primaryProfileId: typeof row.primary_profile_id === "string" ? row.primary_profile_id : null, market: typeof row.market === "string" ? row.market : null };
 }
 
 async function refreshStaleBridgeHealth(rows: AccountRow[], workspaceId: string): Promise<void> {
@@ -251,7 +252,7 @@ function parseCursor(value: string | null | undefined): { at: string; id: string
   return match[1] === "-infinity" || Number.isFinite(Date.parse(match[1].replace(" ", "T"))) ? { at: match[1], id: match[2] } : null;
 }
 
-export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; unread?: boolean; cursor?: string; mode?: "list" | "counts" | "ids" | "unread" }): Promise<OmnichannelInboxData> {
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; unread?: boolean; groups?: string[]; cursor?: string; mode?: "list" | "counts" | "ids" | "unread" }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -280,7 +281,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   // Access, members/tags and the accounts are independent: one round trip for all three.
   const [accessibleAccountIds, stableMetadata, { data: allAccountData, error: accountError }] = await Promise.all([
     getAccessibleChannelAccountIds(), loadStableInboxMetadata(accountContext.workspaceId),
-    accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,primary_profile_id")
+    accountClient.from("channel_accounts").select("id,channel_type,display_name,status,operator_enabled,provider_health_status,provider_health_checked_at,primary_profile_id,market")
       .eq("workspace_id", accountContext.workspaceId).is("deleted_at", null).order("channel_type").order("display_name"),
   ]);
   step("access");
@@ -311,6 +312,14 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const requestedAccountIds = new Set((Array.isArray(filters.accountId) ? filters.accountId : [filters.accountId ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter(isUuid).slice(0, 200));
   const selectedAccountIds = accounts.filter((account) => requestedAccountIds.has(account.id) && scopedIds.has(account.id) && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(account.channelType))).map((account) => account.id);
   const selectedAccountId = selectedAccountIds.length ? selectedAccountIds.join(",") : null;
+  // Bộ lọc người: whole branches (Bộ phận / Thị trường / Owner) picked as groups, resolved to the nicks in them now.
+  const departmentOf = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" ? [[row.id, typeof row.department === "string" ? row.department : null] as const] : []));
+  const nameOf = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
+  const treeAccounts = accounts.filter((account) => scopedIds.has(account.id) && (selectedChannelTypes.length === 0 || selectedChannelTypes.includes(account.channelType)))
+    .map((account) => ({ id: account.id, displayName: account.displayName, ownerId: account.primaryProfileId ?? null, ownerName: account.primaryProfileId ? nameOf.get(account.primaryProfileId) ?? null : null,
+      department: account.primaryProfileId ? departmentOf.get(account.primaryProfileId) ?? null : null, market: account.market ?? null }));
+  const selectedGroups = cleanGroups(filters.groups ?? []);
+  const groupAccountIds = accountsInGroups(treeAccounts, selectedGroups);
   // Người phụ trách = người dùng chính of the nick: the owner filter keeps the nicks whose main user is picked.
   // Options: main users of the nicks this member may see, plus the member.
   const nameOfProfile = new Map(((stableMetadata.profiles ?? []) as ProfileRow[]).flatMap((row) => typeof row.id === "string" && typeof row.full_name === "string" ? [[row.id, row.full_name] as const] : []));
@@ -322,7 +331,9 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const ownerAccountIds = selectedOwnerIds.length === 0 ? activeAccountIds
     : activeAccountIds.filter((id) => { const owner = accounts.find((account) => account.id === id)?.primaryProfileId; return Boolean(owner && selectedOwnerIds.includes(owner)); });
 
-  const listAccountIds = selectedAccountIds.length ? selectedAccountIds.filter((id) => ownerAccountIds.includes(id)) : ownerAccountIds;
+  // Picked nicks and branches together; a picked branch with no nick the member may see shows nothing (not everything).
+  const pickedAccountIds = [...new Set([...selectedAccountIds, ...groupAccountIds])];
+  const listAccountIds = pickedAccountIds.length ? pickedAccountIds.filter((id) => ownerAccountIds.includes(id)) : selectedGroups.length ? [] : ownerAccountIds;
   if (filters.mode === "unread") {
     // Unread conversations per account, for the account picker; asked for only when the filter panel opens.
     const { data } = await supabase.rpc("get_inbox_unread_by_account", { p_account_ids: activeAccountIds });
@@ -471,8 +482,9 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   }
   const merged = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   step("merge");
-  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, unreadOnly, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), canDelete: await isWorkspaceAdmin(), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null,
+    ownerDepartment: account.primaryProfileId ? departmentOf.get(account.primaryProfileId) ?? null : null }));
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, unreadOnly, selectedGroups, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), canDelete: await isWorkspaceAdmin(), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

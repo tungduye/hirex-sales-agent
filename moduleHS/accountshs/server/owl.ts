@@ -408,6 +408,8 @@ async function llmPlan(b: Body, c: Cfg, B: R.Brain, d: DS): Promise<R.Plan> {
 /** POST ai_chat {text, engine?: auto|rules|ai, ctx:{selected, spec, reply, learn, sub, rejected}, hist} | {spec, ops?, rows?, cols?} (chạy lại khi bỏ 1 chip) */
 /** Bỏ chữ chỉ chính mục này ("trong tài nguyên", "ở cú vọ", "mục AccountsHS"…): không phải điều kiện lọc
  *  (trước đây "tài nguyên" bị khớp nhầm địa điểm "Thái Nguyên"). Câu chỉ còn lại rỗng thì giữ nguyên. */
+/** Cách hiểu do AI dịch cho câu Soda vừa hỏi (khoá = câu đã bỏ dấu); dùng chung mọi route trong cùng tiến trình (globalThis: dev tách module theo route). */
+const RECENT: Map<string, { pl: R.Plan; src: string; at: number }> = ((globalThis as Record<string, unknown>).__hsOwlRecent ??= new Map()) as Map<string, { pl: R.Plan; src: string; at: number }>;
 const SELF = /(^|[\s,.;:!?])(?:(?:trong|ở|o|tại|tai|bên|ben|của|cua|theo|từ|tu)\s+)?(?:(?:mục|muc|màn|man|phần|phan|trang|bảng|bang|dữ liệu|du lieu)\s+)?(?:tài nguyên|tai nguyen|cú vọ|cu vo|accountshs|accounts hs)(?=$|[\s,.;:!?])/giu;
 function selfStrip(t: string) { const x = t.replace(SELF, "$1").replace(/\s{2,}/g, " ").trim(); return x.length >= 2 ? x : t; }
 async function chat(b: Body): Promise<O> {
@@ -426,7 +428,10 @@ async function chat(b: Body): Promise<O> {
     const crmx = CRM.explain(text, d.meta.fields); if (crmx) return { kind: "say", spec: {}, chips: [], msg: crmx };
     const [sig, slots] = R.signature(text, B), [lsig, lslots] = R.signature(text, B, false);
     let pl: R.Plan | null = null, src: string | null = null, note: string | null = null, rules: R.Plan | null = null, pat: R.Pattern | null = null, aierr: string | null = null;
-    if (mode === "auto") { // tầng 1: mẫu đã được xác nhận (chủ thể động); chữ ký kiểu cũ (owner + giá trị) vẫn dùng được mẫu bản trước
+    const cx = ctx as Record<string, unknown>, rk = Q.fold(text).replace(/\s+/g, " ").trim();
+    const hit = mode === "auto" && !cx.rejected && !cx.reply && !(Array.isArray(cx.selected) && cx.selected.length) ? RECENT.get(rk) : undefined;
+    if (hit && Date.now() - hit.at < 30 * 60e3) { pl = R.jc(hit.pl) as R.Plan; src = hit.src; }   // Soda vừa hỏi đúng câu này → dùng lại cách hiểu
+    if (!pl && mode === "auto") { // tầng 1: mẫu đã được xác nhận (chủ thể động); chữ ký kiểu cũ (owner + giá trị) vẫn dùng được mẫu bản trước
       let ps = await patterns();
       for (const [s, sl] of lsig !== sig ? [[sig, slots], [lsig, lslots]] as const : [[sig, slots]] as const) {
         const r = R.fromPattern(ps, s, sl, B, text);
@@ -454,6 +459,7 @@ async function chat(b: Body): Promise<O> {
         pl = rules; src = "rules"; note = null; // AI lỗi / hết lượt → im lặng dùng luật
       }
     }
+    if (b.soda && src === "ai" && !hit) { RECENT.set(rk, { pl: R.jc(pl) as R.Plan, src, at: Date.now() }); for (const k of [...RECENT.keys()].slice(0, Math.max(0, RECENT.size - 200))) RECENT.delete(k); }
     const inj = R.toggleSub(pl, ctx, text);
     let out = await execute(d, pl, B);
     if (inj) delete pl.spec!.sub; // 'sub' chỉ do công tắc, không phải do câu nói → đừng lưu vào mẫu
@@ -611,7 +617,8 @@ async function rowsRoute(b: Body) {
 async function engineStatus() { const d = DSC; return { fts: "pg", pct: 100, full: true, learned: d ? Object.keys(d.prof.tabs).length : 0, cols: 0, err: "", rows: d?.accs.length ?? 0 }; }
 
 /** Soda (Trợ lý HireX) hỏi về tài nguyên: dùng ĐÚNG bộ hiểu câu của Cú vọ (mẫu đã học → luật → AI, cùng bộ CRM). Chỉ đọc — soda.ts chặn mọi thay đổi. */
-export async function askAccounts(text: string): Promise<O> { return (await chat({ text, ctx: {} })) as O; }
+/** Soda gọi (soda.ts): soda=true → cách hiểu do AI dịch được nhớ 30 phút, Cú vọ trong Tài nguyên hỏi lại đúng câu đó thì dùng luôn (cùng kết quả, không gọi AI lần 2). */
+export async function askAccounts(text: string, soda = false): Promise<O> { return (await chat({ text, ctx: {}, ...(soda ? { soda: true } : {}) })) as O; }
 export const routes: Record<string, [Level, Fn]> = {
   ai_chat: ["view", chat], ai_rows: ["view", rowsRoute], ai_feedback: ["view", feedback],
   ai_apply: ["edit", apply], ai_drop: ["edit", drop],

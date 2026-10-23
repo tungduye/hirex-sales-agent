@@ -11,6 +11,7 @@ import { runAssistantTool } from "@/modules/assistant/server/assistant-tool-runn
 import type { PendingAction } from "@/modules/assistant/server/assistant-proposals";
 import type { GeneratedFile } from "@/modules/documents-out/server/generated-files";
 import { saveAssistantTurn } from "@/modules/assistant/server/assistant-conversations";
+import { cardMarker, sodaFast, takeCard, type CuvoCard } from "../../../../moduleHS/accountshs/server/soda";   // Tài nguyên qua Cú vọ — moduleHS
 
 /** allowDocuments: the admin switched on "Tài liệu" in the panel (consent to send passages to OpenAI). */
 /** save: keep this turn in the member's saved conversations (conversationId continues one). */
@@ -75,12 +76,24 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
     return { ok: false, status: 429, message: `Anh/chị đã dùng hết ${limit} câu hỏi hôm nay. Trợ lý sẽ mở lại vào 0h.` };
   }
 
+  // Câu hỏi tài nguyên rõ ràng (facebook sống của REC, email đã xác minh…): Cú vọ trả lời thẳng — nhanh, không tốn lượt model của Soda.
+  const channel0 = request.source?.channel === "ZALO" ? "ZALO" : "WEB";
+  const fastStarted = Date.now();
+  const fast = await sodaFast(request.question, account.permissions, request.history.length > 0).catch(() => null);
+  if (fast) {
+    const answer = fast.answer + (channel0 === "WEB" ? cardMarker(fast.card) : "");
+    await log({ status: "ANSWERED", tools_used: ["tai_nguyen"], input_tokens: 0, output_tokens: 0, duration_ms: Date.now() - fastStarted });
+    const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer, toolsUsed: ["tai_nguyen"], actionIds: [], isError: false, source: request.source ?? null }) : null;
+    return { ok: true, answer, toolsUsed: ["tai_nguyen"], remainingToday: Math.max(0, limit - usedToday - 1), pendingActions: [], files: [], ...(saved ?? {}) };
+  }
+
   const isAdmin = await isWorkspaceAdmin();
   const canReadDocuments = isAdmin || account.permissions.includes("documents.view");
   const documents = !canReadDocuments ? "none" : request.allowDocuments ? "on" : "off";
   const tools = toolsFor(account.permissions, isAdmin, { documents: documents === "on" });
   const proposals: PendingAction[] = [];
   const files: GeneratedFile[] = [];
+  const cards: CuvoCard[] = [];   // thẻ Cú vọ của công cụ tai_nguyen (chỉ hiện trên web)
   const channel = request.source?.channel === "ZALO" ? "ZALO" as const : "WEB" as const;
   const zaloConversationId = request.source?.channel === "ZALO" ? request.source.sourceConversationId : null;
   const actionContext = { workspaceId, userId: account.userId, permissions: account.permissions, isAdmin, zaloConversationId };
@@ -113,9 +126,10 @@ export async function runAssistantRequest(request: AssistantRequest): Promise<As
           if (!response.ok) throw new Error(`AI_HTTP_${response.status}`);
           return parseModelReply(await response.json());
         },
-        runTool: (tool, args) => runAssistantTool(tool, args, { workspaceId, userId: account.userId, context: actionContext, proposals, files, channel }),
+        runTool: async (tool, args) => { const out = await runAssistantTool(tool, args, { workspaceId, userId: account.userId, context: actionContext, proposals, files, channel }); const card = takeCard(out); if (card) cards.push(card); return out; },
       },
     });
+    if (channel === "WEB" && cards.length) result.answer += cards.slice(0, 3).map(cardMarker).join("");
     await log({ status: "ANSWERED", tools_used: result.toolsUsed, input_tokens: result.inputTokens, output_tokens: result.outputTokens, duration_ms: Date.now() - started });
     const saved = request.save ? await saveAssistantTurn(db, { workspaceId, userId: account.userId, conversationId: request.conversationId ?? null, question: request.question, answer: result.answer, toolsUsed: result.toolsUsed, actionIds: proposals.map((action) => action.id), isError: false, source: request.source ?? null }) : null;
     return { ok: true, answer: result.answer, toolsUsed: result.toolsUsed, remainingToday: Math.max(0, limit - usedToday - 1), pendingActions: proposals, files, ...(saved ?? {}) };

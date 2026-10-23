@@ -17,6 +17,9 @@ export interface OmnichannelInboxAccount {
   unreadCount?: number;
   /** Unread e-mail from robots / the "Khác" folder, not counted in unreadCount. */
   unreadAutomated?: number;
+  /** Thị trường of the nick (IT, IT_JP, OTHER; null = Khác) and Bộ phận of its main user, for the people filter. */
+  market?: string | null;
+  ownerDepartment?: string | null;
 }
 
 export interface OmnichannelInboxConversation {
@@ -93,6 +96,8 @@ export interface OmnichannelInboxData {
   tagMatchMode: "all" | "any";
   /** Phân loại → Chưa đọc. */
   unreadOnly?: boolean;
+  /** Bộ lọc người: picked branches ("d:Rec", "m:Rec|IT_JP", "o:Rec|IT_JP|<owner>"). */
+  selectedGroups?: string[];
   firstMessageFrom: string | null;
   firstMessageTo: string | null;
   /** Quick tab (Tất cả, Chưa trả lời, Giao cho tôi, Nhóm, Khác) and search, both applied in the database. */

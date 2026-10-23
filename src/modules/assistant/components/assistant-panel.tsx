@@ -40,6 +40,8 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
   // Other parts of the app (e.g. the dashboard brief) open the panel with a question.
   const askRef = useRef(ask);
   useEffect(() => { askRef.current = ask; }, [ask]);
+  const loadRef = useRef(chat.load), convRef = useRef(conversationId);
+  useEffect(() => { loadRef.current = chat.load; convRef.current = conversationId; }, [chat.load, conversationId]);
   useEffect(() => {
     function onAsk(event: Event) {
       const question = (event as CustomEvent<{ question?: unknown }>).detail?.question;
@@ -55,11 +57,15 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
       setDraft(text.slice(0, 1000));
       setTimeout(() => inputRef.current?.focus(), 80);
     }
-    const onOpen = () => setOpen(true);
+    // detail.conversationId: mở đúng cuộc trò chuyện (vd từ trang Trợ lý sang Tài nguyên: khung này tiếp tục cuộc trò chuyện đó)
+    const onOpen = (event: Event) => { setOpen(true); const id = (event as CustomEvent<{ conversationId?: unknown }>).detail?.conversationId; if (typeof id === "string" && id && id !== convRef.current) void loadRef.current(id); };
+    // Thẻ Cú vọ bấm "Mở trong Tài nguyên" (moduleHS/accountshs/host.tsx): thu khung lại để thấy bảng; nút "Quay lại Trợ lý" mở lại đúng cuộc trò chuyện này.
+    const onClose = () => setOpen(false);
+    window.addEventListener("hirex:assistant-close", onClose);
     window.addEventListener("hirex:assistant-ask", onAsk);
     window.addEventListener("hirex:assistant-draft", onDraft);
     window.addEventListener("hirex:assistant-open", onOpen);
-    return () => { window.removeEventListener("hirex:assistant-ask", onAsk); window.removeEventListener("hirex:assistant-draft", onDraft); window.removeEventListener("hirex:assistant-open", onOpen); };
+    return () => { window.removeEventListener("hirex:assistant-ask", onAsk); window.removeEventListener("hirex:assistant-draft", onDraft); window.removeEventListener("hirex:assistant-open", onOpen); window.removeEventListener("hirex:assistant-close", onClose); };
   }, []);
 
   function send(text: string) { if (!text.trim() || busy) return; setDraft(""); void ask(text); }
@@ -74,8 +80,8 @@ export function AssistantPanel({ account, workspaceAdmin = false }: { account: A
 
   return (
     <>
-      {/* In Suối Nguồn, Tài khoản and the Trợ lý page the floating button would cover the page: the header "Trợ lý" button opens it there. */}
-      {!open && !pathname.startsWith("/inbox") && pathname !== "/accounts" && !onAssistantPage && (
+      {/* In Suối Nguồn, Tài khoản, Tiện ích and the Trợ lý page the floating button would cover the page: the header "Trợ lý" button opens it there. */}
+      {!open && !pathname.startsWith("/inbox") && pathname !== "/accounts" && pathname !== "/utilities" && !onAssistantPage && (
         <button type="button" onClick={() => setOpen(true)} className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" aria-label="Mở Trợ lý HireX (Ctrl + K)">
           <Sparkles className="size-4 text-blue-300" />Trợ lý<kbd className="hidden rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium sm:inline">Ctrl K</kbd>
         </button>

@@ -1,6 +1,8 @@
-/* Kiểm thử phần mềm (Tiện ích › Kiểm thử) — giao diện: nhập link + yêu cầu (kèm ảnh) → agent tự thao tác trên trình duyệt máy chủ,
-   xem trực tiếp (có thể tự điều khiển khi cần đăng nhập), nhật ký từng bước, báo cáo (tải Word). Vẽ vào khung .hs-rec.hs-qa,
-   dùng chung token / nút / ô nhập của Cuộc họp (meeting.css), bố cục riêng ở qa.css. */
+/* Kiểm thử phần mềm (Tiện ích › Kiểm thử) — giao diện.
+   Mới: dán link + nói muốn test gì (kèm ảnh) → agent tự mở trình duyệt trên máy chủ và làm.
+   Một lượt test: bên trái là trình duyệt TRỰC TIẾP (video từ máy chủ, con trỏ ảo chỉ chỗ agent đang bấm, bấm “Điều khiển” để tự thao tác),
+   bên phải là TRÒ CHUYỆN với agent (nhắn bất cứ lúc nào — kể cả sau khi xong: agent mở lại trình duyệt và làm tiếp), từng bước test hiện ngay trong khung chat.
+   Báo cáo (tải Word) và Nhật ký kỹ thuật ở 2 tab còn lại. Vẽ vào khung .hs-rec.hs-qa; nút / ô nhập / token màu dùng chung meeting.css, bố cục ở qa.css. */
 const API = '/api/hs/qa';
 let ROOT = null, ON = null;
 const IC = {
@@ -8,11 +10,13 @@ const IC = {
   clip: '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>', pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
-  stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>', send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+  stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>', send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   pointer: '<path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/>', download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>', alert: '<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4M12 17h.01"/>',
   minus: '<path d="M5 12h14"/>', loader: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>', flask: '<path d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3"/><path d="M7 15h10"/>',
+  clip2: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+  next: '<path d="m9 6 6 6-6 6"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>', monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
   bug: '<rect x="8" y="6" width="8" height="14" rx="4"/><path d="M12 20v-9M6 13H2M22 13h-4M3 7l3 2M21 7l-3 2M3 19l3-2M21 19l-3-2M9 6l-1-3M15 6l1-3"/>',
@@ -22,10 +26,15 @@ const IC = {
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>', back: '<path d="m15 6-6 6 6 6"/>', scroll: '<path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', kbd: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', note: '<path d="M15 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h6M8 13h8M8 17h5"/>',
-  help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  spark: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', coin: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2 0 0 0-2.5-1.5c-1.4 0-2.5.7-2.5 2s1.1 1.7 2.5 2 2.5.7 2.5 2-1.1 2-2.5 2a2.5 2 0 0 1-2.5-1.5M12 6.5v11"/>',
 };
 const ico = (n, sz = 16, cls = '') => `<svg class="i ${cls}" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sz <= 14 ? 2 : 1.75}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || IC.help}</svg>`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+/** Chữ của agent: **đậm**, `mã`, gạch đầu dòng "- ", xuống dòng. */
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').split('\n').map(l => /^\s*[-•]\s+/.test(l) ? `<span class="li">${l.replace(/^\s*[-•]\s+/, '')}</span>` : l).join('<br>').replace(/<br>(<span class="li">)/g, '$1').replace(/(<\/span>)<br>/g, '$1');
 const $ = s => ROOT?.querySelector(s);
 const pad = n => String(n).padStart(2, '0');
 const hm = t => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -34,205 +43,503 @@ const secs = ms => ms >= 60000 ? `${Math.floor(ms / 60000)}p ${Math.round(ms % 6
 const hostOf = u => { try { return new URL(u).host; } catch { return u || ''; } };
 async function get(a, q = '') { const r = await fetch(`${API}?action=${a}${q}`, { cache: 'no-store' }); const j = await r.json().catch(() => ({})); if (!r.ok || j.ok === false) throw new Error(j.stage || 'Lỗi máy chủ'); return j; }
 async function post(a, body, q = '') { const r = await fetch(`${API}?action=${a}${q}`, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body), headers: body instanceof FormData ? {} : { 'Content-Type': 'application/json' } }); const j = await r.json().catch(() => ({})); if (!r.ok || j.ok === false) throw new Error(j.stage || 'Lỗi máy chủ'); return j; }
-function toast(msg, ok) { let t = $('#qToast'); if (!t) return; const el = document.createElement('div'); el.className = 'toast' + (ok ? ' ok' : ''); el.innerHTML = ico(ok ? 'check' : 'alert', 16) + `<span>${esc(msg)}</span>`; t.append(el); setTimeout(() => el.remove(), 3500); }
+function toast(msg, ok) { const t = $('#qToast'); if (!t) return; const el = document.createElement('div'); el.className = 'toast' + (ok ? ' ok' : ''); el.innerHTML = ico(ok ? 'check' : 'alert', 16) + `<span>${esc(msg)}</span>`; t.append(el); setTimeout(() => el.remove(), 3500); }
 
 /* ================= trạng thái ================= */
-const ST = { runs: [], sel: '', tab: 'live', data: null, imgs: [], login: false, depth: 40, poll: 0, fpoll: 0, frame: -1, ctrl: false, busy: false };
-const LIVE = new Set(['starting', 'running', 'waiting', 'reporting']);
-const STL = { starting: ['warn pulse', 'Đang mở'], running: ['rec pulse', 'Đang test'], waiting: ['warn', 'Chờ bạn'], reporting: ['warn pulse', 'Viết báo cáo'], done: ['ok', 'Xong'], error: ['err', 'Lỗi'] };
-const KIND = { goto: 'globe', click: 'pointer', fill: 'edit', select: 'list', press: 'kbd', hover: 'eye', scroll: 'scroll', back: 'back', wait: 'clock', note: 'note', ask: 'help', finish: 'flask', dialog: 'alert', info: 'image' };
+const ST = { runs: [], sel: '', tab: 'live', data: null, imgs: [], login: false, depth: 'auto', poll: 0, fpoll: 0, frame: -1, ctrl: false, busy: false, stream: null, sending: [], seen: new Set(), curAt: 0, gopen: new Set(), gclose: new Set(), xopen: new Set(), lf: 'all', side: false };
+const LIVE = new Set(['starting', 'running', 'waiting', 'paused', 'reporting', 'idle']);
+const WORKING = new Set(['starting', 'running', 'reporting']);
+/** trạng thái → [chấm, nhãn ngắn] */
+const STL = { starting: ['warn pulse', 'Đang khởi động'], running: ['rec pulse', 'Đang test'], waiting: ['warn pulse', 'Chờ bạn'], paused: ['warn', 'Tạm dừng'], reporting: ['warn pulse', 'Viết báo cáo'], idle: ['ok', 'Sẵn sàng'], done: ['ok', 'Xong'], error: ['err', 'Lỗi'] };
+/** pha đang làm → biểu tượng + kiểu hiệu ứng */
+const PH = { open: ['loader', 'load'], load: ['loader', 'load'], look: ['eye', 'think'], think: ['', 'think'], act: ['pointer', 'act'], wait: ['hand', 'wait'], pause: ['pause', 'wait'], report: ['file', 'think'], idle: ['check', 'idle'] };
+const KIND = { goto: 'globe', click: 'pointer', fill: 'edit', select: 'list', press: 'kbd', hover: 'eye', scroll: 'scroll', back: 'back', wait: 'clock', note: 'note', ask: 'help', finish: 'check', dialog: 'alert', info: 'image' };
 const NOTE = { bug: ['bug', 'Lỗi'], ux: ['layout', 'UX'], perf: ['gauge', 'Tốc độ'], content: ['text', 'Nội dung'], a11y: ['eye', 'Truy cập'], security: ['shield', 'Bảo mật'], ok: ['check', 'Tốt'] };
 const SEV = { cao: 'err', 'trung bình': 'warn', 'thấp': '' };
 const RES = { pass: ['check', 'ok', 'Đạt'], fail: ['x', 'err', 'Lỗi'], warn: ['alert', 'warn', 'Cần xem'], skip: ['minus', '', 'Bỏ qua'] };
+/** thời gian test: [giá trị, nhãn, gợi ý, số bước tối đa] — Tự động: agent tự lập kế hoạch và ước lượng thời gian (≤ 20 phút). */
+const BUDGETS = [['auto', 'Tự động', 'Agent tự lập kế hoạch và ước lượng thời gian', 50], [5, '5 phút', 'Test nhanh luồng chính', 20], [10, '10 phút', 'Test chuẩn', 40], [20, '20 phút', 'Test kỹ, nhiều trường hợp', 70]];
+const EXAMPLES = ['Form đăng nhập: bỏ trống, sai mật khẩu, email sai', 'Trang chủ: link hỏng, tốc độ, bố cục', 'Luồng tạo mới → sửa → tìm kiếm (dữ liệu test)'];
 
 /* ================= khung ================= */
 function render() {
   ROOT.innerHTML = `<div class="q-app"><aside class="q-side">
+    <div class="q-sh">${ico('clip2', 16, 'mut')}<b>Kiểm thử</b><span class="grow"></span><button type="button" class="btn sm" data-a="new" title="Lượt test mới">${ico('plus', 14)}Mới</button></div>
+    <div class="q-hist" id="qHist"></div>
+  </aside><div class="q-scrim" data-a="side"></div><main class="q-main" id="qMain"></main></div><div id="qToast" class="q-toast"></div><div id="qLb" class="q-lb" hidden></div>`;
+  ROOT.onclick = onClick;
+  paintHist(); paintMain();
+}
+
+/* ---------- lượt mới ---------- */
+function newHtml() {
+  return `<button type="button" class="btn ghost icon q-sidebtn q-sidefloat" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-hero"><div class="q-hero-in">
+    <h2>Kiểm thử phần mềm</h2><p class="mut">Dán link, nói muốn test gì. Agent tự thao tác, bạn xem trực tiếp.</p>
     <form class="q-new" id="qNew" autocomplete="off">
-      <label class="q-url">${ico('globe', 16)}<input class="in" id="qUrl" placeholder="Link cần test" inputmode="url" spellcheck="false"></label>
-      <div class="q-goal" id="qGoalBox"><textarea class="in" id="qGoal" rows="4" placeholder="Muốn test gì? Ví dụ: Test form đăng ký — bỏ trống, email sai, mật khẩu yếu, bấm gửi nhiều lần"></textarea><div class="q-thumbs" id="qThumbs"></div></div>
+      <label class="q-url">${ico('globe', 16)}<input class="in" id="qUrl" placeholder="https://… link cần test" inputmode="url" spellcheck="false"></label>
+      <div class="q-goal" id="qGoalBox"><textarea class="in" id="qGoal" rows="3" placeholder="Muốn test gì? (dán ảnh nếu có)"></textarea><div class="q-thumbs" id="qThumbs"></div></div>
       <div class="q-login" id="qLogin" hidden><input class="in sm" id="qUser" placeholder="Tài khoản" autocomplete="off"><input class="in sm" id="qPass" type="password" placeholder="Mật khẩu" autocomplete="new-password"></div>
-      <div class="q-bar"><button type="button" class="btn ghost icon" data-a="pick" title="Đính kèm ảnh (hoặc dán / kéo thả)">${ico('clip', 16)}</button><button type="button" class="btn ghost icon" data-a="login" title="Tài khoản đăng nhập (AI chỉ thấy {{user}} / {{pass}})">${ico('key', 16)}</button>
-        <div class="seg q-depth" title="Số bước tối đa">${[[20, 'Nhanh'], [40, 'Chuẩn'], [70, 'Kỹ']].map(([v, l]) => `<button type="button" data-depth="${v}">${l}</button>`).join('')}</div>
-        <span class="grow"></span><button type="submit" class="btn pri" id="qRun" title="Chạy (Ctrl + Enter)">${ico('play', 15)}Chạy</button></div>
+      <div class="q-bar"><button type="button" class="btn ghost icon" data-a="pick" title="Đính kèm ảnh (hoặc dán / kéo thả)">${ico('clip', 16)}</button><button type="button" class="btn ghost icon" data-a="login" title="Tài khoản đăng nhập (AI chỉ thấy {{user}} / {{pass}}, không lưu)">${ico('key', 16)}</button>
+        <div class="seg q-depth" title="Thời gian test tối đa">${BUDGETS.map(([v, l, t]) => `<button type="button" data-depth="${v}" title="${t}">${l}</button>`).join('')}</div>
+        <span class="grow"></span><button type="submit" class="btn pri" id="qRun" title="Chạy (Ctrl + Enter)">${ico('play', 15)}Bắt đầu</button></div>
       <input type="file" id="qFile" accept="image/png,image/jpeg,image/webp" multiple hidden>
     </form>
-    <div class="q-hh"><b>Lịch sử</b><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="reload" title="Tải lại">${ico('loader', 14)}</button></div>
-    <div class="q-hist" id="qHist"></div>
-  </aside><main class="q-main" id="qMain"></main></div><div id="qToast" class="q-toast"></div><div id="qLb" class="q-lb" hidden></div>`;
-  const f = $('#qNew');
+    <div class="q-ex"><span class="mut">Gợi ý</span>${EXAMPLES.map(t => `<button type="button" class="q-exi" data-ex="${esc(t)}">${ico('arrow', 14)}<span>${esc(t)}</span></button>`).join('')}</div>
+  </div></div>`;
+}
+function bindNew() {
+  const f = $('#qNew'); if (!f) return;
   f.onsubmit = e => { e.preventDefault(); run(); };
   $('#qGoal').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } };
   $('#qGoal').onpaste = e => { const fs = [...(e.clipboardData?.files || [])].filter(x => /^image\//.test(x.type)); if (fs.length) { e.preventDefault(); addImgs(fs); } };
   const box = $('#qGoalBox'); box.ondragover = e => { e.preventDefault(); box.classList.add('drag'); }; box.ondragleave = () => box.classList.remove('drag');
   box.ondrop = e => { e.preventDefault(); box.classList.remove('drag'); addImgs([...(e.dataTransfer?.files || [])].filter(x => /^image\//.test(x.type))); };
   $('#qFile').onchange = e => { addImgs([...e.target.files]); e.target.value = ''; };
-  ROOT.onclick = onClick;
-  paintForm(); paintHist(); paintMain();
+  paintForm(); setTimeout(() => $('#qUrl')?.focus(), 30);
 }
 function paintForm() {
-  ROOT.querySelectorAll('[data-depth]').forEach(b => b.classList.toggle('on', +b.dataset.depth === ST.depth));
+  if (!$('#qNew')) return;
+  ROOT.querySelectorAll('[data-depth]').forEach(b => b.classList.toggle('on', b.dataset.depth === String(ST.depth)));
   $('#qLogin').hidden = !ST.login; ROOT.querySelector('[data-a=login]').classList.toggle('on', ST.login);
   $('#qThumbs').innerHTML = ST.imgs.map((x, i) => `<span class="q-th"><img src="${x.url}" alt=""><button type="button" data-rm="${i}" title="Bỏ ảnh">${ico('x', 12)}</button></span>`).join('');
-  $('#qRun').disabled = ST.busy;
+  $('#qRun').disabled = ST.busy; $('#qRun').innerHTML = ST.busy ? `${ico('loader', 15, 'spin')}Đang mở…` : `${ico('play', 15)}Bắt đầu`;
 }
 function addImgs(fs) {
   for (const f of fs) { if (ST.imgs.length >= 6) { toast('Tối đa 6 ảnh'); break; } if (f.size > 8 * 1048576) { toast('Ảnh tối đa 8 MB'); continue; } ST.imgs.push({ f, url: URL.createObjectURL(f) }); }
   paintForm();
 }
+/** Ảnh đính kèm: thu nhỏ còn ≤ 1600px JPEG trước khi gửi (tải lên nhanh hơn nhiều, AI đọc vẫn rõ, đỡ token). */
+async function shrink(f) {
+  try {
+    const bm = await createImageBitmap(f), k = Math.min(1, 1600 / Math.max(bm.width, bm.height));
+    if (k === 1 && f.size < 600 * 1024) return f;
+    const c = document.createElement('canvas'); c.width = Math.round(bm.width * k); c.height = Math.round(bm.height * k);
+    c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    return blob && blob.size < f.size ? new File([blob], (f.name || 'anh').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : f;
+  } catch { return f; }
+}
+/** Gửi có tiến độ (XHR) để biết đang tải ảnh lên bao nhiêu %. */
+function upload(fd, onp) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(); x.open('POST', `${API}?action=start`); x.timeout = 120000;
+    x.upload.onprogress = e => { if (e.lengthComputable) onp(Math.round(e.loaded / e.total * 100)); };
+    x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch { /* không phải JSON */ } if (x.status >= 400 || j.ok === false) rej(new Error(j.stage || 'Lỗi máy chủ')); else res(j); };
+    x.onerror = () => rej(new Error('Mất kết nối')); x.ontimeout = () => rej(new Error('Máy chủ phản hồi quá lâu'));
+    x.send(fd);
+  });
+}
+/** Màn "đang mở" hiện ngay khi bấm Bắt đầu — không đứng ở form chờ máy chủ. */
+function startingHtml(url, label) {
+  return `<header class="q-rh"><button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b>${esc(hostOf(url))}</b><span><span class="q-pill"><span class="dot warn pulse"></span>Đang khởi động</span></span></div></header>
+    <div class="q-empty"><div class="q-boot">${ico('loader', 18, 'spin')}<span id="qBootT">${esc(label)}</span></div><div class="q-bootbar"><i id="qBootB"></i></div></div>`;
+}
 async function run() {
   const url = $('#qUrl').value.trim(), goal = $('#qGoal').value.trim();
   if (!url) { $('#qUrl').focus(); toast('Nhập link cần test'); return; }
-  const fd = new FormData(); fd.append('url', url); fd.append('goal', goal); fd.append('max_steps', ST.depth);
-  if (ST.login) { fd.append('user', $('#qUser').value); fd.append('pass', $('#qPass').value); }
-  for (const x of ST.imgs) fd.append('img', x.f, x.f.name || 'anh.png');
-  ST.busy = true; paintForm();
-  try { const d = await post('start', fd); ST.imgs = []; $('#qGoal').value = ''; $('#qPass').value = ''; ST.sel = d.id; ST.tab = 'live'; ST.data = null; ST.frame = -1; await loadList(); select(d.id); }
-  catch (e) { toast(e.message); }
-  finally { ST.busy = false; paintForm(); }
+  if (ST.busy) return;
+  const B = BUDGETS.find(x => String(x[0]) === String(ST.depth)) || BUDGETS[0], login = ST.login ? [$('#qUser').value, $('#qPass').value] : null, imgs = ST.imgs.slice();
+  ST.busy = true;
+  const m = $('#qMain'); m.innerHTML = startingHtml(url, imgs.length ? 'Đang chuẩn bị ảnh…' : 'Đang mở trình duyệt…'); m._vid = 'boot';
+  const say = (t, pct) => { const e = $('#qBootT'), bar = $('#qBootB'); if (e) e.textContent = t; if (bar && pct != null) bar.style.width = pct + '%'; };
+  try {
+    const fd = new FormData(); fd.append('url', url); fd.append('goal', goal); fd.append('max_steps', B[3]); fd.append('minutes', B[0]);
+    if (login) { fd.append('user', login[0]); fd.append('pass', login[1]); }
+    for (const x of imgs) { const f = await shrink(x.f); fd.append('img', f, f.name || 'anh.jpg'); }
+    say(imgs.length ? 'Đang tải ảnh lên… 0%' : 'Đang mở trình duyệt…', 5);
+    const d = await upload(fd, p => say(p < 100 ? `Đang tải ảnh lên… ${p}%` : 'Đang mở trình duyệt…', 5 + p * 0.6));
+    say('Đang mở trình duyệt…', 80);
+    ST.imgs = []; ST.login = false; ST.busy = false;
+    loadList(); select(d.id);
+  } catch (e) {
+    ST.busy = false; toast(e.message); m._vid = ''; ST.sel = ''; paintMain();
+    const u = $('#qUrl'), g = $('#qGoal'); if (u) u.value = url; if (g) g.value = goal; paintForm();
+  }
 }
 
 /* ================= lịch sử ================= */
 async function loadList() { try { ST.runs = (await get('list')).runs || []; } catch (e) { toast(e.message); } paintHist(); }
 function paintHist() {
   const el = $('#qHist'); if (!el) return;
-  if (!ST.runs.length) { el.innerHTML = `<div class="q-empty sm">${ico('flask', 22)}<span>Chưa có lượt test</span></div>`; return; }
-  el.innerHTML = ST.runs.map(r => { const [dot, lb] = STL[r.status] || ['', r.status]; return `<button type="button" class="q-hi${r.id === ST.sel ? ' on' : ''}" data-run="${r.id}">
-    <span class="dot ${dot}" title="${lb}"></span><span class="q-hm"><b>${esc(r.title || hostOf(r.url))}</b><span>${esc(hostOf(r.url))} · ${dm(r.created)} ${hm(r.created)}${r.by_name ? ' · ' + esc(r.by_name) : ''}</span></span>
-    ${r.score != null ? `<span class="q-sc ${r.score >= 80 ? 'ok' : r.score >= 55 ? 'warn' : 'err'}">${r.score}</span>` : LIVE.has(r.status) ? `<span class="q-st">${r.step || 0}</span>` : ''}</button>`; }).join('');
+  if (!ST.runs.length) { el.innerHTML = `<div class="q-empty sm"><span>Chưa có lượt test</span></div>`; return; }
+  el.innerHTML = ST.runs.map(r => { const [dot, lb] = STL[r.status] || ['', r.status]; return `<div class="q-hi${r.id === ST.sel ? ' on' : ''}" data-run="${r.id}" data-id="${r.id}" role="button" tabindex="0">
+    <span class="dot ${dot}" title="${lb}"></span><span class="q-hm"><b>${esc(r.title || hostOf(r.url))}</b><span>${esc(hostOf(r.url))} · ${dm(r.created)} ${hm(r.created)}</span></span>
+    ${r.score != null ? `<span class="q-sc ${r.score >= 80 ? 'ok' : r.score >= 55 ? 'warn' : 'err'}">${r.score}</span>` : ''}<button type="button" class="btn ghost icon sm q-hx" data-a="delh" title="Xoá">${ico('trash', 14)}</button></div>`; }).join('');
 }
 
 /* ================= một lượt test ================= */
-function select(id) { ST.sel = id; ST.data = null; ST.frame = -1; ST.ctrl = false; paintHist(); paintMain(); poll(); }
+function select(id) {
+  stopStream(); ST.sel = id; ST.data = null; ST.frame = -1; ST.ctrl = false; ST.sending = []; ST.seen = new Set(); ST.gopen = new Set(); ST.gclose = new Set(); ST.xopen = new Set(); ST.lf = 'all'; ST.side = false; ST.planOpen = null; ST.tab = 'live'; ROOT.querySelector('.q-app')?.classList.remove('side');
+  const m = $('#qMain'); if (m) { m._vid = ''; m._vtab = ''; }
+  paintHist(); paintMain(); poll();
+}
 async function poll() {
   clearTimeout(ST.poll); if (!ST.sel || !ROOT) return;
   const id = ST.sel;
-  try { const d = await get('state', '&id=' + id); if (id !== ST.sel) return; const was = ST.data?.state?.status; ST.data = d; paintMain(); if (was && was !== d.state.status) loadList(); }
-  catch (e) { if (id === ST.sel) { ST.data = { error: e.message }; paintMain(); } return; }
-  if (LIVE.has(ST.data?.state?.status)) ST.poll = setTimeout(poll, 1200);
-}
-function frameLoop() {
-  clearTimeout(ST.fpoll); const img = $('#qFrame'), s = ST.data?.state; if (!img || !s) return;
-  if (s.frame !== ST.frame) { ST.frame = s.frame; const n = new Image(); n.onload = () => { if ($('#qFrame') === img) img.src = n.src; }; n.src = `${API}?action=frame&id=${ST.sel}&f=${s.frame}`; }
-  if (LIVE.has(s.status)) ST.fpoll = setTimeout(frameLoop, 450);
+  try { const d = await get('state', '&id=' + id); if (id !== ST.sel) return; const was = ST.data?.state?.status; ST.data = d; paintMain(); if (was !== d.state.status) loadList(); }
+  catch (e) { if (id === ST.sel) { ST.data = { error: e.message }; paintMain(); } ST.poll = setTimeout(poll, 4000); return; }
+  const s = ST.data.state.status;
+  ST.poll = setTimeout(poll, WORKING.has(s) || s === 'waiting' || ST.sending.length ? 700 : LIVE.has(s) ? 1800 : 6000);
 }
 function paintMain() {
   const m = $('#qMain'); if (!m) return;
-  if (!ST.sel) { m.innerHTML = `<div class="q-empty">${ico('flask', 34)}<div class="q-how">${[['globe', 'Dán link'], ['edit', 'Gõ yêu cầu · kèm ảnh'], ['play', 'Chạy'], ['file', 'Xem báo cáo']].map(([i, t], k) => `<span>${ico(i, 16)}${t}</span>${k < 3 ? ico('arrow', 14, 'mut') : ''}`).join('')}</div></div>`; return; }
+  if (!ST.sel) { if (m._vid !== 'new') { m.innerHTML = newHtml(); m._vid = 'new'; m._vtab = ''; bindNew(); } return; }
   const d = ST.data;
-  if (!d) { m.innerHTML = `<div class="q-empty">${ico('loader', 22, 'spin')}</div>`; return; }
-  if (d.error) { m.innerHTML = `<div class="q-empty">${ico('alert', 22)}<span>${esc(d.error)}</span></div>`; return; }
-  const s = d.state, R = d.report, [dot, lb] = STL[s.status] || ['', s.status], live = LIVE.has(s.status);
-  const head = `<header class="q-rh"><span class="dot ${dot}"></span><div class="q-rt"><b>${esc(R?.title || s.title || hostOf(d.run.url))}</b><span>${esc(lb)} · ${s.step || 0}/${s.max || '–'} bước · ${esc(hostOf(d.run.url))}${s.ended ? ' · ' + secs(s.ended - (s.started || d.run.created)) : ''}</span></div><span class="grow"></span>
-    ${R ? `<span class="q-sc lg ${R.verdict.score >= 80 ? 'ok' : R.verdict.score >= 55 ? 'warn' : 'err'}" title="${esc(R.verdict.status)}">${R.verdict.score}</span>` : ''}
-    ${live && s.status !== 'reporting' ? `<button type="button" class="btn ghost icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển màn hình">${ico('pointer', 16)}</button>${s.status === 'waiting' ? `<button type="button" class="btn pri sm" data-a="go">${ico('play', 14)}Tiếp tục</button>` : `<button type="button" class="btn ghost icon" data-a="pause" title="Tạm dừng">${ico('pause', 16)}</button>`}<button type="button" class="btn ghost icon" data-a="stop" title="Dừng và viết báo cáo">${ico('stop', 16)}</button>` : ''}
-    ${R ? `<a class="btn ghost icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 16)}</a>` : ''}<a class="btn ghost icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 16)}</a><button type="button" class="btn ghost icon" data-a="del" title="Xoá lượt test">${ico('trash', 16)}</button></header>`;
-  const tabs = `<div class="q-tabs">${[['live', 'monitor', 'Trực tiếp'], ['report', 'file', 'Báo cáo'], ['log', 'list', 'Nhật ký']].map(([k, i, l]) => `<button type="button" class="${ST.tab === k ? 'on' : ''}" data-tab="${k}">${ico(i, 15)}${l}${k === 'log' ? `<em>${(s.log || []).length}</em>` : k === 'report' && !R && live ? ico('loader', 12, 'spin') : ''}</button>`).join('')}</div>`;
-  const keep = m.querySelector('.q-body')?.scrollTop || 0, sameTab = m.dataset.tab === ST.tab && m.dataset.id === ST.sel;
-  if (ST.tab === 'live' && sameTab && $('#qFrame')) { m.querySelector('.q-rh').outerHTML = head; m.querySelector('.q-tabs').outerHTML = tabs; paintLiveSide(); frameLoop(); return; }
-  m.innerHTML = head + tabs + `<div class="q-body">${ST.tab === 'live' ? liveHtml() : ST.tab === 'report' ? reportHtml() : logHtml()}</div>`;
-  m.dataset.tab = ST.tab; m.dataset.id = ST.sel;
-  if (sameTab) m.querySelector('.q-body').scrollTop = keep;
-  if (ST.tab === 'live') { bindFrame(); paintLiveSide(); frameLoop(); }
+  if (!d) { m.innerHTML = `<div class="q-empty">${ico('loader', 22, 'spin')}</div>`; m._vid = ''; return; }
+  if (d.error) { m.innerHTML = `<div class="q-empty">${ico('alert', 22)}<span>${esc(d.error)}</span></div>`; m._vid = ''; return; }
+  const same = m._vid === ST.sel && m._vtab === ST.tab;
+  if (!same) {
+    m.innerHTML = `<header class="q-rh" id="qHead"></header><div class="q-tabs" id="qTabs"></div><div class="q-body${ST.tab === 'live' ? ' q-lv' : ''}" id="qBody">${ST.tab === 'live' ? liveHtml() : ''}</div>`;
+    m._vid = ST.sel; m._vtab = ST.tab; ST.seen = new Set();
+    if (ST.tab === 'live') bindLive();
+  }
+  paintHead(); paintTabs();
+  if (ST.tab === 'live') paintLive();
+  else { const b = $('#qBody'), keep = b.scrollTop, html = ST.tab === 'report' ? reportHtml() : logHtml(); if (b._h !== html) { b.innerHTML = html; b._h = html; b.scrollTop = keep; } }
+}
+function paintHead() {
+  const d = ST.data, s = d.state, R = d.report, [dot, lb] = STL[s.status] || ['', s.status], done = !LIVE.has(s.status);
+  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b>${esc(R?.title || s.title || hostOf(d.run.url))}</b><span><span class="q-pill"><span class="dot ${dot}"></span>${esc(lb)}</span><span class="mut">${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}</span></span></div><span class="grow"></span>
+    ${done ? `<button type="button" class="btn sm" data-a="rerun" title="Chạy lại với cùng link và yêu cầu">${ico('play', 14)}Chạy lại</button>` : ''}
+    ${R ? `<a class="btn ghost icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 16)}</a>` : ''}<a class="btn ghost icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 16)}</a><button type="button" class="btn ghost icon" data-a="del" title="Xoá lượt test">${ico('trash', 16)}</button>`;
+  const h = $('#qHead'); if (h._h !== html) { h.innerHTML = html; h._h = html; }
+}
+const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${pad(t % 60)}`; };
+/** Thanh điều khiển của trình duyệt: tiến độ (bước · thời gian / ngân sách) + Tạm dừng / Tiếp tục / Dừng / Điều khiển. */
+function paintCtl() {
+  const s = ST.data.state, st = s.status, el = $('#qCtl'), pr = $('#qProg'); if (!el) return;
+  const round0 = s.roundAt || s.started || Date.now(), budget = s.budgetMs || 0, used = (s.ended || Date.now()) - round0;
+  const stepN = (s.step || 0) - (s.roundStep || 0), stepMax = Math.max(1, (s.max || 40) - (s.roundStep || 0));
+  const working = WORKING.has(st) || st === 'waiting' || st === 'paused';
+  const B = (a, i, l, cls = '') => `<button type="button" class="btn sm ${cls}" data-a="${a}">${ico(i, 14)}${l}</button>`;
+  const btns = st === 'running' || st === 'starting' ? B('pause', 'pause', 'Tạm dừng') + B('stop', 'stop', 'Dừng', 'q-stop') + `<button type="button" class="btn sm icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển (agent tạm dừng)">${ico('hand', 14)}</button>`
+    : st === 'paused' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop') + `<button type="button" class="btn sm icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển">${ico('hand', 14)}</button>`
+    : st === 'waiting' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop')
+    : st === 'idle' ? B('stop', 'x', 'Đóng trình duyệt') : !LIVE.has(st) ? B('rerun', 'play', 'Chạy lại') : '';
+  const meta = working && st !== 'starting' ? `<span class="q-meta num" title="Bước đã chạy / tối đa · thời gian / giới hạn">${stepN}/${stepMax} bước${budget ? ` · ${mmss(used)} / ${mmss(budget)}` : ''}</span>` : '';
+  const html = meta + btns; if (el._h !== html) { el.innerHTML = html; el._h = html; }
+  const pct = working ? Math.min(100, Math.max(stepN / stepMax, budget ? used / budget : 0) * 100) : st === 'reporting' ? 100 : 0;
+  pr.classList.toggle('on', working || st === 'reporting'); pr.classList.toggle('ind', st === 'starting' || st === 'reporting'); pr.firstElementChild.style.width = pct + '%';
+}
+/** Kế hoạch test agent lập lúc đầu (trường hợp + thời gian ước tính); tick dần khi chạy. */
+function paintPlan() {
+  const el = $('#qPlan'), P = ST.data.state.plan; if (!el) return;
+  if (!P || !P.cases?.length) { if (el.innerHTML) { el.innerHTML = ''; el._h = ''; } return; }
+  const n = P.cases.filter(c => c.st === 'done').length, open = ST.planOpen ?? WORKING.has(ST.data.state.status);
+  const IC2 = { done: ['check', 'ok'], doing: ['loader', 'run'], todo: ['minus', ''], skip: ['x', 'skip'] };
+  const html = `<button type="button" class="q-ph${open ? ' on' : ''}" data-a="plan">${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut">${n}/${P.cases.length}${P.minutes ? ` · ~${P.minutes} phút` : ''}</span><span class="q-pbar"><i style="width:${n / P.cases.length * 100}%"></i></span></button>${open ? `<ol class="q-pl">${P.cases.map(c => { const [i, k] = IC2[c.st] || IC2.todo; return `<li class="${k}" title="${esc(c.why || '')}">${ico(i, 13, k === 'run' ? 'spin' : '')}<span>${esc(c.name)}</span></li>`; }).join('')}</ol>` : ''}`;
+  if (el._h !== html) { el.innerHTML = html; el._h = html; }
+}
+function paintTabs() {
+  const s = ST.data.state, R = ST.data.report;
+  $('#qTabs').innerHTML = [['live', 'monitor', 'Trực tiếp'], ['report', 'file', 'Báo cáo'], ['log', 'list', 'Nhật ký']].map(([k, i, l]) => `<button type="button" class="${ST.tab === k ? 'on' : ''}" data-tab="${k}">${ico(i, 15)}${l}${k === 'log' ? `<em>${(s.log || []).length}</em>` : k === 'report' && s.status === 'reporting' ? ico('loader', 12, 'spin') : k === 'report' && R ? `<em class="q-sc ${R.verdict.score >= 80 ? 'ok' : R.verdict.score >= 55 ? 'warn' : 'err'}">${R.verdict.score}</em>` : ''}</button>`).join('');
 }
 
-/* ---------- Trực tiếp ---------- */
+/* ---------- Trực tiếp: trình duyệt + trò chuyện ---------- */
 function liveHtml() {
   const d = ST.data;
-  return `<div class="q-live"><div class="q-browser"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span></div>
-    <div class="q-screen" id="qScreen" tabindex="0"><img id="qFrame" alt="Màn hình trình duyệt kiểm thử" draggable="false"><div class="q-ask" id="qAsk" hidden></div></div></div>
-    <div class="q-side2"><div class="q-now" id="qNow"></div><div class="q-say"><input class="in" id="qSay" placeholder="Nhắn thêm cho agent…"><button type="button" class="btn icon" data-a="say" title="Gửi">${ico('send', 15)}</button></div><div class="q-mini" id="qMini"></div></div></div>`;
+  return `<div class="q-live"><section class="q-browser"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span><span class="q-onair" id="qAir"></span><div class="q-ctl" id="qCtl"></div></div><div class="q-prog" id="qProg"><i></i></div>
+      <div class="q-screen" id="qScreen" tabindex="0"><img id="qFrame" alt="Màn hình trình duyệt kiểm thử" draggable="false"><div class="q-cur" id="qCur" hidden>${ico('pointer', 22)}<i></i></div>
+        <div class="q-phase" id="qPhase" hidden></div><div class="q-take" id="qTake" hidden></div><div class="q-load" id="qLoad">${ico('loader', 18, 'spin')}</div></div></section>
+    <section class="q-chat"><div class="q-plan" id="qPlan"></div><div class="q-feed" id="qFeed"></div><div class="q-typing" id="qTyping" hidden></div><div class="q-quick" id="qQuick"></div>
+      <form class="q-cmp" id="qCmp"><textarea class="in" id="qSay" rows="1" placeholder="Nhắn agent…"></textarea><button type="submit" class="btn pri icon" title="Gửi (Enter)">${ico('send', 16)}</button></form></section></div>`;
 }
-function paintLiveSide() {
-  const d = ST.data, s = d.state, live = LIVE.has(s.status);
-  const a = $('#qAddr'); if (a) a.textContent = s.url || d.run.url;
-  const sc = $('#qScreen'); if (sc) sc.classList.toggle('ctl', ST.ctrl || s.status === 'waiting');
-  const ask = $('#qAsk');
-  if (ask) { ask.hidden = s.status !== 'waiting'; if (s.ask) ask.innerHTML = `${ico(s.ask.kind === 'login' ? 'key' : s.ask.kind === 'pause' ? 'pause' : 'help', 16)}<span>${esc(s.ask.message)}</span><button type="button" class="btn pri sm" data-a="go">${ico('play', 13)}Tiếp tục</button>`; }
-  const now = $('#qNow');
-  if (now) now.innerHTML = live ? `<div class="q-th2">${ico(s.status === 'waiting' ? 'help' : 'loader', 15, s.status === 'waiting' ? '' : 'spin')}<span>${esc(s.status === 'waiting' ? 'Chờ bạn thao tác' : s.thought || STL[s.status]?.[1] || '')}</span></div>${s.case ? `<span class="tag">${esc(s.case)}</span>` : ''}<div class="q-prog"><i style="width:${Math.min(100, Math.round((s.step || 0) / (s.max || 40) * 100))}%"></i></div>`
-    : s.status === 'error' ? `<div class="q-th2 err">${ico('alert', 15)}<span>${esc(s.error || 'Lỗi')}</span></div>` : `<div class="q-th2 ok">${ico('check', 15)}<span>Đã xong — xem Báo cáo</span></div>${s.error ? `<span class="mut">${esc(s.error)}</span>` : ''}`;
-  const mini = $('#qMini'); if (mini) mini.innerHTML = (s.log || []).slice(-8).reverse().map(x => `<div class="q-ml${x.ok ? '' : ' bad'}">${ico(KIND[x.kind] || 'pointer', 14)}<span>${esc(x.label)}</span>${x.ms ? `<em>${secs(x.ms)}</em>` : ''}</div>`).join('') || '<span class="mut">Chưa có bước nào</span>';
-  const say = $('#qSay'); if (say) { say.disabled = !live; say.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); sendSay(); } }; }
-}
-/** Điều khiển tay: bấm / gõ / cuộn trên hình trực tiếp → gửi lệnh cho trình duyệt máy chủ (khi đăng nhập, OTP, hoặc bật Điều khiển). */
-function bindFrame() {
-  const sc = $('#qScreen'), img = $('#qFrame'); if (!sc) return;
-  const can = () => ST.ctrl || ST.data?.state?.status === 'waiting';
-  img.onclick = e => { if (!can()) return; const r = img.getBoundingClientRect(); cmd({ type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); sc.focus(); };
+function bindLive() {
+  const sc = $('#qScreen'), img = $('#qFrame');
+  const can = () => ST.ctrl || ['waiting', 'paused', 'idle'].includes(ST.data?.state?.status);
+  img.onclick = e => { if (!can()) { toast('Bấm biểu tượng bàn tay ở trên để tự điều khiển', 1); return; } const r = img.getBoundingClientRect(); tap((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); cmd({ type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); sc.focus(); };
   let buf = '', tm = 0; const flush = () => { if (buf) { cmd({ type: 'type', text: buf }); buf = ''; } };
   sc.onkeydown = e => {
     if (!can() || e.target !== sc) return;
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { buf += e.key; clearTimeout(tm); tm = setTimeout(flush, 250); e.preventDefault(); return; }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { buf += e.key; clearTimeout(tm); tm = setTimeout(flush, 220); e.preventDefault(); return; }
     const k = { Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Delete: 'Delete' }[e.key];
     if (k) { e.preventDefault(); flush(); cmd({ type: 'key', key: k }); }
   };
   sc.onpaste = e => { if (!can()) return; const t = e.clipboardData?.getData('text'); if (t) { e.preventDefault(); flush(); cmd({ type: 'type', text: t }); } };
-  let wl = 0; sc.onwheel = e => { if (!can()) return; e.preventDefault(); const t = Date.now(); if (t - wl < 160) return; wl = t; cmd({ type: 'scroll', dy: Math.sign(e.deltaY) * 500 }); };
+  let wl = 0; sc.onwheel = e => { if (!can()) return; e.preventDefault(); const t = Date.now(); if (t - wl < 140) return; wl = t; cmd({ type: 'scroll', dy: Math.sign(e.deltaY) * 450 }); };
+  const ta = $('#qSay');
+  ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; };
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendSay(); } };
+  $('#qCmp').onsubmit = e => { e.preventDefault(); sendSay(); };
+  img.onload = () => { $('#qLoad')?.remove(); if (ST.stream) ST.stream.ok = true; };
+  startStream();
 }
+/* Video trực tiếp: <img> nhận luồng MJPEG; 6 giây không có hình (proxy chặn luồng) → đổi sang hỏi từng ảnh. */
+function startStream() {
+  stopStream(); const img = $('#qFrame'), s = ST.data?.state; if (!img || !s) return;
+  const id = ST.sel, live = LIVE.has(s.status);
+  if (!live) { img.src = `${API}?action=frame&id=${id}&f=${s.frame || 0}`; return; }
+  const st = ST.stream = { id, ok: false, poll: false };
+  img.src = `${API}?action=stream&id=${id}&k=${Date.now()}`;
+  img.onerror = () => { if (ST.stream === st && !st.poll) { st.poll = true; framePoll(); } };
+  st.tm = setTimeout(() => { if (ST.stream === st && !st.ok) { st.poll = true; framePoll(); } }, 12000);
+}
+function stopStream() { if (ST.stream) { clearTimeout(ST.stream.tm); ST.stream = null; } clearTimeout(ST.fpoll); const img = $('#qFrame'); if (img && /action=stream/.test(img.src)) img.src = ''; }
+function framePoll() {
+  clearTimeout(ST.fpoll); const img = $('#qFrame'), s = ST.data?.state; if (!img || !s) return;
+  if (s.frame !== ST.frame) { ST.frame = s.frame; const n = new Image(); n.onload = () => { if ($('#qFrame') === img) { img.src = n.src; $('#qLoad')?.remove(); } }; n.src = `${API}?action=frame&id=${ST.sel}&f=${s.frame}`; }
+  if (LIVE.has(s.status)) ST.fpoll = setTimeout(framePoll, 350);
+}
+function paintLive() {
+  const d = ST.data, s = d.state, live = LIVE.has(s.status), ph = s.phase;
+  const a = $('#qAddr'); if (a) a.textContent = s.url || d.run.url;
+  // luồng video: dừng hẳn → hiện ảnh cuối; chạy lại (nhắn sau khi xong) → mở luồng mới
+  const img = $('#qFrame'); if (img) { const streaming = /action=stream/.test(img.src); if (live && !streaming && !ST.stream?.poll) startStream(); else if (!live && (streaming || !img.src || ST.stream)) { stopStream(); img.src = `${API}?action=frame&id=${ST.sel}&f=${s.frame || 0}`; } }
+  if (!live && s.frame) $('#qLoad')?.remove();
+  if (ST.stream?.poll) framePoll();
+  $('#qAir').innerHTML = live ? `<i></i>Live` : 'Ảnh cuối'; $('#qAir').classList.toggle('on', live);
+  const take = ST.ctrl || ['waiting', 'paused'].includes(s.status);
+  $('#qScreen').classList.toggle('q-ctl', take);
+  const tk = $('#qTake'); tk.hidden = !take;
+  if (take) tk.innerHTML = s.status === 'waiting' ? `${ico('hand', 14)}<span>${esc(s.ask?.kind === 'login' ? 'Đăng nhập trên màn hình' : s.ask?.kind === 'otp' ? 'Nhập mã trên màn hình' : 'Agent chờ bạn trả lời')}</span><button type="button" class="btn pri sm" data-a="go">Tiếp tục</button>`
+    : `${ico('hand', 14)}<span>Bạn đang điều khiển</span><button type="button" class="btn sm" data-a="ctrl">Trả lại agent</button>`;
+  // pha đang làm (góc dưới màn hình)
+  const P = $('#qPhase'), showPh = live && ph && !take && s.status !== 'idle';
+  P.hidden = !showPh;
+  if (showPh) { const [i, k] = PH[ph.k] || ['loader', 'load']; const key = ph.k + ph.label; if (P.dataset.k !== key) { P.dataset.k = key; P.className = 'q-phase ' + k; P.innerHTML = `${i ? ico(i, 14, k === 'load' ? 'spin' : '') : '<span class="q-dots"><i></i><i></i><i></i></span>'}<span>${esc(ph.label || '')}</span>`; } }
+  // con trỏ ảo
+  const c = s.cursor, cur = $('#qCur');
+  if (c && c.at !== ST.curAt && live) { ST.curAt = c.at; cur.hidden = false; cur.style.left = c.x * 100 + '%'; cur.style.top = c.y * 100 + '%'; cur.classList.toggle('user', c.k === 'user'); if (c.k === 'click' || c.k === 'user') { cur.classList.remove('tap'); void cur.offsetWidth; cur.classList.add('tap'); } clearTimeout(cur._h); cur._h = setTimeout(() => { cur.hidden = true; }, 4000); }
+  if (!live) cur.hidden = true;
+  paintCtl(); paintPlan(); paintFeed();
+  // dòng "đang làm" cuối khung chat + gợi ý nhanh + ô nhắn
+  const ty = $('#qTyping'), working = WORKING.has(s.status) && !take;
+  ty.hidden = !working;
+  if (working) { const lab = s.status === 'reporting' ? 'Đang viết báo cáo' : s.status === 'starting' ? (ph?.label || 'Đang khởi động') : ph?.k === 'think' ? (s.thought ? 'Đang nghĩ: ' + s.thought : 'Đang suy nghĩ') : (ph?.label || 'Đang làm'); if (ty.dataset.t !== lab) { ty.dataset.t = lab; ty.innerHTML = `<span class="q-dots"><i></i><i></i><i></i></span><span class="q-tl">${esc(lab)}</span>`; } }
+  const q = $('#qQuick'), chips = s.status === 'waiting' ? (s.ask?.kind === 'login' || s.ask?.kind === 'otp' ? [['go', 'Đã xong'], ['say', 'Bỏ qua đăng nhập']] : [['go', 'Tiếp tục']])
+    : s.status === 'idle' || s.status === 'done' ? (d.report ? [['say', 'Test thêm'], ['say', 'Giải thích lỗi nặng nhất'], ['tab', 'Báo cáo']] : [['say', 'Test tiếp']]) : [];
+  const qh = chips.map(([k, t]) => `<button type="button" class="btn sm" data-q="${k}" data-t="${esc(t === 'Test thêm' ? 'Test kỹ thêm các trường hợp còn lại' : t)}">${esc(t)}</button>`).join('');
+  if (q.dataset.h !== qh) { q.dataset.h = qh; q.innerHTML = qh; }
+  const ta = $('#qSay'), ph2 = s.status === 'waiting' ? 'Trả lời agent…' : live ? 'Nhắn agent…' : 'Nhắn để test tiếp…';
+  if (ta.placeholder !== ph2) ta.placeholder = ph2;
+}
+/** Khung chat = tin nhắn (người dùng / agent / hệ thống) + từng bước test, xếp theo thời gian; chỉ thêm phần mới (không vẽ lại cả khung). */
+function feedItems() {
+  const s = ST.data.state, t0 = s.started || ST.data.run.created || 0, out = [];
+  // gọn: tin hệ thống và tin "xong" chỉ giữ cái mới nhất; lời "Em sẽ test N trường hợp" đã có ở khung Kế hoạch
+  const C = (s.chat || []).filter(m => m.kind !== 'plan'), lastSys = C.filter(m => m.who === 'sys').pop(), lastDone = C.filter(m => m.kind === 'done').pop();
+  for (const m of C) if ((m.who !== 'sys' || m === lastSys) && (m.kind !== 'done' || m === lastDone)) out.push({ key: 'c' + m.id, at: m.at, m });
+  for (const x of s.log || []) if (!['note', 'ask'].includes(x.kind)) out.push({ key: 'l' + x.n, at: x.at || t0 + (x.t || 0), x });
+  out.sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1));
+  const cids = new Set((s.chat || []).map(m => m.cid).filter(Boolean));
+  ST.sending = ST.sending.filter(p => !cids.has(p.cid) && Date.now() - p.at < 60000);
+  for (const p of ST.sending) out.push({ key: 'p' + p.cid, at: p.at, m: { who: 'user', text: p.text, pending: true } });
+  return out;
+}
+/** Khung chat gọn như Cú vọ: các bước liền nhau cùng một trường hợp gộp thành 1 dòng (bấm để xem từng bước), phát hiện chỉ hiện tiêu đề. */
+function feedBlocks() {
+  const out = [];
+  for (const it of feedItems()) {
+    if (it.x) { const l = out[out.length - 1], c = it.x.case || ''; if (l && l.g && l.case === c) l.steps.push(it.x); else out.push({ g: true, key: 'g' + it.x.n, case: c, steps: [it.x] }); }
+    else out.push({ key: it.key, m: it.m });
+  }
+  return out;
+}
+const stepHtml = x => `<div class="q-step${x.ok ? '' : ' bad'}"${x.shot ? ` data-shot="${esc(x.shot)}"` : ''}${x.res ? ` title="${esc(x.res)}"` : ''}>${ico(x.ok ? KIND[x.kind] || 'pointer' : 'alert', 14)}<span class="q-sl">${esc(x.label)}</span>${x.ms ? `<em>${secs(x.ms)}</em>` : ''}</div>`;
+function groupHtml(b, live) {
+  const n = b.steps.length, bad = b.steps.filter(x => !x.ok).length, ms = b.steps.reduce((a, x) => a + (x.ms || 0), 0);
+  const open = ST.gopen.has(b.key) || (!ST.gclose.has(b.key) && live);
+  return `<button type="button" class="q-gh${open ? ' on' : ''}" data-g="${b.key}">${ico('next', 14, 'q-chev')}<b>${esc(b.case || 'Thao tác')}</b><span class="q-gm">${n} bước${bad ? ` · <i>${bad} lỗi</i>` : ''}</span>${ms ? `<em>${secs(ms)}</em>` : ''}</button>${open ? `<div class="q-gb">${b.steps.map(stepHtml).join('')}</div>` : ''}`;
+}
+function msgHtml(m, key) {
+  if (m.who === 'user') return `<div class="q-msg u${m.pending ? ' pend' : ''}"><div class="q-bub">${esc(m.text)}</div></div>`;
+  if (m.who === 'sys') return `<div class="q-sys">${esc(m.text)}</div>`;
+  const open = ST.xopen.has(key);
+  if (m.kind === 'note') { const l = (NOTE[m.note] || NOTE.bug)[1]; return `<div class="q-ncard${open ? ' on' : ''}" data-tg="${key}" title="${esc(l)}"><div class="q-nt"><i class="q-sd ${SEV[m.sev] ?? ''}"></i><b>${esc(m.text)}</b><span class="q-sev2 ${SEV[m.sev] ?? ''}">${SEVL[m.sev] || l}</span></div>${open && m.detail ? `<p>${esc(m.detail)}</p>${m.shot ? `<button type="button" class="btn ghost sm" data-shot="${esc(m.shot)}">${ico('image', 14)}Màn hình</button>` : ''}` : ''}</div>`; }
+  if (m.kind === 'done') { const sc = m.score ?? ST.data?.report?.verdict?.score, k = sc >= 80 ? 'ok' : sc >= 55 ? 'warn' : 'err'; return `<div class="q-done"><span class="q-dsc ${k}">${sc ?? '–'}</span><div class="q-dt">${md(String(m.text || '').split('\n')[0].replace(/\*\*/g, '').replace(/^Báo cáo:\s*/, '').replace(/\s*·\s*\d+\/100.*$/, ''))}</div><button type="button" class="btn sm" data-tab="report">Báo cáo</button></div>`; }
+  const long = String(m.text || '').length > 260;
+  return `<div class="q-msg a${m.kind === 'ask' ? ' ask' : ''}"><div class="q-bub${long && !open ? ' clamp' : ''}">${md(m.text)}</div>${long ? `<button type="button" class="q-more" data-tg="${key}">${open ? 'Thu gọn' : 'Xem thêm'}</button>` : ''}</div>`;
+}
+/** Vẽ theo khối có khoá: chỉ khối mới / khối đổi mới vẽ lại (không giật, không mất chỗ đang đọc). */
+function paintFeed() {
+  const f = $('#qFeed'); if (!f) return;
+  const s = ST.data.state, live = WORKING.has(s.status) || s.status === 'waiting', blocks = feedBlocks();
+  const lastG = blocks.map(b => !!b.g).lastIndexOf(true), first = !f.children.length, atEnd = f.scrollHeight - f.scrollTop - f.clientHeight < 90;
+  const have = new Map([...f.children].map(el => [el.dataset.key, el])); let prev = null;
+  blocks.forEach((b, i) => {
+    const h = b.g ? groupHtml(b, live && i === lastG) : msgHtml(b.m, b.key);
+    let el = have.get(b.key);
+    if (!el) { el = document.createElement('div'); el.dataset.key = b.key; el.className = 'q-blk'; el.innerHTML = h; el._h = h; if (!first) fresh(el, b); }
+    else if (el._h !== h) { el.innerHTML = h; el._h = h; }
+    have.delete(b.key);
+    const pos = prev ? prev.nextSibling : f.firstChild; if (el !== pos) f.insertBefore(el, pos); prev = el;
+  });
+  for (const el of have.values()) el.remove();
+  if (first || atEnd) f.scrollTop = f.scrollHeight;
+}
+/** Khối mới xuất hiện: tin của agent gõ ra từng chữ (như Gemini, ≤ 0.7 giây); kết quả cuối bật nhẹ; còn lại hiện thẳng — không hiệu ứng thừa. */
+function fresh(el, b) {
+  if (b.g || !b.m) return;
+  if (b.m.kind === 'done') { el.classList.add('q-pop'); return; }
+  if (b.m.who !== 'agent' || b.m.kind === 'note') { if (b.m.who === 'user') el.classList.add('q-fade'); return; }
+  const bub = el.querySelector('.q-bub'); if (!bub) return;
+  const nodes = [], w = document.createTreeWalker(bub, NodeFilter.SHOW_TEXT); while (w.nextNode()) nodes.push([w.currentNode, w.currentNode.data]);
+  const total = nodes.reduce((a, [, t]) => a + t.length, 0); if (!total) return;
+  for (const [n] of nodes) n.data = '';
+  const dur = Math.min(700, total * 14), t0 = performance.now();
+  const step = now => { let k = Math.ceil(total * Math.min(1, (now - t0) / dur)); for (const [n, t] of nodes) { const c = Math.min(t.length, k); n.data = t.slice(0, c); k -= c; } if (now - t0 < dur) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+function toggleFeed(set, key) { if (set === 'g') { const was = ST.gopen.has(key) || (!ST.gclose.has(key) && $(`[data-g="${key}"]`)?.classList.contains('on')); if (was) { ST.gopen.delete(key); ST.gclose.add(key); } else { ST.gclose.delete(key); ST.gopen.add(key); } } else { if (ST.xopen.has(key)) ST.xopen.delete(key); else ST.xopen.add(key); } paintFeed(); }
+function tap(x, y) { const cur = $('#qCur'); if (!cur) return; cur.hidden = false; cur.classList.add('user'); cur.style.left = x * 100 + '%'; cur.style.top = y * 100 + '%'; cur.classList.remove('tap'); void cur.offsetWidth; cur.classList.add('tap'); clearTimeout(cur._h); cur._h = setTimeout(() => { cur.hidden = true; }, 2500); }
 const cmd = c => post('cmd', c, '&id=' + ST.sel).catch(e => toast(e.message));
-function sendSay() { const i = $('#qSay'), t = i?.value.trim(); if (!t) return; cmd({ type: ST.data?.state?.status === 'waiting' ? 'answer' : 'say', text: t }); i.value = ''; toast('Đã gửi cho agent', 1); }
+async function sendSay(text) {
+  const ta = $('#qSay'), t = (text ?? ta?.value ?? '').trim(); if (!t || !ST.sel) return;
+  const cid = Math.random().toString(36).slice(2, 10);
+  ST.sending.push({ cid, text: t, at: Date.now() }); if (text == null && ta) { ta.value = ''; ta.style.height = 'auto'; }
+  paintFeed();
+  try { const r = await post('say', { text: t, cid }, '&id=' + ST.sel); if (r.resumed) toast('Đang mở lại trình duyệt để làm tiếp', 1); }
+  catch (e) { ST.sending = ST.sending.filter(p => p.cid !== cid); paintFeed(); toast(e.message); if (ta && !ta.value) ta.value = t; }
+  clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300);
+}
 
 /* ---------- Báo cáo ---------- */
-function ring(v) { const c = 2 * Math.PI * 26, k = v >= 80 ? 'ok' : v >= 55 ? 'warn' : 'err'; return `<svg class="q-ring ${k}" width="68" height="68" viewBox="0 0 64 64" aria-label="${v}/100"><circle cx="32" cy="32" r="26" class="bg"/><circle cx="32" cy="32" r="26" class="fg" stroke-dasharray="${c * v / 100} ${c}" transform="rotate(-90 32 32)"/><text x="32" y="37" text-anchor="middle">${v}</text></svg>`; }
-function metrics(s) {
-  const M = s.metrics || {}, navs = M.navs || [], avg = k => navs.length ? Math.round(navs.reduce((a, x) => a + (x[k] || 0), 0) / navs.length) : 0, mx = k => Math.max(0, ...navs.map(x => x[k] || 0));
-  const c = (i, l, v, bad) => `<div class="q-mt${bad ? ' bad' : ''}">${ico(i, 14)}<span>${l}</span><b>${v}</b></div>`;
-  return `<div class="q-mts">${c('clock', 'Phản hồi đầu', avg('ttfb') ? avg('ttfb') + ' ms' : '–', avg('ttfb') > 800)}${c('gauge', 'Hiển thị chính (LCP)', mx('lcp') ? (mx('lcp') / 1000).toFixed(1) + ' s' : '–', mx('lcp') > 2500)}${c('layout', 'Xô lệch (CLS)', navs.length ? Math.max(...navs.map(x => x.cls || 0)).toFixed(2) : '–', Math.max(0, ...navs.map(x => x.cls || 0)) > 0.1)}${c('monitor', 'Tải xong', mx('load') ? (mx('load') / 1000).toFixed(1) + ' s' : '–', mx('load') > 4000)}${c('list', 'Request', M.requests || 0)}${c('clock', 'Request chậm', (M.slow || []).length, (M.slow || []).length > 3)}${c('bug', 'Lỗi JS / console', (M.console || []).length + (M.pageerror || []).length, (M.pageerror || []).length > 0)}${c('alert', 'HTTP lỗi', (M.http || []).length + (M.failed || []).length, (M.http || []).some(x => x.status >= 500))}</div>`;
+/* ---------- Báo cáo ---------- */
+const USD_VND = 26000;   // tỷ giá ước tính để quy đổi chi phí AI
+const vnd = n => (Math.round(n * USD_VND / 100) * 100).toLocaleString('vi-VN') + ' ₫';
+const sevRank = { cao: 0, 'trung bình': 1, 'thấp': 2 };
+const SEVL = { cao: 'Cao', 'trung bình': 'Vừa', 'thấp': 'Thấp' };
+const kpi = (l, v, sub, cls = '') => `<div class="q-kpi ${cls}"><span>${l}</span><b>${v}</b>${sub ? `<em>${sub}</em>` : ''}</div>`;
+const sec = (t, body, n, extra = '') => body ? `<section class="q-sec"><h3>${t}${n != null ? `<em>${n}</em>` : ''}<span class="grow"></span>${extra}</h3>${body}</section>` : '';
+function speed(s) {
+  const navs = s.metrics?.navs || [], M = s.metrics || {}, mx = k => Math.max(0, ...navs.map(x => x[k] || 0)), avg = k => navs.length ? Math.round(navs.reduce((a, x) => a + (x[k] || 0), 0) / navs.length) : 0;
+  const v = (n, unit, bad) => n ? `<b class="${bad ? 'bad' : ''}">${unit === 's' ? (n / 1000).toFixed(1) : n}<i>${unit}</i></b>` : '<b class="mut">–</b>';
+  const t = (l, x) => `<div class="q-sp"><span>${l}</span>${x}</div>`;
+  return `<div class="q-sps">${t('Phản hồi đầu', v(avg('ttfb'), 'ms', avg('ttfb') > 800))}${t('Hiển thị chính', v(mx('lcp'), 's', mx('lcp') > 2500))}${t('Tải xong', v(mx('load'), 's', mx('load') > 4000))}${t('Xô lệch', `<b class="${Math.max(0, ...navs.map(x => x.cls || 0)) > 0.1 ? 'bad' : ''}">${navs.length ? Math.max(...navs.map(x => x.cls || 0)).toFixed(2) : '–'}</b>`)}${t('Request chậm', `<b class="${(M.slow || []).length > 3 ? 'bad' : ''}">${(M.slow || []).length}<i>/ ${M.requests || 0}</i></b>`)}${t('Lỗi JS · HTTP', `<b class="${(M.pageerror || []).length || (M.http || []).some(x => x.status >= 500) ? 'bad' : ''}">${(M.console || []).length + (M.pageerror || []).length}<i>·</i>${(M.http || []).length + (M.failed || []).length}</b>`)}</div>`;
+}
+function costHtml(s) {
+  const U = s.usage; if (!U || !U.calls) return '';
+  const by = Object.entries(U.by || {}), rows = by.length ? by : [['—', U]];
+  return `<table class="q-tb q-cost"><thead><tr><th>Model</th><th class="r">Lượt gọi</th><th class="r">Token vào</th><th class="r">Đã cache</th><th class="r">Token ra</th><th class="r">USD</th><th class="r">≈ VNĐ</th></tr></thead><tbody>${rows.map(([m, x]) => `<tr><td>${esc(m)}${x.role ? ` <span class="mut">· ${esc(x.role)}</span>` : ''}</td><td class="r num">${x.calls}</td><td class="r num">${(x.in || 0).toLocaleString('vi-VN')}</td><td class="r num mut">${(x.cached || 0).toLocaleString('vi-VN')}</td><td class="r num">${(x.out || 0).toLocaleString('vi-VN')}</td><td class="r num">$${(x.usd || 0).toFixed(4)}</td><td class="r num">${vnd(x.usd || 0)}</td></tr>`).join('')}${by.length > 1 ? `<tr class="tot"><td>Tổng</td><td class="r num">${U.calls}</td><td class="r num">${U.in.toLocaleString('vi-VN')}</td><td class="r num mut">${U.cached.toLocaleString('vi-VN')}</td><td class="r num">${U.out.toLocaleString('vi-VN')}</td><td class="r num">$${U.usd.toFixed(4)}</td><td class="r num">${vnd(U.usd)}</td></tr>` : ''}</tbody></table><p class="q-note">Giá ước tính theo bảng giá OpenAI, quy đổi ${USD_VND.toLocaleString('vi-VN')} ₫ / USD. Dùng key riêng của dự án HS.</p>`;
+}
+function issueRow(x) {
+  const l = (NOTE[x.type] || NOTE.bug)[1];
+  return `<div class="q-is"><span class="q-sev ${SEV[x.severity] ?? ''}">${SEVL[x.severity] || ''}</span><div class="q-ib"><div class="q-it"><b>${esc(x.title)}</b><span class="mut">${l}</span></div>${x.evidence || x.detail ? `<p class="mut">${esc(x.evidence || x.detail)}</p>` : ''}${x.fix ? `<p class="q-fix">${esc(x.fix)}</p>` : ''}</div>${x.shot ? `<button type="button" class="btn ghost icon sm" data-shot="${esc(x.shot)}" title="Xem màn hình">${ico('image', 14)}</button>` : ''}</div>`;
 }
 function reportHtml() {
   const d = ST.data, R = d.report, s = d.state;
-  if (!R) return LIVE.has(s.status) ? `<div class="q-empty">${ico('loader', 22, 'spin')}<span>Báo cáo có khi test xong</span></div>${notesHtml(s)}` : `<div class="q-empty">${ico('alert', 22)}<span>${esc(s.error || 'Chưa có báo cáo')}</span></div>${notesHtml(s)}`;
-  const sec = (i, t, body, n) => body ? `<section class="q-sec"><h3>${ico(i, 16)}${t}${n != null ? `<em>${n}</em>` : ''}</h3>${body}</section>` : '';
-  const pass = R.cases.filter(c => c.result === 'pass').length;
+  if (!R) return `<div class="q-rep">${s.status === 'reporting' ? `<div class="q-wait">${ico('loader', 16, 'spin')}<span>Đang viết báo cáo</span></div><div class="q-skel"><i></i><i></i><i></i></div>` : `<div class="q-empty sm"><span>${esc(LIVE.has(s.status) ? 'Báo cáo có khi test xong' : s.error || 'Chưa có báo cáo')}</span></div>`}${notesHtml(s)}</div>`;
+  const v = R.verdict, k = v.score >= 80 ? 'ok' : v.score >= 55 ? 'warn' : 'err';
+  const pass = R.cases.filter(c => c.result === 'pass').length, fail = R.cases.filter(c => c.result === 'fail').length, hi = R.issues.filter(x => x.severity === 'cao').length;
+  const iss = [...R.issues].sort((a, b) => (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3));
+  const dur = (s.ended || Date.now()) - (s.started || d.run.created);
   return `<div class="q-rep">
-    <div class="q-verdict">${ring(R.verdict.score)}<div><b class="q-vs ${R.verdict.score >= 80 ? 'ok' : R.verdict.score >= 55 ? 'warn' : 'err'}">${esc(R.verdict.status)}</b><p>${esc(R.verdict.summary)}</p><div class="q-chips"><span class="tag">${ico('check', 12)}${pass}/${R.cases.length} trường hợp đạt</span><span class="tag">${ico('bug', 12)}${R.issues.length} vấn đề</span><span class="tag">${ico('pointer', 12)}${s.step} bước</span></div></div></div>
-    ${sec('flask', 'Chức năng', `<p class="q-feat">${esc(R.feature)}</p><ol class="q-mech">${R.mechanism.map(x => `<li>${esc(x)}</li>`).join('')}</ol>`)}
-    ${sec('list', 'Trường hợp kiểm thử', R.cases.length ? `<table class="q-tb"><thead><tr><th></th><th>Trường hợp</th><th>Các bước</th><th>Mong đợi</th><th>Thực tế</th></tr></thead><tbody>${R.cases.map(c => { const [i, k, l] = RES[c.result] || RES.skip; return `<tr><td><span class="q-res ${k}" title="${l}">${ico(i, 13)}</span></td><td><b>${esc(c.name)}</b></td><td class="mut">${esc(c.steps)}</td><td>${esc(c.expected)}</td><td>${esc(c.actual)}</td></tr>`; }).join('')}</tbody></table>` : '', R.cases.length)}
-    ${sec('bug', 'Lỗi & điểm cần cải thiện', R.issues.length ? `<div class="q-iss">${R.issues.map(x => { const [i, l] = NOTE[x.type] || NOTE.bug; return `<div class="q-is"><span class="dot ${SEV[x.severity] ?? ''}" title="Mức ${esc(x.severity)}"></span><div><div class="q-it"><span class="tag">${ico(i, 12)}${l}</span><b>${esc(x.title)}</b></div><p class="mut">${esc(x.evidence)}</p><p class="q-fix">${ico('arrow', 13)}${esc(x.fix)}</p></div></div>`; }).join('')}</div>` : '', R.issues.length)}
-    ${sec('gauge', 'Tốc độ & kỹ thuật', `${metrics(s)}<p>${esc(R.perf.summary)}</p>${R.perf.items.length ? `<ul class="q-ul">${R.perf.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${R.tech.length ? `<div class="q-tech">${R.tech.map(t => `<div><span>${esc(t.problem)}</span>${ico('arrow', 13)}<b>${esc(t.suggest)}</b></div>`).join('')}</div>` : ''}`)}
-    ${sec('star', 'Nên test thêm', R.next.length ? `<ul class="q-ul">${R.next.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '')}
-    <div class="q-foot"><a class="btn pri" href="${API}?action=docx&id=${ST.sel}">${ico('download', 15)}Tải báo cáo Word</a></div></div>`;
+    <section class="q-sum"><div class="q-sc2 ${k}"><b>${v.score}</b><span>/100</span></div><div class="q-sumt"><b class="${k}">${esc(v.status)}</b><p>${esc(v.summary)}</p></div><a class="btn" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 14)}Word</a></section>
+    <div class="q-kpis">${kpi('Trường hợp đạt', `${pass}<i>/ ${R.cases.length}</i>`, fail ? `${fail} lỗi` : '', fail ? 'bad' : '')}${kpi('Vấn đề', R.issues.length, hi ? `${hi} mức cao` : '', hi ? 'bad' : '')}${kpi('Số bước', s.step || 0)}${kpi('Thời gian', secs(dur))}</div>
+    ${sec('Vấn đề cần xử lý', iss.length ? `<div class="q-iss">${iss.map(issueRow).join('')}</div>` : '<p class="mut">Không thấy vấn đề.</p>', iss.length)}
+    ${sec('Trường hợp kiểm thử', R.cases.length ? `<table class="q-tb q-cases"><thead><tr><th>Kết quả</th><th>Trường hợp</th><th>Các bước</th><th>Mong đợi</th><th>Thực tế</th></tr></thead><tbody>${R.cases.map(c => { const [, kk, l] = RES[c.result] || RES.skip; return `<tr><td><span class="q-res ${kk}"><i></i>${l}</span></td><td><b>${esc(c.name)}</b></td><td class="mut">${esc(c.steps)}</td><td>${esc(c.expected)}</td><td>${esc(c.actual)}</td></tr>`; }).join('')}</tbody></table>` : '', R.cases.length)}
+    ${sec('Tốc độ', `${speed(s)}${R.perf.summary ? `<p>${esc(R.perf.summary)}</p>` : ''}${R.perf.items.length ? `<ul class="q-ul">${R.perf.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`)}
+    ${sec('Đề xuất kỹ thuật', R.tech.length ? `<table class="q-tb q-tech"><thead><tr><th>Vấn đề</th><th>Nên làm</th></tr></thead><tbody>${R.tech.map(t => `<tr><td class="mut">${esc(t.problem)}</td><td>${esc(t.suggest)}</td></tr>`).join('')}</tbody></table>` : '', R.tech.length)}
+    ${sec('Chức năng', `<p>${esc(R.feature)}</p><ol class="q-mech">${R.mechanism.map(x => `<li>${esc(x)}</li>`).join('')}</ol>`)}
+    ${sec('Nên test thêm', R.next.length ? `<div class="q-next">${R.next.map(x => `<button type="button" class="q-nx" data-more="${esc(x)}" title="Nhờ agent test ngay">${ico('play', 14)}<span>${esc(x)}</span></button>`).join('')}</div>` : '', R.next.length)}
+    ${sec('Chi phí AI', costHtml(s))}
+  </div>`;
 }
-function notesHtml(s) { const n = s.notes || []; return n.length ? `<div class="q-rep"><section class="q-sec"><h3>${ico('note', 16)}Phát hiện trong lúc test<em>${n.length}</em></h3><div class="q-iss">${n.map(x => `<div class="q-is"><span class="dot ${SEV[x.severity] ?? ''}"></span><div><div class="q-it"><span class="tag">${ico((NOTE[x.type] || NOTE.bug)[0], 12)}${(NOTE[x.type] || NOTE.bug)[1]}</span><b>${esc(x.title)}</b></div><p class="mut">${esc(x.detail)}</p></div></div>`).join('')}</div></section></div>` : ''; }
+function notesHtml(s) { const n = s.notes || []; return n.length ? sec('Phát hiện trong lúc test', `<div class="q-iss">${n.map(issueRow).join('')}</div>`, n.length) : ''; }
 
 /* ---------- Nhật ký ---------- */
 function logHtml() {
-  const s = ST.data.state, L = s.log || [], M = s.metrics || {};
-  const rows = L.map(x => `<tr class="${x.ok ? '' : 'bad'}${x.kind === 'note' ? ' nt' : ''}" ${x.shot ? `data-shot="${esc(x.shot)}"` : ''}><td class="num mut">${x.n}</td><td class="num mut">${secs(x.t)}</td><td><span class="q-k">${ico(KIND[x.kind] || 'pointer', 14)}</span></td><td><b>${esc(x.label)}</b>${x.res ? `<div class="mut">${esc(x.res)}</div>` : ''}</td><td>${x.case ? `<span class="tag">${esc(x.case)}</span>` : ''}</td><td class="num">${x.ms ? secs(x.ms) : ''}</td><td>${x.shot ? ico('image', 14, 'mut') : ''}</td></tr>`).join('');
-  const tech = (t, a, f) => a?.length ? `<details class="q-det"><summary>${t}<em>${a.length}</em></summary><ul>${a.slice(-30).map(f).join('')}</ul></details>` : '';
-  return `<table class="q-tb q-log"><thead><tr><th>#</th><th>Lúc</th><th></th><th>Thao tác · kết quả</th><th>Trường hợp</th><th>Mất</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="mut">Chưa có bước nào</td></tr>'}</tbody></table>
-    <div class="q-techs">${tech('Lỗi JavaScript', M.pageerror, x => `<li>${esc(x.text)}</li>`)}${tech('Lỗi console', M.console, x => `<li>${esc(x.text)}</li>`)}${tech('HTTP lỗi', M.http, x => `<li><b>${x.status}</b> ${esc(x.method)} ${esc(x.url)}</li>`)}${tech('Request hỏng', M.failed, x => `<li>${esc(x.err)} · ${esc(x.url)}</li>`)}${tech('Request chậm (> 1,5 s)', M.slow, x => `<li><b>${secs(x.ms)}</b> ${esc(x.method)} ${esc(x.url)}</li>`)}${tech('Tốc độ từng trang', M.navs, x => `<li>${esc(x.url)} · phản hồi ${x.ttfb} ms · DOM ${x.dcl} ms · tải ${x.load} ms · LCP ${x.lcp} ms · CLS ${x.cls} · ${x.size} KB</li>`)}</div>`;
+  const s = ST.data.state, L = (s.log || []).filter(x => x.kind !== 'info' || x.shot), M = s.metrics || {};
+  const nBad = L.filter(x => !x.ok).length, nNote = L.filter(x => x.kind === 'note').length;
+  const rows = L.filter(x => ST.lf === 'bad' ? !x.ok : ST.lf === 'note' ? x.kind === 'note' : true);
+  const MINOR = new Set(['scroll', 'wait', 'hover', 'press', 'back', 'dialog']);
+  const tidy = r => String(r || '').replace(/\s*Xong sau [\d.,]+ giây\.?/g, '').replace(/Không thấy thay đổi chữ trên trang\.\s*/g, '').replace(/^Hiện thêm: /, '').trim();
+  let pc = null; const body = rows.map(x => {
+    const head = (x.case || '') !== pc ? `<div class="q-lh">${esc(x.case || 'Khác')}</div>` : ''; pc = x.case || '';
+    const res = tidy(x.res), slow = x.ms > 2000, t = x.ms >= 1000 ? `<span class="q-lt num${slow ? ' slow' : ''}" title="${slow ? 'Chậm — ' : ''}mất ${secs(x.ms)}">${secs(x.ms)}</span>` : '<span class="q-lt"></span>';
+    if (MINOR.has(x.kind) && x.ok) return head + `<div class="q-lr minor">${ico(KIND[x.kind] || 'pointer', 14)}<span class="q-lm">${esc(x.label)}</span>${t}</div>`;
+    return head + `<div class="q-lr${x.ok ? '' : ' bad'}${x.kind === 'note' ? ' nt' : ''}">
+      ${x.shot ? `<button type="button" class="q-thumb" data-shot="${esc(x.shot)}" title="Xem màn hình"><img loading="lazy" decoding="async" src="${imgUrl(x.shot)}" alt=""></button>` : `<span class="q-k">${ico(KIND[x.kind] || 'pointer', 16)}</span>`}
+      <div class="q-lm"><b>${esc(x.label)}</b>${res ? `<p>${esc(res)}</p>` : ''}</div>${t}</div>`;
+  }).join('');
+  const tech = (t, a, f) => a?.length ? `<details class="q-det"><summary>${ico('next', 14, 'q-chev')}${t}<em>${a.length}</em></summary><ul>${a.slice(-30).map(f).join('')}</ul></details>` : '';
+  const seg = [['all', 'Tất cả', L.length], ['bad', 'Lỗi', nBad], ['note', 'Phát hiện', nNote]].map(([k, l, n]) => `<button type="button" class="${ST.lf === k ? 'on' : ''}" data-lf="${k}">${l}<em>${n}</em></button>`).join('');
+  const techs = tech('Lỗi JavaScript', M.pageerror, x => `<li>${esc(x.text)}</li>`) + tech('Lỗi console', M.console, x => `<li>${esc(x.text)}</li>`) + tech('HTTP lỗi', M.http, x => `<li><b>${x.status}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Request hỏng', M.failed, x => `<li>${esc(x.err)} · ${esc(x.url)}</li>`) + tech('Request chậm (> 1,5 s)', M.slow, x => `<li><b>${secs(x.ms)}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Tốc độ từng trang', M.navs, x => `<li>${esc(x.url)} · phản hồi ${x.ttfb} ms · DOM ${x.dcl} ms · tải ${x.load} ms · LCP ${x.lcp} ms · CLS ${x.cls} · ${x.size_kb ?? x.size ?? 0} KB</li>`);
+  return `<div class="q-logw"><div class="q-lbar"><div class="seg">${seg}</div></div><div class="q-ll">${body || `<div class="q-empty sm"><span>Không có bước nào</span></div>`}</div>${techs ? `<div class="q-techs"><div class="q-lh">Kỹ thuật</div>${techs}</div>` : ''}</div>`;
 }
-function lightbox(name) { const lb = $('#qLb'); lb.innerHTML = `<img src="${API}?action=img&id=${ST.sel}&n=${encodeURIComponent(name)}" alt=""><button type="button" class="btn icon" data-a="lbx" title="Đóng">${ico('x', 16)}</button>`; lb.hidden = false; }
+/* ---------- Xem ảnh từng bước: ←/→ chuyển bước, Esc đóng, ảnh kế bên tải sẵn ---------- */
+const LB = { list: [], i: 0 };
+function shots() { const L = ST.data?.state?.log || [], seen = new Set(), out = []; for (const x of L) if (x.shot && !seen.has(x.shot)) { seen.add(x.shot); out.push({ name: x.shot, label: x.label, n: x.n, ok: x.ok }); } return out; }
+const imgUrl = n => `${API}?action=img&id=${ST.sel}&n=${encodeURIComponent(n)}`;
+function lightbox(name) { LB.list = shots(); LB.i = Math.max(0, LB.list.findIndex(x => x.name === name)); if (!LB.list.length) LB.list = [{ name, label: '', n: '' }]; paintLb(); }
+function paintLb() {
+  const lb = $('#qLb'), x = LB.list[LB.i]; if (!lb || !x) return;
+  lb.innerHTML = `<div class="q-lbw"><header><span class="num mut">${LB.i + 1} / ${LB.list.length}</span><b>${esc(x.label || '')}</b><span class="grow"></span><button type="button" class="btn ghost icon" data-a="lbp" title="Bước trước (←)"${LB.i ? '' : ' disabled'}>${ico('back', 16)}</button><button type="button" class="btn ghost icon" data-a="lbn" title="Bước sau (→)"${LB.i < LB.list.length - 1 ? '' : ' disabled'}>${ico('next', 16)}</button><button type="button" class="btn ghost icon" data-a="lbx" title="Đóng (Esc)">${ico('x', 16)}</button></header><div class="q-lbi">${ico('loader', 18, 'spin')}<img alt="" decoding="async"></div></div>`;
+  lb.hidden = false;
+  const img = lb.querySelector('img'); img.onload = () => img.classList.add('on'); img.src = imgUrl(x.name);
+  for (const k of [LB.i - 1, LB.i + 1]) if (LB.list[k]) new Image().src = imgUrl(LB.list[k].name);
+}
+const lbClose = () => { const lb = $('#qLb'); if (lb) { lb.hidden = true; lb.innerHTML = ''; } };
+
+/* ---------- Hộp xác nhận (không dùng confirm() của trình duyệt — bị chặn trong một số trình duyệt / khung nhúng) ---------- */
+function confirmBox(title, msg, ok = 'Xoá') {
+  return new Promise(res => {
+    const w = document.createElement('div'); w.className = 'q-ov';
+    w.innerHTML = `<div class="q-modal" role="dialog" aria-modal="true"><b>${esc(title)}</b><p class="mut">${esc(msg)}</p><footer><button type="button" class="btn" data-c="0">Huỷ</button><button type="button" class="btn dg" data-c="1">${esc(ok)}</button></footer></div>`;
+    const done = v => { w.remove(); document.removeEventListener('keydown', kd, true); res(v); };
+    const kd = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } else if (e.key === 'Enter') { e.preventDefault(); done(true); } };
+    w.onclick = e => { const c = e.target.closest('[data-c]'); if (c) done(c.dataset.c === '1'); else if (e.target === w) done(false); };
+    document.addEventListener('keydown', kd, true); ROOT.append(w); w.querySelector('[data-c="1"]').focus();
+  });
+}
+async function delRun(id) {
+  const r = ST.runs.find(x => x.id === id), name = r?.title || hostOf(r?.url) || 'lượt test';
+  if (!(await confirmBox('Xoá lượt test?', `“${name}” — ảnh, nhật ký, trò chuyện và báo cáo sẽ bị xoá.`))) return;
+  ST.runs = ST.runs.filter(x => x.id !== id); if (ST.sel === id) { stopStream(); clearTimeout(ST.poll); ST.sel = ''; ST.data = null; paintMain(); } paintHist();
+  try { await post('delete', {}, '&id=' + id); } catch (er) { toast(er.message); } loadList();
+}
 
 /* ================= sự kiện ================= */
 async function onClick(e) {
   const t = e.target;
   const rm = t.closest('[data-rm]'); if (rm) { ST.imgs.splice(+rm.dataset.rm, 1); paintForm(); return; }
-  const dp = t.closest('[data-depth]'); if (dp) { ST.depth = +dp.dataset.depth; paintForm(); return; }
-  const rn = t.closest('[data-run]'); if (rn) { select(rn.dataset.run); return; }
+  const dp = t.closest('[data-depth]'); if (dp) { ST.depth = dp.dataset.depth; paintForm(); return; }
+  const ex = t.closest('[data-ex]'); if (ex) { const g = $('#qGoal'); if (g) { g.value = ex.dataset.ex; g.focus(); } return; }
+  const rn = !t.closest('[data-a]') && t.closest('[data-run]'); if (rn) { ST.side = false; ROOT.querySelector('.q-app').classList.remove('side'); if (rn.dataset.run !== ST.sel) select(rn.dataset.run); return; }
   const tb = t.closest('[data-tab]'); if (tb) { ST.tab = tb.dataset.tab; paintMain(); return; }
-  const sh = t.closest('[data-shot]'); if (sh) { lightbox(sh.dataset.shot); return; }
-  if (t.closest('#qLb') && (t.closest('[data-a=lbx]') || t.id === 'qLb')) { $('#qLb').hidden = true; return; }
-  const a = t.closest('[data-a]')?.dataset.a; if (!a) return;
-  if (a === 'pick') $('#qFile').click();
+  const lf = t.closest('[data-lf]'); if (lf) { ST.lf = lf.dataset.lf; paintMain(); return; }
+  const qk = t.closest('[data-q]'); if (qk) { const k = qk.dataset.q; if (k === 'go') { await cmd({ type: 'continue' }); ST.ctrl = false; } else if (k === 'tab') { ST.tab = 'report'; paintMain(); } else sendSay(qk.dataset.t); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 250); return; }
+  if (t.id === 'qLb') { lbClose(); return; }
+  const mo = t.closest('[data-more]'); if (mo) { ST.tab = 'live'; paintMain(); sendSay('Test thêm: ' + mo.dataset.more); return; }
+  const a = t.closest('[data-a]')?.dataset.a;
+  if (!a) return;
+  const s = ST.data?.state;
+  if (a === 'plan') { ST.planOpen = !(ST.planOpen ?? WORKING.has(s?.status)); paintPlan(); return; }
+  if (a === 'rerun') { const r = ST.data?.run; if (!r) return; const fd = new FormData(); fd.append('url', r.url); fd.append('goal', r.goal || ''); fd.append('max_steps', r.max_steps || 50); fd.append('minutes', r.minutes || 'auto'); try { const x = await post('start', fd); await loadList(); select(x.id); } catch (er) { toast(er.message); } return; }
+  if (a === 'side') { ST.side = !ST.side; ROOT.querySelector('.q-app').classList.toggle('side', ST.side); return; }
+  if (a === 'new') { stopStream(); clearTimeout(ST.poll); ST.sel = ''; ST.data = null; paintHist(); paintMain(); }
+  else if (a === 'pick') $('#qFile').click();
   else if (a === 'login') { ST.login = !ST.login; paintForm(); if (ST.login) $('#qUser').focus(); }
-  else if (a === 'reload') loadList();
-  else if (a === 'ctrl') { ST.ctrl = !ST.ctrl; paintMain(); if (ST.ctrl) { $('#qScreen')?.focus(); toast('Bấm, gõ, cuộn trên màn hình để tự thao tác', 1); } }
-  else if (a === 'go') { await cmd({ type: 'continue' }); ST.ctrl = false; setTimeout(poll, 300); }
-  else if (a === 'pause') { await cmd({ type: 'pause' }); setTimeout(poll, 300); }
-  else if (a === 'stop') { await cmd({ type: 'stop' }); toast('Đang dừng — agent viết báo cáo', 1); setTimeout(poll, 300); }
-  else if (a === 'say') sendSay();
-  else if (a === 'del') { if (!confirm('Xoá lượt test này (ảnh, nhật ký, báo cáo)?')) return; try { await post('delete', {}, '&id=' + ST.sel); ST.sel = ''; ST.data = null; await loadList(); paintMain(); } catch (er) { toast(er.message); } }
+  else if (a === 'ctrl') {
+    ST.ctrl = !ST.ctrl;
+    if (ST.ctrl && s?.status === 'running') await cmd({ type: 'pause' });
+    if (!ST.ctrl && s?.status === 'paused') await cmd({ type: 'continue' });
+    paintMain(); if (ST.ctrl) { $('#qScreen')?.focus(); toast('Bấm, gõ, cuộn trên màn hình để tự thao tác', 1); }
+    clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300);
+  }
+  else if (a === 'go') { await cmd({ type: 'continue' }); ST.ctrl = false; clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300); }
+  else if (a === 'pause') { await cmd({ type: 'pause' }); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300); }
+  else if (a === 'stop') { await cmd({ type: 'stop' }); toast(s?.status === 'idle' ? 'Đang đóng trình duyệt' : 'Đang dừng — agent viết báo cáo', 1); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300); }
+  else if (a === 'del') delRun(ST.sel);
+  else if (a === 'delh') { e.stopPropagation(); delRun(t.closest('[data-id]').dataset.id); }
+  else if (a === 'lbx') lbClose();
+  else if (a === 'lbp' && LB.i > 0) { LB.i--; paintLb(); }
+  else if (a === 'lbn' && LB.i < LB.list.length - 1) { LB.i++; paintLb(); }
 }
 
 /* ================= gắn vào HireX ================= */
 export function mount(root) {
   ROOT = root; ON = new AbortController();
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#qLb')?.hidden) $('#qLb').hidden = true; }, { signal: ON.signal });
-  render(); loadList().then(() => { const r = ST.runs.find(x => LIVE.has(x.status)) || (ST.sel && ST.runs.find(x => x.id === ST.sel)); if (r) select(r.id); });
-  const t = setInterval(() => { if (ST.runs.some(x => LIVE.has(x.status))) loadList(); }, 8000);
+  document.addEventListener('keydown', e => { const lb = $('#qLb'); if (!lb || lb.hidden) return; if (e.key === 'Escape') lbClose(); else if (e.key === 'ArrowLeft' && LB.i > 0) { LB.i--; paintLb(); } else if (e.key === 'ArrowRight' && LB.i < LB.list.length - 1) { LB.i++; paintLb(); } }, { signal: ON.signal });
+  root.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return; const t = e.target;
+    const sh = t.closest('[data-shot]'); if (sh) { e.preventDefault(); lightbox(sh.dataset.shot); return; }
+    const g = t.closest('[data-g]'); if (g) { e.preventDefault(); toggleFeed('g', g.dataset.g); return; }
+    const tg = t.closest('[data-tg]'); if (tg) { e.preventDefault(); toggleFeed('x', tg.dataset.tg); }
+  }, { signal: ON.signal });
+  root.addEventListener('keydown', e => { const h = e.target.closest?.('.q-hi'); if (h && e.key === 'Enter') select(h.dataset.run); if (h && e.key === 'Delete') delRun(h.dataset.id); }, { signal: ON.signal });
+  render(); loadList().then(() => { const r = ST.runs.find(x => WORKING.has(x.status) || x.status === 'waiting'); if (r) select(r.id); });
+  const t = setInterval(() => { if (ST.runs.some(x => LIVE.has(x.status))) loadList(); }, 6000);
   ON.signal.addEventListener('abort', () => clearInterval(t));
-  return () => { clearTimeout(ST.poll); clearTimeout(ST.fpoll); ON?.abort(); ON = null; ROOT = null; };
+  return () => { clearTimeout(ST.poll); stopStream(); ON?.abort(); ON = null; ROOT = null; };
 }

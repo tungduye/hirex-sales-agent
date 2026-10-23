@@ -14,7 +14,7 @@ import { appendPage, rowIndexFor } from "../core/group-merge";
 import { DRAFT_EVENT, draftStore, listDrafts } from "@/modules/channels/core/composer-drafts";
 import { INBOX_REFRESH_EVENT } from "./inbox-refresh-event";
 
-interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null; view?: ViewMode; q?: string; unread?: boolean }
+interface Filters { channel: string | null; account: string | null; ownerIds: string[]; tagIds: string[]; tagMatchMode: "all" | "any"; firstMessageFrom: string | null; firstMessageTo: string | null; view?: ViewMode; q?: string; unread?: boolean; groups?: string[] }
 
 type ViewMode = "all" | "waiting" | "mine" | "groups" | "other" | "important";
 const VIEW_KEY = "hirex.inbox.view";
@@ -26,6 +26,7 @@ function filterQuery(filters: Filters) {
   if (filters.channel) query.set("channel", filters.channel);
   if (filters.account) query.set("account", filters.account);
   for (const owner of filters.ownerIds) query.append("owner", owner);
+  for (const group of filters.groups ?? []) query.append("grp", group);
   for (const tag of filters.tagIds) query.append("tag", tag);
   if (filters.tagIds.length) query.set("tagMode", filters.tagMatchMode);
   if (filters.firstMessageFrom) query.set("firstFrom", filters.firstMessageFrom);
