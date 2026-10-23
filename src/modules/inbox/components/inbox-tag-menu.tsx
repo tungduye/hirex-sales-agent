@@ -29,8 +29,13 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
   const [managing, setManaging] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const selected = new Set(props.selectedTagIds);
-  const active = props.selectedTagIds.length + (props.unreadOnly ? 1 : 0);
+  // Read from the address, not from the loaded list: a second tick right after the first keeps both (the list may
+  // still be loading), and the box shows ticked at once.
+  const knownTagIds = new Set(props.tags.map((tag) => tag.id));
+  const selectedTagIds = [...new Set(searchParams.getAll("tag"))].filter((id) => knownTagIds.has(id));
+  const unreadOnly = searchParams.get("unread") === "1";
+  const selected = new Set(selectedTagIds);
+  const active = selectedTagIds.length + (unreadOnly ? 1 : 0);
 
   useEffect(() => {
     if (!open) return;
@@ -52,7 +57,7 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
   // Ticked tags first (easy to untick), then the rest in the managed order; the search ignores marks and case.
   const needle = foldTag(tagQuery);
   const shownTags = props.tags.filter((tag) => !needle || foldTag(tag.name).includes(needle)).sort((a, b) => Number(selected.has(b.id)) - Number(selected.has(a.id)));
-  const toggleTag = (id: string) => apply(selected.has(id) ? props.selectedTagIds.filter((item) => item !== id) : [...props.selectedTagIds, id], props.unreadOnly);
+  const toggleTag = (id: string) => apply(selected.has(id) ? selectedTagIds.filter((item) => item !== id) : [...selectedTagIds, id], unreadOnly);
 
   return <div ref={rootRef} className="shrink-0">
     <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="dialog" aria-label="Phân loại: Chưa đọc, thẻ phân loại" title="Phân loại"
@@ -62,7 +67,7 @@ export function InboxTagMenu(props: { tags: OmnichannelInboxTag[]; selectedTagId
     {open ? <div role="dialog" aria-label="Phân loại" className="absolute inset-x-2 top-[52px] z-40 flex max-h-[calc(100dvh-14rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl">
       <p className="px-3 pb-1 pt-1 text-[12px] font-semibold text-slate-500">Theo trạng thái</p>
       {([[false, "Tất cả"], [true, "Chưa đọc"]] as const).map(([unread, label]) => <label key={label} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
-        <input type="radio" name="inbox-read-state" checked={props.unreadOnly === unread} onChange={() => apply(props.selectedTagIds, unread)} className="size-4 accent-blue-600"/>{label}
+        <input type="radio" name="inbox-read-state" checked={unreadOnly === unread} onChange={() => apply(selectedTagIds, unread)} className="size-4 accent-blue-600"/>{label}
       </label>)}
       <p className="mt-1 border-t border-slate-100 px-3 pb-1 pt-2 text-[12px] font-semibold text-slate-500">Theo thẻ phân loại{selected.size ? <span className="text-blue-700"> · đang chọn {selected.size}{selected.size > 1 ? ", có đủ cả " + selected.size + " thẻ" : ""}</span> : null}</p>
       {props.tags.length > 5 ? <label className="relative mx-3 mb-1 block"><Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-slate-400"/>

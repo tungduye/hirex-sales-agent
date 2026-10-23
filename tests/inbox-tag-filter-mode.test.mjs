@@ -8,6 +8,9 @@ test("Phân loại: several tags mean conversations that have every picked tag",
   const menu = read("src/modules/inbox/components/inbox-tag-menu.tsx");
   assert.match(menu, /query\.set\("tagMode", "all"\)/u);
   assert.doesNotMatch(menu, /query\.set\("tagMode", "any"\)/u);
+  // A second tick right after the first keeps both: the picked tags are read from the address, not the loaded list.
+  assert.match(menu, /searchParams\.getAll\("tag"\)/u);
+  assert.doesNotMatch(menu, /props\.selectedTagIds/u);
 });
 
 test("changing a Suối Nguồn filter rewrites the address only (no server render of the page)", () => {
