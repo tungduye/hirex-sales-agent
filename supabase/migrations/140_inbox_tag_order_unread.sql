@@ -6,9 +6,12 @@
 begin;
 
 alter table public.conversation_tags add column if not exists sort_order integer;
+-- The write guard (034) asks for a signed-in member; this one-off backfill runs as the migration owner.
+alter table public.conversation_tags disable trigger guard_conversation_tags_write;
 update public.conversation_tags t set sort_order = r.n
 from (select id, row_number() over (partition by workspace_id order by lower(name), id) as n from public.conversation_tags) r
 where r.id = t.id and t.sort_order is null;
+alter table public.conversation_tags enable trigger guard_conversation_tags_write;
 
 create or replace function public.reorder_conversation_tags(p_tag_ids uuid[])
 returns integer language plpgsql security definer set search_path = '' as $$
