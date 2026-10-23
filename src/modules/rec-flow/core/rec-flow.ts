@@ -42,8 +42,8 @@ export const FACT_FIELDS = [
   { key: "currentTitle", label: "Chức danh hiện tại", summary: false, hint: "chức danh / vị trí hiện tại" },
   { key: "skills", label: "Kỹ năng chính", summary: false, hint: "công nghệ, ngôn ngữ, mảng nghiệp vụ chính" },
   { key: "noticePeriod", label: "Thời gian báo nghỉ", summary: false, hint: "phải báo nghỉ trước bao lâu ở công ty hiện tại" },
-  { key: "appliedCompanies", label: "Công ty đã apply", summary: false, hint: "các công ty ứng viên nói đã từng apply/phỏng vấn" },
-  { key: "cvStatus", label: "CV", summary: false, hint: "tình trạng CV: đã gửi, có bản cũ, chưa có, đang cập nhật…" },
+  { key: "appliedCompanies", label: "Công ty đã apply", summary: false, hint: "chỉ tên các công ty ứng viên nói ĐÃ từng apply/phỏng vấn ('chưa apply' thì không ghi)" },
+  { key: "cvStatus", label: "CV", summary: false, hint: "tình trạng CV: đã gửi (ứng viên gửi tệp sau khi được xin CV), có bản cũ, chưa có, đang cập nhật…" },
 ] as const;
 export type FactKey = (typeof FACT_FIELDS)[number]["key"];
 export type Facts = Partial<Record<FactKey, string>>;

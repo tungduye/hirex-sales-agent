@@ -63,17 +63,19 @@ function FlowEditor({ conversationId, state, onSaved, onClose }: { conversationI
     const source = sources[item.key];
     const edited = (draft.facts[item.key] ?? "") !== (state.facts[item.key] ?? "");
     const value = state.facts[item.key];
+    const own = Boolean(value && source && source.value === value);
     return <div key={item.key} className="min-w-0 text-xs">
-      <div className="mb-0.5 flex items-center gap-1"><span className="font-semibold text-slate-600">{item.label}</span>
-        {value && source && source.value === value ? <span title={`${SOURCE_LABEL[source.source]}${source.by ? ` · ${source.by}` : ""} · ${day(source.at)}`}
-          className={`ml-auto truncate rounded px-1 text-[10px] font-semibold ${source.confirmed ? "bg-emerald-50 text-emerald-700" : source.source === "AI_CHAT" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-          {source.confirmed ? `✓ ${source.by ?? "Đã xác nhận"}` : source.source === "AI_CHAT" ? "AI ghi" : source.source === "AI_DRAFT" ? "Hola/Hole" : "Recer"}</span> : null}
-        {value && !edited && !(source?.confirmed && source.value === value) ? <button type="button" disabled={pending} onClick={() => confirm(item.key)} title="Xác nhận thông tin này đúng"
-          className={`${source && source.value === value ? "" : "ml-auto"} rounded px-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50`}>✓ Đúng</button> : null}
-      </div>
+      <span className="mb-0.5 block truncate font-semibold text-slate-600" title={item.label}>{item.label}</span>
       <input value={draft.facts[item.key] ?? ""} maxLength={120} onChange={(event) => { const facts = { ...draft.facts }; if (event.target.value.trim()) facts[item.key] = event.target.value; else delete facts[item.key]; setDraft({ ...draft, facts }); }} className="h-8 w-full rounded-lg border border-slate-200 px-2"/>
-      {source?.quote && source.value === value ? <p className="mt-0.5 truncate text-[10.5px] italic text-slate-500" title={`Ứng viên nhắn: “${source.quote}”`}>“{source.quote}”</p> : null}
-      {source?.previous.length && source.value === value ? <p className="truncate text-[10.5px] text-slate-400" title={source.previous.map((item) => `${item.value ?? "(trống)"} · ${day(item.at)}`).join("\n")}>Trước: {source.previous.map((item) => item.value ?? "(trống)").join(", ")}</p> : null}
+      {value ? <div className="mt-0.5 flex min-w-0 items-center gap-1">
+        {own && source ? <span title={`${SOURCE_LABEL[source.source]}${source.by ? ` · ${source.by}` : ""} · ${day(source.at)}`}
+          className={`max-w-[60%] shrink-0 truncate rounded px-1 text-[10px] font-semibold ${source.confirmed ? "bg-emerald-50 text-emerald-700" : source.source === "AI_CHAT" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+          {source.confirmed ? `✓ ${source.by ?? "Đã xác nhận"}` : source.source === "AI_CHAT" ? "AI ghi" : source.source === "AI_DRAFT" ? "Hola/Hole" : "Recer"}</span> : null}
+        {!edited && !(own && source?.confirmed) ? <button type="button" disabled={pending} onClick={() => confirm(item.key)} title="Xác nhận thông tin này đúng"
+          className="shrink-0 rounded px-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">✓ Đúng</button> : null}
+        {own && source?.quote ? <span className="min-w-0 truncate text-[10.5px] italic text-slate-500" title={`Ứng viên nhắn: “${source.quote}”`}>“{source.quote}”</span> : null}
+      </div> : null}
+      {own && source?.previous.length ? <p className="truncate text-[10.5px] text-slate-400" title={source.previous.map((entry) => `${entry.value ?? "(trống)"} · ${day(entry.at)}`).join("\n")}>Trước: {source.previous.map((entry) => entry.value ?? "(trống)").join(", ")}</p> : null}
     </div>;
   };
   return <div className="mt-1.5 max-h-[60dvh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
