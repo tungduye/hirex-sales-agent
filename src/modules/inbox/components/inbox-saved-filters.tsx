@@ -7,7 +7,7 @@ import { deleteSavedFilter, listSavedFilters, saveFilter } from "../server/saved
 
 const VIEW_KEY = "hirex.inbox.view";
 const VIEW_NAMES: Record<string, string> = { all: "Tất cả", waiting: "Chưa trả lời", mine: "Giao cho tôi", groups: "Nhóm", other: "Khác" };
-const SCOPE_NAMES: Record<string, string> = { MINE: "Cá nhân", TEAM: "Team", ALL: "Tất cả" };
+const SCOPE_NAMES: Record<string, string> = { MINE: "Cá nhân", TEAM: "Nhân viên", ALL: "Tất cả" };
 
 function currentView() { try { return window.localStorage.getItem(VIEW_KEY); } catch { return null; } }
 

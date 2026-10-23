@@ -18,7 +18,7 @@ export function InboxScopeSwitch({ scope, counts }: { scope: Scope; counts: { mi
   const [pending, setPending] = useState<Scope | null>(null);
   const options: Array<{ value: Scope; label: string; count: number; title: string }> = [
     { value: "MINE", label: "Cá nhân", count: counts.mine, title: "Tài khoản bạn là người dùng chính" },
-    ...(counts.hasTeam ? [{ value: "TEAM" as const, label: "Team", count: counts.team, title: "Tài khoản của bạn và những người bạn quản lý" }] : []),
+    ...(counts.hasTeam ? [{ value: "TEAM" as const, label: "Nhân viên", count: counts.team, title: "Tài khoản của bạn và của nhân viên bạn quản lý" }] : []),
     { value: "ALL", label: "Tất cả", count: counts.all, title: "Mọi tài khoản bạn được cấp quyền" },
   ];
   function choose(value: Scope) {

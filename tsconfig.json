@@ -419,7 +419,9 @@
     ".next-luong-rec-tu-nhay-buoc/types/**/*.ts",
     ".next-luong-rec-tu-nhay-buoc/dev/types/**/*.ts",
     ".next-loc-theo-nguoi/types/**/*.ts",
-    ".next-loc-theo-nguoi/dev/types/**/*.ts"
+    ".next-loc-theo-nguoi/dev/types/**/*.ts",
+    ".next-soda-ca-nhan/types/**/*.ts",
+    ".next-soda-ca-nhan/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

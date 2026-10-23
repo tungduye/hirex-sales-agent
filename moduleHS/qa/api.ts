@@ -19,7 +19,7 @@ const MAX_LIVE = 3, KEEP = 60;
 const KEY = () => (process.env.HS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "").trim();
 const ID = /^[a-z0-9]{8,40}$/;
 const json = (b: unknown, status = 200) => Response.json(b, { status, headers: { "Cache-Control": "no-store" } });
-type Run = { id: string; url: string; goal: string; images: string[]; by: string; by_name: string; created: number; max_steps: number; minutes?: number | "auto"; use_auth: boolean; pid?: number };
+type Run = { id: string; url: string; goal: string; images: string[]; by: string; by_name: string; created: number; max_steps: number; minutes?: number | "auto"; use_auth: boolean; pid?: number; name?: string };
 type State = { status: string; step: number; title?: string; score?: number; verdict?: string; ended?: number; error?: string; [k: string]: unknown };
 const rj = <T>(f: string, fb: T): T => { try { return JSON.parse(fs.readFileSync(/*turbopackIgnore: true*/ f, "utf8")) as T; } catch { return fb; } };
 const dir = (id: string) => { if (!ID.test(id)) throw Object.assign(new Error("bad_id"), { status: 400 }); return path.join(RUNS, id); };
@@ -40,7 +40,7 @@ function list() {
   sweep();
   const ids = fs.readdirSync(RUNS).filter((x) => ID.test(x)).sort().reverse();
   for (const old of ids.slice(KEEP)) fs.rmSync(path.join(RUNS, old), { recursive: true, force: true });
-  return ids.slice(0, KEEP).map((id) => { const run = rj<Partial<Run>>(path.join(RUNS, id, "run.json"), {}), s = state(id); return { id, url: run.url, goal: (run.goal || "").slice(0, 160), by_name: run.by_name || "", created: run.created || 0, status: s.status, step: s.step, title: s.title || "", score: s.score ?? null, verdict: s.verdict || "", ended: s.ended || 0, error: s.error || "" }; });
+  return ids.slice(0, KEEP).map((id) => { const run = rj<Partial<Run>>(path.join(RUNS, id, "run.json"), {}), s = state(id); return { id, url: run.url, goal: (run.goal || "").slice(0, 160), by_name: run.by_name || "", created: run.created || 0, status: s.status, step: s.step, title: run.name || s.title || "", score: s.score ?? null, verdict: s.verdict || "", ended: s.ended || 0, error: s.error || "" }; });
 }
 function cmd(id: string, c: Record<string, unknown>) { fs.appendFileSync(path.join(dir(id), "cmd.jsonl"), JSON.stringify({ ...c, at: Date.now() }) + "\n"); }
 const liveCount = () => list().filter((r) => LIVE.has(r.status) && r.status !== "idle").length;
@@ -153,7 +153,7 @@ export async function handle(req: Request) {
     const q = new URL(req.url).searchParams, a = q.get("action") || "", id = q.get("id") || "";
     if (req.method === "GET") {
       if (a === "list") return json({ ok: true, runs: list() });
-      if (a === "state") { const d = dir(id), run = rj<Partial<Run>>(path.join(d, "run.json"), {}); return json({ ok: true, run: { url: run.url, goal: run.goal, images: run.images || [], created: run.created, by_name: run.by_name, max_steps: run.max_steps, minutes: run.minutes ?? "auto" }, state: state(id), report: rj(path.join(d, "report.json"), null) }); }
+      if (a === "state") { const d = dir(id), run = rj<Partial<Run>>(path.join(d, "run.json"), {}); return json({ ok: true, run: { url: run.url, goal: run.goal, images: run.images || [], created: run.created, by_name: run.by_name, max_steps: run.max_steps, minutes: run.minutes ?? "auto", name: run.name || "" }, state: state(id), report: rj(path.join(d, "report.json"), null) }); }
       if (a === "stream") return stream(id, req.signal);
       if (a === "frame") {   // ảnh trực tiếp: ?t=<mốc ảnh đã có> → 204 khi chưa có ảnh mới
         const f = path.join(dir(id), "frame.jpg"); let st: fs.Stats; try { st = fs.statSync(/*turbopackIgnore: true*/ f); } catch { return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } }); }
@@ -165,6 +165,7 @@ export async function handle(req: Request) {
       if (a === "docx") {
         const d = dir(id), R = rj<QaReport | null>(path.join(d, "report.json"), null), run = rj<Partial<Run>>(path.join(d, "run.json"), {}), s = state(id); if (!R) return json({ ok: false }, 404);
         const t0 = Number(s.started || run.created || Date.now()), secs = Math.round(((s.ended || Date.now()) - t0) / 1000);
+        if (run.name) R.title = run.name;
         const b = qaDocx(R, { url: run.url || "", goal: run.goal || "", date: fmt(t0), dur: `${Math.floor(secs / 60)} phút ${secs % 60} giây`, steps: s.step || 0 });
         return new Response(new Uint8Array(b), { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Content-Disposition": `attachment; filename="Bao-cao-kiem-thu-${id}.docx"`, "Cache-Control": "no-store" } });
       }
@@ -173,8 +174,14 @@ export async function handle(req: Request) {
     const o = req.headers.get("origin"); if (o) { try { if (new URL(o).host !== (req.headers.get("x-forwarded-host") || req.headers.get("host"))) return json({ ok: false, stage: "csrf" }, 403); } catch { return json({ ok: false }, 403); } }
     if (a === "start") return await start(req, account.userId, account.fullName || account.email || "");
     if (a === "say") { const b = (await req.json().catch(() => ({}))) as Record<string, unknown>; return say(id, String(b.text || ""), String(b.cid || "").slice(0, 40)); }
-    if (a === "cmd") { const b = (await req.json().catch(() => ({}))) as Record<string, unknown>; const t = String(b.type || ""); if (!["continue", "answer", "stop", "pause", "click", "type", "key", "scroll", "goto", "back"].includes(t)) return json({ ok: false }, 400); cmd(id, b); return json({ ok: true }); }
+    if (a === "cmd") { const b = (await req.json().catch(() => ({}))) as Record<string, unknown>; const t = String(b.type || ""); if (!["continue", "answer", "stop", "pause", "click", "type", "key", "scroll", "goto", "back", "zoom"].includes(t)) return json({ ok: false }, 400); cmd(id, b); return json({ ok: true }); }
     if (a === "delete") return json({ ok: await remove(id) });
+    if (a === "rename") {   // đổi tên lượt test (lưu ở run.json — state.json do agent ghi liên tục nên không đụng)
+      const b = (await req.json().catch(() => ({}))) as Record<string, unknown>, f = path.join(dir(id), "run.json"), run = rj<Run | null>(f, null);
+      if (!run) return json({ ok: false, stage: "Không thấy lượt test" }, 404);
+      const nm = String(b.name || "").replace(/\s+/g, " ").trim().slice(0, 120); if (nm) run.name = nm; else delete run.name;
+      fs.writeFileSync(f, JSON.stringify(run)); return json({ ok: true, name: nm });
+    }
     return json({ ok: false }, 404);
   } catch (e) {
     const x = e as { status?: number; message?: string };

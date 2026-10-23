@@ -8,7 +8,7 @@ export type SavedFilterScope = "MINE" | "TEAM" | "ALL";
 export interface SavedFilter { id: string; name: string; query: string; scope: SavedFilterScope | null; view: SavedFilterView | null }
 
 const VIEW_LABELS: Record<SavedFilterView, string> = { all: "All", waiting: "Chưa trả lời", mine: "Của tôi", groups: "Nhóm", other: "Thư tự động", important: "Quan trọng" };
-const SCOPE_LABELS: Record<SavedFilterScope, string> = { MINE: "Cá nhân", TEAM: "Team", ALL: "Tất cả tài khoản" };
+const SCOPE_LABELS: Record<SavedFilterScope, string> = { MINE: "Cá nhân", TEAM: "Nhân viên", ALL: "Tất cả tài khoản" };
 const CHANNEL_LABELS: Record<string, string> = { ZALO: "Zalo", FACEBOOK: "Page", FACEBOOK_PROFILE: "FB cá nhân", EMAIL: "Email" };
 
 /** Keeps only the list filters (no page, no conversation), in a stable order. */

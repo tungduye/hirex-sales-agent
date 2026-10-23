@@ -44,7 +44,7 @@ const secs = ms => ms >= 60000 ? `${Math.floor(ms / 60000)}p ${Math.round(ms % 6
 const hostOf = u => { try { return new URL(u).host; } catch { return u || ''; } };
 async function get(a, q = '') { const r = await fetch(`${API}?action=${a}${q}`, { cache: 'no-store' }); const j = await r.json().catch(() => ({})); if (!r.ok || j.ok === false) throw new Error(j.stage || 'Lỗi máy chủ'); return j; }
 async function post(a, body, q = '') { const r = await fetch(`${API}?action=${a}${q}`, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body), headers: body instanceof FormData ? {} : { 'Content-Type': 'application/json' } }); const j = await r.json().catch(() => ({})); if (!r.ok || j.ok === false) throw new Error(j.stage || 'Lỗi máy chủ'); return j; }
-function toast(msg, ok) { const t = $('#qToast'); if (!t) return; const el = document.createElement('div'); el.className = 'toast' + (ok ? ' ok' : ''); el.innerHTML = ico(ok ? 'check' : 'alert', 16) + `<span>${esc(msg)}</span>`; t.append(el); setTimeout(() => el.remove(), 3500); }
+function toast(msg, ok) { const t = $('#qToast'); if (!t) return; for (const o of t.children) if (o.textContent === msg) { clearTimeout(o._t); o._t = setTimeout(() => o.remove(), 3500); return; } const el = document.createElement('div'); el.className = 'toast' + (ok ? ' ok' : ''); el.innerHTML = ico(ok ? 'check' : 'alert', 16) + `<span>${esc(msg)}</span>`; t.append(el); el._t = setTimeout(() => el.remove(), 3500); while (t.children.length > 3) t.firstChild.remove(); }
 
 /* ================= trạng thái ================= */
 const ST = { runs: [], sel: '', tab: 'live', data: null, imgs: [], login: false, depth: 'auto', poll: 0, fpoll: 0, frame: -1, ctrl: false, busy: false, stream: null, sending: [], seen: new Set(), curAt: 0, gopen: new Set(), gclose: new Set(), xopen: new Set(), lf: 'all', side: false, zoom: false, nochat: lsGet('qa.nochat') === '1', chatW: +lsGet('qa.chatw') || 0 };
@@ -168,7 +168,7 @@ function paintHist() {
   if (!ST.runs.length) { el.innerHTML = `<div class="q-empty sm"><span>Chưa có lượt test</span></div>`; return; }
   el.innerHTML = ST.runs.map(r => { const [, lb] = STL[r.status] || ['', r.status]; return `<div class="q-hi${r.id === ST.sel ? ' on' : ''}" data-run="${r.id}" data-id="${r.id}" role="button" tabindex="0">
     <span class="q-hm"><b>${esc(r.title || hostOf(r.url))}</b><span>${LIVE.has(r.status) ? esc(lb) : `${dm(r.created)} ${hm(r.created)}`}</span></span>
-    ${r.score != null ? `<span class="q-sc">${r.score}</span>` : ''}<button type="button" class="btn ghost icon sm q-hx" data-a="delh" title="Xoá">${ico('trash', 14)}</button></div>`; }).join('');
+    ${r.score != null ? `<span class="q-sc">${r.score}</span>` : ''}<span class="q-hxs"><button type="button" class="btn ghost icon sm q-hx" data-a="ren" title="Đổi tên">${ico('edit', 14)}</button><button type="button" class="btn ghost icon sm q-hx" data-a="delh" title="Xoá">${ico('trash', 14)}</button></span></div>`; }).join('');
 }
 
 /* ================= một lượt test ================= */
@@ -203,7 +203,7 @@ function paintMain() {
 }
 function paintHead() {
   const d = ST.data, s = d.state, R = d.report, [, lb] = STL[s.status] || ['', s.status], done = !LIVE.has(s.status);
-  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b title="${esc(lb)} · ${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}">${esc(R?.title || s.title || hostOf(d.run.url))}</b></div><span class="grow"></span>
+  const html = `<button type="button" class="btn ghost icon q-sidebtn" data-a="side" title="Lịch sử">${ico('list', 16)}</button><div class="q-rt"><b title="${esc(lb)} · ${esc(hostOf(d.run.url))} · ${dm(d.run.created)} ${hm(d.run.created)}">${esc(d.run.name || R?.title || s.title || hostOf(d.run.url))}</b></div><span class="grow"></span>
 <div class="q-bg">${done ? `<button type="button" class="btn" data-a="rerun" title="Chạy lại với cùng link và yêu cầu">${ico('play', 14)}Chạy lại</button>` : ''}${R ? `<a class="btn icon" href="${API}?action=docx&id=${ST.sel}" title="Tải báo cáo Word">${ico('download', 15)}</a>` : ''}<a class="btn icon" href="${esc(d.run.url)}" target="_blank" rel="noopener" title="Mở trang">${ico('ext', 15)}</a><button type="button" class="btn icon q-del" data-a="del" title="Xoá lượt test">${ico('trash', 15)}</button></div>`;
   const h = $('#qHead'); if (h._h !== html) { h.innerHTML = html; h._h = html; }
 }
@@ -218,7 +218,7 @@ function paintCtl() {
   const btns = st === 'running' || st === 'starting' ? B('pause', 'pause', 'Tạm dừng') + B('stop', 'stop', 'Dừng', 'q-stop') + `<button type="button" class="btn sm icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển (agent tạm dừng)">${ico('hand', 14)}</button>`
     : st === 'paused' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop') + `<button type="button" class="btn sm icon${ST.ctrl ? ' on' : ''}" data-a="ctrl" title="Tự điều khiển">${ico('hand', 14)}</button>`
     : st === 'waiting' ? B('go', 'play', 'Tiếp tục', 'pri') + B('stop', 'stop', 'Dừng', 'q-stop')
-    : st === 'idle' ? B('stop', 'x', 'Đóng trình duyệt') : !LIVE.has(st) ? B('rerun', 'play', 'Chạy lại') : '';
+    : st === 'idle' ? B('stop', 'x', 'Đóng trình duyệt') : '';
   const meta = working && st !== 'starting' ? `<span class="q-meta num" title="Bước đã chạy / tối đa · thời gian / giới hạn">${stepN}/${stepMax}<em>·</em>${budget ? `${mmss(used)} / ${mmss(budget)}` : mmss(used)}</span>` : '';
   const html = meta || btns ? `<div class="q-bg sm">${meta}${btns}</div>` : ''; if (el._h !== html) { el.innerHTML = html; el._h = html; }
   const pct = working ? Math.min(100, Math.max(stepN / stepMax, budget ? used / budget : 0) * 100) : st === 'reporting' ? 100 : 0;
@@ -231,6 +231,17 @@ function paintView() {
   if (v._h !== html) { v.innerHTML = html; v._h = html; }
   $('.q-live')?.classList.toggle('nochat', ST.nochat); ROOT.querySelector('.q-app')?.classList.toggle('zoom', ST.zoom);
 }
+/** − 75% + : thu phóng trang web đang test (agent vẫn bấm đúng chỗ). Bấm số % để về 75%. */
+function paintZm() {
+  const el = $('#qZm'), s = ST.data?.state; if (!el || !s) return;
+  const on = LIVE.has(s.status); el.hidden = !on; if (!on) return;
+  if (ST.zoomPend && Math.abs(ST.zoomPend - (s.zoom ?? 0.75)) < 0.01) ST.zoomPend = 0;
+  const z = ST.zoomPend || s.zoom || 0.75, pct = Math.round(z * 100);
+  const html = `<button type="button" class="btn icon" data-a="zm-" title="Thu nhỏ trang"${z <= 0.5 ? ' disabled' : ''}>${ico('minus', 14)}</button><button type="button" class="btn q-zv num" data-a="zm0" title="Về mặc định 75%">${pct}%</button><button type="button" class="btn icon" data-a="zm+" title="Phóng to trang"${z >= 1.5 ? ' disabled' : ''}>${ico('plus', 14)}</button>`;
+  if (el._h !== html) { el.innerHTML = html; el._h = html; }
+}
+const ZL = [0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5];
+function zoomBy(d) { const s = ST.data?.state; if (!s) return; const cur = ST.zoomPend || s.zoom || 0.75; const z = !d ? 0.75 : d > 0 ? ZL.find(v => v > cur + 0.001) ?? 1.5 : [...ZL].reverse().find(v => v < cur - 0.001) ?? 0.5; if (Math.abs(z - cur) < 0.001) return; ST.zoomPend = z; paintZm(); cmd({ type: 'zoom', z }); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 400); }
 function setZoom(on) {
   ST.zoom = on; paintView();
   try { if (on && !document.fullscreenElement) ROOT.requestFullscreen?.().catch(() => {}); else if (!on && document.fullscreenElement === ROOT) document.exitFullscreen?.().catch(() => {}); } catch { /* không cho toàn màn hình: chỉ phóng trong khung */ }
@@ -258,7 +269,7 @@ function paintPlan() {
   if (ST.planKey !== key) { const firstSeen = !ST.planKey; ST.planKey = key; if (cur && working) { ST.planOpen = null; ST.planPeek = Date.now() + (firstSeen ? 2500 : 4000); clearTimeout(ST.planTm); ST.planTm = setTimeout(paintPlan, (firstSeen ? 2500 : 4000) + 30); } }
   const auto = !working || n === P.cases.length || Date.now() < (ST.planPeek || 0), open = ST.planOpen ?? auto;
   const IC2 = { done: ['check', 'ok'], doing: ['loader', 'run'], todo: ['minus', ''], skip: ['x', 'skip'] };
-  const head = `${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut num">${n}/${P.cases.length}${P.minutes ? ` ~${P.minutes} phút` : ''}</span>${cur && working ? `<span class="q-pnow"><span class="q-shine">${esc(cur.name)}</span><em class="num">${di + 1}/${P.cases.length}</em></span>` : ''}`;
+  const head = `${ico('next', 14, 'q-chev')}<b>Kế hoạch test</b><span class="mut num">${n}/${P.cases.length}</span>${cur && working ? `<span class="q-pnow"><span class="q-shine">${esc(cur.name)}</span></span>` : ''}${P.minutes ? `<span class="q-pmin">Khoảng ${P.minutes} phút</span>` : ''}`;
   const list = `<ol class="q-pl">${P.cases.map((c, i) => { const [ic, k] = IC2[c.st] || IC2.todo; return `<li class="${k}${i === di ? ' cur' : ''}" title="${esc(c.why || '')}">${ico(ic, 13, k === 'run' ? 'spin' : '')}<span>${esc(c.name)}</span></li>`; }).join('')}</ol>`;
   if (el._h !== head || !el.firstChild) { if (!el.firstChild) el.innerHTML = `<button type="button" class="q-ph" data-a="plan"></button><div class="q-plw"><div></div></div>`; el.firstChild.innerHTML = head; el._h = head; }
   if (el._l !== list) { el.querySelector('.q-plw>div').innerHTML = list; el._l = list; }
@@ -285,7 +296,7 @@ function segs(root = ROOT, instant = false) {
 /* ---------- Trực tiếp: trình duyệt + trò chuyện ---------- */
 function liveHtml() {
   const d = ST.data;
-  return `<div class="q-live${ST.nochat ? ' nochat' : ''}"${ST.chatW ? ` style="--chatw:${ST.chatW}px"` : ''}><section class="q-browser"><div class="q-stage"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span><div class="q-ctl" id="qCtl"></div><div class="q-bg sm q-view" id="qView"></div></div><div class="q-prog" id="qProg"><i></i></div>
+  return `<div class="q-live${ST.nochat ? ' nochat' : ''}"${ST.chatW ? ` style="--chatw:${ST.chatW}px"` : ''}><section class="q-browser"><div class="q-stage"><div class="q-chrome"><span class="q-lights"><i></i><i></i><i></i></span><span class="q-addr" id="qAddr">${esc(d.state.url || d.run.url)}</span><div class="q-ctl" id="qCtl"></div><div class="q-bg sm q-zm" id="qZm" hidden></div><div class="q-bg sm q-view" id="qView"></div></div><div class="q-prog" id="qProg"><i></i></div>
       <div class="q-screen" id="qScreen" tabindex="0"><img id="qFrame" alt="Màn hình trình duyệt kiểm thử" draggable="false"><div class="q-cur" id="qCur" hidden>${ico('pointer', 22)}<i></i></div>
         <div class="q-phase" id="qPhase" hidden></div><div class="q-take" id="qTake" hidden></div><div class="q-load" id="qLoad">${ico('loader', 18, 'spin')}</div></div></div></section><div class="q-split" id="qSplit" title="Kéo để đổi cỡ khung trò chuyện · bấm đúp để về mặc định"></div>
     <section class="q-chat"><div class="q-plan" id="qPlan"></div><div class="q-feed" id="qFeed"></div><div class="q-typing" id="qTyping" hidden></div><div class="q-quick" id="qQuick"></div>
@@ -294,7 +305,7 @@ function liveHtml() {
 function bindLive() {
   const sc = $('#qScreen'), img = $('#qFrame');
   const can = () => ST.ctrl || ['waiting', 'paused', 'idle'].includes(ST.data?.state?.status);
-  img.onclick = e => { if (!can()) { toast('Bấm biểu tượng bàn tay ở trên để tự điều khiển', 1); return; } const r = img.getBoundingClientRect(); tap((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); cmd({ type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); sc.focus(); };
+  img.onclick = e => { if (!can()) { const st = ST.data?.state?.status; if (LIVE.has(st)) toast('Bấm nút bàn tay trên thanh trình duyệt để tự điều khiển', 1); else toast('Trình duyệt đã đóng — nhắn ở khung bên phải để test tiếp', 1); return; } const r = img.getBoundingClientRect(); tap((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); cmd({ type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); sc.focus(); };
   let buf = '', tm = 0; const flush = () => { if (buf) { cmd({ type: 'type', text: buf }); buf = ''; } };
   sc.onkeydown = e => {
     if (!can() || e.target !== sc) return;
@@ -351,7 +362,7 @@ function paintLive() {
   const c = s.cursor, cur = $('#qCur');
   if (c && c.at !== ST.curAt && live) { ST.curAt = c.at; cur.hidden = false; cur.style.left = c.x * 100 + '%'; cur.style.top = c.y * 100 + '%'; cur.classList.toggle('user', c.k === 'user'); if (c.k === 'click' || c.k === 'user') { cur.classList.remove('tap'); void cur.offsetWidth; cur.classList.add('tap'); } clearTimeout(cur._h); cur._h = setTimeout(() => { cur.hidden = true; }, 4000); }
   if (!live) cur.hidden = true;
-  paintView(); paintCtl(); paintPlan(); paintFeed();
+  paintView(); paintZm(); paintCtl(); paintPlan(); paintFeed();
   // dòng "đang làm" cuối khung chat + gợi ý nhanh + ô nhắn
   const ty = $('#qTyping'), working = WORKING.has(s.status) && !take;
   ty.hidden = !working;
@@ -517,7 +528,9 @@ function logHtml() {
   const tech = (t, a, f) => a?.length ? `<details class="q-det"><summary>${ico('next', 14, 'q-chev')}${t}<em>${a.length}</em></summary><ul>${a.slice(-30).map(f).join('')}</ul></details>` : '';
   const seg = [['all', 'Tất cả', L.length], ['bad', 'Lỗi', nBad], ['note', 'Phát hiện', nNote]].map(([k, l, n]) => `<button type="button" class="${ST.lf === k ? 'on' : ''}" data-lf="${k}">${l}<em>${n}</em></button>`).join('');
   const techs = tech('Lỗi JavaScript', M.pageerror, x => `<li>${esc(x.text)}</li>`) + tech('Lỗi console', M.console, x => `<li>${esc(x.text)}</li>`) + tech('HTTP lỗi', M.http, x => `<li><b>${x.status}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Request hỏng', M.failed, x => `<li>${esc(x.err)} · ${esc(x.url)}</li>`) + tech('Request chậm (> 1,5 s)', M.slow, x => `<li><b>${secs(x.ms)}</b> ${esc(x.method)} ${esc(x.url)}</li>`) + tech('Tốc độ từng trang', M.navs, x => `<li>${esc(x.url)} · phản hồi ${x.ttfb} ms · DOM ${x.dcl} ms · tải ${x.load} ms · LCP ${x.lcp} ms · CLS ${x.cls} · ${x.size_kb ?? x.size ?? 0} KB</li>`);
-  return `<div class="q-logw"><div class="q-lbar"><div class="q-seg">${seg}<span class="q-segcur"></span></div></div><div class="q-ll">${body ? `<table class="q-ltb"><thead><tr><th>Lúc</th><th>Hành động</th><th>Kết quả</th><th class="r">Mất</th><th></th></tr></thead><tbody>${body}</tbody></table>` : `<div class="q-empty sm"><span>Không có bước nào</span></div>`}</div>${techs ? `<div class="q-techs"><div class="q-lh">Kỹ thuật</div>${techs}</div>` : ''}</div>`;
+  const tbl = body ? `<table class="q-tb q-ltb"><thead><tr><th>Lúc</th><th>Hành động</th><th>Kết quả</th><th class="r">Mất</th><th></th></tr></thead><tbody>${body}</tbody></table>` : `<div class="q-empty sm"><span>Không có bước nào</span></div>`;
+  // cùng khung với tab Báo cáo: mỗi phần là 1 mục có đầu xám, bảng sát mép
+  return `<div class="q-rep q-logw">${sec('Các bước đã chạy', tbl, rows.length, `<div class="q-seg sm">${seg}<span class="q-segcur"></span></div>`, 'flush')}${techs ? sec('Chi tiết kỹ thuật', `<div class="q-techs">${techs}</div>`) : ''}</div>`;
 }
 /* ---------- Xem ảnh từng bước: ←/→ chuyển bước, Esc đóng, ảnh kế bên tải sẵn ---------- */
 const LB = { list: [], i: 0 };
@@ -543,6 +556,23 @@ function confirmBox(title, msg, ok = 'Xoá') {
     w.onclick = e => { const c = e.target.closest('[data-c]'); if (c) done(c.dataset.c === '1'); else if (e.target === w) done(false); };
     document.addEventListener('keydown', kd, true); ROOT.append(w); w.querySelector('[data-c="1"]').focus();
   });
+}
+/** Đổi tên ngay trong danh sách: Enter / bấm ra ngoài để lưu, Esc để huỷ; để trống = về tên agent đặt. */
+function renameRun(row) {
+  if (!row || row.querySelector('.q-ren')) return;
+  const id = row.dataset.id, r = ST.runs.find(x => x.id === id), b = row.querySelector('.q-hm b'); if (!b) return;
+  const old = r?.title || hostOf(r?.url), inp = document.createElement('input');
+  inp.className = 'in q-ren'; inp.value = old; inp.maxLength = 120; inp.setAttribute('aria-label', 'Tên lượt test'); b.replaceWith(inp); row.classList.add('editing');
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return; done = true; const nm = inp.value.replace(/\s+/g, ' ').trim();
+    if (!save || nm === old) { paintHist(); return; }
+    if (r) r.title = nm || r.title; if (ST.data && ST.sel === id) ST.data.run.name = nm; paintHist(); if (ST.sel === id && ST.data) paintHead();
+    try { await post('rename', { name: nm }, '&id=' + id); } catch (er) { toast(er.message); } loadList(); if (ST.sel === id) poll();
+  };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
+  inp.onblur = () => finish(true); inp.onclick = e => e.stopPropagation(); inp.onpointerdown = e => e.stopPropagation();
 }
 async function delRun(id) {
   const r = ST.runs.find(x => x.id === id), name = r?.title || hostOf(r?.url) || 'lượt test';
@@ -570,6 +600,7 @@ async function onClick(e) {
   if (a === 'rerun') { const r = ST.data?.run; if (!r) return; const fd = new FormData(); fd.append('url', r.url); fd.append('goal', r.goal || ''); fd.append('max_steps', r.max_steps || 50); fd.append('minutes', r.minutes || 'auto'); try { const x = await post('start', fd); await loadList(); select(x.id); } catch (er) { toast(er.message); } return; }
   if (a === 'chat') { ST.nochat = !ST.nochat; lsSet('qa.nochat', ST.nochat ? '1' : ''); paintView(); if (!ST.nochat) { const f = $('#qFeed'); if (f) f.scrollTop = f.scrollHeight; } return; }
   if (a === 'zoom') { setZoom(!ST.zoom); return; }
+  if (a === 'zm-' || a === 'zm+' || a === 'zm0') { zoomBy(a === 'zm-' ? -1 : a === 'zm+' ? 1 : 0); return; }
   if (a === 'side') { ST.side = !ST.side; ROOT.querySelector('.q-app').classList.toggle('side', ST.side); return; }
   if (a === 'new') { stopStream(); clearTimeout(ST.poll); ST.sel = ''; ST.data = null; paintHist(); paintMain(); }
   else if (a === 'pick') $('#qFile').click();
@@ -585,6 +616,7 @@ async function onClick(e) {
   else if (a === 'pause') { await cmd({ type: 'pause' }); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300); }
   else if (a === 'stop') { await cmd({ type: 'stop' }); toast(s?.status === 'idle' ? 'Đang đóng trình duyệt' : 'Đang dừng — agent viết báo cáo', 1); clearTimeout(ST.poll); ST.poll = setTimeout(poll, 300); }
   else if (a === 'del') delRun(ST.sel);
+  else if (a === 'ren') { e.stopPropagation(); renameRun(t.closest('[data-id]')); }
   else if (a === 'delh') { e.stopPropagation(); delRun(t.closest('[data-id]').dataset.id); }
   else if (a === 'lbx') lbClose();
   else if (a === 'lbp' && LB.i > 0) { LB.i--; paintLb(); }

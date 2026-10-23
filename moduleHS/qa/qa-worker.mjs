@@ -31,6 +31,15 @@ const S0 = { status: "starting", phase: null, step: 0, max: MAX_STEPS, round: 1,
   usage: { in: 0, cached: 0, out: 0, usd: 0, calls: 0 },
   metrics: { console: [], pageerror: [], failed: [], http: [], slow: [], navs: [], requests: 0, dialogs: [] } };
 let S = S0;
+/* Thu phóng trang web đang test (CSS zoom ở trang gốc): mặc định 75% để web bố cục cho màn rộng hơn vẫn lọt khung 1280×800.
+   Toạ độ chuột / khung phần tử vẫn theo điểm ảnh nhìn thấy nên thao tác không lệch. Người dùng chỉnh − / + trên màn trực tiếp. */
+const zClamp = (z) => Math.round(Math.max(0.5, Math.min(1.5, +z || 0.75)) * 100) / 100;
+const zoomJs = (z) => `(()=>{if(window.top!==window)return;const a=()=>{const d=document.documentElement;if(d)d.style.zoom="${z}"};a();document.addEventListener("DOMContentLoaded",a)})()`;
+async function setZoom(z) {
+  S.zoom = zClamp(z); save(true);
+  try { await ctx?.addInitScript(zoomJs(S.zoom)); } catch { /* ngữ cảnh đã đóng */ }
+  for (const p of ctx?.pages() || []) await p.evaluate((v) => { document.documentElement.style.zoom = String(v); }, S.zoom).catch(() => {});
+}
 if (RESUME) { try { S = { ...S0, ...JSON.parse(fs.readFileSync(f("state.json"), "utf8")) }; } catch { /* hỏng: bắt đầu lại */ } S.status = "starting"; S.error = ""; S.ended = 0; S.ask = null; S.round = (S.round || 1) + 1; }
 const T0 = S.started;
 let saveTm = 0;
@@ -56,6 +65,7 @@ function pump() {
     else if (c.type === "continue") { pending.pause = false; pending.go = true; }
     else if ((c.type === "say" || c.type === "answer") && c.text) { const t = String(c.text).slice(0, 2000); chat("user", t, c.cid ? { cid: String(c.cid).slice(0, 40) } : {}); pending.say.push(t); pending.bonus += 10; pending.pause = false; pending.go = true; }
     else if (["click", "type", "key", "scroll", "goto", "back"].includes(c.type)) remoteQ = remoteQ.then(() => remote(c)).catch(() => {});
+    else if (c.type === "zoom") remoteQ = remoteQ.then(() => setZoom(c.z)).catch(() => {});
   }
   save();
 }
@@ -456,6 +466,7 @@ async function main() {
   const st = RUN.use_auth !== false && fs.existsSync(authFile) ? authFile : undefined;
   ctx = await browser.newContext({ viewport: { width: VW, height: VH }, locale: "vi-VN", timezoneId: "Asia/Ho_Chi_Minh", storageState: st, ignoreHTTPSErrors: true, acceptDownloads: false });
   await ctx.addInitScript(INIT);
+  S.zoom = zClamp(S.zoom ?? RUN.zoom ?? 0.75); await ctx.addInitScript(zoomJs(S.zoom));
   let first = true;
   ctx.on("page", (p) => { if (first || p === page) return; log({ kind: "info", label: "Mở tab mới", res: p.url() }); attachPage(p).catch(() => {}); });
   const p0 = await ctx.newPage(); first = false; await attachPage(p0); ticker();
