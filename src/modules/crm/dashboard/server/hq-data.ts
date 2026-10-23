@@ -111,7 +111,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   // ---- CV (same rows as the CV screen: active CVs the member may see) ----
   const cvs = (async () => {
     if (!can("cvs.view")) return null;
-    const base = () => supabase.from("human_cvs").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("active", true);
+    const base = () => supabase.from("human_cvs").select("cv_id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("active", true);
     const [{ count: today }, { count: twoDays }, { count: total }, { data: blocks }] = await Promise.all([
       base().gte("human_created_at", dayStart.toISOString()), base().gte("human_created_at", new Date(dayStart.getTime() - 86_400_000).toISOString()), base(),
       supabase.from("human_cv_blocks").select("last_synced_at").eq("workspace_id", workspaceId).not("last_synced_at", "is", null).order("last_synced_at", { ascending: false }).limit(1),

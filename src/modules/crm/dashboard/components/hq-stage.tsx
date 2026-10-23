@@ -211,6 +211,7 @@ export function HqStage({ data }: { data: HqData }) {
           : <HqMap2D rooms={data.rooms} team={data.team} stats={data.stats} floor={data.floor} selected={selected} onSelect={pick} />}
       </div>
 
+      <div className={styles.leftCol}>
       <header className={cx(styles.glass, styles.hud)}>
         <span className={styles.logo} aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 4v16M19 4v16M5 12h14" /></svg></span>
         <strong className={styles.title}>HireX HQ</strong>
@@ -222,14 +223,6 @@ export function HqStage({ data }: { data: HqData }) {
         <HqClock className={cx(styles.chip, styles.chipSm, styles.mono, styles.strong)} />
       </header>
 
-      <div className={cx(styles.glass, styles.dock)} role="toolbar" aria-label="Bảng thông tin">
-        <button type="button" aria-pressed={kpiOpen} onClick={toggleKpi}>Chỉ số</button>
-        <button type="button" aria-pressed={drawer === "feed"} onClick={() => { setSelected(null); setDrawer((value) => value === "feed" ? null : "feed"); }}>Đang diễn ra{data.feed.length ? <i>{data.feed.length}</i> : null}</button>
-        <button type="button" aria-pressed={drawer === "team"} onClick={() => { setSelected(null); setDrawer((value) => value === "team" ? null : "team"); }}>Đội ngũ</button>
-        <span className={styles.dockSep} />
-        <button type="button" aria-pressed={view === "2d"} onClick={() => saveHqView("2d")}>2.5D</button>
-        <button type="button" aria-pressed={view === "3d"} onClick={() => saveHqView("3d")}>3D</button>
-      </div>
 
       {kpiOpen ? (
         <aside className={styles.kpiPanel} aria-label="Chỉ số chính">
@@ -242,6 +235,16 @@ export function HqStage({ data }: { data: HqData }) {
           ))}
         </aside>
       ) : null}
+      </div>
+
+      <div className={cx(styles.glass, styles.dock)} role="toolbar" aria-label="Bảng thông tin">
+        <button type="button" aria-pressed={kpiOpen} onClick={toggleKpi}>Chỉ số</button>
+        <button type="button" aria-pressed={drawer === "feed"} onClick={() => { setSelected(null); setDrawer((value) => value === "feed" ? null : "feed"); }}>Đang diễn ra{data.feed.length ? <i>{data.feed.length}</i> : null}</button>
+        <button type="button" aria-pressed={drawer === "team"} onClick={() => { setSelected(null); setDrawer((value) => value === "team" ? null : "team"); }}>Đội ngũ</button>
+        <span className={styles.dockSep} />
+        <button type="button" aria-pressed={view === "2d"} onClick={() => saveHqView("2d")}>2.5D</button>
+        <button type="button" aria-pressed={view === "3d"} onClick={() => saveHqView("3d")}>3D</button>
+      </div>
 
       {open ? (
         <aside className={cx(styles.glass, styles.drawer)} aria-label="Thông tin">
