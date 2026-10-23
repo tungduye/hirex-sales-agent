@@ -48,3 +48,19 @@ test('the new fields are there, the bar shows only the main ones', () => {
   const summary = flowSummary({ ...EMPTY_FLOW, facts: { careerTrack: 'BrSE', phone: '0901234567' } });
   assert.deepEqual(summary.known, ['Hướng nghề: BrSE']);
 });
+
+import { impliedStep, normalizeFlow } from '../src/modules/rec-flow/core/rec-flow.ts';
+test('the step follows what is known and never goes back', () => {
+  const job = '11111111-1111-4111-8111-111111111111';
+  assert.equal(impliedStep({ facts: {}, offeredJobIds: [], outcome: null }), 1);
+  assert.equal(impliedStep({ facts: { phone: '0901' }, offeredJobIds: [], outcome: null }), 2);
+  assert.equal(impliedStep({ facts: { careerTrack: 'BrSE' }, offeredJobIds: [], outcome: null }), 3);
+  assert.equal(impliedStep({ facts: { careerTrack: 'BrSE', location: 'Hà Nội' }, offeredJobIds: [], outcome: null }), 4);
+  assert.equal(impliedStep({ facts: { careerTrack: 'BrSE', location: 'Hà Nội', japaneseLevel: 'N2', experience: '3 năm', expectedSalary: '60tr' }, offeredJobIds: [], outcome: null }), 5);
+  assert.equal(impliedStep({ facts: { expectedSalary: '60tr' }, offeredJobIds: [job], outcome: null }), 5);
+  assert.equal(impliedStep({ facts: { expectedSalary: '60tr', availability: 'đầu năm sau' }, offeredJobIds: [job], outcome: null }), 7);
+  assert.equal(impliedStep({ facts: { cvStatus: 'Đã gửi CV' }, offeredJobIds: [], outcome: null }), 8);
+  assert.equal(impliedStep({ facts: { cvStatus: 'có bản cũ, chưa cập nhật' }, offeredJobIds: [], outcome: null }), 2);
+  assert.equal(normalizeFlow({ step: 1, facts: { careerTrack: 'Brse non tech', japaneseLevel: 'N1', cvStatus: 'Đã gửi CV' } }).step, 8, 'the real case: CV sent');
+  assert.equal(normalizeFlow({ step: 6, facts: { careerTrack: 'BrSE' } }).step, 6, 'a step further on stays');
+});

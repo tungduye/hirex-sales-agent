@@ -8,7 +8,8 @@ const job = (id, code, location, track, extra = {}) => ({ id, code, title: `${tr
 
 test('stored states are cleaned: bad steps, unknown facts and bad job ids are dropped', () => {
   const state = normalizeFlow({ step: 12, facts: { careerTrack: '  BrSE ', password: 'x', location: '' }, offeredJobIds: [J1, 'nope', J1], rejectedJobs: [{ jobId: J2, reason: 'xa' }, { jobId: 'x' }], outcome: 'HACK' });
-  assert.deepEqual(state, { step: 1, facts: { careerTrack: 'BrSE' }, offeredJobIds: [J1], rejectedJobs: [{ jobId: J2, reason: 'xa' }], outcome: null });
+  // A bad step falls back to 1, then the step follows what is known: a job was offered → 5.
+  assert.deepEqual(state, { step: 5, facts: { careerTrack: 'BrSE' }, offeredJobIds: [J1], rejectedJobs: [{ jobId: J2, reason: 'xa' }], outcome: null });
 });
 test('the bar says the step, what is known and what is missing', () => {
   const summary = flowSummary(normalizeFlow({ step: 4, facts: { careerTrack: 'BrSE', location: 'Hà Nội' } }));

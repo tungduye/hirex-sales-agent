@@ -3,7 +3,7 @@
 import { Pencil, Route, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { FACT_FIELDS, flowSummary, REC_OUTCOME_LABEL, REC_OUTCOMES, REC_STEPS, type FactKey, type RecFlowState } from "../core/rec-flow";
+import { FACT_FIELDS, flowSummary, impliedStep, REC_OUTCOME_LABEL, REC_OUTCOMES, REC_STEPS, type FactKey, type RecFlowState } from "../core/rec-flow";
 import { confirmRecFact, loadRecFactSources, loadRecFlow, saveRecFlow, type FactSource } from "../server/rec-flow-actions";
 
 /** Fired after a Hola draft is sent (or the flow is edited) so the bar shows the new state. */
@@ -82,8 +82,8 @@ function FlowEditor({ conversationId, state, onSaved, onClose }: { conversationI
     <div className="mb-2 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Luồng Rec của ứng viên</p><button type="button" onClick={onClose} aria-label="Đóng" className="rounded p-0.5 text-slate-400 hover:bg-slate-100"><X className="size-3.5"/></button></div>
     <p className="mb-2 text-[11px] text-slate-500">Ứng viên nhắn tới đâu, AI tự ghi tới đó (kèm câu ứng viên đã nói). Bấm <b className="text-emerald-700">✓ Đúng</b> để xác nhận, sửa ô nếu AI hiểu sai.</p>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <label className="text-xs"><span className="mb-0.5 block font-semibold text-slate-600">Bước</span>
-        <select value={draft.step} onChange={(event) => setDraft({ ...draft, step: Number(event.target.value) })} className="h-8 w-full rounded-lg border border-slate-200 px-2">{REC_STEPS.map((step) => <option key={step.step} value={step.step}>{step.step}. {step.label}</option>)}</select></label>
+      <label className="text-xs"><span className="mb-0.5 block font-semibold text-slate-600" title="Bước tự nhảy theo thông tin đã biết; không lùi về bước đã qua">Bước</span>
+        <select value={draft.step} onChange={(event) => setDraft({ ...draft, step: Number(event.target.value) })} className="h-8 w-full rounded-lg border border-slate-200 px-2">{REC_STEPS.map((step) => <option key={step.step} value={step.step} disabled={step.step < impliedStep(draft)}>{step.step}. {step.label}{step.step < impliedStep(draft) ? " (đã qua)" : ""}</option>)}</select></label>
       <label className="text-xs"><span className="mb-0.5 block font-semibold text-slate-600">Kết quả</span>
         <select value={draft.outcome ?? ""} onChange={(event) => setDraft({ ...draft, outcome: (event.target.value || null) as RecFlowState["outcome"] })} className="h-8 w-full rounded-lg border border-slate-200 px-2"><option value="">—</option>{REC_OUTCOMES.map((value) => <option key={value} value={value}>{REC_OUTCOME_LABEL[value]}</option>)}</select></label>
       {FACT_FIELDS.filter((item) => item.summary).map(field)}

@@ -413,7 +413,9 @@
     "runtime/hs-preview/a/types/**/*.ts",
     "runtime/hs-preview/a/dev/types/**/*.ts",
     ".next-thong-tin-ung-vien/types/**/*.ts",
-    ".next-thong-tin-ung-vien/dev/types/**/*.ts"
+    ".next-thong-tin-ung-vien/dev/types/**/*.ts",
+    ".next-thong-tin-ung-vien-2/types/**/*.ts",
+    ".next-thong-tin-ung-vien-2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

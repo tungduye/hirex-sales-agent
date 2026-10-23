@@ -85,11 +85,30 @@ export function normalizeFlow(value: unknown): RecFlowState {
     const entry = item && typeof item === "object" ? item as Record<string, unknown> : {};
     return typeof entry.jobId === "string" && UUID.test(entry.jobId) ? [{ jobId: entry.jobId, reason: clean(entry.reason, 200) }] : [];
   }) : [];
-  return {
+  const state = {
     step: Number.isInteger(step) && step >= 1 && step <= REC_STEP_COUNT ? step : 1, facts,
     offeredJobIds: [...new Set(offered)].slice(0, 50), rejectedJobs: rejected.slice(0, 50),
     outcome: REC_OUTCOMES.includes(raw.outcome as RecOutcome) ? raw.outcome as RecOutcome : null,
   };
+  // The step follows what is already known: it only moves forward, never below what the facts show.
+  return { ...state, step: Math.max(state.step, impliedStep(state)) };
+}
+
+const cvSent = (value: string | undefined) => Boolean(value) && /(?:da|đã)\s*(?:gui|gửi|nhan|nhận)|(?:gui|gửi)\s*(?:roi|rồi)|(?:^|\s)sent(?:$|\s)/iu.test(value!.normalize("NFC"));
+
+/**
+ * The step the known facts put the candidate at (the next thing to do):
+ * nothing known → 1 Chào; no track yet → 2; no area → 3; still getting to know them → 4; ready, no job yet → 5;
+ * a job offered → 5, with salary and start date known → 7 Xin CV; CV sent → 8.
+ */
+export function impliedStep(state: Pick<RecFlowState, "facts" | "offeredJobIds" | "outcome">) {
+  const facts = state.facts;
+  if (state.outcome === "CV_RECEIVED" || cvSent(facts.cvStatus)) return 8;
+  if (state.offeredJobIds.length) return facts.expectedSalary && facts.availability ? 7 : 5;
+  if (!Object.values(facts).some(Boolean)) return 1;
+  if (!facts.careerTrack) return 2;
+  if (!facts.location) return 3;
+  return offerMissing(facts).length ? 4 : 5;
 }
 
 /** What must be known before a specific job is put forward: a recruiter understands the candidate first. */
