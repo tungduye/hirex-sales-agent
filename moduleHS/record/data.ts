@@ -22,12 +22,10 @@ export const C = {
   get ffmpeg() { return ffmpegPath(); },
   // key riêng của các dự án moduleHS (HS_OPENAI_API_KEY) để theo dõi token tách khỏi Soda; chưa đặt thì dùng key chung
   get key() { return (process.env.HS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "").trim(); },
-  text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), minutes: E("HS_RECORD_MINUTES_MODEL", "gpt-5.6-sol"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"), liveModel: E("HS_RECORD_LIVE_TEXT_MODEL"),
+  text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), minutes: E("HS_RECORD_MINUTES_MODEL", "gpt-5.6-sol"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"),
   seg: Math.max(300, +E("TRANSCRIBE_SEGMENT_SECONDS", "1800")), br: E("AUDIO_BITRATE", "24k"), slice: Math.max(5000, +E("RECORD_SLICE_MS", "5000")),
   ttsMax: Math.max(500, +E("TTS_MAX_CHARS", "60000")), cmin: +E("CODE_MIN", "3"), cmax: +E("CODE_MAX", "6"), maxMB: +E("MAX_UPLOAD_MB", "512"),
-  keep: Math.max(1, +E("PENDING_RETENTION_HOURS", "168")), liveMs: Math.min(15000, Math.max(2000, +E("LIVE_SEGMENT_MS", "3000"))), realtime: E("LIVE_REALTIME", "1") !== "0",
-  liveNoise: E("LIVE_NOISE", "near_field"), liveDelay: E("LIVE_DELAY"), liveSilence: +E("LIVE_SILENCE_MS", "800"), liveMaxTurn: +E("LIVE_MAX_TURN_MS", "14000"),
-  liveVad: +E("LIVE_VAD_THRESHOLD", ".6"), liveMinLp: +E("LIVE_MIN_LOGPROB", "-1"), liveTranscribe: E("LIVE_TRANSCRIBE_MODEL"),
+  keep: Math.max(1, +E("PENDING_RETENTION_HOURS", "168")), liveMs: Math.min(15000, Math.max(2000, +E("LIVE_SEGMENT_MS", "3000"))),
 };
 /** FFmpeg: FFMPEG_PATH, rồi bản cài bằng winget / choco / runtime\ffmpeg (tìm thấy là dùng ngay, không cần khởi động lại web), cuối cùng "ffmpeg" trong PATH. */
 function ffmpegPath() {

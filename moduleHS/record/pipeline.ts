@@ -13,6 +13,7 @@ import { forgetHirexDocuments, saveHirexDocument } from "@/modules/human-documen
 import { normText } from "./office";
 import { cleanMinutes, hasMinutes, minutesDocx, minutesHtml, minutesText, textDocx, type Minutes, type MinutesHead } from "./minutes";
 import { contextTerms, contextText, meetContext, sttPrompt, type MeetContext } from "./context";
+import { fixText, getLex, topHits, KIND_VI, type Lex } from "./lexicon";
 import {
   C, LANGS, err, cleanTitle, fmtT, fmtDur, slugBase, slugify, lang, isLang, st, nextId, dir, fp, save, upd, chunks, has, jobSet, rename, settings, type HsErr, type Lang, type Meta,
 } from "./data";
@@ -64,6 +65,14 @@ export async function transcribe(file: string, prompt: string, type = "audio/mpe
 }
 
 /* ============ phụ đề / dịch trực tiếp ============ */
+/** Dịch nhanh miễn phí qua Google Dịch (endpoint công khai của Google Translate, không cần key). Lỗi → ném lỗi để nơi gọi tự chuyển sang OpenAI. */
+export async function gTranslate(text: string, to: string): Promise<string> {
+  const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text.slice(0, 4500))}`;
+  const r = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!r.ok) throw new Error("google_translate " + r.status);
+  const j = (await r.json()) as unknown[];
+  return (Array.isArray(j?.[0]) ? (j[0] as unknown[][]).map((x) => (Array.isArray(x) ? String(x[0] ?? "") : "")).join("") : "").replace(/\s+/g, " ").trim();
+}
 const LIVE_JUNK = /^\s*(thuật ngữ|用語|term(s)?|terminology|người tham gia|cuộc họp nội bộ)\s*[:：]/i;
 /** Model phiên âm hay "đọc lại" prompt / thuật ngữ khi im lặng hoặc nhiễu (vd "BrSE, Trang"). Câu chỉ gồm từ trong danh sách thuật ngữ, hoặc nằm sẵn trong prompt → coi là rác. */
 const NORM = (t: string) => String(t || "").toLowerCase().normalize("NFC").replace(/[\p{P}\p{S}]+/gu, " ").replace(/\s+/g, " ").trim();
@@ -73,9 +82,6 @@ export function isEcho(text: string, terms: string[] = [], prompt = "") {
   if (set.size && t.split(" ").every((w) => set.has(w))) return true;
   const p = NORM(prompt); return t.length >= 4 && p.includes(t);
 }
-const kwClean = (s: string) => String(s || "").replace(/[<>\r\n]/g, " ").replace(/\s+/g, " ").trim();
-/** Từ khoá cho phụ đề trực tiếp: tên người + thuật ngữ HireX (≤ 60). */
-const liveTerms = (c: MeetContext) => { const t = contextTerms(c); return [...new Set([...t.names, ...t.terms].map(kwClean).filter(Boolean))].slice(0, 60); };
 /** Bỏ ký tự thuộc hệ chữ không có trong ngôn ngữ đang nói (model đôi khi lẫn Hangul/Thái vào tiếng Việt); dòng không còn chữ thì bỏ. */
 /** Chỉ giữ chữ Latin (Việt / Anh) và Hán / Kana (Nhật): người nói đổi qua lại 3 thứ tiếng này. */
 export function scriptClean(text: string) {
@@ -85,90 +91,6 @@ export function scriptClean(text: string) {
   return /\p{L}{2,}/u.test(out) ? out : "";
 }
 export const dropEcho = (text: string, terms: string[] = [], prompt = "") => String(text || "").split(/(?<=[.!?。！？])\s+/).filter((x) => !isEcho(x, terms, prompt)).join(" ").trim();
-/** Dịch trực tiếp: model nhanh không suy luận, stream từng chữ. Thử lần lượt các model/tham số, nhớ cấu hình chạy được. */
-const QA = { model: "", variant: -1, bad: new Set<string>() }, RTLOG = { last: "" };
-const QA_MODELS = () => [...new Set([C.liveModel, "gpt-5.4-mini", "gpt-5-mini", "gpt-4.1-mini", C.text].filter(Boolean))];
-const QA_VARIANTS: Record<string, unknown>[] = [{ reasoning: { effort: "none" } }, { reasoning: { effort: "minimal" } }, {}];
-async function sseText(r: Response, onDelta?: (d: string) => void) {
-  const rd = r.body!.getReader(), dec = new TextDecoder(); let buf = "", out = "", fin = "";
-  for (;;) {
-    const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true });
-    let i; while ((i = buf.indexOf("\n\n")) >= 0) {
-      const ev = buf.slice(0, i); buf = buf.slice(i + 2); const d = ev.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join(""); if (!d || d === "[DONE]") continue;
-      let j: { type?: string; delta?: string; text?: string; error?: { message?: string }; response?: { error?: { message?: string } } }; try { j = JSON.parse(d); } catch { continue; }
-      if (j.type === "response.output_text.delta" && j.delta) { out += j.delta; onDelta?.(j.delta); }
-      else if (j.type === "response.output_text.done" && j.text) fin = j.text;
-      else if (j.type === "error" || j.type === "response.failed") throw err("openai", 502, j.error?.message || j.response?.error?.message || "stream_error");
-    }
-  }
-  return (out || fin).trim();
-}
-export async function quickStream(ins: string, input: string, onDelta?: (d: string) => void, ms = 20000) {
-  if (!C.key) throw err("no_ai_key", 501);
-  const models = QA_MODELS(), order = QA.model ? [QA.model, ...models.filter((m) => m !== QA.model)] : models; let last = "";
-  for (const model of order) {
-    if (QA.bad.has(model)) continue;
-    const vs = QA.model === model && QA.variant >= 0 ? [QA.variant] : [0, 1, 2];
-    for (const vi of vs) {
-      let r: Response; try { r = await postOpenAIResponse({ apiKey: C.key, timeoutMs: ms, body: { model, instructions: ins, input, stream: true, ...QA_VARIANTS[vi] } }); }
-      catch (e) { last = e instanceof Error ? e.message : String(e); continue; }
-      if (r.ok) { if (QA.model !== model || QA.variant !== vi) { QA.model = model; QA.variant = vi; console.log(`[Cuộc họp] Dịch trực tiếp: ${model}${vi < 2 ? " · reasoning " + ["none", "minimal"][vi] : ""}`); } return sseText(r, onDelta); }
-      const t = (await r.text().catch(() => "")).slice(0, 300); last = `OpenAI ${r.status}: ${t}`;
-      if (r.status === 404 || /model_not_found|does not exist|not found|deprecated|invalid model/i.test(t)) { QA.bad.add(model); break; }
-      if (r.status === 400 && /reasoning|effort|unsupported|not supported|unknown parameter/i.test(t)) continue;
-      if (r.status === 401 || r.status === 403) throw err("openai", 502, last);
-    }
-  }
-  throw err("openai", 502, last || "no_model");
-}
-export const liveIns = (to: Lang, terms: string[] = []) => { const L = LANGS[to].name; return `You are a simultaneous interpreter at a business meeting. Translate the given sentence into ${L}. Output ONLY the translation: no quotes, no notes, no alternatives. Natural, concise, faithful; keep names, numbers, codes${terms.length ? ` and these terms exactly: ${terms.slice(0, 60).join(", ")}` : ""}. If the sentence is already in ${L}, output it unchanged (only fix obvious speech-recognition slips). Sentences before it are given for context only.`; };
-export const liveInput = (text: string, ctx: unknown) => (ctx ? `Previous lines (context):\n${String(ctx).slice(-400)}\n\n` : "") + `Sentence:\n${text}`;
-
-/** Realtime: cấp khoá tạm để trình duyệt nối thẳng WebSocket OpenAI.
- *  Ưu tiên gpt-live-transcribe (chữ hiện ngay khi đang nói, trình duyệt tự cắt câu rồi commit);
- *  không được thì gpt-4o-transcribe với VAD phía máy chủ (+ logprobs để lọc câu bịa). */
-export async function liveToken(m: Meta) {
-  if (!C.key) throw err("no_ai_key", 501); if (!C.realtime) throw err("realtime_off", 409);
-  const ctx = await meetContext(m.ws, m.slug), kw = liveTerms(ctx), prompt = "Cuộc họp nội bộ công ty Intalent về hệ thống HireX; người nói đổi qua lại tiếng Việt, tiếng Anh, tiếng Nhật.", hint: Lang[] = [];
-  m.live_prompt = prompt;
-  const fmt = { type: "audio/pcm", rate: 24000 }, nr = { type: C.liveNoise };
-  const delay = ["minimal", "low", "medium", "high", "xhigh"].includes(C.liveDelay) ? C.liveDelay : "medium";
-  const hold = Math.min(2000, Math.max(300, C.liveSilence)), maxTurn = Math.min(30000, Math.max(5000, C.liveMaxTurn));
-  const vad = { type: "server_vad", threshold: Math.min(0.95, Math.max(0.1, C.liveVad)), prefix_padding_ms: 300, silence_duration_ms: hold };
-  type Cand = { mode: "live" | "vad"; model: string; session: { audio: { input: { transcription: Record<string, unknown> } & Record<string, unknown> }; include?: string[] } & Record<string, unknown> };
-  const liveOf = (model: string, extra = true): Cand => ({ mode: "live", model, session: { type: "transcription", audio: { input: { format: fmt, ...(extra && { noise_reduction: nr }), transcription: { model, delay, ...(hint.length && { languages: hint }), ...(extra && kw.length && { keywords: kw }), ...(extra && prompt && { prompt }) }, turn_detection: null } } } });
-  const vadOf = (model: string): Cand => ({ mode: "vad", model, session: { type: "transcription", audio: { input: { format: fmt, noise_reduction: nr, transcription: { model, ...(hint[0] && { language: hint[0] }) }, turn_detection: vad } }, include: ["item.input_audio_transcription.logprobs"] } });
-  const pref = C.liveTranscribe, cands: Cand[] = [];
-  if (pref && !/live/.test(pref)) cands.push(vadOf(pref)); else { const lm = pref || "gpt-live-transcribe"; cands.push(liveOf(lm, true), liveOf(lm, false)); }
-  for (const x of [...new Set(["gpt-4o-transcribe", C.stt])]) if (!cands.some((c) => c.model === x)) cands.push(vadOf(x));
-  const url = OPENAI.replace(/^http/, "ws") + "/realtime?intent=transcription", H = { Authorization: "Bearer " + C.key, "Content-Type": "application/json" };
-  const base = { hold, maxTurn, minLp: C.liveMinLp };
-  let last = "";
-  for (const c of cands) {
-    try {
-      const r = await fetch(OPENAI + "/realtime/client_secrets", { method: "POST", headers: H, signal: AbortSignal.timeout(15000), body: JSON.stringify({ expires_after: { anchor: "created_at", seconds: 600 }, session: c.session }) });
-      const j = (await r.json().catch(() => ({}))) as { value?: string; client_secret?: { value?: string }; error?: { message?: string } }, tok = j.value || j.client_secret?.value;
-      if (r.ok && tok) { if (RTLOG.last !== c.model + c.mode) { RTLOG.last = c.model + c.mode; console.log(`[Cuộc họp] Phụ đề trực tiếp: ${c.model} (${c.mode === "live" ? "streaming, cắt câu phía trình duyệt" : "VAD máy chủ"}) · tự nhận ngôn ngữ · ${kw.length} từ khoá`); } return { token: tok, url, beta: false, ...c, ...base }; }
-      last = j.error?.message || "HTTP " + r.status;
-      if (c.mode === "vad") {
-        const tr = c.session.audio.input.transcription, r2 = await fetch(OPENAI + "/realtime/transcription_sessions", { method: "POST", headers: { ...H, "OpenAI-Beta": "realtime=v1" }, signal: AbortSignal.timeout(15000), body: JSON.stringify({ input_audio_format: "pcm16", input_audio_transcription: tr, turn_detection: vad, input_audio_noise_reduction: nr, include: c.session.include }) });
-        const j2 = (await r2.json().catch(() => ({}))) as { client_secret?: { value?: string }; error?: { message?: string } }, t2 = j2.client_secret?.value; if (r2.ok && t2) return { token: t2, url, beta: true, ...c, ...base };
-        last = j2.error?.message || "HTTP " + r2.status;
-      }
-    } catch (e) { last = e instanceof Error ? e.message : String(e); }
-  }
-  console.error("[Cuộc họp] Realtime không dùng được:", last); throw err("realtime", 502, String(last).slice(0, 300));
-}
-
-/** Phụ đề trực tiếp, bước "chốt câu": trình duyệt gửi lại âm thanh của câu vừa nói (WAV) → model phiên âm chính (như biên bản)
- *  với ngữ cảnh HireX + 2 câu trước → chữ đúng hơn bản realtime (realtime hay rơi / sai chữ). */
-export async function liveFix(m: Meta, file: string, prev: string, type = "audio/wav") {
-  const ctx = await meetContext(m.ws, m.slug), t = contextTerms(ctx), prompt = sttPrompt(ctx, prev);
-  const raw = scriptClean(await transcribe(file, prompt, type));
-  return isEcho(raw, [...t.names, ...t.terms], prompt) ? "" : dropEcho(raw, [...t.names, ...t.terms], prompt);
-}
-/** Tên người + thuật ngữ của không gian làm việc (lọc câu "đọc lại prompt", giữ đúng chữ khi dịch). */
-export async function meetingTerms(m: Meta) { const t = contextTerms(await meetContext(m.ws, m.slug)); return [...t.names, ...t.terms]; }
 
 /** Dịch văn bản dài theo từng phần ~6000 ký tự, giữ thuật ngữ. */
 async function translateLong(text: string, to: Lang, terms: string[] = []) {
@@ -200,6 +122,7 @@ const MINUTES_INS = [
   "CÁCH HIỂU TRANSCRIPT",
   "- Transcript là phiên âm tự động: không tách người nói, có câu đứt, lặp, nghe sai tên / thuật ngữ, có lẫn tiếng Anh / Nhật. Đọc hết toàn bộ rồi mới viết; gộp các đoạn nói đi nói lại cùng một ý.",
   "- Dùng BỐI CẢNH để sửa về đúng tên chuẩn: tên người theo danh sách thành viên (gọi tắt như \"anh Dũng\", \"Tùng\", \"Hải\", \"Toản\"), tên màn hình / chức năng HireX (Suối Nguồn, Soda, Hola, Hole, Tài nguyên, Vọng gác, Cú vọ, KIT, Human…), thuật ngữ (BrSE, AM1, AM2, CV, JD, Hạng 1–7, X1 / X2…), tên khách hàng. Ví dụ \"suối nguồn\" → Suối Nguồn, \"so đa\" → Soda, \"bờ rích\" → BrSE, \"hai rếch\" → HireX. Từ nghe sai mà không chắc thì bỏ, không đoán bừa.",
+  "- Nếu có bảng THUẬT NGỮ / TÊN RIÊNG ĐÃ NHẬN RA: đó là các tên đã khớp tự động từ toàn bộ dữ liệu HireX (người, khách hàng, job, mã / hạng, địa điểm, màn hình) — luôn viết đúng tên chuẩn đó; gặp cách nghe nhầm ở cột phải thì sửa về tên chuẩn.",
   "- Nhận ra ai nói dựa vào nội dung: người chủ trì, đưa yêu cầu, chốt phương án (thường là CEO — anh Dũng); người báo cáo, giải thích, nhận việc. Chỉ ghi tên người khi transcript cho thấy rõ (có gọi tên, tự xưng, giao việc đích danh). Tuyệt đối không bịa người, số liệu, hạn chót, quyết định.",
   "- Bỏ phần không có giá trị: chào hỏi, kiểm tra mic / âm thanh, chia sẻ màn hình, câu đệm, nói lặp.",
   "",
@@ -225,12 +148,18 @@ const MINUTES_SCHEMA = { type: "object", additionalProperties: false, required: 
   decisions: ARR(STR), tasks: ARR({ type: "object", additionalProperties: false, required: ["task", "owner", "due", "note"], properties: { task: STR, owner: STR, due: STR, note: STR } }), open: ARR(STR),
 } };
 const WEEKDAY = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
-async function writeMinutes(m: Meta, ctx: MeetContext, transcript: string, h: MinutesHead): Promise<Minutes> {
+/** Bảng thuật ngữ của riêng cuộc họp này (đã khớp tự động từ phụ đề + bản gốc): tên chuẩn · loại · cách hay nghe nhầm. */
+function glossary(lex: Lex, hits: Map<string, number>) {
+  const top = topHits(lex, hits, 80); if (!top.length) return "";
+  return top.map(({ e, k }) => `- ${e.c} (${KIND_VI[e.k]}, ${k} lần)${e.a.length ? ` — hay nghe thành: ${e.a.slice(0, 4).join(", ")}` : ""}`).join("\n");
+}
+async function writeMinutes(m: Meta, ctx: MeetContext, transcript: string, h: MinutesHead, gloss = ""): Promise<Minutes> {
   const day = new Date((m.started || m.created * 1000) + 7 * 3600e3);
   const input = `BỐI CẢNH (dữ liệu HireX / Soda — chỉ để hiểu đúng người, màn hình, thuật ngữ; KHÔNG phải nội dung cuộc họp):\n${contextText(ctx)}\n\n`
+    + (gloss ? `THUẬT NGỮ / TÊN RIÊNG ĐÃ NHẬN RA TRONG CUỘC HỌP NÀY (từ điển học từ toàn bộ dữ liệu HireX — dùng đúng tên chuẩn bên trái; transcript có thể còn sót cách nghe nhầm bên phải):\n${gloss}\n\n` : "")
     + `THÔNG TIN CUỘC HỌP: ${WEEKDAY[day.getUTCDay()]} ngày ${h.date}, ${h.time} (${h.dur}).${m.auto ? "" : ` Tên do người dùng đặt: "${m.title}".`}\n\n`
     + `TRANSCRIPT (tự động, có thể nghe sai tên / thuật ngữ, không tách người nói):\n${transcript.slice(0, 400000)}`;
-  const raw = await ai(MINUTES_INS, input, { reasoning: { effort: "medium" }, text: { format: { type: "json_schema", name: "bien_ban", schema: MINUTES_SCHEMA, strict: true } } }, 1500000, C.minutes);
+  const raw = await ai(MINUTES_INS, input, { reasoning: { effort: "high" }, text: { format: { type: "json_schema", name: "bien_ban", schema: MINUTES_SCHEMA, strict: true } } }, 1500000, C.minutes);
   let j: unknown; try { j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw err("word_json"); }
   const x = cleanMinutes(j); if (!hasMinutes(x)) throw err("ai_empty"); return x;
 }
@@ -300,7 +229,12 @@ async function pool<T, R>(items: T[], n: number, fn: (x: T, i: number) => Promis
 export async function processMeeting(m: Meta) {
   const s = () => m.slug, set = (p: Partial<Meta>) => upd(m, { status: "processing", error: "", ...p }), audio = fp(s(), "audio.mp3");
   set({ stage: "Phiên âm" });
-  const ctx = await meetContext(m.ws, m.slug), prompt = sttPrompt(ctx), terms = [...contextTerms(ctx).names, ...contextTerms(ctx).terms];
+  const ctx = await meetContext(m.ws, m.slug), terms = [...contextTerms(ctx).names, ...contextTerms(ctx).terms];
+  // Từ điển học từ dữ liệu HireX: đếm thuật ngữ đã xuất hiện trong phụ đề trực tiếp của chính cuộc họp → ưu tiên trong prompt phiên âm
+  const lex = await getLex(m.ws || "").catch(() => null), hits = new Map<string, number>();
+  const addHits = (h: Map<string, number>) => { for (const [k, v] of h) hits.set(k, (hits.get(k) || 0) + v); };
+  if (lex) { try { for (const l of fs.readFileSync(fp(s(), "live.jsonl"), "utf8").split("\n")) { if (!l) continue; try { addHits(fixText(String(JSON.parse(l).text || ""), lex).hits); } catch { /* dòng hỏng */ } } } catch { /* không bật phụ đề */ } }
+  const prompt = sttPrompt(ctx, "", lex ? topHits(lex, hits, 30).map((x) => x.e.c) : []);
   let transcript = "";
   if (has(s(), "transcript.txt") && m.v2 && fs.statSync(fp(s(), "transcript.txt")).mtimeMs > fs.statSync(audio).mtimeMs) transcript = fs.readFileSync(fp(s(), "transcript.txt"), "utf8");   // tạo lại: không phiên âm lại
   if (!transcript) {
@@ -310,13 +244,16 @@ export async function processMeeting(m: Meta) {
     const texts = (await pool(pf, 3, async (f) => dropEcho(scriptClean(await transcribe(path.join(pd, f), prompt)), terms, prompt))).filter(Boolean);
     if (!texts.length) throw err("no_transcript");
     transcript = texts.join(" ");
+    // sửa tên / thuật ngữ theo từ điển (cùng thuật toán với phụ đề), từng câu
+    if (lex) transcript = transcript.split(/(?<=[.!?。！？])\s+/).map((x) => { const r = fixText(x, lex); addHits(r.hits); return r.text; }).join(" ");
     fs.writeFileSync(fp(s(), "transcript.txt"), transcript);
   }
 
   set({ stage: "Viết biên bản" });
   const started = m.started || m.created * 1000, ended = m.ended || started, dur = m.dur || 0;
   const head = (title: string): MinutesHead => ({ title, date: fmtT(started).slice(6), time: `${fmtT(started).slice(0, 5)} – ${fmtT(ended).slice(0, 5)}`, dur: fmtDur(dur) });
-  const mm = await writeMinutes(m, ctx, transcript, head(m.title));
+  if (lex && !hits.size) for (const x of transcript.split(/(?<=[.!?。！？])\s+/)) addHits(fixText(x, lex).hits);
+  const mm = await writeMinutes(m, ctx, transcript, head(m.title), lex ? glossary(lex, hits) : "");
   const title = m.auto && cleanTitle(mm.title, 80) ? cleanTitle(mm.title, 80) : m.title, h = head(title), html = minutesHtml(mm, h);
   fs.writeFileSync(fp(s(), "minutes.json"), JSON.stringify(mm));
   fs.writeFileSync(fp(s(), "summary.html"), html);

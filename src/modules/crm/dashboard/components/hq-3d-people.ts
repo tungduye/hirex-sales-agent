@@ -1,9 +1,11 @@
 import type * as Three from "three";
 import type { HqMember } from "@/modules/crm/dashboard/server/hq-data";
 import { avatar, disposeTree, hashOf, label, seeded, type T } from "@/modules/crm/dashboard/components/hq-3d-draw";
-import { CHARACTERS, COFFEE, CONNECTOR_X, CORRIDOR_A, corridorOf, S, type Kit, type P, type Slot, type World } from "@/modules/crm/dashboard/components/hq-3d-world";
+import { CHARACTERS, COFFEE, CONNECTOR_X, CORRIDOR_A, S, type Kit, type P, type Slot, type World } from "@/modules/crm/dashboard/components/hq-3d-world";
+import type { HqLayout } from "@/modules/crm/dashboard/core/hq-layout";
 
-// The people of HireX HQ mức 3 (Kenney Mini Characters, CC0): each member sits at a desk in their room and works.
+// The people of HireX HQ mức 3 (Kenney Mini Characters, CC0): each member sits at their desk (core/hq-layout.ts) and works.
+// Only the people of the floor on screen are built; someone in a meeting is in Phòng họp on Tầng 1.
 // Movement follows real data only: when someone's calendar event starts they walk to Phòng họp, and back afterwards.
 // People with no activity occasionally take a coffee break in the pantry (decoration; their status ring stays true).
 
@@ -27,7 +29,7 @@ export interface People {
   positionOf: (id: string) => { x: number; y: number; z: number } | null;
 }
 
-export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: World, cloneSkinned: (object: Three.Object3D) => Three.Object3D): People {
+export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: World, layout: HqLayout, cloneSkinned: (object: Three.Object3D) => Three.Object3D): People {
   const actors = new Map<string, Actor>();
   const group = new THREE.Group();
   parent.add(group);
@@ -67,6 +69,11 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
     const tag = label(THREE, text.length > 24 ? `${text.slice(0, 23)}…` : text, { height: 11, border: person.tone === "alert" ? "rgba(244,63,94,.85)" : undefined });
     tag.position.y = 91;
     actor.labels.add(head, tag);
+    if (person.isNew) {
+      const welcome = label(THREE, "🎉 Thành viên mới", { height: 11, bg: "#FEF3C7", color: "#713f12", border: "rgba(251,191,36,1)" });
+      welcome.position.y = person.tone === "busy" ? 119 : 105;
+      actor.labels.add(welcome);
+    }
     actor.head = head;
     actor.bubble = null;
     if (person.tone === "busy") {
@@ -114,16 +121,20 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
   /** From a seat out to the corridor, along the corridors, and in to another seat. */
   const between = (from: Slot, to: Slot): P[] => {
     const out = from.toCorridor, back = to.toCorridor.slice().reverse();
-    return [...out, ...route(last(out).x, corridorOf(from.room), back[0].x, corridorOf(to.room)), ...back.slice(1), to.sit];
+    return [...out, ...route(last(out).x, from.corridorZ, back[0].x, to.corridorZ), ...back.slice(1), to.sit];
   };
 
   const sync: People["sync"] = (team, time) => {
     const wanted = new Map<string, { person: HqMember; slot: Slot }>();
     const byName = (a: HqMember, b: HqMember) => a.name.localeCompare(b.name, "vi") || a.id.localeCompare(b.id);
-    const assign = (people: HqMember[], list: Slot[] | undefined) => { if (!list) return; people.slice().sort(byName).slice(0, list.length).forEach((person, index) => wanted.set(person.id, { person, slot: list[index] })); };
-    assign(team.filter((person) => person.seat === "REC"), world.slots.get("rec"));
-    assign(team.filter((person) => person.seat === "SALE"), world.slots.get("sale"));
-    assign(team.filter((person) => person.seat === "MEET"), world.meetingSeats);
+    // In a meeting: Phòng họp (Tầng 1); otherwise their own desk, when it is on this floor.
+    team.filter((person) => person.meeting).sort(byName).slice(0, world.meetingSeats.length).forEach((person, index) => wanted.set(person.id, { person, slot: world.meetingSeats[index] }));
+    for (const person of team) {
+      if (wanted.has(person.id) || (person.meeting && world.level !== 0)) continue;
+      const seat = layout.seatOf[person.id];
+      const slot = seat && seat.level === world.level ? world.slots.get(seat.seat) : undefined;
+      if (slot) wanted.set(person.id, { person, slot });
+    }
     for (const actor of [...actors.values()]) if (!wanted.has(actor.id)) remove(actor);
     for (const { person, slot } of wanted.values()) {
       const actor = actors.get(person.id);
@@ -137,7 +148,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
       }
     }
     picks = [...actors.values()].map((actor) => actor.head);
-    for (const list of world.slots.values()) for (const slot of list) if (slot.screenGlow) (slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0;
+    for (const slot of world.slots.values()) if (slot.screenGlow) (slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0;
     for (const actor of actors.values()) if (actor.slot.screenGlow && actor.person.tone !== "idle") (actor.slot.screenGlow.material as Three.MeshBasicMaterial).opacity = 0.75;
   };
 
@@ -161,7 +172,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
       if (actor.state === "coffee") {
         if (time >= actor.until) {
           const slot = actor.slot, out = slot.toCorridor;
-          walk(actor, [{ x: COFFEE.x, z: CORRIDOR_A }, ...route(COFFEE.x, CORRIDOR_A, last(out).x, corridorOf(slot.room)), ...out.slice().reverse().slice(1), slot.sit],
+          walk(actor, [{ x: COFFEE.x, z: CORRIDOR_A }, ...route(COFFEE.x, CORRIDOR_A, last(out).x, slot.corridorZ), ...out.slice().reverse().slice(1), slot.sit],
             () => { seat(actor, slot); actor.nextBreak = now + 60 + actor.random() * 150; });
         }
         continue;
@@ -171,7 +182,7 @@ export function createPeople(THREE: T, parent: Three.Object3D, kit: Kit, world: 
         if (walkers >= 2) { actor.nextBreak = time + 10 + actor.random() * 30; continue; }
         walkers += 1;
         const slot = actor.slot, out = slot.toCorridor;
-        walk(actor, [...out, ...route(last(out).x, corridorOf(slot.room), COFFEE.x, CORRIDOR_A), COFFEE], () => {
+        walk(actor, [...out, ...route(last(out).x, slot.corridorZ, COFFEE.x, CORRIDOR_A), COFFEE], () => {
           actor.state = "coffee"; actor.until = now + 6; actor.root.rotation.y = Math.PI;
           play(actor, actor.actions.has("interact-right") ? "interact-right" : "idle");
         });

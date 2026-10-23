@@ -6,24 +6,29 @@ import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard
 import type { HqSelection } from "@/modules/crm/dashboard/components/hq-map";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 import type { People } from "@/modules/crm/dashboard/components/hq-3d-people";
-import type { RoomKey, World } from "@/modules/crm/dashboard/components/hq-3d-world";
+import type { Kit, World } from "@/modules/crm/dashboard/components/hq-3d-world";
+import type { HqLayout } from "@/modules/crm/dashboard/core/hq-layout";
 import type { Effects } from "@/modules/crm/dashboard/components/hq-3d-effects";
 
 // HireX HQ, mức 3: the office in real 3D — a high floor of a tower over a lit city, with furniture and people from
-// CC0 model kits (public/hq3d). Three.js and the models load only when this view opens.
+// CC0 model kits (public/hq3d). Three.js and the models load only when this view opens. The plan comes from the team
+// (core/hq-layout.ts): when someone joins or a bộ phận is added, the floor is built again with the new desk or room.
 // Drag to turn, scroll to zoom, right-drag to move; hover shows who / what, a click opens the room's screen.
 // The building is built once; each data refresh (every minute) only updates numbers, screens and people.
 
-type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; selected: HqSelection; onSelect: (selection: HqSelection) => void; onUnsupported: () => void };
+type Props = { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; layout: HqLayout; level: number; selected: HqSelection; onSelect: (selection: HqSelection) => void; onUnsupported: () => void };
 type Hover = { x: number; y: number; title: string; sub: string } | null;
 type Pick = { title: string; sub: string; href: string | null; personId?: string };
 type LogLine = { id: number; at: string; text: string; tone: "alert" | "ok" | "info" };
 type Data = Omit<Props, "selected" | "onSelect" | "onUnsupported">;
+type Builders = { world: typeof import("@/modules/crm/dashboard/components/hq-3d-world"); people: typeof import("@/modules/crm/dashboard/components/hq-3d-people"); clone: (object: Three.Object3D) => Three.Object3D };
 
 interface Engine {
   camera: Three.PerspectiveCamera;
-  controls: { update: () => void; dispose: () => void; autoRotate: boolean; target: Three.Vector3; reset: () => void };
+  controls: { update: () => void; dispose: () => void; autoRotate: boolean; target: Three.Vector3; reset: () => void; saveState: () => void; maxDistance: number };
   world: World; people: People; effects: Effects; started: number;
+  /** Build (or build again) the floor on screen for this plan; the models stay loaded. */
+  build: (layout: HqLayout, level: number) => void; built: string;
   /** Camera flight (click on a person) and the member it follows. */
   flight: { from: Three.Vector3; to: Three.Vector3; fromTarget: Three.Vector3; toTarget: Three.Vector3; start: number; follow: string | null } | null;
   home: { camera: Three.Vector3; target: Three.Vector3 } | null;
@@ -40,7 +45,11 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
   let envelopes = 0, ticks = 0;
   for (const person of after.team) {
     const previous = was.get(person.id);
-    if (previous === undefined || !person.seat) continue;
+    if (previous === undefined) {
+      engine.effects.welcome(() => engine.people.positionOf(person.id), person.name, spread());
+      lines.push({ at: clock(), text: `Chào mừng ${person.name} vào ${person.department ?? "công ty"}`, tone: "info" });
+      continue;
+    }
     const change = person.waiting - previous;
     const at = () => engine.people.positionOf(person.id);
     if (change > 0) {
@@ -58,13 +67,13 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
   return lines;
 }
 
-const CAMERA_START = { x: -640, y: 860, z: 1060 };
-const TARGET = { x: 0, y: 0, z: 30 };
+// Camera at home, for a floor of the old size (z −490…490); bigger floors move it back proportionally.
+const CAMERA_OFFSET = { x: -640, y: 860, z: 1030 };
 
-export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUnsupported }: Props) {
+export function HqScene3D({ rooms, team, stats, floor, layout, level, selected, onSelect, onUnsupported }: Props) {
   const holder = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
-  const dataRef = useRef<Data>({ rooms, team, stats, floor });
+  const dataRef = useRef<Data>({ rooms, team, stats, floor, layout, level });
   const [hover, setHover] = useState<Hover>(null);
   const [spinning, setSpinning] = useState(false);
   const [progress, setProgress] = useState<string | null>("Đang tải văn phòng 3D…");
@@ -77,14 +86,15 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
 
   useEffect(() => {
     const before = dataRef.current;
-    dataRef.current = { rooms, team, stats, floor };
+    dataRef.current = { rooms, team, stats, floor, layout, level };
     const engine = engineRef.current;
     if (!engine) return;
+    if (engine.built !== `${layout.key}#${level}`) engine.build(layout, level);
     engine.world.update(dataRef.current);
     engine.people.sync(team, (performance.now() - engine.started) / 1000);
     const lines = playChanges(engine, before, dataRef.current);
     if (lines.length) setLog((current) => [...lines.map((line) => ({ ...line, id: ++logId.current })), ...current].slice(0, 5));
-  }, [rooms, team, stats, floor]);
+  }, [rooms, team, stats, floor, layout, level]);
 
   useEffect(() => {
     const element = holder.current;
@@ -111,15 +121,12 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(36, 1, 2, 16000);
-      camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
       const controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(TARGET.x, TARGET.y, TARGET.z);
       controls.enableDamping = true; controls.dampingFactor = 0.08;
       controls.minDistance = 220; controls.maxDistance = 2600; controls.maxPolarAngle = 1.36; controls.minPolarAngle = 0.15;
       controls.autoRotateSpeed = 0.5;
       // The wheel keeps scrolling the page; Ctrl + wheel zooms the office (and not the browser).
       controls.enableZoom = false;
-      controls.saveState();
       cleanups.push(() => controls.dispose());
 
       const hemi = new THREE.HemisphereLight(0xa8c4ff, 0x1a1530, 0.6);
@@ -131,14 +138,42 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
       const fill = new THREE.DirectionalLight(0x22d3ee, 0.25); fill.position.set(700, 300, -600);
       scene.add(hemi, sun, fill);
 
-      const kit = await worldModule.loadKit(THREE, (done, total) => { if (!stopped) setProgress(`Đang tải mô hình 3D… ${Math.round((done / total) * 100)}%`); });
+      scene.add(sun.target);
+      const kit: Kit = await worldModule.loadKit(THREE, (done, total) => { if (!stopped) setProgress(`Đang tải mô hình 3D… ${Math.round((done / total) * 100)}%`); });
       if (stopped) return;
-      const world = worldModule.buildWorld(THREE, scene, kit, sun, hemi);
-      const people = peopleModule.createPeople(THREE, scene, kit, world, (object) => SkeletonUtils.clone(object));
+      const builders: Builders = { world: worldModule, people: peopleModule, clone: (object) => SkeletonUtils.clone(object) };
       const effects = effectsModule.createEffects(THREE, scene);
       const started = performance.now();
+      const welcomed = new Set<string>();
       const engine: Engine = {
-        camera, controls, world, people, effects, started, flight: null, home: null,
+        camera, controls, world: null as unknown as World, people: null as unknown as People, effects, started, flight: null, home: null, built: "",
+        build: (plan, floorLevel) => {
+          engine.people?.dispose(); engine.world?.dispose();
+          const level = Math.min(floorLevel, plan.floors.length - 1);
+          const world = builders.world.buildWorld(THREE, scene, kit, sun, hemi, plan, level);
+          engine.world = world;
+          engine.people = builders.people.createPeople(THREE, scene, kit, world, plan, builders.clone);
+          engine.built = `${plan.key}#${floorLevel}`;
+          engine.flight = null; engine.home = null;
+          // Light, shadows and the home view follow the size of this floor.
+          const plate = world.plate, centreZ = (plate.z0 + plate.z1) / 2, size = Math.max(1, (plate.z1 - plate.z0) / 980);
+          sun.target.position.set(0, 0, centreZ); sun.position.set(-500, 900, centreZ + 600);
+          const half = Math.max(plate.x1 - plate.x0, plate.z1 - plate.z0) / 2 + 120;
+          Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, far: 2500 + half });
+          sun.shadow.camera.updateProjectionMatrix();
+          controls.target.set(0, 0, centreZ + 30);
+          camera.position.set(CAMERA_OFFSET.x * size, CAMERA_OFFSET.y * size, centreZ + CAMERA_OFFSET.z * size);
+          controls.maxDistance = 2600 * size;
+          controls.update(); controls.saveState();
+          const data = dataRef.current;
+          world.update(data);
+          engine.people.sync(data.team, (performance.now() - started) / 1000);
+          // New members (joined in the last days) get a welcome the first time their floor is shown.
+          data.team.filter((person) => person.isNew && !welcomed.has(person.id) && engine.people.positionOf(person.id)).forEach((person, index) => {
+            welcomed.add(person.id);
+            effects.welcome(() => engine.people.positionOf(person.id), person.name, 2 + index * 2.5);
+          });
+        },
         fly: (to, follow, far = 1) => {
           const fromTarget = controls.target.clone(), from = camera.position.clone();
           if (to) {
@@ -152,11 +187,10 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
         },
       };
       engineRef.current = engine;
-      world.update(dataRef.current);
-      people.sync(dataRef.current.team, 0);
+      engine.build(dataRef.current.layout, dataRef.current.level);
       setProgress(null);
       setReady(true);
-      cleanups.push(() => { effects.dispose(); people.dispose(); engineRef.current = null; scene.traverse((child) => { const mesh = child as Three.Mesh; mesh.geometry?.dispose?.(); const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []; for (const material of list) { (material as Three.MeshStandardMaterial).map?.dispose(); material.dispose(); } }); });
+      cleanups.push(() => { effects.dispose(); engine.people.dispose(); engine.world.dispose(); engineRef.current = null; scene.traverse((child) => { const mesh = child as Three.Mesh; mesh.geometry?.dispose?.(); const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []; for (const material of list) { (material as Three.MeshStandardMaterial).map?.dispose(); material.dispose(); } }); });
 
       const resize = () => {
         const width = element.clientWidth, height = element.clientHeight;
@@ -178,7 +212,7 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
       const pointer = new THREE.Vector2();
       const projected = new THREE.Vector3();
       let down: { x: number; y: number } | null = null;
-      let current: RoomKey | null = null, shown = false;
+      let current: string | null = null, shown = false;
       const pickAt = (event: PointerEvent) => {
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
@@ -186,22 +220,22 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
         // People are small on screen: take the nearest head within 28 px instead of an exact hit.
         const mouseX = event.clientX - rect.left, mouseY = event.clientY - rect.top;
         let nearest: Three.Object3D | null = null, nearestDistance = 28;
-        for (const head of people.pickables()) {
+        for (const head of engine.people.pickables()) {
           head.getWorldPosition(projected).project(camera);
           if (projected.z > 1) continue;
           const distance = Math.hypot(((projected.x + 1) / 2) * rect.width - mouseX, ((1 - projected.y) / 2) * rect.height - mouseY);
           if (distance < nearestDistance) { nearestDistance = distance; nearest = head; }
         }
         if (nearest) return { pick: nearest.userData.pick as Pick, room: null, rect };
-        const hits = raycaster.intersectObjects(world.pickables, false);
+        const hits = raycaster.intersectObjects(engine.world.pickables, false);
         const hit = hits.find((item) => item.object.userData.pick);
-        return hit ? { pick: hit.object.userData.pick as Pick, room: (hit.object.userData.room as RoomKey | undefined) ?? null, rect } : null;
+        return hit ? { pick: hit.object.userData.pick as Pick, room: (hit.object.userData.room as string | undefined) ?? null, rect } : null;
       };
       const onMove = (event: PointerEvent) => {
         if (down) return;
         const found = pickAt(event);
-        if (!found) { if (shown || current) { shown = false; current = null; world.highlight(null); setHover(null); renderer.domElement.style.cursor = ""; } return; }
-        if (current !== found.room) { current = found.room; world.highlight(found.room); }
+        if (!found) { if (shown || current) { shown = false; current = null; engine.world.highlight(null); setHover(null); renderer.domElement.style.cursor = ""; } return; }
+        if (current !== found.room) { current = found.room; engine.world.highlight(found.room); }
         shown = true;
         renderer.domElement.style.cursor = found.pick.personId || found.room ? "pointer" : "default";
         setHover({ x: event.clientX - found.rect.left, y: event.clientY - found.rect.top, title: found.pick.title, sub: found.pick.sub });
@@ -214,13 +248,14 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
         if (found?.pick.personId) { setHover(null); select.current({ type: "person", id: found.pick.personId }); return; }
         if (found?.room) { setHover(null); select.current({ type: "room", key: found.room }); }
       };
-      const onLeave = () => { current = null; shown = false; world.highlight(null); setHover(null); };
+      const onLeave = () => { current = null; shown = false; engine.world.highlight(null); setHover(null); };
       const canvas = renderer.domElement;
       const onWheel = (event: WheelEvent) => {
         if (!event.ctrlKey && !event.metaKey) return;
         event.preventDefault();
         const offset = camera.position.clone().sub(controls.target).multiplyScalar(Math.exp(event.deltaY * 0.0015));
-        camera.position.copy(controls.target).add(offset.setLength(Math.min(2600, Math.max(220, offset.length()))));
+        const limit = 2600 * Math.max(1, (engine.world.plate.z1 - engine.world.plate.z0) / 980);
+        camera.position.copy(controls.target).add(offset.setLength(Math.min(limit, Math.max(220, offset.length()))));
       };
       canvas.addEventListener("wheel", onWheel, { passive: false });
       cleanups.push(() => canvas.removeEventListener("wheel", onWheel));
@@ -235,14 +270,14 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
         previous = nowMs;
         if (!visible || document.visibilityState !== "visible") return;
         const time = (nowMs - started) / 1000;
-        world.tick(time, camera);
-        world.robot?.mixer?.update(delta);
-        people.tick(time, delta);
+        engine.world.tick(time, camera);
+        engine.world.robot?.mixer?.update(delta);
+        engine.people.tick(time, delta);
         effects.tick(time, delta);
         const flight = engine.flight;
         if (flight) {
           const t = Math.min(1, (nowMs - flight.start) / 1100), ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-          if (flight.follow) { const spot = people.positionOf(flight.follow); if (spot) { const moved = new THREE.Vector3(spot.x, 30, spot.z).sub(flight.toTarget); flight.toTarget.add(moved); flight.to.add(moved); } }
+          if (flight.follow) { const spot = engine.people.positionOf(flight.follow); if (spot) { const moved = new THREE.Vector3(spot.x, 30, spot.z).sub(flight.toTarget); flight.toTarget.add(moved); flight.to.add(moved); } }
           camera.position.lerpVectors(flight.from, flight.to, ease);
           controls.target.lerpVectors(flight.fromTarget, flight.toTarget, ease);
           if (t >= 1) {
@@ -264,7 +299,7 @@ export function HqScene3D({ rooms, team, stats, floor, selected, onSelect, onUns
     if (!engine) return;
     const { camera, controls } = engine;
     const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
-    camera.position.copy(controls.target).add(offset.setLength(Math.min(2600, Math.max(220, offset.length()))));
+    camera.position.copy(controls.target).add(offset.setLength(Math.min(engine.controls.maxDistance, Math.max(220, offset.length()))));
   };
   const toggleSpin = () => setSpinning((value) => { if (engineRef.current) engineRef.current.controls.autoRotate = !value; return !value; });
   const reset = () => { const engine = engineRef.current; if (!engine) return; engine.controls.autoRotate = false; setSpinning(false); engine.flight = null; engine.home = null; select.current(null); engine.controls.reset(); };

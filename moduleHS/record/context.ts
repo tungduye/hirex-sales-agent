@@ -101,10 +101,12 @@ export function contextTerms(c: MeetContext) {
   return { names, terms: [...new Set([...TERMS, ...c.tags])], customers: c.customers.slice(0, 20) };
 }
 /** Prompt cho model phiên âm: 1 câu bối cảnh + tên người + thuật ngữ (≤ ~900 ký tự), kèm đuôi đoạn trước để nối câu. */
-export function sttPrompt(c: MeetContext, prev = "") {
+export function sttPrompt(c: MeetContext, prev = "", focus: string[] = []) {
   const t = contextTerms(c);
   const short = [...new Set(c.people.map((p) => shortName(p.name)).filter((n) => n.length >= 2))];
-  const head = `Cuộc họp nội bộ công ty Intalent về hệ thống HireX (có thể xen tiếng Anh, tiếng Nhật). Người tham gia có thể gồm: ${short.slice(0, 30).join(", ")}. Thuật ngữ: ${t.terms.slice(0, 32).join(", ")}.`;
+  // focus = thuật ngữ đã nghe thấy trong chính cuộc họp này (từ phụ đề trực tiếp) → đưa lên đầu để model phiên âm viết đúng
+  const terms = [...new Set([...focus, ...t.terms])];
+  const head = `Cuộc họp nội bộ công ty Intalent về hệ thống HireX (có thể xen tiếng Anh, tiếng Nhật). Người tham gia có thể gồm: ${short.slice(0, 24).join(", ")}. Thuật ngữ: ${terms.slice(0, focus.length ? 48 : 32).join(", ")}.`;
   const tail = S(prev).slice(-240);
   return (tail ? `${head} … ${tail}` : head).slice(0, 1000);
 }

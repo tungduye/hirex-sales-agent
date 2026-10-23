@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { HqData, HqMember } from "@/modules/crm/dashboard/server/hq-data";
+import type { HqData, HqMember, HqRoom } from "@/modules/crm/dashboard/server/hq-data";
+import { buildHqLayout, roomOfDepartment, type HqLayout } from "@/modules/crm/dashboard/core/hq-layout";
 import { HqClock, HqCount, HqCountdown } from "@/modules/crm/dashboard/components/hq-live";
 import { HqAvatar, HqMap2D, saveHqView, useHqView, type HqSelection } from "@/modules/crm/dashboard/components/hq-map";
 import { HqScene3D } from "@/modules/crm/dashboard/components/hq-3d";
@@ -18,7 +19,6 @@ const cx = (...names: Array<string | false | null | undefined>) => names.filter(
 const n = (value: number) => value.toLocaleString("vi-VN");
 const PILL = { alert: styles.alert, info: styles.info, meet: styles.meet, plain: styles.plain, busy: styles.busy, idle: styles.idle } as const;
 const STATUS = { busy: "Đang nhắn", alert: "Cần xem", meet: "Đang họp", idle: "Chưa có hoạt động" } as const;
-const FLOORS = [["ALL", "/", "Toàn công ty"], ["REC", "/?tang=rec", "Tầng Rec"], ["SALE", "/?tang=sale", "Tầng Sale"]] as const;
 const CAMPAIGN_STATUS: Record<string, string> = { RUNNING: "Đang chạy", PAUSED: "Tạm dừng", DRAFT: "Nháp", COMPLETED: "Xong", DONE: "Xong", CANCELLED: "Đã huỷ" };
 type Drawer = "feed" | "team" | null;
 const PANEL_KEY = "hirex_hq_panels";
@@ -60,12 +60,21 @@ function PersonRow({ person, onPick }: { person: HqMember; onPick: (id: string) 
   );
 }
 
-function RoomSummary({ room, data, onPick, onFloor }: { room: string; data: HqData; onPick: (id: string) => void; onFloor: (href: string) => void }) {
+/** Rooms of the bộ phận (from the plan) as map rooms: name, people, waiting; each opens its own view (?tang=). */
+function peopleRooms(layout: HqLayout, team: HqMember[]): HqRoom[] {
+  const rooms = layout.floors.flatMap((floor) => floor.rooms).filter((room) => room.kind === "dept" || room.kind === "boss" || room.kind === "common");
+  return rooms.map((room, index) => {
+    const waiting = team.filter((person) => roomOfDepartment(person.department) === room.key).reduce((sum, person) => sum + person.waiting, 0);
+    return { key: room.key, name: room.name, meta: `${room.members} người${waiting ? ` · ${n(waiting)} chờ` : ""}${layout.floors.length > 1 ? ` · Tầng ${room.level + 1}` : ""}`, href: `/?tang=${room.key}`, tone: index % 2 ? "violet" : "cyan" };
+  });
+}
+const shortName = (name: string) => name.replace(/^Phòng /u, "");
+
+function RoomSummary({ room, data, rooms, layout, onPick, onFloor }: { room: string; data: HqData; rooms: HqRoom[]; layout: HqLayout; onPick: (id: string) => void; onFloor: (href: string) => void }) {
   const router = useRouter();
   const details = data.details;
-  const info = data.rooms.find((item) => item.key === room);
+  const info = rooms.find((item) => item.key === room);
   const open = (href: string, label: string, inbox = false) => <button type="button" className={styles.drawerOpen} onClick={() => inbox ? openInbox(router, href) : router.push(href)}>{label} →</button>;
-  const team = (pattern: RegExp) => data.team.filter((person) => pattern.test((person.department ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()));
   let body: ReactNode = null;
   if (room === "inbox") {
     const inbox = details.inbox;
@@ -154,17 +163,19 @@ function RoomSummary({ room, data, onPick, onFloor }: { room: string; data: HqDa
       {soda.recent.length ? soda.recent.map((item, index) => <div key={index} className={styles.drawerLine}><span>{item.title}<small>{item.state}</small></span><b className={styles.mono}>{item.at}</b></div>) : <p className={styles.drawerEmpty}>Chưa có việc nào.</p>}
       {open("/assistant", "Mở Trợ lý")}
     </>;
-  } else if (room === "rec" || room === "sale") {
-    const people = team(room === "rec" ? /\brec\b/u : /\bsale\b/u);
+  } else if (layout.floors.some((floor) => floor.rooms.some((item) => item.key === room && (item.kind === "dept" || item.kind === "boss" || item.kind === "common")))) {
+    const people = data.team.filter((person) => roomOfDepartment(person.department) === room);
+    const newcomers = people.filter((person) => person.isNew);
     body = <>
       <div className={styles.tiles}>
-        <Tile label="Người" value={people.length} tone={room === "rec" ? "cyan" : "violet"} />
+        <Tile label="Người" value={people.length} tone={info?.tone === "violet" ? "violet" : "cyan"} note={newcomers.length ? `${newcomers.length} người mới` : undefined} />
         <Tile label="Chưa trả lời" value={people.reduce((sum, person) => sum + person.waiting, 0)} tone="red" />
         <Tile label="Đang họp" value={people.filter((person) => person.tone === "meet").length} />
       </div>
       <h4 className={styles.drawerH}>Thành viên</h4>
       {people.length ? people.map((person) => <PersonRow key={person.id} person={person} onPick={onPick} />) : <p className={styles.drawerEmpty}>Chưa có ai (gán Bộ phận ở Vai trò và phân quyền).</p>}
-      <button type="button" className={styles.drawerOpen} onClick={() => onFloor(room === "rec" ? "/?tang=rec" : "/?tang=sale")}>Chỉ xem {room === "rec" ? "tầng Rec" : "tầng Sale"} →</button>
+      {room === "common" ? <p className={styles.drawerNote}>Người chưa được xếp bộ phận. Gán Bộ phận ở Vai trò và phân quyền thì họ tự chuyển sang phòng của bộ phận đó.</p> : null}
+      {data.floor === room ? null : <button type="button" className={styles.drawerOpen} onClick={() => onFloor(`/?tang=${room}`)}>Chỉ xem {info?.name ?? "phòng này"} →</button>}
     </>;
   }
   return <>
@@ -176,7 +187,7 @@ function RoomSummary({ room, data, onPick, onFloor }: { room: string; data: HqDa
 function PersonCard({ person, onClose }: { person: HqMember; onClose: () => void }) {
   const router = useRouter();
   return <>
-    <div className={styles.drawerHead}><strong>{person.name}</strong><span>{person.department ?? "Chưa có bộ phận"} · {STATUS[person.tone]}</span></div>
+    <div className={styles.drawerHead}><strong>{person.name}</strong><span>{person.department ?? "Chưa có bộ phận"} · {STATUS[person.tone]}{person.isNew ? " · Thành viên mới 🎉" : ""}</span></div>
     <div className={styles.personTop}><HqAvatar person={person} size={56} /><div className={styles.tiles}><Tile label="Chưa trả lời" value={person.waiting} tone={person.tone === "alert" ? "red" : "cyan"} /></div></div>
     <p className={styles.drawerNote}>{person.doing}. Số chưa trả lời = Suối Nguồn lọc “Người phụ trách: {person.name}”, tab Chưa trả lời.</p>
     <button type="button" className={styles.drawerOpen} onClick={() => openInbox(router, `/inbox/all?view=waiting&owner=${encodeURIComponent(person.id)}`)}>Mở Suối Nguồn của {person.name} →</button>
@@ -193,7 +204,7 @@ export function HqStage({ data }: { data: HqData }) {
   useEffect(() => { const timer = window.setTimeout(() => setKpiOpen(readPanels().kpi), 0); return () => window.clearTimeout(timer); }, []);
   const toggleKpi = () => setKpiOpen((value) => { try { window.localStorage.setItem(PANEL_KEY, JSON.stringify({ kpi: !value })); } catch { /* per-browser convenience only */ } return !value; });
   const pick = (selection: HqSelection) => { setSelected(selection); if (selection) setDrawer(null); };
-  const pickPerson = (id: string) => pick({ type: "person", id });
+  const pickPerson = (id: string) => go({ type: "person", id });
   const close = () => { setSelected(null); setDrawer(null); };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setSelected(null); setDrawer(null); } };
@@ -202,21 +213,48 @@ export function HqStage({ data }: { data: HqData }) {
   }, []);
   const person = selected?.type === "person" ? data.team.find((member) => member.id === selected.id) ?? null : null;
   const open = selected !== null || drawer !== null;
+  // The office plan from the team; it only changes when someone joins, leaves or changes bộ phận / thị trường.
+  const planKey = data.team.map((member) => `${member.id}:${member.department ?? ""}:${member.market ?? ""}:${member.name}`).join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- planKey covers what the plan is made from
+  const layout = useMemo(() => buildHqLayout(data.team.map((member) => ({ id: member.id, name: member.name, department: member.department, market: member.market }))), [planKey]);
+  const rooms = useMemo(() => [...data.rooms, ...peopleRooms(layout, data.team)], [data.rooms, data.team, layout]);
+  const peopleRoomList = layout.floors.flatMap((floor) => floor.rooms).filter((room) => room.kind === "dept" || room.kind === "boss" || room.kind === "common");
+  // Tầng on screen: picking someone (or a room) on another floor takes the lift there; Phòng họp is on Tầng 1.
+  const [level, setLevel] = useState(0);
+  const levelOfRoom = (key: string) => layout.floors.find((floor) => floor.rooms.some((room) => room.key === key))?.level ?? 0;
+  const focusLevel = data.floor === "ALL" ? null : levelOfRoom(data.floor);
+  const [seenFocus, setSeenFocus] = useState<string | null>(null);
+  if (data.floor !== seenFocus) { setSeenFocus(data.floor); if (focusLevel !== null) setLevel(focusLevel); }
+  const shownLevel = Math.min(level, layout.floors.length - 1);
+  const go = (selection: HqSelection) => {
+    if (selection?.type === "person") { const member = data.team.find((item) => item.id === selection.id); const seat = layout.seatOf[selection.id]; if (member?.meeting) setLevel(0); else if (seat) setLevel(seat.level); }
+    else if (selection?.type === "room" && layout.floors.length > 1 && !["soda", "inbox", "tower", "cv"].includes(selection.key)) setLevel(levelOfRoom(selection.key));
+    else if (selection?.type === "room") setLevel(0);
+    pick(selection);
+  };
+  const teamShown = data.floor === "ALL" ? data.team : data.team.filter((member) => roomOfDepartment(member.department) === data.floor);
 
   return (
     <div className={styles.stage}>
       <div className={styles.stageMap}>
         {view === "3d"
-          ? <HqScene3D rooms={data.rooms} team={data.team} stats={data.stats} floor={data.floor} selected={selected} onSelect={pick} onUnsupported={() => saveHqView("2d")} />
-          : <HqMap2D rooms={data.rooms} team={data.team} stats={data.stats} floor={data.floor} selected={selected} onSelect={pick} />}
+          ? <HqScene3D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} layout={layout} level={shownLevel} selected={selected} onSelect={go} onUnsupported={() => saveHqView("2d")} />
+          : <HqMap2D rooms={rooms} team={data.team} stats={data.stats} floor={data.floor} layout={layout} level={shownLevel} selected={selected} onSelect={go} />}
+        {layout.floors.length > 1 ? (
+          <nav className={cx(styles.glass, styles.lift)} aria-label="Thang máy">
+            <b>Tầng</b>
+            {layout.floors.slice().reverse().map((floor) => <button key={floor.level} type="button" aria-pressed={shownLevel === floor.level} title={floor.name} onClick={() => { setSelected(null); setLevel(floor.level); }}>{floor.level + 1}</button>)}
+          </nav>
+        ) : null}
       </div>
 
       <div className={styles.leftCol}>
       <header className={cx(styles.glass, styles.hud)}>
         <span className={styles.logo} aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 4v16M19 4v16M5 12h14" /></svg></span>
         <strong className={styles.title}>HireX HQ</strong>
-        <nav className={styles.row} aria-label="Tầng" style={{ gap: 4 }}>
-          {FLOORS.map(([key, href, label]) => <Link key={key} href={href} className={cx(styles.chip, styles.chipSm, data.floor === key && styles.chipOn)} aria-current={data.floor === key ? "page" : undefined}>{label}</Link>)}
+        <nav className={styles.row} aria-label="Phòng" style={{ gap: 4 }}>
+          <Link href="/" className={cx(styles.chip, styles.chipSm, data.floor === "ALL" && styles.chipOn)} aria-current={data.floor === "ALL" ? "page" : undefined}>Toàn công ty</Link>
+          {peopleRoomList.map((room) => <Link key={room.key} href={`/?tang=${room.key}`} className={cx(styles.chip, styles.chipSm, data.floor === room.key && styles.chipOn)} aria-current={data.floor === room.key ? "page" : undefined} title={`${room.name} · ${room.members} người`}>{shortName(room.name)}</Link>)}
         </nav>
         {data.liveNicks !== null ? <span className={cx(styles.chip, styles.chipSm, styles.chipLive)} title="Số nick Zalo đang kết nối"><span className={styles.pulse} />{data.liveNicks} nick Zalo</span> : null}
         {data.nextMeetingAt ? <span className={cx(styles.chip, styles.chipSm)} title={data.nextMeetingTitle ?? undefined}>Lịch kế tiếp <HqCountdown at={data.nextMeetingAt} className={cx(styles.mono, styles.strong)} /></span> : null}
@@ -227,7 +265,7 @@ export function HqStage({ data }: { data: HqData }) {
       {kpiOpen ? (
         <aside className={styles.kpiPanel} aria-label="Chỉ số chính">
           {data.kpis.map((kpi) => (
-            <button key={kpi.key} type="button" className={cx(styles.glass, styles.kpiCard, selected?.type === "room" && selected.key === kpi.room && styles.kpiOn)} onClick={() => pick({ type: "room", key: kpi.room })}>
+            <button key={kpi.key} type="button" className={cx(styles.glass, styles.kpiCard, selected?.type === "room" && selected.key === kpi.room && styles.kpiOn)} onClick={() => go({ type: "room", key: kpi.room })}>
               <span className={styles.kLabel}>{kpi.label}</span>
               {kpi.value === null ? <span className={cx(styles.kValSm, styles.mono, styles.dim)}>—</span> : <HqCount value={kpi.value} className={cx(styles.kValSm, styles.mono, kpi.tone === "alert" && styles.kAlert)} />}
               <span className={styles.kNote}>{kpi.note}</span>
@@ -250,7 +288,7 @@ export function HqStage({ data }: { data: HqData }) {
         <aside className={cx(styles.glass, styles.drawer)} aria-label="Thông tin">
           <button type="button" className={styles.drawerClose} onClick={close} aria-label="Đóng">×</button>
           <div className={styles.drawerBody}>
-            {selected?.type === "room" ? <RoomSummary room={selected.key} data={data} onPick={pickPerson} onFloor={(href) => { close(); router.push(href); }} />
+            {selected?.type === "room" ? <RoomSummary room={selected.key} data={data} rooms={rooms} layout={layout} onPick={pickPerson} onFloor={(href) => { close(); router.push(href); }} />
               : person ? <PersonCard person={person} onClose={close} />
               : selected?.type === "person" ? <p className={styles.drawerEmpty}>Người này không còn trong danh sách tầng đang xem.</p>
               : drawer === "feed" ? <>
@@ -262,8 +300,8 @@ export function HqStage({ data }: { data: HqData }) {
                 )) : <p className={styles.drawerEmpty}>Chưa có hoạt động mới.</p>}
               </>
               : drawer === "team" ? <>
-                <div className={styles.drawerHead}><strong>Đội ngũ</strong><span>{data.team.length} người · bấm để xem trên bản đồ</span></div>
-                {data.team.length ? data.team.map((member) => <PersonRow key={member.id} person={member} onPick={pickPerson} />) : <p className={styles.drawerEmpty}>Chưa có thành viên ở tầng này.</p>}
+                <div className={styles.drawerHead}><strong>Đội ngũ</strong><span>{teamShown.length} người · bấm để xem trên bản đồ</span></div>
+                {teamShown.length ? teamShown.map((member) => <PersonRow key={member.id} person={member} onPick={pickPerson} />) : <p className={styles.drawerEmpty}>Chưa có thành viên ở phòng này.</p>}
               </> : null}
           </div>
         </aside>

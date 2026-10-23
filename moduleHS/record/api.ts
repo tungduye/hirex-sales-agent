@@ -4,7 +4,6 @@ import "server-only";
 // /api/hs/record/f/<slug>/data và /api/hs/record/d/<slug>/<loại> là link công khai (trang xem /m/<slug> gửi qua Zalo).
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
@@ -14,9 +13,9 @@ import {
   C, LANGS, VOICES, err, refresh, cleanTitle, safeId, fmtT, slugify, lang, st, nextId, dir, fp, save, upd, bySid, need, chunks, has, prune, rj,
   voiceStyles, saveVoiceStyles, settings, saveSettings, type HsErr, type Meta, type Settings,
 } from "./data";
+import { fixText, getLex, phrases, protect } from "./lexicon";
 import {
-  FILES, deepText, dropEcho, fail, ffmpegVersion, finalize, isEcho, liveFix, liveIns, liveInput, liveToken, meetingOpts, meetingTerms, newSession, prepare, processMeeting,
-  quickStream, runTts, scriptClean, ff,
+  FILES, deepText, dropEcho, fail, ffmpegVersion, finalize, meetingOpts, newSession, prepare, processMeeting, runTts, scriptClean, gTranslate,
 } from "./pipeline";
 import { zaloSend, zaloTargets } from "./zalo";
 
@@ -30,10 +29,12 @@ const origin = (req: Request) => C.pub || `${req.headers.get("x-forwarded-proto"
 const when = (m: Meta) => fmtT(m.started || m.created * 1000);
 
 /** Dữ liệu khởi động cho giao diện (trước đây nhúng vào index.html). */
-export const bootData = () => ({ slice: C.slice, uploadMax: C.maxMB * 1048576, seg: C.seg, ttsMax: C.ttsMax, voices: VOICES, langs: Object.fromEntries(Object.entries(LANGS).map(([k, v]) => [k, v.name])), liveMs: C.liveMs, rt: C.realtime, ai: !!C.key });
+export const bootData = () => ({ slice: C.slice, uploadMax: C.maxMB * 1048576, seg: C.seg, ttsMax: C.ttsMax, voices: VOICES, langs: Object.fromEntries(Object.entries(LANGS).map(([k, v]) => [k, v.name])), liveMs: C.liveMs, ai: !!C.key });
 
 /* ============ GET ============ */
 const GET: Record<string, (c: Ctx) => unknown> = {
+  /** Cụm từ để trình duyệt nghe đúng hơn (contextual biasing): thuật ngữ HireX, tên người, khách hàng… từ điển học từ dữ liệu HireX. */
+  lex_phrases: async ({ q, workspaceId }) => { const m = q.get("session_id") ? bySid(String(q.get("session_id"))) : null; return ok({ phrases: phrases(await getLex(m?.ws || workspaceId || "")) }); },
   styles: () => ok({ config: voiceStyles() }),   // giọng đọc (tab Đọc văn bản); biên bản không còn mẫu
   archive: () => {
     prune(); const s = st();
@@ -132,37 +133,20 @@ const POST: Record<string, (c: Ctx) => unknown> = {
     const m = save({ id: nextId(), sid: crypto.randomBytes(12).toString("hex"), slug, kind: "tts", title: title || "Audio", auto: aiMode, status: "processing", stage: "Đang xếp hàng", created: Date.now() / 1000, base, by: userId, files: {}, voice: safeId(f.voice), voice_label: (g[0] === "male" ? "Nam" : "Nữ") + " - " + safeId(f.voice), style_name: sx.name, style_prompt: sx.prompt || "", speed, char_count: len, plain: plain.slice(0, 6000) });
     fs.writeFileSync(fp(slug, "text.txt"), [sx.prefix, t, sx.suffix].filter(Boolean).join("\n\n")); void runTts(m); return ok({ chars: len, title: m.title });
   },
-  /** Dịch trực tiếp (dự phòng): client gửi từng đoạn ~3 giây (file webm hoàn chỉnh) → phiên âm → dịch sang ngôn ngữ chọn. */
-  live: async ({ f, files }) => {
-    const m = need(f.session_id), a = files.audio; if (!a?.size) throw err("bad_request"); if (!C.key) throw err("no_ai_key", 501);
-    const to = lang(f.lang), seq = Math.max(0, +f.seq | 0), d = fp(m.slug, "live"); fs.mkdirSync(d, { recursive: true });
-    const ext = /ogg/.test(a.name) ? "ogg" : /mp4|m4a/.test(a.name) ? "mp4" : "webm", raw = path.join(/*turbopackIgnore: true*/ d, `${seq}.${ext}`), mp3 = path.join(/*turbopackIgnore: true*/ d, `${seq}.mp3`); await fsp.writeFile(raw, a.buf);
-    const terms = await meetingTerms(m), prev = String(f.prev || "").slice(-300);
-    let t = "";
-    try {
-      try { t = await liveFix(m, raw, prev, `audio/${ext}`); }
-      catch { const [c] = await ff(["-y", "-loglevel", "error", "-i", raw, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "32k", mp3], 30000); if (!c && fs.existsSync(mp3)) t = await liveFix(m, mp3, prev, "audio/mpeg"); }
-    } finally { fs.rmSync(raw, { force: true }); fs.rmSync(mp3, { force: true }); }
-    const tr = t && to ? await quickStream(liveIns(to, terms), liveInput(t, f.ctx)).catch(() => "") : "";
-    if (t) fs.appendFileSync(fp(m.slug, "live.jsonl"), JSON.stringify({ seq, t: Date.now(), text: t, tr, lang: to }) + "\n");
-    return ok({ seq, text: t, tr, lang: to });
-  },
-  live_token: async ({ f }) => ok(await liveToken(need(f.session_id))),
-  /** Chốt câu: âm thanh của 1 câu (WAV ≤ 40 giây) → phiên âm lại bằng model chính có ngữ cảnh → chữ thay cho bản realtime. */
-  live_fix: async ({ f, files }) => {
-    const m = need(f.session_id), a = files.audio; if (!a?.size || a.size > 4 * 1048576) throw err("bad_request"); if (!C.key) throw err("no_ai_key", 501);
-    const d = fp(m.slug, "live"); fs.mkdirSync(d, { recursive: true }); const tmp = path.join(/*turbopackIgnore: true*/ d, `fix-${crypto.randomBytes(4).toString("hex")}.wav`); await fsp.writeFile(tmp, a.buf);
-    try { return ok({ k: +f.k || 0, text: await liveFix(m, tmp, String(f.prev || "").slice(-300)) }); } finally { fs.rmSync(tmp, { force: true }); }
-  },
-  /** Realtime: một câu vừa nói xong → sửa thuật ngữ, lọc câu bịa, dịch stream từng chữ (dòng đầu là JSON {text}, phần sau là bản dịch). */
+  /** Phụ đề (miễn phí): một câu trình duyệt vừa nghe xong → sửa tên / thuật ngữ theo từ điển học từ dữ liệu HireX → lọc câu rác → dịch bằng Google (miễn phí).
+   *  Trả về: dòng đầu JSON {text} (câu đã sửa), phần sau là bản dịch. Không gọi OpenAI. */
   live_tr: ({ f }) => {
-    const m = need(f.session_id), to = lang(f.lang), pr = m.live_prompt || "", raw = scriptClean(normText(f.text || "").slice(0, 4000)), enc = new TextEncoder();
+    const m = need(f.session_id), to = lang(f.lang), raw = scriptClean(normText(f.text || "").slice(0, 4000)), enc = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(ctl) {
-        const terms = await meetingTerms(m).catch(() => [] as string[]), t = isEcho(raw, terms, pr) ? "" : dropEcho(raw, terms, pr);
+        const lex = await getLex(m.ws || "").catch(() => null), fx = lex ? fixText(raw, lex) : { text: raw, hits: new Map<string, number>() };
+        const t = dropEcho(fx.text, [], "");
         ctl.enqueue(enc.encode(JSON.stringify({ text: t }) + "\n"));
         let tr = "";
-        if (t && to) { try { tr = await quickStream(liveIns(to, terms), liveInput(t, f.ctx), (d) => ctl.enqueue(enc.encode(d))); } catch (e) { console.error("[Cuộc họp] Dịch trực tiếp lỗi:", (e as Partial<HsErr>).detail || (e instanceof Error ? e.message : e)); } }
+        if (t && to) {
+          const pr = lex ? protect(t, fx.hits, lex) : { text: t, back: (x: string) => x };
+          try { tr = pr.back(await gTranslate(pr.text, to)); if (tr) ctl.enqueue(enc.encode(tr)); } catch (e) { console.warn("[Cuộc họp] Google Dịch lỗi:", e instanceof Error ? e.message : e); }
+        }
         if (t) { fs.mkdirSync(dir(m.slug), { recursive: true }); fs.appendFileSync(fp(m.slug, "live.jsonl"), JSON.stringify({ t: Date.now(), k: +f.k || 0, fin: f.fin !== "0", text: t, tr, lang: to }) + "\n"); }
         ctl.close();
       },

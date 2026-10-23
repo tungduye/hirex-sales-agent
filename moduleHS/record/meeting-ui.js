@@ -195,8 +195,9 @@ function confirmBox(title, msg, okLabel = 'Xóa', danger = true) {
 const pickBtn = (cls, inner) => `<button type="button" class="in cb ${cls}" aria-haspopup="menu">${inner}<span class="grow"></span>${ico('chevd', 14)}</button>`;
 /* ================= Lựa chọn: tên cuộc họp (AI đặt / tự đặt) · bản dịch =================
    Không còn Chủ đề / Mẫu / Từ vựng: máy chủ tự lấy ngữ cảnh (thành viên, màn hình, thuật ngữ) từ dữ liệu HireX như Soda. */
-const S = { tab: LS.get('tab', 'rec') === 'tts' ? 'tts' : 'rec', st: 'idle', title: '', named: false, live: LS.get('live', ''), nameMode: LS.get('nm', 'ai') === 'manual' ? 'manual' : 'ai', attn: 0, up: null };
-if (!['src', 'vi', 'en', 'ja'].includes(S.live)) S.live = 'src';
+const S = { tab: LS.get('tab', 'rec') === 'tts' ? 'tts' : 'rec', st: 'idle', title: '', named: false, live: ['src', 'en', 'ja'].includes(LS.get('live', 'src')) ? LS.get('live', 'src') : 'src', nameMode: LS.get('nm', 'ai') === 'manual' ? 'manual' : 'ai', attn: 0, up: null };
+/* Phụ đề trực tiếp: luôn bật mặc định (nghe tiếng Việt, tự sửa tên / thuật ngữ HireX); chỉ có 1 lựa chọn "Phụ đề: Hiện / Tắt" ở màn chính — tắt thì ẩn hẳn khung phụ đề. */
+S.cap = LS.get('cap', '1') !== '0'; S.src = 'vi';
 
 /* ================= Khung chính ================= */
 function renderApp() {
@@ -214,7 +215,7 @@ function renderApp() {
   </section>
   <section class="rc-b" id="pTts" hidden></section>
  </main>
- <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="dot" id="liveDot"></span><b class="lpt" title="Tự nhận tiếng Việt / English / 日本語 khi người nói đổi qua lại">Phụ đề</b><div class="seg" id="liveLang" role="radiogroup" aria-label="Ngôn ngữ phụ đề">${[['src', 'Gốc'], ['vi', 'VI'], ['en', 'EN'], ['ja', 'JA']].map(([k, l]) => `<button type="button" data-a="liveLang" data-v="${k}" role="radio" title="${k === 'src' ? 'Lời nói gốc' : 'Dịch sang ' + LANG[k]}">${l}</button>`).join('')}</div><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
+ <aside class="lp" id="live" aria-label="Phụ đề trực tiếp"><header class="lp-h"><span class="dot" id="liveDot"></span><b class="lpt">Phụ đề</b><span class="grow"></span><button type="button" class="btn ghost icon sm" data-a="liveClear" title="Xóa phụ đề">${ico('eraser', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveCopy" title="Sao chép">${ico('copy', 15)}</button><button type="button" class="btn ghost icon sm" data-a="liveBig" title="Phóng to / thu nhỏ">${ico('expand', 15)}</button></header><div class="lp-b" id="liveB"></div></aside>
  </div><div id="toast"></div><input type="file" id="fAudio" hidden accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.ogg,.opus,.aac,.flac,.amr,.wma,.mp4,.webm,.mkv,.mov">`;
   $('#ttl').oninput = e => { S.title = e.target.value; S.named = !!e.target.value.trim(); };
   $('#ttl').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
@@ -236,6 +237,7 @@ const suggestName = (t = Date.now()) => { const d = new Date(t); return `${pad(d
 function optsHtml(F, live = true, name = false) {
   const row = (ic, l, inner) => `<div class="orow"><span class="oi" title="${l}">${ico(ic, 16)}</span><span class="ol">${l}</span>${inner}</div>`;
   return (name ? row('type', 'Tên', pickBtn('oName', `<span>${F.nameMode === 'manual' ? 'Tự đặt' : 'Theo nội dung cuộc họp'}</span>`)) : '')
+   + (name ? row('captions', 'Phụ đề', pickBtn('oCap', `<span>${!S.cap ? 'Tắt' : CAPL[S.live]}</span>`)) : '')
    + (live ? row('globe', 'Dịch', `<div class="seg full oLive" role="radiogroup" aria-label="Bản dịch">${['', 'en', 'vi', 'ja'].map(k => `<button type="button" data-live="${k}" class="${F.live === k ? 'on' : ''}" role="radio" aria-checked="${F.live === k}">${k ? { en: 'EN', vi: 'VI', ja: 'JA' }[k] : 'Tắt'}</button>`).join('')}</div>`) : '');
 }
 /** Gắn sự kiện cho khối lựa chọn; F được sửa tại chỗ rồi gọi done(). */
@@ -243,6 +245,7 @@ function optsBind(box, F, done) {
   box.onclick = e => {
     const lb = e.target.closest('[data-live]'); if (lb) { F.live = lb.dataset.live; done(); return; }
     const b = e.target.closest('.cb'); if (!b) return;
+    if (b.classList.contains('oCap')) { menu(b, [['src', 'captions'], ['en', 'globe'], ['ja', 'globe']].map(([k, ic]) => ({ label: CAPL[k], icon: ic, on: S.cap && S.live === k, fn: () => setCap(true, k) })).concat([{ label: 'Tắt', icon: 'x', on: !S.cap, fn: () => setCap(false) }])); return; }
     if (b.classList.contains('oName')) menu(b, [{ label: 'Theo nội dung cuộc họp', icon: 'sparkle', em: 'AI', on: F.nameMode !== 'manual', fn: () => { F.nameMode = 'ai'; done(); } }, { label: 'Tự đặt', icon: 'edit', on: F.nameMode === 'manual', fn: () => { F.nameMode = 'manual'; done(); setTimeout(() => $('#ttl')?.focus(), 50); } }]);
   };
 }
@@ -259,7 +262,7 @@ ACT.tab = b => { S.tab = b.dataset.v; LS.set('tab', S.tab); renderTab(); };
 ACT.arch = () => openArchive();
 ACT.cfg = () => openCfg();
 ACT.upload = () => $('#fAudio').click();
-const meetOpts = () => { const t = S.title.trim(); return { set: 1, title: t, auto: !t, live: S.live }; };
+const meetOpts = () => { const t = S.title.trim(); return { set: 1, title: t, auto: !t, live: '' }; };
 
 /* ================= Bản sao từng đoạn trên máy (IndexedDB) ================= */
 const DB = {
@@ -345,7 +348,7 @@ async function startRecording() {
   setSt('starting'); renderStatus();
   try {
     R.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-    const title = S.title.trim(), o = { title, auto: !title, live: S.live };
+    const title = S.title.trim(), o = { title, auto: !title, live: '' };
     const sid = (await createSession(o)).session_id; R.sid = sid; R.i = 0;
     DB.putSession({ sid, title: title || 'Cuộc họp', auto: o.auto, live: o.live, at: Date.now(), status: 'recording', count: 0 }).catch(er => console.error('idb', er));
     R.mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'].find(t => window.MediaRecorder?.isTypeSupported?.(t)) || '';
@@ -361,7 +364,7 @@ async function startRecording() {
     R.rec.start(B.slice || 5000);
     try { R.ctx = new AudioContext({ sampleRate: 24000 }); } catch { R.ctx = new (window.AudioContext || window.webkitAudioContext)(); } R.an = R.ctx.createAnalyser(); R.an.fftSize = 1024; R.an.smoothingTimeConstant = .5;
     R.ctx.createMediaStreamSource(R.stream).connect(R.an); R.buf = new Uint8Array(R.an.fftSize);
-    R.acc = 0; R.seg = performance.now(); R.t0 = Date.now(); WV.lv = []; LV.lines.clear(); LV.dom.clear(); LV.seq = 0; RT.ids.clear(); RT.q = []; RT.open = null; RT.got = false; RT.retry = 0; vadReset();
+    R.acc = 0; R.seg = performance.now(); R.t0 = Date.now(); WV.lv = []; LV.lines.clear(); LV.dom.clear(); LV.seq = 0; RT.ids.clear(); RT.q = []; RT.open = null;
     R.timer = setInterval(tick, 250); tick();
     clearInterval(R.wd); R.last = Date.now(); let stallWarn = false;
     R.wd = setInterval(() => { if (R.rec?.state !== 'recording') return; if (Date.now() - R.last > (B.slice || 5000) * 3 + 5000) { flushNow(); if (!stallWarn) { stallWarn = true; renderStatus('Ghi âm có dấu hiệu bị đứng'); } } }, 5000);
@@ -434,132 +437,80 @@ function wvLoop() {
   WV.raf = requestAnimationFrame(f);
 }
 
-/* ================= Phụ đề trực tiếp =================
-   Một bộ nhận dạng duy nhất (OpenAI realtime), tự nhận tiếng Việt / English / 日本語 khi người nói đổi qua lại, không cần chọn.
-   2 bước cho mỗi câu: (1) chữ hiện ngay khi đang nói (bản nháp realtime, hay rơi / sai chữ);
-   (2) nói xong câu → gửi lại âm thanh của đúng câu đó (WAV) cho model phiên âm chính kèm ngữ cảnh HireX (live_fix) → thay bằng chữ chuẩn,
-       rồi mới dịch. Bản ghi âm đầy đủ vẫn phiên âm lại sau cuộc họp để viết biên bản. */
-const LV = { lines: new Map(), seq: 0, cur: null, tm: 0, peak: 0, big: false, run: 0, dom: new Map() };
-/* RT: PCM 24 kHz → WebSocket OpenAI (khoá tạm do máy chủ cấp).
-   mode 'live' (gpt-live-transcribe): chữ hiện ngay khi đang nói; trình duyệt tự cắt câu (VAD theo năng lượng) rồi commit.
-   mode 'vad'  (gpt-4o-transcribe): máy chủ cắt câu; lọc câu bịa bằng logprobs.
-   pcm: giữ ~90 giây âm thanh gần nhất (theo vị trí mẫu) để gửi lại từng câu khi chốt.
-   Không nối được → cắt đoạn 3 giây gửi lên máy chủ (liveCycle). */
-const RT = { ws: null, node: null, src: null, sink: null, ctx: null, pos: 0, acc: [], pre: null, ids: new Map(), q: [], open: null, failed: !B.rt, busy: false, got: false, retry: 0, last: '', mode: '', cfg: { hold: 600, maxTurn: 14000, minLp: -1 }, sid: '', rot: 0, v: null, pcm: [], sent: 0, base: 0, fixing: 0 };
-const SR24 = 24000;
-const vadReset = () => { RT.v = { floor: .004, on: false, last: 0, start: 0, spoke: 0 }; };
-vadReset();
+/* ================= Phụ đề trực tiếp (miễn phí, một chế độ duy nhất) =================
+   Trình duyệt nghe (Chrome / Edge — Web Speech API, kèm danh sách cụm từ HireX để nghe đúng hơn nếu trình duyệt hỗ trợ) → chữ hiện ngay khi nói.
+   Câu chốt → máy chủ sửa tên / thuật ngữ theo từ điển học từ toàn bộ dữ liệu HireX (live_tr) → dịch bằng Google (miễn phí) nếu chọn VI / EN / JA.
+   Không gọi OpenAI khi đang họp. Bản ghi âm đầy đủ vẫn phiên âm lại bằng OpenAI sau cuộc họp, có ưu tiên các thuật ngữ phụ đề đã nghe thấy. */
+const LV = { lines: new Map(), seq: 0, dom: new Map(), big: false };
+const RT = { sid: '', ids: new Map(), q: [], open: null };
 /** Ngôn ngữ cần dịch sang ('' = chỉ hiện lời gốc). */
 const target = () => S.live === 'src' ? '' : S.live;
 const normLn = s => noMark(s).replace(/[^\p{L}\p{N}]+/gu, '');
 const newLine = () => { const k = LV.seq++, l = { k, text: '', tr: {}, part: 1, t: elapsed(), wtr: 0 }; LV.lines.set(k, l); return l; };
-const dropLine = l => { if (!l) return; LV.lines.delete(l.k); const i = RT.q.indexOf(l); if (i >= 0) RT.q.splice(i, 1); if (RT.open === l) RT.open = null; if (l.req) l.req.abort(); renderLive(); };
+const dropLine = l => { if (!l) return; LV.lines.delete(l.k); if (l.req) l.req.abort(); renderLive(); };
 function liveToggle() {
-  const want = S.live && (S.st === 'rec' || S.st === 'paused') && R.stream;
-  if (!want) { liveStop(); renderLive(); return; }
-  if (RT.failed) { if (S.st === 'rec' && !LV.cur) liveCycle(); } else if (!RT.ws && !RT.busy) rtStart();
+  const want = S.cap && S.live && S.st === 'rec' && R.stream;
+  if (want) wsStart(); else wsStop();
   renderLive();
 }
-const RT_WORKLET = `class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('pcm-tap',T)`;
-const rtSend = o => { try { if (RT.ws?.readyState === 1) RT.ws.send(JSON.stringify(o)); } catch { /* bỏ qua */ } };
-async function rtStart() {
-  if (RT.busy || !R.ctx || !R.stream || !R.sid) return; RT.busy = true;
-  try {
-    if (RT.ctx !== R.ctx) { await R.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([RT_WORKLET], { type: 'application/javascript' }))); RT.ctx = R.ctx; }
-    /* Gắn tap ngay, gom âm thanh trong lúc chờ khoá/WS để không mất câu đầu tiên. */
-    RT.pos = 0; RT.acc = []; RT.pre = []; RT.pcm = []; RT.sent = 0; RT.base = 0;
-    RT.src = R.ctx.createMediaStreamSource(R.stream); RT.node = new AudioWorkletNode(R.ctx, 'pcm-tap'); RT.sink = R.ctx.createGain(); RT.sink.gain.value = 0;
-    RT.src.connect(RT.node); RT.node.connect(RT.sink); RT.sink.connect(R.ctx.destination);
-    const ratio = R.ctx.sampleRate / SR24;
-    RT.node.port.onmessage = e => { if (S.st !== 'rec') return; rtPush(e.data, ratio); };
-    const t = await post('live_token', { session_id: R.sid }, 20000);
-    const ws = new WebSocket(t.url, ['realtime', 'openai-insecure-api-key.' + t.token, ...(t.beta ? ['openai-beta.realtime-v1'] : [])]);
-    await new Promise((ok, no) => { const to = setTimeout(() => no(new Error('ws_timeout')), 8000); ws.onopen = () => { clearTimeout(to); ok(); }; ws.onerror = () => { clearTimeout(to); no(new Error('ws_error')); }; });
-    if (!R.stream || !(S.st === 'rec' || S.st === 'paused')) { ws.close(); rtStop(true); return; }
-    RT.ws = ws; RT.retry = 0; RT.mode = t.mode || 'vad'; RT.cfg = { hold: Math.max(900, t.hold || 900), maxTurn: t.maxTurn || 14000, minLp: t.minLp ?? -1 }; RT.rot = Date.now() + 50 * 60000; RT.open = null; RT.q = []; vadReset();
-    ws.onmessage = e => { try { rtMsg(JSON.parse(e.data)); } catch { /* bỏ qua */ } };
-    ws.onclose = () => { if (RT.ws !== ws) return; RT.ws = null; if ((S.st === 'rec' || S.st === 'paused') && S.live && RT.retry++ < 5) setTimeout(liveToggle, 400 * RT.retry); else if (S.st === 'rec' && S.live && !RT.got) rtFail('closed'); };
-    const pre = RT.pre; RT.pre = null; for (const a of pre) ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: a.b }));
-  } catch (e) { console.warn('Realtime chưa dùng được, chuyển sang cắt đoạn:', e.message, e.detail || ''); rtFail(e.message); }
-  finally { RT.busy = false; renderLive(); }
+/* ---------- Miễn phí: nhận giọng của trình duyệt (Chrome / Edge, Web Speech API) → chữ ngay khi nói; câu chốt → Google Dịch ----------
+   Chỉ nghe 1 ngôn ngữ một lúc (chọn ở nút "VI / EN / JA" trên đầu khung). Bản ghi âm đầy đủ vẫn phiên âm lại bằng OpenAI sau cuộc họp. */
+const SRC_LANG = { vi: 'vi-VN', en: 'en-US', ja: 'ja-JP' };
+const WSR = { rec: null, tm: 0, map: new Map(), warned: false, deny: false, noBias: false, net: 0, ph: null, phSid: '' };
+/** Cụm từ HireX (tên người, khách hàng, thuật ngữ…) cho bộ nghe của trình duyệt — chỉ khi trình duyệt có SpeechRecognitionPhrase. */
+async function loadPhrases() {
+  if (typeof window.SpeechRecognitionPhrase !== 'function' || WSR.noBias) return;
+  if (WSR.ph && WSR.phSid === R.sid) return; WSR.phSid = R.sid;
+  try { const d = await get('lex_phrases', '&session_id=' + encodeURIComponent(R.sid || '')); WSR.ph = (d.phrases || []).map(x => { try { return new window.SpeechRecognitionPhrase(x.p, Math.min(10, Math.max(0.1, +x.b || 1))); } catch { return null; } }).filter(Boolean); } catch { WSR.ph = []; }
 }
-function rtFail(why) { RT.failed = true; RT.last = why; rtStop(true); if (S.st === 'rec' && S.live && !LV.cur) liveCycle(); }
-/** Hạ mẫu về 24 kHz (trung bình cửa sổ để chống răng cưa), gom 100 ms → gửi; giữ bản sao để chốt câu; đo năng lượng cho VAD. */
-function rtPush(x, ratio) {
-  let p = RT.pos; const out = RT.acc;
-  while (p + ratio <= x.length) { const a = Math.floor(p), b = Math.min(x.length, Math.floor(p + ratio)); let s = 0; for (let i = a; i < b; i++) s += x[i]; out.push(b > a ? s / (b - a) : x[a]); p += ratio; }
-  RT.pos = p - x.length; if (RT.pos < 0) RT.pos = 0;
-  if (out.length < 2400) return;
-  const pcm = new Int16Array(out.length); let e = 0; for (let i = 0; i < out.length; i++) { const v = Math.max(-1, Math.min(1, out[i])); e += v * v; pcm[i] = v < 0 ? v * 32768 : v * 32767; }
-  RT.acc = []; RT.pcm.push({ o: RT.sent, a: pcm }); RT.sent += pcm.length;
-  while (RT.pcm.length && RT.pcm[0].o < RT.sent - SR24 * 90) RT.pcm.shift();
-  const u = new Uint8Array(pcm.buffer); let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
-  if (!RT.ws || RT.ws.readyState !== 1) { if (RT.pre) { RT.pre.push({ b: btoa(bin), n: pcm.length }); if (RT.pre.length > 120) RT.base += RT.pre.shift().n; } return; }
-  RT.ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: btoa(bin) }));
-  if (RT.mode === 'live') vadStep(Math.sqrt(e / out.length));
-}
-/** VAD phía trình duyệt: ngưỡng = nền ồn × 3.5 (0.012…0.05). Im lặng quá `hold` ms → chốt câu; câu dài quá `maxTurn` → cắt ở chỗ ngắt hơi. */
-function vadStep(rms) {
-  const V = RT.v, now = performance.now(), thr = Math.min(.05, Math.max(.012, V.floor * 3.5)), C = RT.cfg;
-  if (rms > thr) {
-    if (!V.on) { V.on = true; V.start = now; V.spoke = 0; rtSpeechStart(); }
-    V.last = now; V.spoke += 100;
-    if (now - V.start > C.maxTurn + 6000 || (now - V.start > C.maxTurn && rms < thr * 2)) { rtEndTurn(); V.start = now; V.spoke = 0; rtSpeechStart(); }
-  } else {
-    if (!V.on) V.floor = rms < V.floor ? rms : V.floor + (rms - V.floor) * .05;
-    else if (now - V.last > C.hold) { V.on = false; rtEndTurn(); }
-  }
-}
-function rtSpeechStart() { let l = RT.open || RT.q[0]; if (!l) { l = newLine(); RT.q.push(l); } if (l.a0 == null) l.a0 = Math.max(0, RT.sent - SR24 * .5); renderLive(); }
-function rtEndTurn() {
-  const l = RT.open || RT.q[0];
-  if (RT.mode === 'live' && l && !l.text && RT.v.spoke < 300) { dropLine(l); return; }   // giữ âm thanh trong buffer: gộp vào câu sau, không xoá (trước đây mất các từ ngắn)
-  rtSend({ type: 'input_audio_buffer.commit' });
-  if (l) { l.c = 1; l.a1 = RT.sent; RT.open = null; setTimeout(() => { if (!l.done && !l.text && !l.fixing && LV.lines.has(l.k)) dropLine(l); }, 8000); }
-  if (Date.now() > RT.rot && RT.ws) { RT.rot = Infinity; setTimeout(() => { if (RT.ws && !RT.v.on) { rtStop(true); liveToggle(); } else RT.rot = 0; }, 2500); }
-}
-const LIVE_JUNK = /^\s*(thuật ngữ|用語|term(s)?|terminology|người tham gia)\s*[:：]/i;
-/** Gắn item của OpenAI vào dòng: chưa biết id → lấy dòng chờ do VAD tạo (cùng thứ tự), không có thì tạo mới. */
-const rtLine = id => { let k = RT.ids.get(id), l = k != null && LV.lines.get(k); if (!l) { l = RT.q.shift() || newLine(); RT.ids.set(id, l.k); } return l; };
-const lowLp = m => { const a = Array.isArray(m.logprobs) ? m.logprobs.map(x => +x.logprob).filter(Number.isFinite) : []; if (!a.length) return false; const mean = a.reduce((s, x) => s + x, 0) / a.length, w = String(m.transcript || '').trim().split(/\s+/).length; return mean < RT.cfg.minLp && w <= 6; };
-function rtMsg(m) {
-  const t = m.type || '';
-  if (t === 'input_audio_buffer.speech_started' && m.item_id) { const l = rtLine(m.item_id); if (Number.isFinite(m.audio_start_ms)) l.a0 = RT.base + Math.max(0, m.audio_start_ms - 300) * 24; renderLive(); }
-  else if (t === 'input_audio_buffer.speech_stopped' && m.item_id) { const l = rtLine(m.item_id); if (Number.isFinite(m.audio_end_ms)) l.a1 = RT.base + (m.audio_end_ms + 200) * 24; }
-  else if (t.endsWith('input_audio_transcription.delta')) { RT.got = true; const l = rtLine(m.item_id); if (!l.fixing && !l.fx) { l.text += m.delta || ''; l.part = 1; } if (!l.c) RT.open = l; renderLive(); }
-  else if (t.endsWith('input_audio_transcription.completed')) {
-    RT.got = true; const l = rtLine(m.item_id); l.done = 1; l.part = 0; l.c = 1; if (RT.open === l) RT.open = null;
-    let text = String(m.transcript ?? l.text).trim(); if (RT.mode === 'vad' && lowLp(m)) text = '';
-    if (LIVE_JUNK.test(text)) text = '';
-    if (!l.fx) l.text = text;
-    if (!text && !(l.a1 > l.a0)) { dropLine(l); return; }
+function bias(r) { if (WSR.noBias || !WSR.ph?.length) return; try { r.phrases = WSR.ph; } catch { WSR.noBias = true; } }
+const SpeechRec = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+function wsStart() {
+  if (WSR.rec || WSR.deny) return;
+  if (!WSR.ph && typeof window.SpeechRecognitionPhrase === 'function' && !WSR.noBias) { WSR.ph = []; loadPhrases().finally(() => { if (WSR.rec && WSR.ph?.length) { wsStop(); liveToggle(); } }); }
+  if (!SpeechRec) { if (!WSR.warned) { WSR.warned = true; toast('Trình duyệt này chưa có nhận giọng nói miễn phí — dùng Chrome hoặc Edge để xem phụ đề'); } return; }
+  const r = new SpeechRec(); r.lang = SRC_LANG[S.src] || 'vi-VN'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  bias(r);
+  WSR.map = new Map();
+  const fin = l => { l.part = 0; l.done = 1; l.text = l.text.trim(); if (!l.text) { dropLine(l); return; } rtTranslate(l); };
+  r.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i], txt = String(res[0]?.transcript || '');
+      let l = WSR.map.get(i); if (!l) { if (!txt.trim()) continue; l = newLine(); WSR.map.set(i, l); }
+      if (l.done) continue;
+      l.text = txt; l.part = res.isFinal ? 0 : 1;
+      if (res.isFinal) fin(l);
+    }
     renderLive();
-    if (!rtFix(l) && l.text && !(l.sent && normLn(l.sent) === normLn(l.text))) rtTranslate(l);
-  }
-  else if (t === 'error') { console.warn('Realtime:', m.error?.message || m); if (!RT.got && /auth|invalid|not supported|model/i.test(m.error?.message || '')) rtFail('error'); }
+  };
+  r.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { WSR.deny = true; toast('Trình duyệt chặn nhận giọng nói — kiểm tra quyền micro'); }
+    else if (e.error === 'phrases-not-supported') WSR.noBias = true;                       // trình duyệt chưa nhận danh sách cụm từ: nghe lại không kèm
+    else if (e.error === 'network') WSR.net = (WSR.net || 0) + 1;
+  };
+  r.onend = () => {
+    if (WSR.rec !== r) return; WSR.rec = null;
+    for (const l of WSR.map.values()) if (!l.done && l.text) fin(l);
+    if (S.cap && S.live && S.st === 'rec' && R.stream && !WSR.deny) WSR.tm = setTimeout(wsStart, WSR.net > 3 ? 2000 : 200);   // trình duyệt tự ngắt sau một lúc im lặng → nghe tiếp
+    renderLive();
+  };
+  WSR.rec = r; try { r.start(); } catch { WSR.rec = null; }
 }
-/** Âm thanh của một câu (từ vị trí mẫu a0 đến a1) → WAV 24 kHz mono 16-bit. */
-function wavOf(a0, a1) {
-  const parts = []; let n = 0;
-  for (const c of RT.pcm) { const s = Math.max(a0, c.o), e = Math.min(a1, c.o + c.a.length); if (e > s) { parts.push(c.a.subarray(s - c.o, e - c.o)); n += e - s; } }
-  if (n < SR24 * .5) return null;
-  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
-  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, SR24, true); v.setUint32(28, SR24 * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
-  let o = 44; for (const p of parts) { new Int16Array(buf, o, p.length).set(p); o += p.length * 2; }
-  return new Blob([buf], { type: 'audio/wav' });
+function wsStop() {
+  if (R.sid) RT.sid = R.sid; clearTimeout(WSR.tm); const r = WSR.rec; WSR.rec = null;
+  if (r) { r.onend = null; r.onresult = null; try { r.stop(); } catch { /* đã dừng */ } }
+  for (const l of WSR.map.values()) if (!l.done && l.text) { l.part = 0; l.done = 1; rtTranslate(l); } else if (!l.done) dropLine(l);
+  WSR.map = new Map();
 }
-/** Chốt câu: phiên âm lại đúng đoạn âm thanh của câu bằng model chính (có ngữ cảnh HireX) → thay chữ nháp, rồi dịch. Trả về true nếu đã gửi. */
-function rtFix(l) {
-  if (l.fx || l.fixing || !(l.a1 > l.a0) || !R.sid && !RT.sid) return false;
-  const blob = wavOf(l.a0, Math.min(l.a1, l.a0 + SR24 * 40)); if (!blob) return false;
-  if (RT.fixing > 4) return false;                                  // mạng chậm: giữ bản nháp, không dồn hàng
-  l.fixing = 1; RT.fixing++; renderLive();
-  const prev = [...LV.lines.values()].filter(x => x.k < l.k && x.text).slice(-2).map(x => x.text).join(' ');
-  post('live_fix', { session_id: R.sid || RT.sid, k: l.k, prev, audio: { blob, name: `c${l.k}.wav` } }, 30000)
-    .then(d => { const t = String(d.text || '').trim(); if (t) { l.text = t; l.fx = 1; } else if (!l.text || l.text.split(/\s+/).length < 3) { l.fixing = 0; dropLine(l); return; } })
-    .catch(() => { /* giữ bản nháp */ })
-    .finally(() => { RT.fixing--; if (!LV.lines.has(l.k)) return; l.fixing = 0; l.part = 0; renderLive(); if (l.text && !(l.sent && normLn(l.sent) === normLn(l.text))) rtTranslate(l); });
-  return true;
+/** Phụ đề: Hiện / Tắt (combobox ở màn chính). Tắt = dừng nghe + ẩn hẳn khung phụ đề. */
+/** Phụ đề: Lời gốc / Dịch sang English / Dịch sang 日本語 (Google Dịch, miễn phí) / Tắt. Đổi ngôn ngữ giữa chừng thì dịch bù các câu đã có. */
+const CAPL = { src: 'Lời gốc (tiếng Việt)', en: 'Lời gốc + dịch English', ja: 'Lời gốc + dịch 日本語' };
+function setCap(on, lang = S.live) { S.cap = on; S.live = lang; LS.set('cap', on ? '1' : '0'); LS.set('live', lang); ROOT.classList.toggle('nocap', !on); renderOpts(); liveToggle(); if (on) liveFill(); }
+async function liveFill() {
+  const to = target(); if (!to) { renderLive(); return; }
+  const todo = [...LV.lines.values()].filter(l => l.text && !l.part && !l.req && !l.tr[to]).sort((a, b) => b.k - a.k).slice(0, 40);
+  const run = async () => { let l; while ((l = todo.shift())) { if (target() !== to) return; if (!l.tr[to] && !l.req) await rtTranslate(l, to); } };
+  await Promise.all([run(), run()]);
 }
 /** Dịch một dòng (stream từng chữ). Gọi lại khi câu chốt khác bản tạm, hoặc khi đổi tab ngôn ngữ. */
 async function rtTranslate(l, to = target()) {
@@ -580,59 +531,21 @@ async function rtTranslate(l, to = target()) {
   } catch (e) { if (e.name !== 'AbortError') console.warn('Dịch trực tiếp:', e.message); }
   finally { if (l.req === c) { l.req = null; l.wtr = 0; } renderLive(); }
 }
-/** Đổi tab ngôn ngữ: dịch bổ sung những dòng chưa có bản dịch ở ngôn ngữ đó (mới nhất trước, 2 dòng một lúc). */
-async function rtFill() {
-  const to = target(); if (!to) return;
-  const todo = [...LV.lines.values()].filter(l => l.text && !l.part && !l.fixing && !l.req && !l.tr[to]).sort((a, b) => b.k - a.k).slice(0, 30);
-  const run = async () => { let l; while ((l = todo.shift())) { if (target() !== to) return; if (!l.tr[to] && !l.req) await rtTranslate(l, to); } };
-  await Promise.all([run(), run()]);
-}
-function rtStop(now) {
-  const ws = RT.ws; RT.ws = null;
-  try { RT.node?.port && (RT.node.port.onmessage = null); RT.src?.disconnect(); RT.node?.disconnect(); RT.sink?.disconnect(); } catch { /* đã ngắt */ }
-  RT.src = RT.node = RT.sink = null; RT.pre = null;
-  if (ws && ws.readyState === 1) {
-    if (now) ws.close();
-    else { if (RT.mode !== 'live' || RT.v.on || RT.open) { RT.ws = ws; rtEndTurn(); RT.ws = null; } RT.sid = R.sid; setTimeout(() => ws.close(), 3000); }
-  }
-  RT.open = null; RT.q = []; vadReset();
-}
-function liveStop() { rtStop(); clearTimeout(LV.tm); LV.tm = 0; const r = LV.cur; LV.cur = null; if (r) r._peak = LV.peak; try { if (r && r.state !== 'inactive') r.stop(); } catch { /* đã dừng */ } }
-/* ---------- Dự phòng: cắt đoạn ~3 giây → máy chủ phiên âm + dịch ---------- */
-function liveCycle() {
-  if (!S.live || S.st !== 'rec' || !R.stream) { LV.cur = null; return; }
-  const prev = LV.cur; if (prev) prev._peak = LV.peak; LV.peak = 0;
-  const parts = []; let r;
-  try { r = new MediaRecorder(R.stream, R.mime ? { mimeType: R.mime, audioBitsPerSecond: 32000 } : undefined); } catch { return; }
-  r._sid = R.sid; r._t = elapsed(); r.ondataavailable = e => { if (e.data?.size) parts.push(e.data); };
-  r.onstop = () => { const blob = new Blob(parts, { type: R.mime || 'audio/webm' }); if ((r._peak || 0) > .02 && blob.size > 1500) liveSend(blob, r._sid, r._t); };
-  r.start(); LV.cur = r;
-  try { if (prev && prev.state !== 'inactive') prev.stop(); } catch { /* bỏ qua */ }
-  LV.tm = setTimeout(liveCycle, B.liveMs || 3000);
-}
-async function liveSend(blob, sid, t0 = 0) {
-  const to = target(); if (!sid) return;
-  const arr = [...LV.lines.values()], prev = arr.slice(-2).map(l => l.text).join(' '), ctx = to ? arr.slice(-3).map(l => l.tr[to]).filter(Boolean).join(' ') : '';
-  const l = newLine(); l.wait = 1; l.t = t0; renderLive();
-  if (LV.run > 4) { dropLine(l); return; }
-  LV.run++;
-  try {
-    const d = await post('live', { session_id: sid, seq: l.k, lang: to, prev, ctx, audio: { blob, name: `live-${l.k}.${/ogg/.test(R.mime) ? 'ogg' : /mp4/.test(R.mime) ? 'mp4' : 'webm'}` } }, 90000);
-    if (d.text) { l.text = d.text; l.wait = 0; l.part = 0; l.done = 1; if (to && d.tr) l.tr[to] = d.tr; } else dropLine(l);
-  } catch (e) { dropLine(l); if (e.message === 'no_ai_key') { toast(errText(e)); liveStop(); } }
-  finally { LV.run--; renderLive(); }
-}
+function liveStop() { wsStop(); }
 /* ---------- Hiển thị: mới nhất ở trên; chỉ cập nhật dòng thay đổi (stream từng chữ không vẽ lại cả khung) ---------- */
 function lineHtml(l) {
   const to = target(), tr = to ? (l.tr[to] || '') : '', t = `<span class="lt num">${hms(l.t || 0).slice(3)}</span>`;
   if (l.wait || (!l.text && l.part)) return `${t}<div><div class="tr">${ico('loader', 14, 'spin')}</div></div>`;
-  const same = tr && normLn(tr) === normLn(l.text), main = tr || l.text, sub = tr && !same ? esc(l.text) : (l.wtr && to ? ico('loader', 12, 'spin') : '');
-  return `${t}<div><div class="tr">${esc(main)}${(l.part || (l.wtr && tr)) ? '<i class="caret"></i>' : ''}</div>${sub ? `<div class="or">${sub}</div>` : ''}</div>`;
+  // lời gốc ở trên (chữ chính), bản dịch thêm ở dưới (khi chọn dịch EN / JA)
+  const same = tr && normLn(tr) === normLn(l.text), sub = tr && !same ? esc(tr) : (l.wtr && to ? ico('loader', 12, 'spin') : '');
+  return `${t}<div><div class="tr">${esc(l.text)}${l.part ? '<i class="caret"></i>' : ''}</div>${sub ? `<div class="or tl">${sub}</div>` : ''}</div>`;
 }
 function renderLive() {
   const box = $('#live'); if (!box) return; box.classList.toggle('big', LV.big);
-  ROOT.querySelectorAll('#liveLang [data-v]').forEach(b => { const on = b.dataset.v === S.live; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
-  $('#liveDot').className = 'dot ' + (S.st === 'rec' ? (RT.v?.on ? 'rec' : 'rec pulse') : S.st === 'paused' ? 'warn' : '');
+  $('#liveDot').className = 'dot ' + (!S.cap ? '' : S.st === 'rec' ? (WSR.rec ? 'rec' : 'rec pulse') : S.st === 'paused' ? 'warn' : '');
+  ROOT.classList.toggle('nocap', !S.cap);
+  if (!S.cap) { const bb = $('#liveB'); if (bb.dataset.e !== 'off') { bb.innerHTML = `<div class="live-e">${ico('captions', 30)}<span>Phụ đề đang tắt</span></div>`; bb.dataset.e = 'off'; LV.dom.clear(); } return; }
+  if ($('#liveB').dataset.e === 'off') { $('#liveB').innerHTML = ''; $('#liveB').dataset.e = ''; }
   const b = $('#liveB'), ks = [...LV.lines.keys()].sort((a, c) => c - a).slice(0, 200), keep = new Set(ks);
   if (!ks.length) { if (b.dataset.e !== '1') { b.innerHTML = `<div class="live-e">${ico('captions', 30)}</div>`; b.dataset.e = '1'; LV.dom.clear(); } return; }
   if (b.dataset.e === '1') { b.innerHTML = ''; b.dataset.e = ''; }
@@ -645,8 +558,7 @@ function renderLive() {
     if (b.children[i] !== el) b.insertBefore(el, b.children[i] || null);
   });
 }
-ACT.liveClear = () => { for (const l of LV.lines.values()) l.req?.abort(); LV.lines.clear(); LV.dom.clear(); RT.ids.clear(); RT.q = []; RT.open = null; renderLive(); };
-ACT.liveLang = b => { S.live = b.dataset.v; LS.set('live', S.live); renderLive(); rtFill(); };
+ACT.liveClear = () => { for (const l of LV.lines.values()) l.req?.abort(); LV.lines.clear(); LV.dom.clear(); WSR.map = new Map(); renderLive(); };
 ACT.liveBig = async () => {
   const el = $('#live');
   if (document.fullscreenElement) { await document.exitFullscreen().catch(() => {}); return; }

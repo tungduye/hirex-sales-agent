@@ -288,3 +288,14 @@ button.drawerLine:hover { border-color: rgba(165, 243, 252, .5); }
   .legendBar { display: none; }
   .stageTools { bottom: 14px; }
 }
+/* Plan made from the team (core/hq-layout.ts): market zones, the boss desk, lift lobby and the floor switch. */
+.zone { position: absolute; border-radius: 8px; pointer-events: none; }
+.zone span { position: absolute; left: 6px; top: 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; color: rgba(226, 232, 240, .8); }
+.deskBoss { width: 44px; height: 26px; background: rgba(251, 191, 36, .16); border-color: rgba(251, 191, 36, .45); }
+.liftLobby { position: absolute; border-radius: 10px; border: 1px dashed rgba(148, 163, 184, .35); background: rgba(15, 23, 46, .35); }
+.liftLobby span { position: absolute; left: 12px; bottom: 10px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(186, 230, 253, .7); }
+.lift { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+.lift b { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--hq-label); text-align: center; }
+.lift button { min-width: 44px; height: 30px; padding: 0 10px; border-radius: 9px; border: 1px solid rgba(129, 140, 248, .3); background: rgba(15, 23, 46, .8); color: #C7D2FE; font-size: 12px; font-weight: 700; cursor: pointer; }
+.lift button[aria-pressed="true"] { background: #2563EB; border-color: #3B82F6; color: #fff; }
+.lift button:hover { border-color: rgba(165, 243, 252, .7); color: #fff; }

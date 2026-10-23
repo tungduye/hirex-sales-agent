@@ -582,3 +582,6 @@ to{opacity:1;transform:none}
 .hs-rec .vw-page.mm th:nth-child(2){width:17%}
 .hs-rec .vw-page.mm th:nth-child(3){width:13%}
 @media (max-width:600px){.hs-rec .vw-page.mm{padding:20px 16px}.hs-rec .vw-page.mm table{table-layout:auto}}
+.hs-rec .live-e{display:flex;flex-direction:column;align-items:center;gap:8px}
+.hs-rec.nocap .stage>.lp{display:none}
+.hs-rec .lp .ln .or.tl{color:#3F3F46;border-left:2px solid var(--ui-primary-line,#FECDCA);padding-left:8px;margin-top:4px}

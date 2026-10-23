@@ -425,7 +425,9 @@
     ".next-doi-team-nhan-vien/types/**/*.ts",
     ".next-doi-team-nhan-vien/dev/types/**/*.ts",
     ".next-loc-nhan-va-toc-do/types/**/*.ts",
-    ".next-loc-nhan-va-toc-do/dev/types/**/*.ts"
+    ".next-loc-nhan-va-toc-do/dev/types/**/*.ts",
+    ".next-loc-nhan-bam-nhanh/types/**/*.ts",
+    ".next-loc-nhan-bam-nhanh/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

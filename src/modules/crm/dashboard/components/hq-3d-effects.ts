@@ -6,7 +6,8 @@ import { FONT, glow, label, type T } from "@/modules/crm/dashboard/components/hq
 //   a member got new unanswered messages → envelopes fly from Trạm tin nhắn to their desk;
 //   a member's waiting count went down → a green tick rises over them (they replied);
 //   new CVs today → files fly from the lobby into Kho CV;
-//   new campaign replies → a small firework over Tháp phát sóng.
+//   new campaign replies → a small firework over Tháp phát sóng;
+//   a new member (joined in the last days, or just added) → confetti and "Chào mừng" over their desk.
 
 export type P3 = { x: number; y: number; z: number };
 const INBOX: P3 = { x: -260, y: 62, z: -425 };
@@ -20,6 +21,7 @@ export interface Effects {
   reply: (at: () => P3 | null, delay: number) => void;
   cv: (delay: number) => void;
   firework: (delay: number) => void;
+  welcome: (at: () => P3 | null, name: string, delay: number) => void;
   tick: (time: number, delta: number) => void;
   dispose: () => void;
 }
@@ -145,13 +147,14 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
     items.push(item);
   };
 
-  const firework: Effects["firework"] = (delay) => {
+  const burst = (delay: number, at: () => P3 | null, colours: number[], count: number, duration: number, title?: string) => {
     const item: Item = {
-      start: now + delay, duration: 1.8, objects: [],
+      start: now + delay, duration, objects: [],
       begin: () => {
-        const count = 46;
+        const origin = at();
+        if (!origin) return false;
         const positions = new Float32Array(count * 3), colors = new Float32Array(count * 3), velocity: number[] = [];
-        const palette = [new THREE.Color(0xa5b4fc), new THREE.Color(0x67e8f9), new THREE.Color(0xf0abfc)];
+        const palette = colours.map((colour) => new THREE.Color(colour));
         for (let index = 0; index < count; index += 1) {
           const theta = Math.random() * Math.PI * 2, phi = Math.acos(2 * Math.random() - 1), speed = 40 + Math.random() * 40;
           velocity.push(Math.sin(phi) * Math.cos(theta) * speed, Math.cos(phi) * speed * 0.8 + 25, Math.sin(phi) * Math.sin(theta) * speed);
@@ -162,10 +165,13 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
         geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
         const points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 9, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-        points.position.set(TOWER_TOP.x, TOWER_TOP.y + 10, TOWER_TOP.z);
+        points.position.set(origin.x, origin.y + 10, origin.z);
         group.add(points);
         item.objects.push(points);
+        const banner = title ? label(THREE, title, { height: 15, bg: "#FEF3C7", color: "#713f12", border: "rgba(251,191,36,1)" }) : null;
+        if (banner) { banner.position.set(origin.x, origin.y + 40, origin.z); group.add(banner); item.objects.push(banner); }
         item.step = (t) => {
+          if (banner) { banner.position.y = origin.y + 40 + t * 30; banner.material.opacity = t < 0.75 ? 1 : Math.max(0, 1 - (t - 0.75) / 0.25); }
           const seconds = t * item.duration;
           for (let index = 0; index < count; index += 1) {
             positions[index * 3] = velocity[index * 3] * seconds;
@@ -181,6 +187,9 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
     };
     items.push(item);
   };
+  const firework: Effects["firework"] = (delay) => burst(delay, () => TOWER_TOP, [0xa5b4fc, 0x67e8f9, 0xf0abfc], 46, 1.8);
+  const welcome: Effects["welcome"] = (at, name, delay) => burst(delay, () => { const point = at(); return point ? { ...point, y: point.y + 70 } : null; },
+    [0xfbbf24, 0xf472b6, 0x34d399, 0x60a5fa, 0xffffff], 90, 3.2, `Chào mừng ${name}!`);
 
   const running = new Set<Item>();
   const tick: Effects["tick"] = (time, delta) => {
@@ -199,7 +208,7 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
   };
 
   return {
-    envelope, reply, cv, firework, tick,
+    envelope, reply, cv, firework, welcome, tick,
     dispose: () => { for (const item of running) remove(item.objects); running.clear(); items.length = 0; parent.remove(group); envelopeTexture.dispose(); fileTexture.dispose(); tickTexture.dispose(); },
   };
 }

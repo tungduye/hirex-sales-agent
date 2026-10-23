@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { HqFloor, HqMember, HqRoom, HqStats } from "@/modules/crm/dashboard/server/hq-data";
+import { NORTH_STRIP, type HqLayout, type LayoutRoom } from "@/modules/crm/dashboard/core/hq-layout";
 import styles from "@/modules/crm/dashboard/components/hq.module.css";
 
-// HireX HQ, mức 2: the 2.5D office. Rooms sit on a tilted floor; people sit at desks in Phòng Rec / Phòng Sale and
-// move to Phòng họp while a calendar event is running. Avatars stand upright (counter-rotated) so names stay readable.
+// HireX HQ, mức 2: the 2.5D office. The same plan as 3D (core/hq-layout.ts): one room per bộ phận on a tilted floor,
+// people at their desks, in Phòng họp while a calendar event is running. Avatars stand upright (counter-rotated) so names stay readable.
 // Picking a room or a person opens its summary on the same screen (HqStage), never another page.
 
 /** What is picked on the map: a room (its summary) or a member (their card). */
@@ -22,16 +23,13 @@ export const saveHqView = (view: HqViewMode) => { try { window.localStorage.setI
 export const useHqView = () => useSyncExternalStore(subscribeView, readView, serverView);
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
-const SCENE_W = 760, SCENE_H = 670, BASE_W = 1030, BASE_H = 590;
+// World units (core/hq-layout.ts) → pixels on the tilted floor.
+const K = 0.78, X0 = -615, Z0 = -455, X1 = 415;
 const ROTATIONS = [-45, 45, 135, 225];
 const ZOOMS = [0.7, 0.85, 1, 1.15, 1.3, 1.5];
 type Box = { left: number; top: number; width: number; height: number };
-const BOXES: Record<string, Box> = {
-  soda: { left: 0, top: 0, width: 178, height: 170 }, inbox: { left: 194, top: 0, width: 178, height: 170 },
-  tower: { left: 388, top: 0, width: 178, height: 170 }, cv: { left: 582, top: 0, width: 178, height: 170 },
-  rec: { left: 0, top: 186, width: 760, height: 240 },
-  sale: { left: 0, top: 442, width: 300, height: 228 }, meeting: { left: 316, top: 442, width: 212, height: 228 }, ai: { left: 544, top: 442, width: 216, height: 228 },
-};
+const boxOf = (room: { x0: number; z0: number; x1: number; z1: number }): Box => ({ left: (room.x0 - X0) * K, top: (room.z0 - Z0) * K, width: (room.x1 - room.x0) * K, height: (room.z1 - room.z0) * K });
+const MARKET_TINT: Record<string, string> = { IT: "rgba(8,145,178,.16)", IT_JP: "rgba(219,39,119,.15)", OTHER: "rgba(100,116,139,.14)" };
 const ROOM_TONE = { cyan: null, red: styles.roomHot, violet: styles.roomVioletMap, green: styles.roomGreenMap } as const;
 const RING = { busy: null, alert: styles.rRed, meet: styles.rViolet, idle: styles.rGrey } as const;
 const AV_COLORS = ["#A5F3FC", "#C7D2FE", "#BAE6FD", "#DDD6FE", "#99F6E4", "#E0E7FF", "#FBCFE8", "#FDE68A"];
@@ -66,28 +64,36 @@ function Person({ person, left, top, onPick }: { person: HqMember; left: number;
   );
 }
 
-/** Desks in a grid (anchor = where the person stands); more people than desks → the last desk shows "+N". */
-function Desks({ people, cols, rows, x0, y0, dx, dy, onPick }: { people: HqMember[]; cols: number; rows: number; x0: number; y0: number; dx: number; dy: number; onPick: (id: string) => void }) {
-  const seats = cols * rows;
-  const shown = people.length > seats ? people.slice(0, seats - 1) : people;
-  const extra = people.length - shown.length;
-  const at = (index: number) => ({ x: x0 + (index % cols) * dx, y: y0 + Math.floor(index / cols) * dy });
+/** The desks of a room from the plan; a member sits at theirs unless they are in a meeting. */
+function Seats({ room, team, onPick }: { room: LayoutRoom; team: Map<string, HqMember>; onPick: (id: string) => void }) {
   return (
     <>
-      {Array.from({ length: seats }, (_, index) => {
-        const { x, y } = at(index);
-        const person = shown[index];
-        return <div key={`d${index}`} className={cx(styles.desk, person && person.tone !== "idle" && styles.deskOn)} style={{ left: x - 17, top: y + 6 }} />;
+      {room.zones.map((zone, index) => (
+        <div key={`z${index}`} className={styles.zone} style={{ left: (zone.x0 - room.x0) * K, top: (zone.z0 - room.z0) * K, width: (zone.x1 - zone.x0) * K, height: (zone.z1 - zone.z0) * K, background: MARKET_TINT[zone.market] }}>
+          {zone.first ? <span>{zone.label}</span> : null}
+        </div>
+      ))}
+      {room.seats.map((seat) => {
+        const person = seat.memberId ? team.get(seat.memberId) : undefined;
+        const here = person && !person.meeting ? person : undefined;
+        const left = (seat.x - room.x0) * K, top = (seat.deskZ - room.z0) * K;
+        return <div key={seat.key} className={cx(styles.desk, room.kind === "boss" && styles.deskBoss, here && here.tone !== "idle" && styles.deskOn)} style={{ left: left - 17, top: top - 6 }} />;
       })}
-      {shown.map((person, index) => { const { x, y } = at(index); return <Person key={person.id} person={person} left={x} top={y} onPick={onPick} />; })}
-      {extra > 0 ? <Upright {...(({ x, y }) => ({ left: x, top: y }))(at(seats - 1))}><span className={styles.tag}>+{extra} người</span></Upright> : null}
+      {room.seats.map((seat) => {
+        const person = seat.memberId ? team.get(seat.memberId) : undefined;
+        if (!person || person.meeting) return null;
+        return <Person key={person.id} person={person} left={(seat.x - room.x0) * K} top={(seat.sit.z - room.z0) * K} onPick={onPick} />;
+      })}
     </>
   );
 }
 
 const BOT_ICON = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06111f" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" /><path d="M12 4v4M9 13h.01M15 13h.01" /></svg>;
 
-export function HqMap2D({ rooms, team, stats, floor, selected, onSelect }: { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; selected: HqSelection; onSelect: (selection: HqSelection) => void }) {
+export function HqMap2D({ rooms, team, stats, floor, layout, level, selected, onSelect }: { rooms: HqRoom[]; team: HqMember[]; stats: HqStats; floor: HqFloor; layout: HqLayout; level: number; selected: HqSelection; onSelect: (selection: HqSelection) => void }) {
+  const plan = layout.floors[Math.min(level, layout.floors.length - 1)];
+  const bottom = Math.max(...plan.rooms.map((room) => room.z1)) + 15;
+  const SCENE_W = (X1 - X0) * K, SCENE_H = (bottom - Z0) * K, BASE_W = SCENE_W * 1.36, BASE_H = SCENE_H * 0.9;
   const holder = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
   const [zoom, setZoom] = useState(2);
@@ -95,35 +101,36 @@ export function HqMap2D({ rooms, team, stats, floor, selected, onSelect }: { roo
   useEffect(() => {
     const element = holder.current;
     if (!element) return;
-    const measure = () => setFit(Math.max(0.45, Math.min(1.6, element.clientWidth / BASE_W, element.clientHeight / BASE_H)));
+    const measure = () => setFit(Math.max(0.35, Math.min(1.6, element.clientWidth / BASE_W, element.clientHeight / BASE_H)));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [BASE_W, BASE_H]);
   const scale = fit * ZOOMS[zoom];
   const rz = ROTATIONS[turn];
   const byKey = new Map(rooms.map((room) => [room.key, room]));
-  const seated = (seat: HqMember["seat"]) => team.filter((person) => person.seat === seat);
-  const rec = seated("REC"), sale = seated("SALE"), meeting = seated("MEET");
-  const focus = floor === "REC" ? "rec" : floor === "SALE" ? "sale" : null;
+  const people = new Map(team.map((person) => [person.id, person]));
+  const meeting = team.filter((person) => person.meeting).sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  const focus = floor === "ALL" ? null : floor;
   const picked = selected?.type === "room" ? selected.key : null;
   const pickPerson = (id: string) => onSelect({ type: "person", id });
 
-  const room = (key: string, content: ReactNode) => {
+  const room = (key: string, box: Box, content: ReactNode, peopleRoom = false) => {
     const info = byKey.get(key);
-    const box = BOXES[key];
-    if (!info || !box) return null;
+    if (!info) return null;
     return (
       <div key={key} role="button" tabIndex={0} aria-label={`${info.name}: ${info.meta}`} onClick={() => onSelect({ type: "room", key })}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect({ type: "room", key }); } }}
-        className={cx(styles.mapRoom, ROOM_TONE[info.tone], (focus === key || picked === key) && styles.mapRoomFocus, focus && focus !== key && (key === "rec" || key === "sale") && styles.mapRoomDim)}
-        style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>
+        className={cx(styles.mapRoom, ROOM_TONE[info.tone], (focus === key || picked === key) && styles.mapRoomFocus, focus && focus !== key && peopleRoom && styles.mapRoomDim)}
+        style={box}>
         {content}
         <span className={styles.rname}>{info.name}</span>
       </div>
     );
   };
+  const centre = (box: Box) => ({ left: box.width / 2, top: box.height * 0.62 });
+  const north = (key: keyof typeof NORTH_STRIP) => boxOf(NORTH_STRIP[key]);
 
   // The scene turns and scales around its centre, placed a little below the canvas centre (avatars stand above the floor).
   const sceneStyle = { width: SCENE_W, height: SCENE_H, left: (BASE_W * scale - SCENE_W) / 2, top: (BASE_H * scale - SCENE_H) / 2 + 12 * scale, "--rz": `${rz}deg`, "--s": scale } as CSSProperties;
@@ -137,41 +144,45 @@ export function HqMap2D({ rooms, team, stats, floor, selected, onSelect }: { roo
       <div ref={holder} className={styles.map2dScroll}>
         <div className={styles.mapCanvas} style={{ width: BASE_W * scale, height: BASE_H * scale }}>
           <div className={styles.scene} style={sceneStyle}>
-            {room("soda", <>
-              <div className={cx(styles.desk, styles.deskOn)} style={{ left: 72, top: 96 }} />
-              <Upright left={89} top={92}><span className={styles.mapAv} style={{ background: "linear-gradient(135deg,#67E8F9,#818CF8)" }}>{BOT_ICON}</span><span className={styles.tag}>Soda · Trợ lý</span></Upright>
-            </>)}
-            {room("inbox", <>
-              {stats.waiting ? <><span className={styles.mapRing} /><span className={cx(styles.mapDot, styles.mf1)} /><span className={cx(styles.mapDot, styles.mf2)} /><span className={cx(styles.mapDot, styles.mf3)} /></> : null}
-              <Upright left={89} top={100}>
-                <span className={cx(styles.tag, styles.tagRed)}>Chưa trả lời <b className={styles.mono}>{n(stats.waiting)}</b></span>
-                {stats.tagged ? <span className={styles.tag}>{n(stats.tagged)} nhóm tag mình</span> : null}
-              </Upright>
-            </>)}
-            {room("tower", <>
-              {stats.running ? <span className={cx(styles.mapRing, styles.mapRingViolet)} /> : null}
-              <Upright left={89} top={100}>
-                <span className={styles.tag}>Zalo Mkt · <b className={styles.mono}>{n(stats.sent)}</b> tin · <b className={styles.mono}>{n(stats.replies)}</b> phản hồi</span>
-                <span className={styles.tag}>{n(stats.running)} đang chạy</span>
-              </Upright>
-            </>)}
-            {room("rec", <Desks people={rec} cols={7} rows={2} x0={62} y0={72} dx={104} dy={118} onPick={pickPerson} />)}
-            {room("sale", <Desks people={sale} cols={3} rows={2} x0={56} y0={70} dx={94} dy={116} onPick={pickPerson} />)}
-            {room("meeting", <>
-              <div className={styles.table} />
-              {meeting.length
-                ? meeting.slice(0, 6).map((person, index) => <Person key={person.id} person={person} left={46 + (index % 3) * 60} top={78 + Math.floor(index / 3) * 104} onPick={pickPerson} />)
-                : <Upright left={106} top={120}><span className={styles.tag}>{stats.meetingsToday} lịch hôm nay</span></Upright>}
-            </>)}
-            {room("ai", <>
-              <div className={cx(styles.desk, stats.aiActive ? styles.deskOn : null)} style={{ left: 91, top: 126 }} />
-              <Upright left={108} top={120}>
-                {stats.aiActive ? <span className={styles.bubble}>Đang tư vấn {stats.aiActive} UV</span> : null}
-                <span className={cx(styles.mapAv, styles.rGreen)} style={{ background: "linear-gradient(135deg,#6EE7B7,#22D3EE)" }}>AI</span>
-                <span className={styles.tag}>AI Recruiter</span>
-              </Upright>
-            </>)}
-            {room("cv", <Upright left={89} top={100}><span className={styles.tag}>CV mới hôm nay <b className={cx(styles.mono, styles.cyanText)}>{n(stats.cvToday)}</b></span></Upright>)}
+            {plan.level === 0 ? <>
+              {room("soda", north("soda"), <>
+                <div className={cx(styles.desk, styles.deskOn)} style={{ left: centre(north("soda")).left - 17, top: centre(north("soda")).top }} />
+                <Upright {...centre(north("soda"))}><span className={styles.mapAv} style={{ background: "linear-gradient(135deg,#67E8F9,#818CF8)" }}>{BOT_ICON}</span><span className={styles.tag}>Soda · Trợ lý</span></Upright>
+              </>)}
+              {room("inbox", north("inbox"), <>
+                {stats.waiting ? <><span className={styles.mapRing} /><span className={cx(styles.mapDot, styles.mf1)} /><span className={cx(styles.mapDot, styles.mf2)} /><span className={cx(styles.mapDot, styles.mf3)} /></> : null}
+                <Upright {...centre(north("inbox"))}>
+                  <span className={cx(styles.tag, styles.tagRed)}>Chưa trả lời <b className={styles.mono}>{n(stats.waiting)}</b></span>
+                  {stats.tagged ? <span className={styles.tag}>{n(stats.tagged)} nhóm tag mình</span> : null}
+                </Upright>
+              </>)}
+              {room("tower", north("tower"), <>
+                {stats.running ? <span className={cx(styles.mapRing, styles.mapRingViolet)} /> : null}
+                <Upright {...centre(north("tower"))}>
+                  <span className={styles.tag}>Zalo Mkt · <b className={styles.mono}>{n(stats.sent)}</b> tin · <b className={styles.mono}>{n(stats.replies)}</b> phản hồi</span>
+                  <span className={styles.tag}>{n(stats.running)} đang chạy</span>
+                </Upright>
+              </>)}
+              {room("cv", north("cv"), <Upright {...centre(north("cv"))}><span className={styles.tag}>CV mới hôm nay <b className={cx(styles.mono, styles.cyanText)}>{n(stats.cvToday)}</b></span></Upright>)}
+            </> : <div className={styles.liftLobby} style={boxOf({ x0: -600, z0: -440, x1: 245, z1: -260 })}><span>Sảnh {plan.name.split(" · ")[0].toLowerCase()}</span></div>}
+            {plan.rooms.map((item) => {
+              const box = boxOf(item);
+              if (item.kind === "meeting") return room(item.key, box, <>
+                <div className={styles.table} style={{ left: box.width / 2 - 50, top: box.height / 2 - 18 }} />
+                {meeting.length
+                  ? meeting.slice(0, 6).map((person, index) => <Person key={person.id} person={person} left={box.width / 2 - 70 + (index % 3) * 70} top={box.height / 2 - 30 + Math.floor(index / 3) * 92} onPick={pickPerson} />)
+                  : <Upright {...centre(box)}><span className={styles.tag}>{stats.meetingsToday} lịch hôm nay</span></Upright>}
+              </>);
+              if (item.kind === "ai") return room(item.key, box, <>
+                <div className={cx(styles.desk, stats.aiActive ? styles.deskOn : null)} style={{ left: box.width / 2 - 17, top: box.height * 0.45 }} />
+                <Upright {...centre(box)}>
+                  {stats.aiActive ? <span className={styles.bubble}>Đang tư vấn {stats.aiActive} UV</span> : null}
+                  <span className={cx(styles.mapAv, styles.rGreen)} style={{ background: "linear-gradient(135deg,#6EE7B7,#22D3EE)" }}>AI</span>
+                  <span className={styles.tag}>AI Recruiter</span>
+                </Upright>
+              </>);
+              return room(item.key, box, <Seats room={item} team={people} onPick={pickPerson} />, true);
+            })}
           </div>
         </div>
       </div>

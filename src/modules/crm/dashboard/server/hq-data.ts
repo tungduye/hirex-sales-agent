@@ -7,6 +7,7 @@ import { listOccurrences } from "@/modules/calendar/server/calendar-data";
 import { listChannelCampaigns } from "@/modules/channels/server/get-channel-campaign-data";
 import { getAccountContext } from "@/modules/identity/server/get-account-context";
 import { teamOf } from "@/modules/inbox/core/inbox-scope";
+import { roomOfDepartment } from "@/modules/crm/dashboard/core/hq-layout";
 
 // HireX HQ (màn Tổng quan): the live numbers of the company in one place, counted the same way as each screen:
 //   Chưa trả lời  = Suối Nguồn's "Chưa trả lời" tab over every nick the member may see (scope "Tất cả", Soda's nick
@@ -16,11 +17,13 @@ import { teamOf } from "@/modules/inbox/core/inbox-scope";
 //   Lịch hẹn      = Lịch hẹn with "Công ty" (or "Team") scope.
 // Every part follows the member's rights; the team list shows everyone only to admins / people who may view roles.
 
-export type HqFloor = "ALL" | "REC" | "SALE";
+/** "ALL" or the room of one bộ phận ("rec", "sale", "am", "boss", "common", …): ?tang= on the page. */
+export type HqFloor = string;
 export interface HqKpi { key: string; room: string; label: string; value: number | null; note: string; href: string; tone: "alert" | "info" | "meet" | "plain" }
 export interface HqRoom { key: string; name: string; meta: string; href: string; tone: "cyan" | "red" | "violet" | "green" }
 export interface HqFeedItem { kind: string; tone: "info" | "alert" | "meet" | "plain"; text: string; at: string; href: string | null }
-export interface HqMember { id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null; seat: "REC" | "SALE" | "MEET" | null }
+/** market = the Thị trường most of their nicks belong to; isNew = joined in the last 7 days; meeting = a calendar event is running. */
+export interface HqMember { id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null; meeting: boolean; market: string | null; isNew: boolean }
 /** The numbers drawn on the office map (null = the member may not see that part). */
 export interface HqStats { waiting: number | null; tagged: number | null; sent: number | null; replies: number | null; running: number | null; aiActive: number | null; cvToday: number | null; meetingsToday: number }
 /** What a room shows when it is picked on the map (a summary of its screen). */
@@ -42,11 +45,10 @@ type Row = Record<string, unknown>;
 const VN_OFFSET = 7 * 3_600_000;
 const NO_ID = "00000000-0000-0000-0000-000000000000";
 const startOfVnDay = (now: number) => new Date(Math.floor((now + VN_OFFSET) / 86_400_000) * 86_400_000 - VN_OFFSET);
-const fold = (value: string | null | undefined) => (value ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
 const initials = (name: string) => { const words = name.split(/\s+/u).filter(Boolean); return (words.length > 1 ? words.slice(-2) : words).map((word) => Array.from(word)[0] ?? "").join("").toUpperCase() || "?"; };
 const time = (iso: string | number) => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(iso));
 const dayTime = (iso: string) => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(iso));
-const floorMatches = (floor: HqFloor, department: string | null | undefined) => floor === "ALL" || (floor === "REC" ? /\brec\b/u.test(fold(department)) : /\bsale\b/u.test(fold(department)));
+const floorMatches = (floor: HqFloor, department: string | null | undefined) => floor === "ALL" || roomOfDepartment(department) === floor;
 const KIND_LABEL: Record<string, string> = { HOP: "Họp", PHONG_VAN: "Phỏng vấn", GAP_KHACH: "Gặp khách", CA_NHAN: "Cá nhân", KHAC: "Khác" };
 const n = (value: number) => value.toLocaleString("vi-VN");
 
@@ -54,16 +56,29 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   const account = await getAccountContext();
   if (!account?.workspaceId) return null;
   const workspaceId = account.workspaceId;
-  const floor: HqFloor = floorParam === "rec" ? "REC" : floorParam === "sale" ? "SALE" : "ALL";
   const can = (key: string) => account.permissions.includes(key);
   const db = createPrivilegedClient();
   const supabase = await createClient();
   const now = Date.now(), dayStart = startOfVnDay(now);
-  const [isAdmin, accessible, { data: profileRows }] = await Promise.all([
+  const [isAdmin, accessible, { data: profileRows }, { data: nickRows }] = await Promise.all([
     isWorkspaceAdmin(), getAccessibleChannelAccountIds(),
-    db.from("profiles").select("id,full_name,department,manager_id,avatar_url").eq("workspace_id", workspaceId),
+    db.from("profiles").select("id,full_name,department,manager_id,avatar_url,created_at").eq("workspace_id", workspaceId),
+    db.from("channel_accounts").select("primary_profile_id,market").eq("workspace_id", workspaceId).is("deleted_at", null).not("primary_profile_id", "is", null),
   ]);
-  const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null, avatarUrl: typeof row.avatar_url === "string" && row.avatar_url.startsWith("https://") ? row.avatar_url : null }));
+  const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null, avatarUrl: typeof row.avatar_url === "string" && row.avatar_url.startsWith("https://") ? row.avatar_url : null,
+    isNew: typeof row.created_at === "string" && now - Date.parse(row.created_at) < 7 * 86_400_000 }));
+  // Thị trường of a member = the market most of their nicks are in (their desk sits in that part of the room).
+  const marketVotes = new Map<string, Map<string, number>>();
+  for (const row of (nickRows ?? []) as Row[]) {
+    if (typeof row.primary_profile_id !== "string") continue;
+    const votes = marketVotes.get(row.primary_profile_id) ?? new Map<string, number>();
+    const market = typeof row.market === "string" ? row.market : "OTHER";
+    votes.set(market, (votes.get(market) ?? 0) + 1);
+    marketVotes.set(row.primary_profile_id, votes);
+  }
+  const marketOf = (id: string) => { const votes = [...(marketVotes.get(id) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); return votes[0] && votes[0][0] !== "OTHER" ? votes[0][0] : null; };
+  // ?tang=<phòng>: one bộ phận's room (rec, sale, am, …); anything unknown shows the whole company.
+  const floor: HqFloor = floorParam && profiles.some((person) => roomOfDepartment(person.department) === floorParam) ? floorParam : "ALL";
   const departmentOf = new Map(profiles.map((person) => [person.id, person.department]));
   const seesAll = isAdmin || can("roles.view");
   const visiblePeople = seesAll ? new Set(profiles.map((person) => person.id)) : teamOf(account.userId, profiles.map((person) => ({ id: person.id, managerId: person.managerId })));
@@ -220,19 +235,19 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
 
   const [inboxData, calendarData, cvData, campaignData, broadcastData, aiData, sodaData, typingNow, feedItems] = await Promise.all([inbox, calendar, cvs, campaigns, broadcasts, aiRecruiter, soda, typing, feed]);
 
+  // Everyone the member may see is in the office (the plan is made from them); ?tang= only highlights one room.
   const team: HqMember[] = profiles
-    .filter((person) => visiblePeople.has(person.id) && floorMatches(floor, person.department))
+    .filter((person) => visiblePeople.has(person.id))
     .map((person) => {
       const waiting = inboxData?.byOwner.get(person.id) ?? 0;
       const meeting = calendarData.inMeeting.get(person.id);
       const replying = typingNow.has(person.id);
       const status = meeting ? { status: "Đang họp", tone: "meet" as const } : waiting >= 100 ? { status: "Cần xem", tone: "alert" as const } : replying ? { status: "Đang nhắn", tone: "busy" as const } : { status: "—", tone: "idle" as const };
       const doing = [meeting ? `Họp: ${meeting}` : replying ? "Đang trả lời tin" : null, inboxData ? `${n(waiting)} chưa trả lời` : null].filter(Boolean).join(" · ") || "Chưa có hoạt động";
-      const seat = meeting ? "MEET" as const : /\brec\b/u.test(fold(person.department)) ? "REC" as const : /\bsale\b/u.test(fold(person.department)) ? "SALE" as const : null;
-      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, seat, ...status };
+      return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, meeting: Boolean(meeting), market: marketOf(person.id), isNew: person.isNew, ...status };
     })
     .sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "vi"))
-    .slice(0, 40);
+    .slice(0, 400);
 
   const running = campaignData || broadcastData ? (campaignData?.running ?? 0) + (broadcastData?.running ?? 0) : null;
   const calendarHref = `/calendar?pham_vi=${seesAll ? "ALL" : "TEAM"}`;
@@ -242,13 +257,10 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     { key: "meet", room: "meeting", label: "Lịch hẹn hôm nay", value: calendarData.today, note: `${calendarData.interviews} phỏng vấn · ${calendarData.scope}`, href: calendarHref, tone: "meet" },
     { key: "replies", room: "tower", label: "Phản hồi chiến dịch Zalo", value: campaignData?.replies ?? null, note: campaignData ? `+${n(campaignData.repliesToday)} hôm nay · ${n(campaignData.sent)} tin gửi` : "Cần quyền Chiến dịch", href: "/campaigns/omnichannel", tone: "plain" },
   ];
-  const peopleIn = (pattern: RegExp) => profiles.filter((person) => visiblePeople.has(person.id) && pattern.test(fold(person.department))).length;
   const rooms: HqRoom[] = [
     { key: "soda", name: "Lễ tân · Soda", meta: sodaData.pending ? `${sodaData.pending} chờ xác nhận` : "Trợ lý HireX", href: "/assistant", tone: "cyan" },
     { key: "inbox", name: "Trạm tin nhắn", meta: inboxData ? `${n(inboxData.waiting)} chờ` : "—", href: "/inbox/all?view=waiting", tone: "red" },
     { key: "tower", name: "Tháp phát sóng · Zalo Mkt", meta: running === null ? "—" : `${running} đang chạy`, href: "/campaigns/omnichannel", tone: "violet" },
-    { key: "rec", name: "Phòng Rec", meta: `${peopleIn(/\brec\b/u)} người`, href: "/?tang=rec", tone: "cyan" },
-    { key: "sale", name: "Phòng Sale", meta: `${peopleIn(/\bsale\b/u)} người`, href: "/?tang=sale", tone: "violet" },
     { key: "meeting", name: "Phòng họp", meta: `${calendarData.today} lịch hôm nay`, href: calendarHref, tone: "violet" },
     { key: "ai", name: "Bàn AI Recruiter", meta: aiData === null ? "—" : `${aiData.active} UV đang tư vấn`, href: "/settings/ai-recruiter", tone: "green" },
     { key: "cv", name: "Kho CV", meta: cvData === null ? "—" : `${cvData.today} mới hôm nay`, href: "/cvs", tone: "cyan" },
