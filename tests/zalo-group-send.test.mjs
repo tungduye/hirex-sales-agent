@@ -54,8 +54,10 @@ test('the inbox lists a shared group once and lets the member pick the sending n
   assert.match(loader, /mergeGroupCopies\(conversations, lastOutboundAt, ambiguous\)/);
   assert.match(detail, /rpc\("is_zalo_group_conversation"/);
   assert.match(detail, /await canAccessChannelAccount\(accountId\)/, 'only nicks the member may use');
-  assert.match(list, /conversation\.copyIds\.map\(send\)/, 'menu actions reach every copy');
-  assert.match(list, /post\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'menu actions use the preferences route');
+  const bar = readFileSync(new URL('../src/modules/inbox/components/inbox-bulk-bar.tsx', import.meta.url), 'utf8');
+  assert.match(list, /rows=\{filterPick \? \[\] : pickedRows\}/, 'the bar acts on the picked rows');
+  assert.match(bar, /row\.copyIds\.length \? row\.copyIds : \[row\.id\]/, 'bar actions reach every copy of a merged group');
+  assert.match(bar, /postJson\(`\/api\/inbox\/conversations\/\$\{id\}\/preferences`/, 'pin, important, notifications use the preferences route');
 });
 
 test('expired Facebook Page chats offer the chat in Meta Business Suite', () => {

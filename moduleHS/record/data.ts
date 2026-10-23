@@ -32,7 +32,7 @@ export const C = {
 function ffmpegPath() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   const la = process.env.LOCALAPPDATA || "";
-  for (const p of [la && path.join(la, "Microsoft", "WinGet", "Links", "ffmpeg.exe"), "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe", path.join(process.cwd(), "runtime", "ffmpeg", "ffmpeg.exe")]) if (p && fs.existsSync(p)) return p;
+  for (const p of [la && path.join(la, "Microsoft", "WinGet", "Links", "ffmpeg.exe"), "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe", path.join(process.cwd(), "runtime", "ffmpeg", "ffmpeg.exe")]) if (p && fs.existsSync(/*turbopackIgnore: true*/ p)) return p;   // đường dẫn lúc chạy: không cho Turbopack quét cả dự án
   return "ffmpeg";
 }
 const M = path.join(C.data, "m"), CF = path.join(C.data, "cfg");

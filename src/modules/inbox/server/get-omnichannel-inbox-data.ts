@@ -47,7 +47,7 @@ const loadStableInboxMetadata = unstable_cache(async (workspaceId: string) => {
   const client = createPrivilegedClient();
   const [{ data: profiles }, { data: tags }, { data: access }, { data: bot }] = await Promise.all([
     client.from("profiles").select("id,full_name,all_channel_accounts,manager_id").eq("workspace_id", workspaceId).order("full_name"),
-    client.from("conversation_tags").select("id,name,color").eq("workspace_id", workspaceId).order("name"),
+    client.from("conversation_tags").select("id,name,color").eq("workspace_id", workspaceId).order("sort_order", { nullsFirst: false }).order("name"),
     client.from("profile_channel_account_access").select("profile_id,channel_account_id").eq("workspace_id", workspaceId),
     client.from("assistant_bot_settings").select("channel_account_id,enabled").eq("workspace_id", workspaceId).maybeSingle(),
   ]);
@@ -251,7 +251,7 @@ function parseCursor(value: string | null | undefined): { at: string; id: string
   return match[1] === "-infinity" || Number.isFinite(Date.parse(match[1].replace(" ", "T"))) ? { at: match[1], id: match[2] } : null;
 }
 
-export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; cursor?: string; mode?: "list" | "counts" | "ids" | "unread" }): Promise<OmnichannelInboxData> {
+export async function getOmnichannelInboxData(filters: { scope?: string | null; channelType?: string | string[]; accountId?: string | string[]; ownerIds?: string[]; page?: string; tagIds?: string[]; tagMatchMode?: string; firstMessageFrom?: string; firstMessageTo?: string; view?: string; search?: string; unread?: boolean; cursor?: string; mode?: "list" | "counts" | "ids" | "unread" }): Promise<OmnichannelInboxData> {
   // Several channels may be picked at once: ?channel=ZALO,EMAIL (repeated ?channel= works too).
   const selectedChannelTypes = [...new Set((Array.isArray(filters.channelType) ? filters.channelType : [filters.channelType ?? ""]).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value): value is ChannelType => CHANNEL_TYPES.includes(value as ChannelType)))];
   const selectedChannelType = selectedChannelTypes.length === 1 ? selectedChannelTypes[0] : null;
@@ -265,6 +265,8 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const firstMessageTo = validDate(filters.firstMessageTo) ? filters.firstMessageTo! : null;
   const view = inboxView(filters.view);
   const search = (filters.search ?? "").replace(/\s+/gu, " ").trim().slice(0, 100);
+  // Phân loại → Chưa đọc: only conversations with unread messages.
+  const unreadOnly = filters.unread === true;
   const cursor = parseCursor(filters.cursor);
   const timing: Array<[string, number]> = [];
   let mark = performance.now();
@@ -337,7 +339,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     const { data: idData, error: idError } = listAccountIds.length ? await supabase.rpc("inbox_matching_conversation_ids", {
       p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
       p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
-      p_view: view, p_search: search || null, p_user_id: accountContext.userId, p_max: 5000,
+      p_view: view, p_search: search || null, p_user_id: accountContext.userId, p_max: 5000, p_unread_only: unreadOnly,
     }) : { data: [], error: null };
     if (idError) return emptyData({ selectedChannelType, selectedPage, error: "Chưa lấy được danh sách hội thoại theo bộ lọc." });
     const matchingIds = ((idData ?? []) as unknown[]).filter((id): id is string => typeof id === "string");
@@ -348,7 +350,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     const { data: countData, error: countError } = listAccountIds.length ? await supabase.rpc("inbox_view_counts", {
       p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
       p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
-      p_search: search || null, p_user_id: accountContext.userId,
+      p_search: search || null, p_user_id: accountContext.userId, p_unread_only: unreadOnly,
     }) : { data: [], error: null };
     if (countError) return emptyData({ selectedChannelType, selectedPage, error: "Chưa đếm được hội thoại." });
     const viewCounts: Record<string, number> = { all: 0, waiting: 0, mine: 0, groups: 0, other: 0, important: 0 };
@@ -363,7 +365,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
     p_account_ids: listAccountIds, p_channel_types: selectedChannelTypes.length ? selectedChannelTypes : null,
     p_tag_ids: selectedTagIds.length ? selectedTagIds : null, p_tag_mode: tagMatchMode, p_first_from: firstMessageFrom, p_first_to: firstMessageTo,
     p_view: view, p_search: search || null, p_user_id: accountContext.userId, p_limit: PAGE_SIZE + 1,
-    p_before_at: cursor?.at ?? null, p_before_id: cursor?.id ?? null,
+    p_before_at: cursor?.at ?? null, p_before_id: cursor?.id ?? null, p_unread_only: unreadOnly,
   }) : { data: [], error: null };
   if (listError) return emptyData({ accounts, selectedChannelType, selectedAccountId, selectedPage, profiles, tags, error: "Chưa tải được danh sách hội thoại. Vui lòng thử lại." });
   const listMs = Math.round(performance.now() - listStartedAt);
@@ -470,7 +472,7 @@ export async function getOmnichannelInboxData(filters: { scope?: string | null; 
   const merged = mergeGroupCopies(conversations, lastOutboundAt, ambiguous);
   step("merge");
   const pickerAccounts = accounts.filter((account) => scopedIds.has(account.id)).map((account) => ({ ...account, primaryName: account.primaryProfileId ? nameOfProfile.get(account.primaryProfileId) ?? null : null }));
-  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), canDelete: await isWorkspaceAdmin(), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
+  return { workspaceId: accountContext.workspaceId, currentUserId: accountContext.userId, accounts: pickerAccounts, selectedAccountIds, scope, scopeCounts, conversations: merged, profiles, owners, tags, selectedChannelType, selectedChannelTypes, channelParam, selectedAccountId, selectedOwnerIds, selectedTagIds, tagMatchMode, firstMessageFrom, firstMessageTo, view, search, unreadOnly, nextCursor, listMs, timing, canUpdate: accountContext.permissions.includes("inbox.update"), canDelete: await isWorkspaceAdmin(), selectedPage, hasPreviousPage: selectedPage > 1, hasNextPage, error: null };
 }
 
 function isUuid(value: string): boolean {

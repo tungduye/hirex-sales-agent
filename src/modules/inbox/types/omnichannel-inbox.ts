@@ -91,6 +91,8 @@ export interface OmnichannelInboxData {
   selectedOwnerIds: string[];
   selectedTagIds: string[];
   tagMatchMode: "all" | "any";
+  /** Phân loại → Chưa đọc. */
+  unreadOnly?: boolean;
   firstMessageFrom: string | null;
   firstMessageTo: string | null;
   /** Quick tab (Tất cả, Chưa trả lời, Giao cho tôi, Nhóm, Khác) and search, both applied in the database. */

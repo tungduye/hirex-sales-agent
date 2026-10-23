@@ -9,12 +9,12 @@ export const fold = (s: unknown) => fold0(s).trim();
 export const MAXN = 5000;
 
 export interface AccRow { id: Id; tab_id: Id; dept_id: Id; owner_id: Id | null; status_id: Id | null; device_id: Id | null; note: string; data: Record<string, unknown>; created: number | null; updated: number | null }
-export interface QTab { id: Id; name: string; icon: string }
+export interface QTab { id: Id; name: string; icon: string; grp?: string }
 export interface QField { id: Id; tab_id: Id; label: string; type: string; opts: string; link_tab: Id | null; pos: number }
 export interface QStatus { id: Id; tab_id: Id; label: string; color: string }
 export interface QOwner { id: Id; dept_id: Id; parent_id: Id | null; name: string }
 export interface QDept { id: Id; name: string }
-export interface QMeta { tabs: QTab[]; fields: QField[]; sts: QStatus[]; owners: QOwner[]; depts: QDept[]; devices?: Array<{ id: Id; name: string }> }
+export interface QMeta { tabs: QTab[]; fields: QField[]; sts: QStatus[]; owners: QOwner[]; depts: QDept[]; devices?: Array<{ id: Id; name: string }>; pk?: Record<string, Id> }
 
 export const VIRTK = ["status", "owner", "device", "note", "inlinks", "created", "updated"] as const;
 export type VirtKey = (typeof VIRTK)[number];
@@ -24,7 +24,7 @@ export type Ref = Id | string;
 export type Where = Record<string, unknown>;
 export interface SortSpec { field?: Ref | null; dir?: "asc" | "desc"; by?: "tabs" | "count" }
 export interface Spec {
-  tab?: Id | "all" | null; dept?: Id | null; owner?: Id | Id[] | null; sub?: boolean; status?: string[]; q?: string; ids?: Id[]; limit?: number;
+  tab?: Id | "all" | null; grp?: string; dept?: Id | null; owner?: Id | Id[] | null; sub?: boolean; status?: string[]; q?: string; ids?: Id[]; limit?: number;
   sort?: SortSpec | SortSpec[]; where?: Where[]; dup?: { field: Ref; min?: number }; group?: { by: Ref; top?: number; min?: number; order?: "asc" | "desc"; unit?: "day" | "week" | "month" | "year" }; agg?: { fn: string; field: Ref };
   [k: string]: unknown;
 }
@@ -51,6 +51,7 @@ export function mkCx(m: QMeta): Cx {
   for (const d of m.depts) cx.D.set(d.id, d.name);
   for (const d of m.devices ?? []) cx.dev.set(d.id, d.name);
   for (const f of m.fields) { const c = cx.first.get(f.tab_id); if (!c || f.pos < c.pos || (f.pos === c.pos && f.id < c.id)) cx.first.set(f.tab_id, f); }
+  for (const [t, fid] of Object.entries(m.pk ?? {})) { const f = cx.F.get(fid); if (f && f.tab_id === Number(t)) cx.first.set(f.tab_id, f); }   // khóa chính (Cài đặt › Trường) là tên dòng, như trên bảng
   return cx;
 }
 /** nạp liên kết vào cx (src→{fid:[dst]} · dst→{src}) */

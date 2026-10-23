@@ -444,12 +444,12 @@ export function mergeHint(pl: Plan, add: HintAdd, B: Brain, ctx: Ctx = {}, text 
     for (const [k, v] of Object.entries(sp)) base[k] = k !== "where" ? v : [...(base.where ?? []), ...(v as Where[])];
     sp = pl.spec = base;
   }
-  if (add._tab !== undefined && add._tab !== null && (sp.tab === undefined || sp.tab === null)) sp.tab = add._tab;
+  if (add._tab !== undefined && add._tab !== null && (sp.tab === undefined || sp.tab === null) && !sp.grp) sp.tab = add._tab;   // đã nêu nhóm tab ("tài khoản …") → không đoán 1 tab
   if (add._tabf !== undefined && !pl.ctx) sp.tab = add._tabf;
   const refs: O[] = [...(add.where ?? []).flatMap((w) => [...leaves(w)]), ...[add.sort, add.agg].filter((x): x is O => !!x)];
   if (add.group) refs.push(add.group);
   const key = (x: O) => ("by" in x ? "by" : "field");
-  if (sp.tab === undefined || sp.tab === null) { // không nêu tab: suy ra từ các trường vừa dùng
+  if ((sp.tab === undefined || sp.tab === null) && !sp.grp) { // không nêu tab: suy ra từ các trường vừa dùng
     let ts: Set<Id> | null = null;
     for (const x of refs) {
       const f = x[key(x)]; let t: Set<Id>;
@@ -462,6 +462,7 @@ export function mergeHint(pl: Plan, add: HintAdd, B: Brain, ctx: Ctx = {}, text 
   }
   if (typeof sp.tab === "number") for (const x of refs) { const f = x[key(x)]; if (typeof f === "string" && !isVirt(f) && !GBYV.has(f)) { const k = B.fields.find((y) => y.tab_id === sp.tab && fold(y.label) === fold(f)); if (k) x[key(x)] = k.id; } }
   if (add.where) sp.where = [...(sp.where ?? []), ...add.where];
+  if (sp.grp && typeof sp.tab !== "number") for (const w of sp.where ?? []) for (const x of leaves(w)) if (typeof x.field === "number" && B.F.has(x.field)) x.field = B.F.get(x.field)!.label;   // nhóm tab: trường theo TÊN (mọi tab có trường đó)
   if (add.q) sp.q = (str(sp.q) + " " + add.q).trim();
   for (const k of ["sort", "group", "agg", "limit"]) if (tru(add[k]) && !tru(sp[k])) sp[k] = add[k];
   if (add._money && typeof sp.tab === "number" && B.T.has(sp.tab) && !tru(sp.sort)) { const f = money(B, sp.tab); if (f) sp.sort = { field: f.id, dir: add._money === "asc" ? "asc" : "desc" }; }

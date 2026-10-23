@@ -1,6 +1,6 @@
 import "server-only";
 
-/** Suối Nguồn filters as they travel in the URL (?channel=&account=&owner=&tag=&tagMode=&firstFrom=&firstTo=&view=&q=&cursor=). */
+/** Suối Nguồn filters as they travel in the URL (?channel=&account=&owner=&tag=&tagMode=&firstFrom=&firstTo=&view=&q=&unread=1&cursor=). */
 export function inboxFiltersFrom(query: URLSearchParams) {
   return {
     channelType: query.getAll("channel"),
@@ -13,6 +13,7 @@ export function inboxFiltersFrom(query: URLSearchParams) {
     firstMessageTo: query.get("firstTo") ?? undefined,
     view: query.get("view") ?? undefined,
     search: query.get("q") ?? undefined,
+    unread: query.get("unread") === "1",
     cursor: query.get("cursor") ?? undefined,
   };
 }

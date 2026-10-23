@@ -399,7 +399,9 @@
     ".next-tong-quan-sua-cv/types/**/*.ts",
     ".next-tong-quan-sua-cv/dev/types/**/*.ts",
     ".next-hole-nhu-tro-ly/types/**/*.ts",
-    ".next-hole-nhu-tro-ly/dev/types/**/*.ts"
+    ".next-hole-nhu-tro-ly/dev/types/**/*.ts",
+    ".next-ai-recruiter-kich-ban-rec/types/**/*.ts",
+    ".next-ai-recruiter-kich-ban-rec/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

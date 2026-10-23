@@ -1,15 +1,13 @@
 "use client";
 
 import { Check, Search, SlidersHorizontal, X } from "lucide-react";
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { createConversationTag } from "@/modules/channels/server/channel-actions";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { InboxAccountFilter } from "./inbox-account-filter";
 import type { OmnichannelInboxAccount, OmnichannelInboxTag } from "../types/omnichannel-inbox";
 
-const initialTagState = { status: "idle" as const, message: null };
 
 /**
- * One compact filter panel for the narrow conversation column: account, tags and owners in a single
+ * One compact filter panel for the narrow conversation column: account and owners in a single
  * form with one "Áp dụng" button. Channel chips and quick tabs stay outside the panel.
  */
 export function InboxFilterPanel(props: {
@@ -27,14 +25,14 @@ export function InboxFilterPanel(props: {
   selectedOwnerIds: string[];
   firstMessageFrom: string | null;
   firstMessageTo: string | null;
+  unreadOnly?: boolean;
   clearHref: string;
 }) {
   const [open, setOpen] = useState(false);
   const [ownerQuery, setOwnerQuery] = useState("");
-  const [creatingTag, setCreatingTag] = useState(false);
-  const [tagState, createTag, tagPending] = useActionState(createConversationTag, initialTagState);
   const rootRef = useRef<HTMLDivElement>(null);
-  const active = (props.selectedAccountIds.length ? 1 : 0) + props.selectedTagIds.length + props.selectedOwnerIds.length + (props.firstMessageFrom || props.firstMessageTo ? 1 : 0);
+  // Tags and Chưa đọc are counted on the Phân loại button.
+  const active = (props.selectedAccountIds.length ? 1 : 0) + props.selectedOwnerIds.length + (props.firstMessageFrom || props.firstMessageTo ? 1 : 0);
 
   // Close on Escape or a click outside the panel.
   useEffect(() => {
@@ -49,12 +47,11 @@ export function InboxFilterPanel(props: {
   const needle = fold(ownerQuery);
   const owners = useMemo(() => needle ? props.owners.filter((profile) => fold(profile.fullName).includes(needle)) : props.owners, [needle, props.owners]);
   const selectedOwners = new Set(props.selectedOwnerIds);
-  const selectedTags = new Set(props.selectedTagIds);
   // Owners already picked stay on top so they are easy to untick.
   const sortedOwners = [...owners].sort((a, b) => Number(selectedOwners.has(b.id)) - Number(selectedOwners.has(a.id)));
 
   return <div ref={rootRef} className="shrink-0">
-    <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label="Bộ lọc: tài khoản, nhãn, người phụ trách" title="Bộ lọc: tài khoản, nhãn, người phụ trách" className={`relative flex size-9 items-center justify-center rounded-lg border ${active || open ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+    <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label="Bộ lọc: tài khoản, người phụ trách" title="Bộ lọc: tài khoản, người phụ trách" className={`relative flex size-9 items-center justify-center rounded-lg border ${active || open ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
       <SlidersHorizontal className="size-4"/>{active ? <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{active}</span> : null}
     </button>
     {open ? <div className="absolute inset-x-2 top-[52px] z-40 flex max-h-[calc(100dvh-14rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
@@ -65,17 +62,12 @@ export function InboxFilterPanel(props: {
         {props.firstMessageTo ? <input type="hidden" name="firstTo" value={props.firstMessageTo}/> : null}
         {props.view && props.view !== "all" ? <input type="hidden" name="view" value={props.view}/> : null}
         {props.search ? <input type="hidden" name="q" value={props.search}/> : null}
+        {/* Tags and Chưa đọc are set in Phân loại; applying this panel keeps them. */}
+        {props.selectedTagIds.map((id) => <input key={id} type="hidden" name="tag" value={id}/>)}
+        {props.selectedTagIds.length ? <input type="hidden" name="tagMode" value={props.tagMatchMode}/> : null}
+        {props.unreadOnly ? <input type="hidden" name="unread" value="1"/> : null}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
           <InboxAccountFilter accounts={props.accounts} selected={props.selectedAccountIds} currentUserId={props.currentUserId}/>
-
-          <section>
-            <div className="mb-1 flex items-center justify-between"><p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Nhãn<a href="/inbox/tags" className="font-semibold normal-case tracking-normal text-blue-700 hover:underline">Nhóm thẻ</a></p>{props.tags.length > 1 ? <select name="tagMode" defaultValue={props.tagMatchMode} aria-label="Cách khớp nhãn" className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-600"><option value="any">Có một trong các nhãn</option><option value="all">Có đủ các nhãn</option></select> : null}</div>
-            {props.tags.length ? <div className="flex flex-wrap gap-1.5">{props.tags.map((tag) => <label key={tag.id} className="cursor-pointer">
-              <input type="checkbox" name="tag" value={tag.id} defaultChecked={selectedTags.has(tag.id)} className="peer sr-only"/>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-800 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-300"><span className="size-2 rounded-full" style={{ background: tag.color ?? "#94a3b8" }}/>{tag.name}</span>
-            </label>)}</div> : <p className="text-xs text-slate-500">Chưa có nhãn nào.</p>}
-            {creatingTag ? null : <button type="button" onClick={() => setCreatingTag(true)} className="mt-1.5 text-xs font-semibold text-blue-700 hover:underline">+ Tạo nhãn mới</button>}
-          </section>
 
           <section>
             <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500" title="Người dùng chính của nick">Người phụ trách (chủ nick)</p>
@@ -96,11 +88,6 @@ export function InboxFilterPanel(props: {
           <button className="h-8 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-700">Áp dụng</button>
         </div>
       </form>
-      {creatingTag ? <form action={createTag} className="shrink-0 space-y-1.5 border-t border-slate-100 bg-slate-50 px-3 py-2.5">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Tạo nhãn mới</p>
-        <div className="flex gap-1.5"><input name="name" required maxLength={80} placeholder="Ví dụ: Khách tiềm năng" className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-400"/><input name="color" type="color" defaultValue="#2563eb" aria-label="Màu nhãn" className="h-8 w-9 cursor-pointer rounded-lg border border-slate-200 bg-white p-0.5"/><button disabled={tagPending} className="rounded-lg bg-slate-900 px-2.5 text-xs font-semibold text-white disabled:opacity-50">{tagPending ? "…" : "Tạo"}</button><button type="button" onClick={() => setCreatingTag(false)} aria-label="Hủy tạo nhãn" className="rounded-lg px-1.5 text-slate-400 hover:text-slate-700"><X className="size-4"/></button></div>
-        {tagState.message ? <p aria-live="polite" className={`text-xs ${tagState.status === "error" ? "text-rose-600" : "text-emerald-600"}`}>{tagState.status === "success" ? "Đã tạo nhãn. Mở lại bộ lọc để thấy nhãn mới." : tagState.message}</p> : null}
-      </form> : null}
     </div> : null}
   </div>;
 }

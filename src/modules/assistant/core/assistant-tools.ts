@@ -3,6 +3,7 @@
 // definitions, argument validation and permission filtering are unit-tested.
 import { z } from "zod";
 import { PAGE_KEYS } from "./page-links.ts";
+import { ACCOUNTS_TOOLS } from "../../../../moduleHS/accountshs/soda-tool.ts";   // Tài nguyên (AccountsHS) — moduleHS
 
 type JsonSchema = Record<string, unknown>;
 
@@ -1159,6 +1160,7 @@ export const ASSISTANT_TOOLS: AssistantToolDefinition[] = [
   ...CAMPAIGN_INSIGHT_TOOLS(),
   ...ROUND_ONE_TOOLS(),
   ...CV_TOOLS(),
+  ...ACCOUNTS_TOOLS(),
   ...DOCUMENT_SAVE_TOOLS(),
   ...GROUP_MEMBER_TOOLS(),
   ...PROPOSAL_TOOLS(),

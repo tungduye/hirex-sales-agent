@@ -169,7 +169,7 @@ const POST: Record<string, (c: Ctx) => unknown> = {
   live: async ({ f, files }) => {
     const m = need(f.session_id), a = files.audio; if (!a?.size) throw err("bad_request"); if (!C.key) throw err("no_ai_key", 501);
     const to = lang(f.lang), src = langs(f.src), seq = Math.max(0, +f.seq | 0), d = fp(m.slug, "live"); fs.mkdirSync(d, { recursive: true });
-    const ext = /ogg/.test(a.name) ? "ogg" : /mp4|m4a/.test(a.name) ? "mp4" : "webm", raw = path.join(d, `${seq}.${ext}`), mp3 = path.join(d, `${seq}.mp3`); await fsp.writeFile(raw, a.buf);
+    const ext = /ogg/.test(a.name) ? "ogg" : /mp4|m4a/.test(a.name) ? "mp4" : "webm", raw = path.join(/*turbopackIgnore: true*/ d, `${seq}.${ext}`), mp3 = path.join(/*turbopackIgnore: true*/ d, `${seq}.mp3`); await fsp.writeFile(raw, a.buf);
     const gl = glossary().items, prompt = String(f.prev || "").slice(-300);
     let t = "";
     try {

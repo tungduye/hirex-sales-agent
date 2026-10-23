@@ -9,6 +9,7 @@ import { BUCKET, snapshot } from "./backup";
 import * as Q from "./owl-query";
 import * as R from "./owl-rules";
 import * as H from "./owl-hint";
+import * as CRM from "./owl-crm";   // bộ CRM riêng (gỡ được — xem owl-crm.ts)
 import type { Id } from "../types";
 
 /* Cú vọ (trợ lý AI của AccountsHS) — port I/O của chatbot/AI_deepSearch.py (chat · xem trước/duyệt/áp dụng · phản hồi · tự học · sao lưu)
@@ -108,7 +109,7 @@ interface DS { ver: number; meta: Q.QMeta; accs: Q.AccRow[]; links: LinkRow[]; A
 let DSC: DS | null = null, DSP: Promise<DS> | null = null;
 async function loadMeta(): Promise<Q.QMeta> {
   const [m, devices] = await Promise.all([getMeta(), getDevices()]);
-  return { tabs: m.tabs.map((t) => ({ id: t.id, name: t.name, icon: t.icon })), fields: m.tabs.flatMap((t) => t.fields), sts: m.tabs.flatMap((t) => t.statuses), owners: m.owners, depts: m.depts, devices: devices.map((d) => ({ id: d.id, name: d.name })) };
+  return { tabs: m.tabs.map((t) => ({ id: t.id, name: t.name, icon: t.icon, grp: String((t as { grp?: unknown }).grp ?? "").trim() || undefined })), fields: m.tabs.flatMap((t) => t.fields), sts: m.tabs.flatMap((t) => t.statuses), owners: m.owners, depts: m.depts, devices: devices.map((d) => ({ id: d.id, name: d.name })), pk: Object.fromEntries(m.tabs.flatMap((t) => (t.fields[0] ? [[String(t.id), t.fields[0].id] as const] : []))) };
 }
 async function data(): Promise<DS> {
   const [ver, meta] = await Promise.all([dataVersion(), loadMeta()]), ms = JSON.stringify(meta);
@@ -134,6 +135,7 @@ async function brain(d: DS, ctx: R.Ctx = {}): Promise<R.Brain> { return new R.Br
 function query(d: DS, sp: Q.Spec, view = 12): Q.QueryResult {
   let rows = d.accs;
   if (sp.tab !== undefined && sp.tab !== null && sp.tab !== "all" && String(sp.tab) !== "") { const t = Number(sp.tab); rows = rows.filter((a) => a.tab_id === t); }
+  else if (sp.grp) { const g = Q.fold(sp.grp), ts = new Set(d.meta.tabs.filter((t) => Q.fold(t.grp ?? "") === g).map((t) => t.id)); if (ts.size) rows = rows.filter((a) => ts.has(a.tab_id)); }   // nhóm tab ("tài khoản" = mọi tab nhóm Tài khoản)
   if (sp.dept !== undefined && sp.dept !== null) { const dp = Number(sp.dept); rows = rows.filter((a) => a.dept_id === dp); }
   if (!(sp.owner === undefined || sp.owner === null || (Array.isArray(sp.owner) && !sp.owner.length))) {
     const ids = new Set<Id>(); for (const o of Q.asList(sp.owner)) { if (sp.sub !== false) Q.descendants(Number(o), d.meta.owners, ids); else ids.add(Number(o)); }
@@ -246,6 +248,7 @@ async function execute(d: DS, pl: R.Plan, B: R.Brain): Promise<O> {
       if (o2.count && (R.tru(sp.where) || R.tru(sp.status) || R.tru(sp.owner))) { pl.spec = pl2.spec; out = o2; out.ignored = [...((out.ignored as string[]) ?? []), q0]; out.msg = `${String(out.msg ?? "")} (bỏ qua chữ "${q0}")`; }
     } catch { /* giữ kết quả cũ */ }
   }
+  if (out.kind === "search" || out.kind === "count" || out.kind === "group") { const cn = CRM.note(pl.spec ?? {}, d.meta.fields, (s) => query(d, s, 0).count); if (cn) out.msg = String(out.msg ?? "") + cn; }
   const ids = [...((out.ids as Id[]) ?? []), ...(((out.preview as O | undefined)?.ids as Id[]) ?? [])];
   if (ids.length) out.tabs = tabsOf(d, ids);
   return out;
@@ -374,7 +377,7 @@ async function llmPlan(b: Body, c: Cfg, B: R.Brain, d: DS): Promise<R.Plan> {
   u += R.lessons(String(b.text), await trLoad());
   const hits = R.dataHits(B, String(b.text));
   u += (hits.length ? "[DỮ LIỆU]\n" + hits.join("\n") + "\n" : "") + "[CÂU]\n" + text;
-  const msgs: Msg[] = [{ role: "system", content: SYS + "\n" + R.profileText(B) }];
+  const msgs: Msg[] = [{ role: "system", content: SYS + "\n" + R.profileText(B) + CRM.glossary(B.fields) }];
   for (const h of (Array.isArray(b.hist) ? b.hist : []).slice(-4)) if (Q.isObj(h)) msgs.push({ role: "user", content: String(h.u ?? "").slice(0, 300) }, { role: "assistant", content: String(h.a ?? "").slice(0, 500) });
   msgs.push({ role: "user", content: u });
   const tries = 1 + Math.trunc(c.retries), delay = c.retry_delay, t0 = Date.now();
@@ -417,6 +420,7 @@ async function chat(b: Body): Promise<O> {
       return await execute(d, pl, B);
     }
     const text = String(b.text), mode = String(b.engine || (c.auto_ai ? "auto" : "rules")), ready = hasAi(c);
+    const crmx = CRM.explain(text, d.meta.fields); if (crmx) return { kind: "say", spec: {}, chips: [], msg: crmx };
     const [sig, slots] = R.signature(text, B), [lsig, lslots] = R.signature(text, B, false);
     let pl: R.Plan | null = null, src: string | null = null, note: string | null = null, rules: R.Plan | null = null, pat: R.Pattern | null = null, aierr: string | null = null;
     if (mode === "auto") { // tầng 1: mẫu đã được xác nhận (chủ thể động); chữ ký kiểu cũ (owner + giá trị) vẫn dùng được mẫu bản trước
@@ -603,6 +607,8 @@ async function rowsRoute(b: Body) {
 }
 async function engineStatus() { const d = DSC; return { fts: "pg", pct: 100, full: true, learned: d ? Object.keys(d.prof.tabs).length : 0, cols: 0, err: "", rows: d?.accs.length ?? 0 }; }
 
+/** Soda (Trợ lý HireX) hỏi về tài nguyên: dùng ĐÚNG bộ hiểu câu của Cú vọ (mẫu đã học → luật → AI, cùng bộ CRM). Chỉ đọc — soda.ts chặn mọi thay đổi. */
+export async function askAccounts(text: string): Promise<O> { return (await chat({ text, ctx: {} })) as O; }
 export const routes: Record<string, [Level, Fn]> = {
   ai_chat: ["view", chat], ai_rows: ["view", rowsRoute], ai_feedback: ["view", feedback],
   ai_apply: ["edit", apply], ai_drop: ["edit", drop],

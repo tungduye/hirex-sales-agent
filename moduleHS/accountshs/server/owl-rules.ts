@@ -139,13 +139,14 @@ export interface Ctx { selected?: Id[]; spec?: Spec | null; reply?: { spec?: Spe
 export class Brain {
   tabs: QTab[]; fields: QField[]; sts: QStatus[]; owners: QOwner[]; depts: QDept[];
   T = new Map<Id, QTab>(); F = new Map<Id, QField>(); O = new Map<Id, QOwner>(); D = new Map<Id, QDept>();
-  alias: Record<string, string>; prof: Prof; ents: Ent[]; names: Set<string>; valset: Set<string>; fwords: Set<string>; df = new Map<string, number>();
+  alias: Record<string, string>; prof: Prof; ents: Ent[]; names: Set<string>; valset: Set<string>; fwords: Set<string>; df = new Map<string, number>(); ltab = new Map<string, number>();
   env: Env; ctx: Ctx;
   constructor(m: QMeta, env: Env, ctx: Ctx = {}) {
     this.env = env; this.ctx = ctx;
     this.tabs = m.tabs; this.fields = m.fields; this.sts = m.sts; this.owners = m.owners; this.depts = m.depts;
     for (const x of m.tabs) this.T.set(x.id, x); for (const x of m.fields) this.F.set(x.id, x); for (const x of m.owners) this.O.set(x.id, x); for (const x of m.depts) this.D.set(x.id, x);
     this.alias = env.alias; this.prof = env.prof;
+    for (const f of m.fields) this.ltab.set(fold(f.label), (this.ltab.get(fold(f.label)) ?? 0) + 1);   // số tab có trường cùng tên
     this.ents = this.mkEnts();
     this.names = new Set(this.ents.flatMap((e) => e.n));
     this.valset = new Set(this.ents.filter((e) => e.k === "status" || e.k === "opt").flatMap((e) => e.n).filter((n) => n.includes(" ")));
@@ -200,7 +201,9 @@ export class Brain {
       if (g.length < 2 || sl.some((x) => x.u || x.d) || (n === 1 && stopTok(sl[0]))) continue;
       for (const e of pool) {
         const sc = Math.max(0, ...e.n.map((nm) => (e.k === "opt" && words(nm).length > n && !sl.every((x) => words(nm).includes(x.n)) ? 0 : sim(g, nm, this.wt)))); // giá trị dữ liệu chỉ khớp một phần → phải đúng chữ ("danh" ≠ "Kinh doanh")
-        if (sc >= (e.k === "opt" && words(e.n[0]).length > 2 ? 0.9 : 0.7) && !accentClash(sl, e)) cand.push([sc + 0.1 * n + e.b + (tab !== null && e.k !== "tab" && e.tabs?.has(tab) ? 0.1 : 0), sc, i, n, e]);
+        // từ đã dạy (ai_alias) thắng phép đoán mờ (vd "sống" ≠ "SG"); không nêu tab: giá trị của trường có ở nhiều tab được ưu tiên
+        const bonus = (this.alias[g] === e.ref ? 0.2 : 0) + (tab === null && e.k === "opt" ? 0.01 * Math.min(9, this.ltab.get(fold(e.o[0].label)) ?? 1) : 0);
+        if (sc >= (e.k === "opt" && words(e.n[0]).length > 2 ? 0.9 : 0.7) && !accentClash(sl, e)) cand.push([sc + 0.1 * n + e.b + bonus + (tab !== null && e.k !== "tab" && e.tabs?.has(tab) ? 0.1 : 0), sc, i, n, e]);
       }
     }
     cand.sort((x, y) => y[0] - x[0]);
@@ -503,7 +506,10 @@ export function understand(text: string, ctx: Ctx, B: Brain): Plan {
   for (const h of hits) if (h.e.k === "field") for (const x of T.slice(h.i, h.i + h.n)) x.u = false;
   let tabhit = hits.filter((h) => h.e.k === "tab");
   let tab: Id | null = tabhit.length ? tabOf(maxBy(tabhit, (h) => h.sc).e) : null;
-  try {
+  // không nêu tab mà nêu tên NHÓM tab ("tài khoản die" = mọi tab nhóm Tài khoản, không gồm Bài đăng / Dữ liệu Marketing) → không đoán tab theo giá trị
+  const grps = uniq(B.tabs.map((t) => t.grp ?? "").filter(Boolean)).sort((a, b) => fold(b).length - fold(a).length);
+  const grp = tabhit.length ? undefined : grps.find((x) => ft.includes(` ${fold(x)} `) || (fold(x).endsWith(" khoan") && / (tk|acc|account|nick) /.test(ft)));
+  if (!grp) try {
     let tv = tabVote(text, B, tab, hits); if (tv === null) tv = tab;
     for (const h of tabhit.filter((h) => tabOf(h.e) !== tv && h.sc < 0.85)) { for (const x of T.slice(h.i, h.i + h.n)) x.u = false; tabhit = tabhit.filter((y) => y !== h); }
     if (tv !== tab) { for (const h of tabhit) for (const x of T.slice(h.i, h.i + h.n)) x.u = false; tabhit = tabhit.filter((h) => tabOf(h.e) === tv); tab = tv; }
@@ -559,6 +565,7 @@ export function understand(text: string, ctx: Ctx, B: Brain): Plan {
   }
   if (lim && !sp.limit) sp.limit = lim;
   if (tab !== null) sp.tab = tab;
+  else if (grp) sp.grp = grp;
   const explicit = ["status", "where", "q", "owner", "dept", "group", "dup"].some((k) => !blank(sp[k]));
   const refine = !!prev && (!!ctx.reply || (it === null && !tabhit.length && !("owner" in sp || "dept" in sp) && T.length <= 8 && explicit));
   if (useSel) { sp.ids = sel; cdep = true; }
@@ -837,6 +844,7 @@ export interface Chip { k: string; ic: string; t: string; ui?: boolean; neg?: bo
 export function chips(sp: Spec, B: Brain, ui: string[] = []): Chip[] {
   const ch: Chip[] = [];
   if (typeof sp.tab === "number" && B.T.has(sp.tab)) ch.push({ k: "tab", ic: B.T.get(sp.tab)!.icon, t: B.T.get(sp.tab)!.name, ui: ui.includes("tab") });
+  else if (sp.grp) ch.push({ k: "grp", ic: "layers", t: `Nhóm ${str(sp.grp)}`, ui: ui.includes("grp") });
   if (typeof sp.dept === "number" && B.D.has(sp.dept)) ch.push({ k: "dept", ic: "layers", t: B.D.get(sp.dept)!.name, ui: ui.includes("dept") });
   if (sp.owner !== undefined && sp.owner !== null) { const nm = asList(sp.owner).map((i) => B.O.get(Number(i))?.name).filter((x): x is string => !!x); ch.push({ k: "owner", ic: "users", t: nm.slice(0, 3).join(" · ") + (nm.length > 3 ? " …" : ""), ui: ui.includes("owner") }); }
   if (tru(sp.status)) { const cols = new Map(B.sts.map((x) => [fold(x.label), x.color] as const)), st = asList(sp.status); ch.push({ k: "status", ic: "tag", t: st.join(" · "), dots: st.map((x) => cols.get(fold(x)) ?? null).slice(0, 4) }); }
