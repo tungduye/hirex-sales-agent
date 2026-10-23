@@ -25,16 +25,25 @@ export const REC_STEPS = [
 ] as const;
 export const REC_STEP_COUNT = REC_STEPS.length;
 
-/** What the candidate has said about themselves. Only stated facts, never guesses. */
+/** What the candidate has said about themselves. Only stated facts, never guesses. `hint` tells the reader of the chat
+ *  what belongs in the field; `summary` fields show in the bar above the composer, the rest only in the editor. */
 export const FACT_FIELDS = [
-  { key: "careerTrack", label: "Hướng nghề" },
-  { key: "location", label: "Khu vực" },
-  { key: "japaneseLevel", label: "Tiếng Nhật" },
-  { key: "japanYears", label: "Thời gian ở Nhật" },
-  { key: "experience", label: "Kinh nghiệm" },
-  { key: "expectedSalary", label: "Lương mong muốn" },
-  { key: "motivation", label: "Ưu tiên khi chuyển" },
-  { key: "availability", label: "Có thể đi làm" },
+  { key: "careerTrack", label: "Hướng nghề", summary: true, hint: "BrSE, PM, SE, Developer, Tester, Comtor… ứng viên muốn làm" },
+  { key: "location", label: "Khu vực", summary: true, hint: "nơi muốn làm việc: Hà Nội, HCM, Nhật…" },
+  { key: "japaneseLevel", label: "Tiếng Nhật", summary: true, hint: "trình độ tiếng Nhật (N1–N5) hoặc mô tả khả năng" },
+  { key: "japanYears", label: "Thời gian ở Nhật", summary: true, hint: "đã sống/làm ở Nhật bao lâu, hoặc chưa từng" },
+  { key: "experience", label: "Kinh nghiệm", summary: true, hint: "số năm, vị trí đã làm, quản lý bao nhiêu người" },
+  { key: "expectedSalary", label: "Lương mong muốn", summary: true, hint: "mức lương mong muốn đúng như ứng viên nói (60tr, 800 man…)" },
+  { key: "motivation", label: "Ưu tiên khi chuyển", summary: true, hint: "lý do / điều ưu tiên khi chuyển việc" },
+  { key: "availability", label: "Có thể đi làm", summary: true, hint: "khi nào có thể bắt đầu công việc mới" },
+  { key: "phone", label: "SĐT", summary: false, hint: "số điện thoại ứng viên đưa" },
+  { key: "email", label: "Email", summary: false, hint: "địa chỉ email ứng viên đưa" },
+  { key: "currentCompany", label: "Công ty hiện tại", summary: false, hint: "công ty đang làm" },
+  { key: "currentTitle", label: "Chức danh hiện tại", summary: false, hint: "chức danh / vị trí hiện tại" },
+  { key: "skills", label: "Kỹ năng chính", summary: false, hint: "công nghệ, ngôn ngữ, mảng nghiệp vụ chính" },
+  { key: "noticePeriod", label: "Thời gian báo nghỉ", summary: false, hint: "phải báo nghỉ trước bao lâu ở công ty hiện tại" },
+  { key: "appliedCompanies", label: "Công ty đã apply", summary: false, hint: "các công ty ứng viên nói đã từng apply/phỏng vấn" },
+  { key: "cvStatus", label: "CV", summary: false, hint: "tình trạng CV: đã gửi, có bản cũ, chưa có, đang cập nhật…" },
 ] as const;
 export type FactKey = (typeof FACT_FIELDS)[number]["key"];
 export type Facts = Partial<Record<FactKey, string>>;
@@ -97,7 +106,7 @@ export function readyForOffer(state: RecFlowState) { return state.offeredJobIds.
 /** The bar above the composer: "Bước 4/8 · Tiếng Nhật", what is known and what is still missing. */
 export function flowSummary(state: RecFlowState) {
   const current = REC_STEPS[state.step - 1] ?? REC_STEPS[0];
-  const known = FACT_FIELDS.flatMap((field) => state.facts[field.key] ? [`${field.label}: ${state.facts[field.key]}`] : []);
+  const known = FACT_FIELDS.flatMap((field) => field.summary && state.facts[field.key] ? [`${field.label}: ${state.facts[field.key]}`] : []);
   const missing = readyForOffer(state) ? [] : offerMissing(state.facts);
   return { stepLabel: `Bước ${current.step}/${REC_STEP_COUNT}`, stepName: current.label, known, missing, offered: state.offeredJobIds.length,
     outcome: state.outcome ? REC_OUTCOME_LABEL[state.outcome] : null };

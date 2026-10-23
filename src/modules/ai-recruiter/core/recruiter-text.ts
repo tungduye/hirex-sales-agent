@@ -19,8 +19,8 @@ export function messageContext(message: { text_content: string | null; attachmen
   });
   return descriptions.length > 0 ? `[${descriptions.join(", ")}]` : `[${message.attachment_count} tệp đính kèm]`;
 }
-export function hasCvEvidence(message: { text_content: string | null; metadata: unknown }) {
-  return hasRecruiterCvAttachment(message.metadata);
+export function hasCvEvidence(message: { text_content: string | null; metadata: unknown }, cvAsked = false) {
+  return hasRecruiterCvAttachment(message.metadata, cvAsked);
 }
 export function normalizedEvidence(value: string) {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("vi-VN");

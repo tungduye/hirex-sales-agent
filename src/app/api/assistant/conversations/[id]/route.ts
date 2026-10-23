@@ -14,7 +14,7 @@ async function context(params: Promise<{ id: string }>) {
 
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin || origin.endsWith("://app.hirexmkt.online");
+  return !origin || origin === new URL(request.url).origin || /:\/\/app2?\.hirexmkt\.online$/.test(origin);
 }
 
 /** One saved conversation with its messages; proposal cards show their current state. */

@@ -1,7 +1,7 @@
 import "server-only";
 
 // Lưu trữ của Cuộc họp: mỗi cuộc họp / audio = 1 thư mục <DATA>/m/<slug>/ (meta.json + audio, tài liệu).
-// Cấu hình (mẫu, chủ đề, từ vựng, giọng đọc, Zalo) nằm ở <DATA>/cfg, file mẫu ở <DATA>/templates.
+// Cấu hình (giọng đọc, Zalo) nằm ở <DATA>/cfg. Ngữ cảnh cuộc họp (thành viên, thuật ngữ…) lấy tự động từ dữ liệu HireX: context.ts.
 // <DATA> = HS_RECORD_DIR hoặc runtime/hs-record (đã gitignore, không vào bản build, giữ nguyên qua mỗi lần deploy).
 import fs from "node:fs";
 import path from "node:path";
@@ -17,11 +17,11 @@ export const langs = (v: unknown): Lang[] => [...new Set(String(v || "").split("
 
 const E = (k: string, d = "") => process.env[k] || d;
 export const C = {
-  data: path.resolve(E("HS_RECORD_DIR", path.join(process.cwd(), "runtime", "hs-record"))),
+  data: path.resolve(E("HS_RECORD_DIR", path.join(/*turbopackIgnore: true*/ process.cwd(), "runtime", "hs-record"))),
   pub: (E("HS_RECORD_PUBLIC_URL") || E("APP_BASE_URL")).replace(/\/+$/, ""),
   get ffmpeg() { return ffmpegPath(); },
   get key() { return (process.env.OPENAI_API_KEY || "").trim(); },
-  text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"), liveModel: E("HS_RECORD_LIVE_TEXT_MODEL"),
+  text: E("HS_RECORD_TEXT_MODEL", "gpt-5.6-luna"), minutes: E("HS_RECORD_MINUTES_MODEL", "gpt-5.6-sol"), stt: E("HS_RECORD_TRANSCRIBE_MODEL", "gpt-transcribe"), tts: E("HS_RECORD_TTS_MODEL", "gpt-4o-mini-tts"), liveModel: E("HS_RECORD_LIVE_TEXT_MODEL"),
   seg: Math.max(300, +E("TRANSCRIBE_SEGMENT_SECONDS", "1800")), br: E("AUDIO_BITRATE", "24k"), slice: Math.max(5000, +E("RECORD_SLICE_MS", "5000")),
   ttsMax: Math.max(500, +E("TTS_MAX_CHARS", "60000")), cmin: +E("CODE_MIN", "3"), cmax: +E("CODE_MAX", "6"), maxMB: +E("MAX_UPLOAD_MB", "512"),
   keep: Math.max(1, +E("PENDING_RETENTION_HOURS", "168")), liveMs: Math.min(15000, Math.max(2000, +E("LIVE_SEGMENT_MS", "3000"))), realtime: E("LIVE_REALTIME", "1") !== "0",
@@ -36,7 +36,6 @@ function ffmpegPath() {
   return "ffmpeg";
 }
 const M = path.join(C.data, "m"), CF = path.join(C.data, "cfg");
-export const TPL = path.join(C.data, "templates");
 
 /* ============ tiện ích ============ */
 export type HsErr = Error & { status: number; stage: string; detail?: string };
@@ -59,14 +58,14 @@ export const rj = <T>(f: string, fb: T): T => { try { const x = JSON.parse(fs.re
 export const wj = (f: string, o: unknown) => { const t = f + ".tmp"; fs.writeFileSync(t, JSON.stringify(o, null, 2)); fs.renameSync(t, f); };
 
 /* ============ bản ghi ============ */
-export interface Gloss { heard: string; text: string }
 export interface Job { stage?: string; ts?: number; error?: string; detail?: string; parts?: number }
 export type FileKind = "audio" | "transcript" | "translation" | "summary";
 export interface Meta {
   id: number; sid: string; slug: string; kind: "meeting" | "tts"; title: string; auto: boolean; status: string; created: number; base: string; files: Partial<Record<FileKind, 1>>;
   started?: number; ended?: number; dur?: number; size?: number; parts?: number; upload?: number; stage?: string; error?: string; detail?: string; job?: Job; notify?: string; tpl_html?: number;
-  topic_id?: string; topic_name?: string; topic_context?: string; topic_content?: string; topic_main?: string; glossary?: Gloss[]; src_lang?: string; src_hint?: string; live_lang?: string; live_prompt?: string;
-  style_id?: string; style_name?: string; style_prompt?: string; fmt?: "word" | "excel"; template_structure?: string; template_file?: string; use_file?: number;
+  live_lang?: string; live_prompt?: string; ws?: string; v2?: number; doc_id?: number;
+  /** bản ghi cũ (trước khi bỏ Mẫu / Chủ đề / Từ vựng): chỉ còn để hiển thị lại */
+  topic_name?: string; style_id?: string; style_name?: string; style_prompt?: string; fmt?: "word" | "excel"; template_file?: string;
   voice?: string; voice_label?: string; speed?: number; char_count?: number; plain?: string; by?: string; up?: string;
 }
 interface State { meta: Map<string, Meta>; run: Set<number>; id: number; mt: Map<string, number> }
@@ -77,7 +76,7 @@ export function st(): State {
   if (G.__hsRecord) return G.__hsRecord;
   const s: State = { meta: new Map(), run: new Set(), id: Date.now(), mt: new Map() };
   G.__hsRecord = s;
-  for (const d of [M, CF, TPL]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [M, CF]) fs.mkdirSync(d, { recursive: true });
   refresh();
   return s;
 }
@@ -114,51 +113,13 @@ export const prune = () => {
 };
 export function rename(m: Meta, title: string) { const old = m.slug, slug = slugify(title); fs.renameSync(dir(old), dir(slug)); st().meta.delete(old); m.slug = slug; m.title = title; }
 
-/* ============ cấu hình (cùng tên file / cấu trúc với bản gốc) ============ */
-export interface Style { id: string; name: string; description?: string; builtin?: boolean; prompt?: string; format?: string; file?: string; file_name?: string; structure?: string; prefix?: string; suffix?: string }
+/* ============ cấu hình: giọng đọc (Đọc văn bản), Zalo ============ */
+export interface Style { id: string; name: string; description?: string; builtin?: boolean; prompt?: string; prefix?: string; suffix?: string }
 export interface Styles { version: number; default_style_id: string; styles: Style[] }
-export interface Topic { id: string; name: string; style_id?: string; context?: string; content?: string; main?: string }
-const F = { company: path.join(CF, "company.json"), styles: path.join(CF, "meeting-styles.json"), voice: path.join(CF, "voice-styles.json"), topics: path.join(CF, "meeting-topics.json"), gloss: path.join(CF, "glossary.json"), settings: path.join(C.data, "settings.json") };
-const SEED_STYLES: Styles = { version: 1, default_style_id: "standard_minutes", styles: [{ id: "standard_minutes", name: "Biên bản chuẩn", description: "Biên bản đầy đủ, rõ quyết định và công việc.", builtin: true, format: "word", prompt: "Trình bày như một biên bản cuộc họp chuyên nghiệp.\n- Mở đầu bằng tiêu đề cuộc họp.\n- Có phần TÓM TẮT ĐIỀU HÀNH ngắn gọn.\n- Chia nội dung theo các CHỦ ĐỀ thực tế xuất hiện trong cuộc họp.\n- Mỗi chủ đề nêu: nội dung chính, kết luận/quyết định, việc cần làm nếu có.\n- Có bảng CÔNG VIỆC CẦN THỰC HIỆN với các cột: Công việc | Phụ trách | Deadline | Ghi chú.\n- Có phần VẤN ĐỀ CHƯA CHỐT ở cuối nếu tồn tại.\n- Bôi đậm tên người, con số, deadline và quyết định quan trọng bằng <strong>.\n- Chỉ dùng <s>gạch bỏ</s> khi transcript thể hiện rõ một nội dung cũ đã bị hủy/thay thế; không tự suy diễn.\n- Dùng bảng khi dữ liệu có cấu trúc; tránh đoạn văn quá dài" }, { id: "executive_brief", name: "Điều hành", description: "Ngắn, ưu tiên quyết định, rủi ro và hành động.", builtin: true, format: "word", prompt: "Trình bày theo phong cách executive brief dành cho quản lý.\n- Rất súc tích, ưu tiên thông tin có tác động đến quyết định.\n- Đầu tài liệu là 5-10 dòng TÓM TẮT QUAN TRỌNG NHẤT.\n- Sau đó là các mục: QUYẾT ĐỊNH, HÀNH ĐỘNG, RỦI RO/VƯỚNG MẮC, VẤN ĐỀ CHỜ XÁC NHẬN.\n- Bôi đậm bằng <strong> các số liệu, deadline, owner, quyết định và thay đổi quan trọng.\n- Dùng bảng cho action items nếu có từ 2 mục trở lên.\n- Không kể lại toàn bộ diễn biến; loại bỏ lặp lại và trao đổi xã giao.\n- Chỉ dùng <s>gạch bỏ</s> nếu cuộc họp xác nhận rõ một phương án/quyết định cũ đã bị hủy." }] };
+const F = { voice: path.join(CF, "voice-styles.json"), settings: path.join(C.data, "settings.json") };
 const SEED_VOICE: Styles = { version: 1, default_style_id: "natural", styles: [{ id: "natural", name: "Tự nhiên", description: "Đọc rõ ràng, tốc độ vừa phải.", builtin: true, prompt: "Đọc tự nhiên, rõ ràng, tốc độ vừa phải như người Việt đang nói chuyện bình thường. Ngắt nghỉ đúng dấu câu.", prefix: "", suffix: "" }, { id: "news_mc", name: "Tin tức / MC", description: "Trang trọng, điềm tĩnh, nhịp đều.", builtin: true, prompt: "Giọng MC thời sự: trang trọng, rõ chữ, nhịp đều, điềm tĩnh. Nhấn nhẹ vào số liệu và tên riêng.", prefix: "", suffix: "" }, { id: "storyteller", name: "Kể chuyện", description: "Truyền cảm, chậm rãi, có cao trào.", builtin: true, prompt: "Giọng kể chuyện truyền cảm, chậm rãi. Thay đổi ngữ điệu theo cảm xúc của câu chuyện, ngắt nghỉ có chủ đích ở đoạn cao trào.", prefix: "", suffix: "" }, { id: "podcast", name: "Podcast thân mật", description: "Gần gũi, ấm áp như đang tâm sự.", builtin: true, prompt: "Giọng podcast gần gũi, ấm áp, thoải mái như đang tâm sự với một người bạn. Nhịp nói tự nhiên, thỉnh thoảng nhấn nhá.", prefix: "", suffix: "" }, { id: "ads", name: "Quảng cáo sôi nổi", description: "Năng lượng cao, nhiệt tình.", builtin: true, prompt: "Giọng quảng cáo năng lượng cao, nhiệt tình, nhanh vừa phải. Nhấn mạnh lợi ích sản phẩm, kết thúc dứt khoát.", prefix: "", suffix: "" }, { id: "streamer", name: "Streamer hài hước", description: "Tếu táo, trêu đùa, mở đầu bằng lời chào riêng.", builtin: false, prompt: "Giọng streamer/TikToker Việt Nam: năng lượng cao, tếu táo, trêu đùa thân mật với khán giả, nói nhanh, lên xuống giọng mạnh, thỉnh thoảng bật cười. Dùng khẩu ngữ đời thường.", prefix: "Hello các con vợ!", suffix: "" }] };
-const SEED_TOPICS = { version: 1, topics: [{ id: "giao_ban", name: "Giao ban tuần", style_id: "", context: "Họp giao ban nội bộ hằng tuần: các bộ phận cập nhật tiến độ, vướng mắc và kế hoạch tuần tới.", content: "", main: "Tiến độ từng người báo cáo, vướng mắc cần hỗ trợ, việc cần làm tuần tới kèm người phụ trách và deadline." }, { id: "khach_hang", name: "Họp khách hàng", style_id: "", context: "Họp làm việc với khách hàng: tiếp nhận yêu cầu, phản hồi, thống nhất cam kết và bước tiếp theo.", content: "", main: "Yêu cầu của khách hàng, cam kết hai bên, điểm chưa thống nhất và bước tiếp theo kèm thời hạn." }] as Topic[] };
-
-export const styles = (voice: boolean): Styles => { st(); const x = rj<Styles | null>(voice ? F.voice : F.styles, null); return x && Array.isArray(x.styles) ? x : structuredClone(voice ? SEED_VOICE : SEED_STYLES); };
-export const saveStyles = (voice: boolean, c: Styles) => wj(voice ? F.voice : F.styles, c);
-/** Bản gửi trình duyệt: không lộ tên file lưu / cấu trúc mẫu. */
-export const pubStyles = (c: Styles) => ({ ...c, styles: c.styles.map(({ file, structure, ...s }) => { void structure; return { ...s, format: s.format === "excel" ? "excel" : "word", has_file: !!file }; }) });
-export const topics = (): { version: number; topics: Topic[] } => { st(); const x = rj<{ version: number; topics: Topic[] } | null>(F.topics, null); return x && Array.isArray(x.topics) ? x : structuredClone(SEED_TOPICS); };
-export const saveTopics = (c: { version: number; topics: Topic[] }) => wj(F.topics, c);
-export const glossary = (): { version: number; items: Gloss[] } => {
-  st(); const x = rj<{ items?: unknown } | null>(F.gloss, null), a = x && Array.isArray(x.items) ? (x.items as Partial<Gloss>[]) : [{ heard: "Bờ rích", text: "BrSE" }];
-  return { version: 1, items: a.filter((i) => i && String(i.heard || "").trim() && String(i.text || "").trim()).map((i) => ({ heard: String(i.heard).trim(), text: String(i.text).trim() })) };
-};
-export const saveGlossary = (items: Gloss[]) => wj(F.gloss, { version: 1, items });
-
-/** Bối cảnh công ty (Cài đặt › Công ty): giúp phiên âm nghe đúng tên người / thuật ngữ và biên bản ghi đúng vai trò, phòng ban.
- *  people: mỗi dòng "Tên — vai trò / phòng ban". Sửa được trong Cài đặt; bản mặc định soạn từ dữ liệu HireX (Tài nguyên, Trợ lý, AI Recruiter). */
-export interface Company { version: number; name: string; context: string; people: string }
-const SEED_COMPANY: Company = {
-  version: 1, name: "Intalent Việt Nam",
-  context: [
-    "Intalent Việt Nam là công ty tuyển dụng – headhunt, chuyên tuyển nhân sự IT tiếng Nhật cho doanh nghiệp Nhật Bản và doanh nghiệp Nhật tại Việt Nam (Hà Nội, TP.HCM, onsite Nhật).",
-    "Vị trí hay tuyển: BrSE, PM, SE, Developer, Tester/QA, Comtor (phiên dịch IT); ứng viên thường có tiếng Nhật N1–N3.",
-    "HireX là hệ thống nội bộ của công ty: CRM khách hàng & ứng viên, Suối Nguồn (hộp thư chung Zalo/Facebook/Email), Gửi hàng loạt Zalo, Trợ lý AI (Soda), AI Recruiter, Tài nguyên (quản lý tài khoản/nick), Cuộc họp.",
-    "Phòng ban: REC (tuyển dụng: tìm, tư vấn ứng viên, phỏng vấn, đẩy CV cho khách); SALES (tìm khách doanh nghiệp, nhận JD/order, báo phí); R&D (phát triển, tối ưu HireX và công cụ nội bộ); Cộng tác viên/Parttime (CTV giới thiệu ứng viên).",
-    "Thuật ngữ thường gặp: JD, CV, job, order, khách hàng (client), ứng viên (candidate), phỏng vấn vòng 1/vòng 2, offer, onboard, phí tuyển dụng, bảo hành, KPI, pipeline, nhóm Zalo, deploy/release, bug, task, deadline.",
-  ].join("\n"),
-  people: [
-    "Dũng — CEO (anh Dũng)",
-    "Đỗ Thị Vân Anh — REC", "Cường (J3) — REC", "Hoàng Văn Tuấn — REC", "Lê Văn Long (J3) — REC", "Đỗ Quang Hải — REC", "Nguyễn Thị Thùy Dương — REC",
-    "Đỗ Mạnh Cường — SALES", "Mai Thỏ — SALES", "Thanh Tùng — SALES",
-    "Trang — R&D", "Duy Tùng — R&D",
-    "Hằng — Parttime/CTV", "Cúc — Parttime/CTV", "Hải Anh — Parttime/CTV", "Hoàn — Parttime/CTV", "Bích — Parttime/CTV", "Dương — Parttime/CTV",
-  ].join("\n"),
-};
-export const company = (): Company => { st(); const x = rj<Partial<Company> | null>(F.company, null); return x && typeof x.context === "string" ? { ...SEED_COMPANY, ...x, version: 1 } : structuredClone(SEED_COMPANY); };
-export const saveCompany = (c: Company) => wj(F.company, c);
-/** Tên người trong danh sách (phần trước "—", "-", ":" hoặc "("): dùng làm từ khoá cho phiên âm. */
-export const companyNames = (c = company()) => [...new Set(c.people.split("\n").map((l) => l.split(/\s+[—–-]\s+|:|\(/)[0].trim()).filter((n) => n.length >= 2 && n.length <= 40))];
+export const voiceStyles = (): Styles => { st(); const x = rj<Styles | null>(F.voice, null); return x && Array.isArray(x.styles) ? x : structuredClone(SEED_VOICE); };
+export const saveVoiceStyles = (c: Styles) => wj(F.voice, c);
 const vl = (s: string) => { const [id, label] = s.split("|"); return { id, label }; };
 export const VOICES = {
   male: ["onyx|Onyx · trầm", "echo|Echo · mượt", "ash|Ash · nhẹ nhàng", "ballad|Ballad · biểu cảm", "verse|Verse · linh hoạt", "cedar|Cedar · ấm", "fable|Fable · kể chuyện"].map(vl),

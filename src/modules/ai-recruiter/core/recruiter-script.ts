@@ -151,6 +151,12 @@ export function cvRequest(job: Job, salaryJustSaid: string | null) {
 export const NO_CV_REPLY = "Vâng anh, vậy anh có bản CV cũ thì cứ gửi em trước nếu tiện anh nha, chưa cập nhật cũng không sao ạ. Nếu cần anh cứ bảo em, em gửi anh vài mẫu CV bản doc để anh tham khảo. Em sẽ tổng hợp các thông tin anh em mình vừa trao đổi để gửi anh PM dự án luôn ạ.";
 /** Step 5b: the CV arrived → thanks and close; a person takes over. */
 export const CV_CLOSING = "Vâng em nhận được CV rồi ạ, em cám ơn anh. Em sẽ gửi CV cùng các thông tin anh em mình vừa trao đổi cho PM dự án. Em cám ơn anh đã dành thời gian để em chia sẻ thêm về job ạ, có gì em liên hệ anh sớm ạ.";
+/** The closing, answering a JD request in the same burst: the job's JD link when there is one, else a person sends it. */
+export function cvClosing(job: Job | null | undefined, askedJd: boolean) {
+  if (!askedJd) return CV_CLOSING;
+  const link = typeof job?.jd_link === "string" && /^https?:\/\//u.test(job.jd_link.trim()) ? job.jd_link.trim() : null;
+  return `Vâng em nhận được CV rồi ạ, em cám ơn anh. ${link ? `JD chi tiết của vị trí này anh xem ở đây ạ: ${link}` : "JD chi tiết của vị trí này em gửi anh ngay sau đây ạ."} Em sẽ gửi CV cùng các thông tin anh em mình vừa trao đổi cho PM dự án. Em cám ơn anh đã dành thời gian để em chia sẻ thêm về job ạ, có gì em liên hệ anh sớm ạ.`;
+}
 
 /** The salary a candidate names ("Lương 60tr được không em", "mong muốn 1500 USD", "tầm 800 man"), as written. */
 export function salaryInText(text: string) {

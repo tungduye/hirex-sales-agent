@@ -18,7 +18,7 @@ function fail(message: string, status: number) {
 
 export async function POST(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) return fail("Không được phép.", 403);
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) return fail("Không được phép.", 403);
   const { conversationId } = await params;
   if (!UUID.test(conversationId)) return fail("Không tìm thấy hội thoại.", 404);
   const account = await getAccountContext();

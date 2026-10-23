@@ -18,7 +18,7 @@ const ERRORS: Record<string, string> = {
 
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return NextResponse.json({ ok: false, message: "Phiên đăng nhập đã hết hạn." }, { status: 401 });
   if (!await hasPermission("campaigns.create")) return NextResponse.json({ ok: false, message: "Tài khoản chưa có quyền tạo chiến dịch nên chưa đính kèm danh sách được." }, { status: 403 });

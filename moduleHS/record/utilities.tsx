@@ -1,8 +1,9 @@
 "use client";
 
-// Mục "Tiện ích" của HireX: tab Cuộc họp (Meeting Hub) · tab Kiểm thử phần mềm (chưa có nội dung).
-// Giao diện Cuộc họp là code gốc (meeting-ui.js) vẽ vào khung .hs-rec; chỉ nạp ở trình duyệt.
+// Mục "Tiện ích" của HireX: tab Cuộc họp (Meeting Hub) · tab Kiểm thử phần mềm (moduleHS/qa: agent tự test web, báo cáo).
+// Giao diện Cuộc họp là code gốc (meeting-ui.js) vẽ vào khung .hs-rec; Kiểm thử (qa-ui.js) vẽ vào .hs-rec.hs-qa. Chỉ nạp ở trình duyệt.
 import "./meeting.css";
+import "../qa/qa.css";
 import { useEffect, useRef, useState } from "react";
 import { FlaskConical, Mic } from "lucide-react";
 
@@ -20,6 +21,16 @@ function MeetingRoot({ boot }: { boot: Boot }) {
   return <div ref={ref} className="hs-rec" />;
 }
 
+function QaRoot() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true, off: (() => void) | undefined;
+    void import("../qa/qa-ui.js").then((ui) => { if (alive && ref.current) off = ui.mount(ref.current); });
+    return () => { alive = false; off?.(); };
+  }, []);
+  return <div ref={ref} className="hs-rec hs-qa h-full" />;
+}
+
 const TABS = [
   { id: "meeting", label: "Cuộc họp", icon: Mic },
   { id: "testing", label: "Kiểm thử phần mềm", icon: FlaskConical },
@@ -27,8 +38,9 @@ const TABS = [
 
 export function UtilitiesApp({ boot }: { boot: Boot }) {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("meeting");
+  const [qa, setQa] = useState(false);   // mở tab Kiểm thử lần đầu mới nạp; sau đó giữ (đang test vẫn theo dõi)
   const pick = (id: typeof tab) => {
-    setTab(id);
+    setTab(id); if (id === "testing") setQa(true);
     // Sóng âm vẽ theo kích thước khung: đo lại khi tab Cuộc họp hiện ra.
     if (id === "meeting") requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   };
@@ -44,12 +56,7 @@ export function UtilitiesApp({ boot }: { boot: Boot }) {
       </div>
       {/* Tab Cuộc họp giữ nguyên khi sang tab khác (đang ghi âm vẫn chạy). */}
       <div className="min-h-0 flex-1" hidden={tab !== "meeting"}><MeetingRoot boot={boot} /></div>
-      {tab === "testing" ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-slate-400">
-          <FlaskConical className="size-8" />
-          <span className="text-sm">Kiểm thử phần mềm — chưa có nội dung</span>
-        </div>
-      ) : null}
+      {qa ? <div className="min-h-0 flex-1" hidden={tab !== "testing"}><QaRoot /></div> : null}
     </div>
   );
 }

@@ -12,7 +12,7 @@ const bodySchema = z.discriminatedUnion("action", [
 
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
   const account = await getAccountContext();
   if (!account?.workspaceId || !account.configurationComplete) return NextResponse.json({ ok: false, message: "Phiên đăng nhập đã hết hạn." }, { status: 401 });
   const body = bodySchema.safeParse(await request.json().catch(() => null));

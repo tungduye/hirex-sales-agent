@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {appliedAnswer,CV_CLOSING,cvRequest,jobIntroduction,nextJobIntroduction,nextScriptJob,NO_CV_REPLY,processPitch,salaryFollowup,salaryLabel,startFollowup} from '../src/modules/ai-recruiter/core/recruiter-script.ts';
+import {appliedAnswer,CV_CLOSING,cvClosing,cvRequest,jobIntroduction,nextJobIntroduction,nextScriptJob,NO_CV_REPLY,processPitch,salaryFollowup,salaryLabel,startFollowup} from '../src/modules/ai-recruiter/core/recruiter-script.ts';
 
 const vti={external_job_id:'J1',job_title:'BrSE/PM',company_name:'VTI',candidate_type:'BrSE',location:'Hà Nội',salary_range:'55-65M gross',japanese_level_min:'N2',requirements:'Tiếng Nhật N2, trao đổi trực tiếp với khách Nhật',priority:2,sale_stage:'first_job'};
 const ntq={external_job_id:'J2',job_title:'BrSE onsite',company_name:'NTQ Japan',candidate_type:'BrSE',location:'Japan',salary_range:'up to 900 man',japanese_level_min:'N2',requirements:'Kinh nghiệm làm việc với khách hàng Nhật',priority:1,sale_stage:'first_job'};
@@ -63,4 +63,9 @@ test('start date after the Rec question',()=>{
  assert.equal(startDateInText('Anh có thể làm được đầu năm sau',asked),'Anh có thể làm được đầu năm sau');
  assert.equal(salaryInText('60tr, tháng 12 anh sang được'),'60tr');
  assert.equal(startDateInText('60tr, tháng 12 anh sang được',asked),'60tr, tháng 12 anh sang được');
+});
+test('closing answers a JD request',()=>{
+ assert.equal(cvClosing(vti,false),CV_CLOSING);
+ assert.match(cvClosing({...vti,jd_link:'https://jd.example/vti'},true),/JD chi tiết của vị trí này anh xem ở đây ạ: https:\/\/jd\.example\/vti/);
+ assert.match(cvClosing(vti,true),/JD chi tiết của vị trí này em gửi anh ngay sau đây ạ/);
 });

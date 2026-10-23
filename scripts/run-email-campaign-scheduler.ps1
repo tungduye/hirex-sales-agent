@@ -16,7 +16,7 @@ $exitCode = 1
 function Write-SafeLog([string]$Result,[int]$Code) { try { New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null; Add-Content -LiteralPath $logPath -Value "timestamp=$([DateTime]::UtcNow.ToString('o')) result=$Result exitCode=$Code" } catch {} }
 try {
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
-    try { $lockStream = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) } catch { Write-SafeLog "OVERLAP_SKIPPED" 0; exit 0 }
+    try { $lockStream = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::Read) } catch { Write-SafeLog "OVERLAP_SKIPPED" 0; exit 0 }
     $envFile = Join-Path $projectRoot ".env.local"
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw "CONFIG_UNAVAILABLE" }
     $matches = @(Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*AUTOMATION_CRON_SECRET\s*=' })

@@ -407,7 +407,11 @@
     ".next-suoi-nguon-phan-loai-2/types/**/*.ts",
     ".next-suoi-nguon-phan-loai-2/dev/types/**/*.ts",
     ".next-ai-recruiter-hoi-luong/types/**/*.ts",
-    ".next-ai-recruiter-hoi-luong/dev/types/**/*.ts"
+    ".next-ai-recruiter-hoi-luong/dev/types/**/*.ts",
+    "runtime/hs-preview/b/types/**/*.ts",
+    "runtime/hs-preview/b/dev/types/**/*.ts",
+    "runtime/hs-preview/a/types/**/*.ts",
+    "runtime/hs-preview/a/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

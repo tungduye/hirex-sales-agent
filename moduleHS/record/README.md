@@ -4,7 +4,7 @@ Mục **Tiện ích** (`/utilities`) trên thanh bên của HireX có 2 tab:
 - **Cuộc họp**: chạy Meeting Hub (trước là project riêng `meeting-hub`, Node `server.js` cổng 3101).
 - **Kiểm thử phần mềm**: đang trống.
 
-Meeting Hub làm được: ghi âm hoặc tải file lên → phiên âm (kèm dịch trực tiếp Việt · English · 日本語) → biên bản Word, hoặc điền thẳng vào mẫu Word/Excel → lưu trên máy chủ → thông báo Zalo. Có thêm tab Đọc văn bản (chuyển văn bản thành audio).
+Meeting Hub làm được: ghi âm hoặc tải file lên → phiên âm (kèm dịch trực tiếp Việt · English · 日本語) → biên bản Word (bố cục cố định, ngữ cảnh lấy tự động từ HireX) → lưu trên máy chủ + Tài liệu → thông báo Zalo. Có thêm tab Đọc văn bản (chuyển văn bản thành audio).
 
 ## File
 ```
@@ -16,6 +16,8 @@ moduleHS/record/
   pipeline.ts     FFmpeg + OpenAI: phiên âm, biên bản, dịch, giọng đọc, phụ đề trực tiếp
   office.ts       tạo .docx/.xlsx, đọc và điền thẳng vào file mẫu
   data.ts         lưu trữ (thư mục), cấu hình, hằng số
+  context.ts      ngữ cảnh cuộc họp lấy tự động từ dữ liệu HireX (thành viên, màn hình, thuật ngữ)
+  minutes.ts      biên bản: làm sạch JSON của AI, dựng Word / HTML theo mẫu
   zalo.ts         gửi thông báo bằng nick Zalo của HireX
 ```
 Bên ngoài `moduleHS/` có 5 chỗ nối:
@@ -47,11 +49,20 @@ Bên ngoài `moduleHS/` có 5 chỗ nối:
 - **Micro** chỉ chạy trên HTTPS hoặc localhost. Trang `app.hirexmkt.online` đã dùng HTTPS.
 - **Chuyển dữ liệu cũ**: chép thư mục `data/` của meeting-hub vào `runtime/hs-record/`, gồm `m/`, `cfg/`, `templates/`.
 
-## Bối cảnh công ty
-Cài đặt › **Công ty** (`runtime/hs-record/cfg/company.json`): bối cảnh + danh sách thành viên (Tên — vai trò / phòng ban).
-Dùng cho mọi cuộc họp: câu đầu của bối cảnh + tên thành viên đi vào prompt/keywords phiên âm; toàn bộ đi vào ngữ cảnh viết biên bản (không chép nguyên văn).
+## Ngữ cảnh cuộc họp (tự động, không cần cài đặt)
+Không còn Chủ đề / Mẫu báo cáo / Từ vựng / Công ty nhập tay. `context.ts` tự lấy từ dữ liệu HireX (cùng nguồn Soda đọc), làm mới 10 phút / lần:
+- Thành viên: tài khoản HireX (tên, bộ phận, quản trị viên), chủ sở hữu ở Tài nguyên, người dùng Human; CEO = anh Dũng.
+- Hệ thống: tên màn / chức năng HireX và nghiệp vụ (Suối Nguồn, Soda, Hola/Hole, Tài nguyên, Vọng gác, Cú vọ, KIT, Hạng 1–7, X1/X2, AM1/AM2…), nhãn Suối Nguồn, khách hàng nhiều CV, job đang tuyển, 5 cuộc họp gần nhất.
+Dùng cho: prompt phiên âm (tên người + thuật ngữ), từ khoá phụ đề trực tiếp, bối cảnh viết biên bản. Sửa phần cố định ở `HIREX_MAP` / `TERMS` trong `context.ts`.
+
+## Biên bản
+- AI (`HS_RECORD_MINUTES_MODEL`, mặc định `gpt-5.6-sol`; lỗi model thì dùng `HS_RECORD_TEXT_MODEL`) viết theo kiểu CEO tự ghi chú: từng màn / việc, ý ngắn cụ thể (đổi gì → thành gì, ai làm, số liệu), không lời dẫn chung chung. Trả JSON có cấu trúc → `minutes.ts` dựng Word + HTML cùng một bố cục.
+- Bố cục theo mẫu người dùng chọn: Arial 10, tiêu đề đỏ có gạch chân, mục I–V (Tóm tắt điều hành · Nội dung thảo luận · Kết luận và quyết định · Công việc cần thực hiện (bảng) · Vấn đề chưa chốt), chân trang "Trang x / y".
+- Xong thì lưu vào **Tài liệu › Tài liệu HireX › Biên bản cuộc họp** (bảng `hirex_documents`) để Soda đọc được ("gần nhất R&D họp gì"); tạo lại thì cập nhật đúng tài liệu đó.
+- Tạo lại: dùng lại bản phiên âm đã có, chỉ viết lại biên bản. Bản ghi cũ (Excel / điền mẫu) vẫn xem và tải được như trước.
 
 ## Phụ đề trực tiếp
-- Mặc định: bộ nhận dạng của trình duyệt (`SpeechRecognition`: Chrome → máy chủ Google, Edge → Microsoft). Chữ hiện ngay khi nói, tự sửa khi chốt câu; câu chốt qua `live_tr` (sửa Từ vựng + dịch). Phiên tự ngắt thì mở lại ngay.
-- Không hỗ trợ / bị chặn / lỗi mạng liên tục → tự chuyển OpenAI realtime. Đổi tay ở nút "Google / OpenAI" trên khung phụ đề.
-- Biên bản vẫn phiên âm lại từ file ghi âm đầy đủ sau cuộc họp.
+- Một bộ nhận dạng (OpenAI realtime `gpt-live-transcribe`), tự nhận tiếng Việt / English / 日本語 khi người nói đổi qua lại; không còn chọn ngôn ngữ nói hay Google / OpenAI. Nút Gốc · VI · EN · JA chỉ đổi ngôn ngữ hiển thị (dịch).
+- Mỗi câu 2 bước: chữ nháp hiện ngay khi đang nói → nói xong câu, trình duyệt gửi lại âm thanh của đúng câu đó (WAV, `live_fix`) cho model phiên âm chính kèm ngữ cảnh HireX → thay bằng chữ chuẩn (thường 1–2 giây), rồi mới dịch.
+- Realtime không nối được → tự cắt đoạn 3 giây gửi lên máy chủ (cũng có ngữ cảnh).
+- Biên bản vẫn phiên âm lại từ file ghi âm đầy đủ sau cuộc họp (3 phần chạy song song).

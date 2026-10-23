@@ -6,7 +6,7 @@ import { getAccountContext } from "@/modules/identity/server/get-account-context
 import { canAccessChannelAccount, hasPermission } from "@/modules/access/server/access-control";
 import { careTaskTitle, EMPTY_FLOW, normalizeFlow, OUTCOME_TAGS, type RecFlowState, type RecOutcome } from "../core/rec-flow";
 
-type Db = ReturnType<typeof createPrivilegedClient>;
+export type Db = ReturnType<typeof createPrivilegedClient>;
 export interface FlowConversation { id: string; workspaceId: string; contactId: string | null; channelType: string; channelAccountId: string }
 
 const FLOW_CHANNELS = ["ZALO", "FACEBOOK", "FACEBOOK_PROFILE"];
@@ -27,7 +27,7 @@ export async function flowConversation(conversationId: string, permission: "inbo
     channelType: String(data.channel_type), channelAccountId: data.channel_account_id } };
 }
 
-function keyed(db: Db, conversation: FlowConversation) {
+export function keyed(db: Db, conversation: FlowConversation) {
   const query = db.from("candidate_flow_states").select("id,step,facts,offered_job_ids,rejected_jobs,outcome").eq("workspace_id", conversation.workspaceId);
   return conversation.contactId ? query.eq("contact_id", conversation.contactId) : query.eq("conversation_id", conversation.id).is("contact_id", null);
 }
@@ -38,7 +38,7 @@ export async function readFlow(db: Db, conversation: FlowConversation): Promise<
   return { id: data.id, state: normalizeFlow({ step: data.step, facts: data.facts, offeredJobIds: data.offered_job_ids, rejectedJobs: data.rejected_jobs, outcome: data.outcome }) };
 }
 
-export async function writeFlow(db: Db, conversation: FlowConversation, userId: string, state: RecFlowState): Promise<boolean> {
+export async function writeFlow(db: Db, conversation: FlowConversation, userId: string | null, state: RecFlowState): Promise<boolean> {
   const value = normalizeFlow(state);
   const row = { step: value.step, facts: value.facts, offered_job_ids: value.offeredJobIds, rejected_jobs: value.rejectedJobs, outcome: value.outcome, updated_by: userId };
   const existing = await readFlow(db, conversation);
@@ -47,7 +47,7 @@ export async function writeFlow(db: Db, conversation: FlowConversation, userId: 
     : await db.from("candidate_flow_states").insert({ ...row, workspace_id: conversation.workspaceId,
       contact_id: conversation.contactId, conversation_id: conversation.contactId ? null : conversation.id });
   if (error) return false;
-  if (value.outcome !== existing.state.outcome) {
+  if (value.outcome !== existing.state.outcome && userId) {
     // The flow is saved either way; a failed follow-up (tag, assignment, task) is logged, not shown as a failed save.
     await applyOutcome(db, conversation, userId, existing.state.outcome, value.outcome).catch((cause) =>
       console.error("[rec-flow] outcome follow-up failed", cause instanceof Error ? cause.message.slice(0, 80) : "UNKNOWN"));

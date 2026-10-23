@@ -15,7 +15,7 @@ const bodySchema = z.object({
 export async function POST(request: Request) {
   // Same-origin only: the panel calls this from the app itself.
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) {
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) {
     return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
   }
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));

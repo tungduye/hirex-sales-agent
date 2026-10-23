@@ -10,7 +10,7 @@ const bodySchema = z.object({ decision: z.enum(["confirm", "cancel"]), text: z.s
 /** The member confirms or cancels one of their own assistant proposals. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) {
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) {
     return NextResponse.json({ ok: false, message: "Không được phép." }, { status: 403 });
   }
   const { id } = await params;

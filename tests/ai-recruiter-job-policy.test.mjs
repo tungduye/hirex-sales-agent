@@ -13,3 +13,10 @@ test("loại công ty đã từ chối",()=>{const eligible=eligibleRecruiterJob
 test("hỏi thời điểm nhận việc trước CV",()=>{const reply=availabilityFollowup("65M gross",null,"Sabitech");assert.match(reply,/bắt đầu công việc mới/u);assert.doesNotMatch(reply,/CV/iu);assert.equal(availabilityFollowup("65M gross","Sau 30 ngày","Sabitech"),null)});
 test("không coi việc nhắc đến CV là đã nhận CV",()=>{assert.equal(hasRecruiterCvAttachment({attachments:[]}),false);assert.equal(candidateExplicitlyHasNoCv("Anh chưa chuẩn bị CV, cuối tuần anh gửi em được không"),true)});
 test("chỉ xác nhận CV khi có tệp CV đính kèm",()=>{assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"CV_Nguyen_Van_A.pdf"}]}),true);assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"anh_chan_dung.jpg"}]}),false)});
+test("CV tiếng Nhật hoặc file Word/PDF gửi sau khi xin CV",()=>{
+ assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"【職務経歴書】加藤良.docx"}]}),true);
+ assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"履歴書_Tanaka.pdf"}]}),true);
+ assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"NguyenVanA.docx"}]}),false,"a random file is not a CV");
+ assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"NguyenVanA.docx"}]},true),true,"a Word file right after the CV was asked");
+ assert.equal(hasRecruiterCvAttachment({attachments:[{filename:"anh.jpg"}]},true),false,"a photo is not a CV");
+});

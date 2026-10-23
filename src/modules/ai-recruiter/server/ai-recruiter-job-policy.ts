@@ -14,12 +14,15 @@ export function availabilityFollowup(expectedSalary:unknown,availability:unknown
   return `Mức ${expectedSalary.trim()} nằm trong range${company}. Anh dự kiến có thể bắt đầu công việc mới từ thời điểm nào nhé.`;
 }
 
-export function hasRecruiterCvAttachment(metadata:unknown){
+/** A CV file: named like one (CV, resume, 履歴書, 職務経歴書, hồ sơ…), or any document (PDF, Word) sent once the CV was asked for. */
+export function hasRecruiterCvAttachment(metadata:unknown,cvAsked=false){
   if(!metadata||typeof metadata!=="object"||Array.isArray(metadata)||!("attachments" in metadata)||!Array.isArray(metadata.attachments))return false;
   return metadata.attachments.some(value=>{
     if(!value||typeof value!=="object"||Array.isArray(value))return false;
     const filename="filename" in value&&typeof value.filename==="string"?value.filename:"";
-    return /(?:^|[^\p{L}\p{N}])(cv|resume|résumé)(?:[^\p{L}\p{N}]|$)/iu.test(filename);
+    const contentType="contentType" in value&&typeof value.contentType==="string"?value.contentType.toLowerCase():"";
+    if(/(?:^|[^\p{L}\p{N}])(cv|resume|résumé)(?:[^\p{L}\p{N}]|$)|履歴書|職務経歴書|経歴書|レジュメ|hồ sơ|ho so|ho_so|sơ yếu|so yeu|lý lịch|ly lich/iu.test(filename))return true;
+    return cvAsked&&(/\.(?:pdf|docx?|odt|pages|rtf)$/iu.test(filename)||/pdf|msword|wordprocessingml|opendocument\.text/u.test(contentType));
   });
 }
 

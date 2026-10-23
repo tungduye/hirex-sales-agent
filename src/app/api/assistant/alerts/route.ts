@@ -39,7 +39,7 @@ const bodySchema = z.object({ action: z.literal("read"), ids: z.array(z.string()
 
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin && !origin.endsWith("://app.hirexmkt.online")) return NextResponse.json({ ok: false }, { status: 403 });
+  if (origin && origin !== new URL(request.url).origin && !/:\/\/app2?\.hirexmkt\.online$/.test(origin)) return NextResponse.json({ ok: false }, { status: 403 });
   const me = await member();
   if (!me) return NextResponse.json({ ok: false }, { status: 401, headers: noStore });
   const body = bodySchema.safeParse(await request.json().catch(() => null));

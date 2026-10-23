@@ -92,7 +92,7 @@ export function ConversationComposer({conversationId,channelType,conversationSta
     const pending=pendingFlowRef.current;pendingFlowRef.current=null;
     if(!pending||!recFlowChat||!draftKept(pending.draft,sent))return;
     const flow=pending.flow;
-    const saved=await saveRecFlow({conversationId,flow}).catch(()=>null);
+    const saved=await saveRecFlow({conversationId,flow,source:"draft"}).catch(()=>null);
     if(saved)window.dispatchEvent(new CustomEvent(REC_FLOW_EVENT,{detail:{conversationId,state:saved}}));
   }
   useEffect(()=>{

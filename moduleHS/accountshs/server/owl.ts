@@ -406,6 +406,10 @@ async function llmPlan(b: Body, c: Cfg, B: R.Brain, d: DS): Promise<R.Plan> {
 }
 
 /** POST ai_chat {text, engine?: auto|rules|ai, ctx:{selected, spec, reply, learn, sub, rejected}, hist} | {spec, ops?, rows?, cols?} (chạy lại khi bỏ 1 chip) */
+/** Bỏ chữ chỉ chính mục này ("trong tài nguyên", "ở cú vọ", "mục AccountsHS"…): không phải điều kiện lọc
+ *  (trước đây "tài nguyên" bị khớp nhầm địa điểm "Thái Nguyên"). Câu chỉ còn lại rỗng thì giữ nguyên. */
+const SELF = /(^|[\s,.;:!?])(?:(?:trong|ở|o|tại|tai|bên|ben|của|cua|theo|từ|tu)\s+)?(?:(?:mục|muc|màn|man|phần|phan|trang|bảng|bang|dữ liệu|du lieu)\s+)?(?:tài nguyên|tai nguyen|cú vọ|cu vo|accountshs|accounts hs)(?=$|[\s,.;:!?])/giu;
+function selfStrip(t: string) { const x = t.replace(SELF, "$1").replace(/\s{2,}/g, " ").trim(); return x.length >= 2 ? x : t; }
 async function chat(b: Body): Promise<O> {
   const c = await cfg(), ctx = (Q.isObj(b.ctx) ? b.ctx : {}) as R.Ctx;
   if (!c.on) return { kind: "error", msg: "Cú vọ đang tắt - bật trong Cài đặt > Cú vọ" };
@@ -418,7 +422,7 @@ async function chat(b: Body): Promise<O> {
       if (pl.it === "set" && !["status", "where", "q", "owner", "dept", "ids"].some((k) => R.tru(sp[k]))) throw new Error("Đã bỏ hết điều kiện - hãy nhắn lại đối tượng cần đổi");
       return await execute(d, pl, B);
     }
-    const text = String(b.text), mode = String(b.engine || (c.auto_ai ? "auto" : "rules")), ready = hasAi(c);
+    const text = selfStrip(String(b.text)), mode = String(b.engine || (c.auto_ai ? "auto" : "rules")), ready = hasAi(c);
     const crmx = CRM.explain(text, d.meta.fields); if (crmx) return { kind: "say", spec: {}, chips: [], msg: crmx };
     const [sig, slots] = R.signature(text, B), [lsig, lslots] = R.signature(text, B, false);
     let pl: R.Plan | null = null, src: string | null = null, note: string | null = null, rules: R.Plan | null = null, pat: R.Pattern | null = null, aierr: string | null = null;

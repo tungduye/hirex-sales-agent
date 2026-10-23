@@ -16,7 +16,7 @@ function Write-SafeLog([string]$Result,[int]$Code) {
 
 try {
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
-    try { $lockStream = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) }
+    try { $lockStream = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::Read) }
     catch { Write-SafeLog "OVERLAP_SKIPPED" 0; exit 0 }
     $environmentFile = Join-Path $projectRoot ".env.local"
     $matches = @(Get-Content -LiteralPath $environmentFile | Where-Object { $_ -match '^\s*AUTOMATION_CRON_SECRET\s*=' })

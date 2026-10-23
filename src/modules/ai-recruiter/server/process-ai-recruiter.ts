@@ -2,7 +2,7 @@ import "server-only";
 import { approvedIntroReply, withoutQuestionMarks } from "../core/approved-intro-flow";
 import { initialRecruiterOpening, withFirstGreeting } from "../core/recruiter-opening";
 import { recoverIntroMemory } from "../core/intro-memory";
-import { appliedAnswer, CV_CLOSING, cvRequest, jobIntroduction, nextJobIntroduction, nextScriptJob, NO_CV_REPLY, processPitch, SALARY_QUESTION, salaryFollowup, salaryInText, startDateInText, startFollowup } from "../core/recruiter-script";
+import { appliedAnswer, cvClosing, cvRequest, jobIntroduction, nextJobIntroduction, nextScriptJob, NO_CV_REPLY, processPitch, SALARY_QUESTION, salaryFollowup, salaryInText, startDateInText, startFollowup } from "../core/recruiter-script";
 import { introductionQuestion, missingIntroField } from "../core/profile-disclosure-gate";
 import { containsJobDisclosure } from "../core/anonymous-job-preview";
 import { candidateBurst, shapeReply } from "../core/reply-shaping";
@@ -162,7 +162,12 @@ async function processRun(run: {
       .update({ input_snapshot: { ...inputSnapshot, aiAttempt } })
       .eq("id", run.id);
     const anonymousOnly = String(bot.bot_type) === "RECRUITER" && missingIntroField(priorProfile) !== null;
-    const cvEvidence = hasCvEvidence(inbound),
+    // The CV may come in any message of the candidate's latest burst ("[file]", "anh gửi jd nhé", "à cv chứ"), and a
+    // Word/PDF file sent right after the bot asked for the CV is the CV whatever its name (【職務経歴書】….docx).
+    const askedCv = /\bcv\b/iu.test([...contextMessages].reverse().find((message) => message.role === "OUTBOUND")?.text ?? "");
+    const burstMessages: typeof messages = [];
+    for (const message of messages ?? []) { if (message.direction !== "INBOUND") break; burstMessages.push(message); }
+    const cvEvidence = hasCvEvidence(inbound, askedCv) || burstMessages.some((message) => hasCvEvidence(message, askedCv)),
       latestText = candidateBurst(contextMessages) || messageContext(inbound),
       noCvYet = candidateExplicitlyHasNoCv(latestText),
       generated = await generateRecruiterReply({
@@ -299,7 +304,11 @@ async function processRun(run: {
     // Salary and start date are also read from the candidate's own words, so a step never depends on the model
     // having filed them as facts.
     if (isRecruiter && lastOfferedJob) {
-      const salary = supportedFacts.find((fact) => fact.fieldKey === "expected_salary")?.value ?? result.profileUpdates.expected_salary ?? salaryInText(latestText);
+      // In the candidate's own words ("60tr"), not as the model rewrote it ("60M gross").
+      const said = salaryInText(latestText);
+      const filed = supportedFacts.find((fact) => fact.fieldKey === "expected_salary");
+      if (said && filed) { filed.value = said; profileBase.expected_salary = said; }
+      const salary = said ?? filed?.value ?? result.profileUpdates.expected_salary;
       if (typeof salary === "string" && salary.trim() && !supportedFacts.some((fact) => fact.fieldKey === "expected_salary")) {
         profileBase.expected_salary = salary.trim();
         supportedFacts.push({ fieldKey: "expected_salary", value: salary.trim(), confidence: "EXPLICIT", evidenceQuote: salary.trim() } as (typeof supportedFacts)[number]);
@@ -415,7 +424,7 @@ async function processRun(run: {
     const cvAsked = /\bcv\b/iu.test(lastBotText);
     const scriptStop =
       isRecruiter && lastOfferedJob && !rejectionOverride
-        ? cvEvidence ? { reply: CV_CLOSING, stopBot: true, notification: "CV_RECEIVED" }
+        ? cvEvidence ? { reply: cvClosing(lastOfferedJob, /\bjd\b|mô tả công việc|mo ta cong viec/iu.test(latestText)), stopBot: true, notification: /\bjd\b|mô tả công việc/iu.test(latestText) ? "CV_RECEIVED · ứng viên xin JD" : "CV_RECEIVED" }
           : noCvYet && cvAsked ? { reply: NO_CV_REPLY, stopBot: true, notification: "NO_CV_YET" }
           : null
         : null;

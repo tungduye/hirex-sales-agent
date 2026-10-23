@@ -8,11 +8,23 @@ import { askAccounts } from "./owl";
 type Scope = { context: { permissions: readonly string[] } };
 type Row = { tab?: string; label?: string; status?: string | null; owner?: string | null };
 
+/** "facebook sống của REC, của SALE hoặc của Hải" → ["facebook sống của REC", "… của SALE", "… của Hải"]; không phải câu liệt kê → null. */
+export function splitGroups(q: string): string[] | null {
+  const parts = q.split(/\s*(?:,|;|\bhoặc\b|\bhay\b|\bvà\b|\bvới\b)?\s*\b(?=của\s)/iu);
+  if (parts.length < 3) return null;
+  const base = parts[0].trim(), gs = parts.slice(1).map((x) => x.replace(/^của\s+/iu, "").replace(/[\s,;]+(?:hoặc|hay|và|với)?\s*$/iu, "").replace(/[?.!\s]+$/u, "").trim()).filter(Boolean);
+  return base && gs.length >= 2 && gs.length <= 6 ? gs.map((g) => `${base} của ${g}`) : null;
+}
 export const accountsTools: Record<string, (args: Record<string, unknown>, scope: Scope) => Promise<unknown>> = {
   async tai_nguyen(args, scope) {
     if (!scope.context.permissions.includes("accounts.view")) return { loi: "Bạn chưa có quyền mục Tài nguyên (Tài khoản · Xem)." };
     const q = String(args.cau_hoi ?? "").trim().slice(0, 400);
     if (!q) return { loi: "Cần câu hỏi." };
+    const split = splitGroups(q);
+    if (split) {   // câu liệt kê nhiều nhóm: trả số của từng nhóm (Soda trả lời từng dòng)
+      const each = await Promise.all(split.map(async (x) => { try { const y = await askAccounts(x); return { cau: x, so_luong: y.count ?? null, tra_loi: y.msg, dieu_kien_da_hieu: ((y.chips as Array<{ t?: string }> | undefined) ?? []).map((c) => c.t).filter(Boolean) }; } catch (e) { return { cau: x, loi: e instanceof Error ? e.message : String(e) }; } }));
+      return { theo_tung_nhom: each, ghi_chu: "Trả lời TỪNG nhóm một dòng (số + điều kiện đã hiểu). Một tài khoản có thể thuộc nhiều nhóm (vd Hải thuộc REC) nên không cộng dồn." };
+    }
     let r: Record<string, unknown>;
     try { r = await askAccounts(q); } catch (e) { return { loi: e instanceof Error ? e.message : String(e) }; }
     const kind = String(r.kind ?? "");
