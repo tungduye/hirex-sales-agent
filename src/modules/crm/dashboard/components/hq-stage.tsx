@@ -126,13 +126,25 @@ function RoomSummary({ room, data, rooms, layout, onPick, onFloor }: { room: str
     const cv = details.cv;
     body = cv ? <>
       <div className={styles.tiles}>
-        <Tile label="CV mới hôm nay" value={cv.today} tone="cyan" />
+        <Tile label="CV mới hôm nay" value={cv.today} tone="cyan" note="ứng viên gửi CV trong chat" />
         <Tile label="Hôm qua" value={cv.yesterday} />
-        <Tile label="Tổng CV" value={cv.total} note="như màn CV" />
+        <Tile label="Tháng này" value={cv.month} />
+        <Tile label="Từ MKT Zalo (tháng)" value={cv.fromCampaignMonth} tone="violet" />
       </div>
-      <p className={styles.drawerNote}>Tính theo ngày tạo trên Human. {cv.lastSync ? `Human cập nhật lần cuối ${cv.lastSync} (mỗi 6 giờ).` : ""}</p>
-      {open("/cvs", "Mở CV")}
-    </> : <NoAccess what="CV" />;
+      <p className={styles.drawerNote}>CV chuyển hóa: ứng viên gửi file CV (PDF, Word, tên có CV/resume/履歴書…) trong chat 1-1 Zalo/Facebook trên nick tuyển dụng hoặc sau khi phản hồi chiến dịch; mỗi ứng viên tính một lần. File tên kiểu JD, hợp đồng, biên bản… không tính.</p>
+      <h4 className={styles.drawerH}>{cv.today ? "Hôm nay" : "Gần nhất"}</h4>
+      {cv.recent.length ? cv.recent.map((item, index) => (
+        <button key={index} type="button" className={styles.drawerLine} onClick={() => openInbox(router, item.href)}>
+          <span>{item.name}<small>{item.file} · {item.nick}{item.owner ? ` (${item.owner})` : ""}{item.campaign ? ` · ${item.campaign}` : ""}</small></span><b className={styles.mono}>{item.at}</b>
+        </button>
+      )) : <p className={styles.drawerEmpty}>Chưa có CV chuyển hóa.</p>}
+      {cv.human ? <>
+        <h4 className={styles.drawerH}>Màn CV (Human)</h4>
+        <div className={styles.tiles}><Tile label="Human hôm nay" value={cv.human.today} /><Tile label="Hôm qua" value={cv.human.yesterday} /><Tile label="Tổng CV" value={cv.human.total} /></div>
+        <p className={styles.drawerNote}>Tính theo ngày tạo trên Human. {cv.human.lastSync ? `Human cập nhật lần cuối ${cv.human.lastSync} (mỗi 6 giờ).` : ""}</p>
+        {open("/cvs", "Mở CV")}
+      </> : null}
+    </> : <NoAccess what="Suối Nguồn" />;
   } else if (room === "meeting") {
     const calendar = details.calendar;
     body = <>
@@ -195,6 +207,7 @@ function PersonCard({ person, onClose }: { person: HqMember; onClose: () => void
     <div className={styles.personTop}><HqAvatar person={person} size={56} /><div className={styles.tiles}>
       <Tile label="Chưa trả lời" value={person.waiting} tone={person.tone === "alert" ? "red" : "cyan"} />
       <Tile label="Phản hồi chiến dịch" value={person.campaignReplies} tone="violet" />
+      <Tile label="CV chuyển hóa tháng này" value={person.cvMonth} tone="cyan" note={person.cvToday ? `+${person.cvToday} hôm nay` : undefined} />
     </div></div>
     <p className={styles.drawerNote}>{person.doing}. Số chưa trả lời = Suối Nguồn lọc “Người phụ trách: {person.name}”, tab Chưa trả lời.</p>
     <h4 className={styles.drawerH}>Nick ({person.nicks.length})</h4>

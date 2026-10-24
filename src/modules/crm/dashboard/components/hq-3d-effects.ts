@@ -5,7 +5,7 @@ import { FONT, glow, label, type T } from "@/modules/crm/dashboard/components/hq
 // and plays what happened, spread over the next half minute so the office feels alive:
 //   a member got new unanswered messages → envelopes fly from Trạm tin nhắn to their desk;
 //   a member's waiting count went down → a green tick rises over them (they replied);
-//   new CVs today → files fly from the lobby into Kho CV;
+//   a candidate sent a CV in a chat (CV chuyển hóa) → the file flies from that member's desk into Kho CV;
 //   new campaign replies → a small firework over Tháp phát sóng, and a reply bubble flies to whoever runs the campaign;
 //   a new member (joined in the last days, or just added) → confetti and "Chào mừng" over their desk.
 
@@ -19,7 +19,7 @@ type Item = { start: number; begin: () => boolean; step: (t: number, delta: numb
 export interface Effects {
   envelope: (to: () => P3 | null, delay: number) => void;
   reply: (at: () => P3 | null, delay: number) => void;
-  cv: (delay: number) => void;
+  cv: (delay: number, from?: () => P3 | null) => void;
   firework: (delay: number) => void;
   welcome: (at: () => P3 | null, name: string, delay: number) => void;
   campaignReply: (to: () => P3 | null, delay: number) => void;
@@ -131,7 +131,8 @@ export function createEffects(THREE: T, parent: Three.Object3D): Effects {
 
   const envelope: Effects["envelope"] = (to, delay) => fly(envelopeTexture, () => INBOX, () => { const point = to(); return point ? { ...point, y: point.y + 62 } : null; }, delay, { size: 22, height: 90, duration: 2.6, badge: "+1 tin" });
   const campaignReply: Effects["campaignReply"] = (to, delay) => fly(bubbleTexture, () => TOWER_TOP, () => { const point = to(); return point ? { ...point, y: point.y + 62 } : null; }, delay, { size: 22, height: 110, duration: 2.8, badge: "+1 phản hồi", badgeColor: "#6366F1" });
-  const cv: Effects["cv"] = (delay) => fly(fileTexture, () => LOBBY_DOOR, () => CV_SHELVES, delay, { size: 24, height: 120, duration: 3, badge: "+1 CV", badgeColor: "#0891B2" });
+  // A CV sent in a chat: the file flies from the desk of the nick's main user (or the lobby) into Kho CV.
+  const cv: Effects["cv"] = (delay, from) => fly(fileTexture, () => { const point = from?.(); return point ? { ...point, y: point.y + 50 } : LOBBY_DOOR; }, () => CV_SHELVES, delay, { size: 24, height: 120, duration: 3, badge: "+1 CV", badgeColor: "#0891B2" });
 
   const reply: Effects["reply"] = (at, delay) => {
     const item: Item = {

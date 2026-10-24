@@ -32,6 +32,8 @@ export interface HqNick { id: string; name: string; channel: string; waiting: nu
 export interface HqMember {
   id: string; name: string; initials: string; department: string | null; doing: string; status: string; tone: "busy" | "alert" | "meet" | "idle"; waiting: number; avatarUrl: string | null;
   meeting: boolean; market: string | null; isNew: boolean; nicks: HqNick[]; today: Array<{ time: string; title: string; kind: string; now: boolean }>; campaignReplies: number;
+  /** CV chuyển hóa on their nicks today / this month. */
+  cvToday: number; cvMonth: number;
 }
 /** The numbers drawn on the office map (null = the member may not see that part). */
 export interface HqStats { waiting: number | null; tagged: number | null; sent: number | null; replies: number | null; running: number | null; aiActive: number | null; cvToday: number | null; meetingsToday: number; interviewNow: string | null }
@@ -40,7 +42,9 @@ export interface HqDetails {
   inbox: { waiting: number; personal: number; tagged: number; important: number; unowned: number; capped: boolean; people: Array<{ id: string; name: string; waiting: number }> } | null;
   zalo: { running: number; sent: number; replies: number; repliesToday: number; campaigns: Array<{ id: string; name: string; status: string; sent: number; replies: number; owner: string | null }> } | null;
   broadcasts: { running: number; recent: Array<{ id: string; name: string; status: string; at: string }> } | null;
-  cv: { today: number; yesterday: number; total: number; lastSync: string | null } | null;
+  /** Human = the CV screen (Human); the rest = CV chuyển hóa (a candidate sent a CV in a Zalo / Facebook chat). */
+  cv: { today: number; yesterday: number; month: number; fromCampaignMonth: number; recent: Array<{ name: string; nick: string; owner: string | null; file: string; at: string; campaign: string | null; href: string }>;
+    human: { today: number; yesterday: number; total: number; lastSync: string | null } | null } | null;
   calendar: { scope: string; events: Array<{ id: string; time: string; title: string; kind: string; who: string; now: boolean }> };
   ai: { active: number; sentToday: number; draftsToday: number } | null;
   soda: { pending: number; recent: Array<{ title: string; state: string; at: string }> };
@@ -72,7 +76,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   const [isAdmin, accessible, { data: profileRows }, { data: nickRows }] = await Promise.all([
     isWorkspaceAdmin(), getAccessibleChannelAccountIds(),
     db.from("profiles").select("id,full_name,department,manager_id,avatar_url,created_at").eq("workspace_id", workspaceId),
-    db.from("channel_accounts").select("primary_profile_id,market,display_name").eq("workspace_id", workspaceId).is("deleted_at", null).not("primary_profile_id", "is", null),
+    db.from("channel_accounts").select("id,primary_profile_id,market,display_name").eq("workspace_id", workspaceId).is("deleted_at", null).not("primary_profile_id", "is", null),
   ]);
   const profiles = ((profileRows ?? []) as Row[]).map((row) => ({ id: String(row.id), name: String(row.full_name ?? "Thành viên"), department: typeof row.department === "string" ? row.department : null, managerId: typeof row.manager_id === "string" ? row.manager_id : null, avatarUrl: typeof row.avatar_url === "string" && row.avatar_url.startsWith("https://") ? row.avatar_url : null,
     isNew: typeof row.created_at === "string" && now - Date.parse(row.created_at) < 7 * 86_400_000 }));
@@ -85,6 +89,8 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     votes.set(market, (votes.get(market) ?? 0) + 1);
     marketVotes.set(row.primary_profile_id, votes);
   }
+  const ownerOfNick = new Map<string, string>(), nickName = new Map<string, string>();
+  for (const row of (nickRows ?? []) as Row[]) { if (typeof row.primary_profile_id === "string") ownerOfNick.set(String(row.id), row.primary_profile_id); if (typeof row.display_name === "string") nickName.set(String(row.id), row.display_name); }
   const ownersOfNickName = new Map<string, string[]>();
   for (const row of (nickRows ?? []) as Row[]) if (typeof row.display_name === "string" && typeof row.primary_profile_id === "string") ownersOfNickName.set(row.display_name, [...(ownersOfNickName.get(row.display_name) ?? []), row.primary_profile_id]);
   const marketOf = (id: string) => { const votes = [...(marketVotes.get(id) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); return votes[0] && votes[0][0] !== "OTHER" ? votes[0][0] : null; };
@@ -159,6 +165,30 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     ]);
     const lastSync = ((blocks ?? []) as Row[])[0]?.last_synced_at;
     return { today: today ?? 0, yesterday: Math.max(0, (twoDays ?? 0) - (today ?? 0)), total: total ?? 0, lastSync: typeof lastSync === "string" ? dayTime(lastSync) : null };
+  })();
+
+  // ---- CV chuyển hóa (migration 145): CVs candidates sent in Zalo / Facebook chats, on the nicks this member may see ----
+  const conversions = (async () => {
+    if (!can("inbox.view")) return null;
+    const monthStart = new Date(Date.UTC(new Date(now + VN_OFFSET).getUTCFullYear(), new Date(now + VN_OFFSET).getUTCMonth(), 1) - VN_OFFSET);
+    const since = new Date(Math.min(monthStart.getTime(), dayStart.getTime() - 86_400_000));
+    let query = db.from("chat_cv_conversions").select("conversation_id,channel_account_id,file_name,first_cv_at,campaign_name").eq("workspace_id", workspaceId).gte("first_cv_at", since.toISOString()).order("first_cv_at", { ascending: false }).limit(2000);
+    if (accessible) query = query.in("channel_account_id", accessible.length ? accessible : [NO_ID]);
+    const { data, error } = await query;
+    if (error) return null;
+    const rows = ((data ?? []) as Row[]).map((row) => ({ conversation: String(row.conversation_id), nick: String(row.channel_account_id), file: String(row.file_name ?? "CV"), at: Date.parse(String(row.first_cv_at)), campaign: typeof row.campaign_name === "string" ? row.campaign_name : null }));
+    const today = rows.filter((row) => row.at >= dayStart.getTime()), month = rows.filter((row) => row.at >= monthStart.getTime());
+    const latest = today.length ? today.slice(0, 10) : rows.slice(0, 5);
+    const { data: chats } = latest.length ? await db.from("omnichannel_conversations").select("id,metadata").in("id", latest.map((row) => row.conversation)) : { data: [] };
+    const nameOf = new Map(((chats ?? []) as Row[]).map((row) => { const meta = (row.metadata ?? {}) as Row; return [String(row.id), String(meta.participantDisplayName ?? meta.conversationDisplayName ?? "Ứng viên")]; }));
+    const byOwnerToday = new Map<string, number>(), byOwnerMonth = new Map<string, number>();
+    for (const row of month) { const owner = ownerOfNick.get(row.nick); if (owner) byOwnerMonth.set(owner, (byOwnerMonth.get(owner) ?? 0) + 1); }
+    for (const row of today) { const owner = ownerOfNick.get(row.nick); if (owner) byOwnerToday.set(owner, (byOwnerToday.get(owner) ?? 0) + 1); }
+    return {
+      today: today.length, yesterday: rows.filter((row) => row.at >= dayStart.getTime() - 86_400_000 && row.at < dayStart.getTime()).length,
+      month: month.length, fromCampaignMonth: month.filter((row) => row.campaign).length, byOwnerToday, byOwnerMonth,
+      recent: latest.map((row) => { const owner = ownerOfNick.get(row.nick); return { name: nameOf.get(row.conversation) ?? "Ứng viên", nick: nickName.get(row.nick) ?? "Nick", owner: owner ? profiles.find((person) => person.id === owner)?.name ?? null : null, file: row.file, at: dayTime(new Date(row.at).toISOString()), campaign: row.campaign, href: `/inbox/all/${row.conversation}` }; }),
+    };
   })();
 
   // ---- Zalo Marketing (the same list as its screen) ----
@@ -265,7 +295,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     return items.sort((a, b) => b.sort - a.sort).slice(0, 10).map((item): HqFeedItem => ({ kind: item.kind, tone: item.tone, text: item.text, at: item.at, href: item.href }));
   })();
 
-  const [inboxData, calendarData, cvData, campaignData, broadcastData, aiData, sodaData, typingNow, feedItems] = await Promise.all([inbox, calendar, cvs, campaigns, broadcasts, aiRecruiter, soda, typing, feed]);
+  const [inboxData, calendarData, cvData, campaignData, broadcastData, aiData, sodaData, typingNow, feedItems, cvChat] = await Promise.all([inbox, calendar, cvs, campaigns, broadcasts, aiRecruiter, soda, typing, feed, conversions]);
 
   // Everyone the member may see is in the office (the plan is made from them); ?tang= only highlights one room.
   const team: HqMember[] = profiles
@@ -277,7 +307,8 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
       const status = meeting ? { status: "Đang họp", tone: "meet" as const } : waiting >= 100 ? { status: "Cần xem", tone: "alert" as const } : replying ? { status: "Đang nhắn", tone: "busy" as const } : { status: "—", tone: "idle" as const };
       const doing = [meeting ? `Họp: ${meeting}` : replying ? "Đang trả lời tin" : null, inboxData ? `${n(waiting)} chưa trả lời` : null].filter(Boolean).join(" · ") || "Chưa có hoạt động";
       return { id: person.id, name: person.name, initials: initials(person.name), department: person.department, doing, waiting, avatarUrl: person.avatarUrl, meeting: Boolean(meeting), market: marketOf(person.id), isNew: person.isNew,
-        nicks: inboxData?.nicksByOwner.get(person.id) ?? [], today: calendarData.byPerson.get(person.id) ?? [], campaignReplies: campaignData?.repliesByOwner.get(person.id) ?? 0, ...status };
+        nicks: inboxData?.nicksByOwner.get(person.id) ?? [], today: calendarData.byPerson.get(person.id) ?? [], campaignReplies: campaignData?.repliesByOwner.get(person.id) ?? 0,
+        cvToday: cvChat?.byOwnerToday.get(person.id) ?? 0, cvMonth: cvChat?.byOwnerMonth.get(person.id) ?? 0, ...status };
     })
     .sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "vi"))
     .slice(0, 400);
@@ -286,7 +317,8 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
   const calendarHref = `/calendar?pham_vi=${seesAll ? "ALL" : "TEAM"}`;
   const kpis: HqKpi[] = [
     { key: "waiting", room: "inbox", label: "Chưa trả lời", value: inboxData?.waiting ?? null, note: inboxData ? `${n(inboxData.tagged)} nhóm tag mình · 30 ngày` : "Cần quyền Suối Nguồn", href: "/inbox/all?view=waiting", tone: "alert" },
-    { key: "cv", room: "cv", label: "CV mới hôm nay", value: cvData?.today ?? null, note: cvData === null ? "Cần quyền CV" : `Hôm qua ${n(cvData.yesterday)} · tổng ${n(cvData.total)} CV`, href: "/cvs", tone: "info" },
+    // "CV mới hôm nay" = CV chuyển hóa (CVs candidates sent in Zalo / Facebook chats); the CV screen (Human) stays in the note.
+    { key: "cv", room: "cv", label: "CV mới hôm nay", value: cvChat?.today ?? null, note: cvChat === null ? "Cần quyền Suối Nguồn" : `Hôm qua ${n(cvChat.yesterday)} · tháng này ${n(cvChat.month)} (${n(cvChat.fromCampaignMonth)} từ MKT Zalo)${cvData ? ` · Human: ${n(cvData.today)} CV mới` : ""}`, href: "/cvs", tone: "info" },
     { key: "meet", room: "meeting", label: "Lịch hẹn hôm nay", value: calendarData.today, note: `${calendarData.interviews} phỏng vấn · ${calendarData.scope}`, href: calendarHref, tone: "meet" },
     { key: "replies", room: "tower", label: "Phản hồi chiến dịch Zalo", value: campaignData?.replies ?? null, note: campaignData ? `+${n(campaignData.repliesToday)} hôm nay · ${n(campaignData.sent)} tin gửi` : "Cần quyền Chiến dịch", href: "/campaigns/omnichannel", tone: "plain" },
   ];
@@ -296,7 +328,7 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     { key: "tower", name: "Tháp phát sóng · Zalo Mkt", meta: running === null ? "—" : `${running} đang chạy`, href: "/campaigns/omnichannel", tone: "violet" },
     { key: "meeting", name: "Phòng họp", meta: `${calendarData.today} lịch hôm nay`, href: calendarHref, tone: "violet" },
     { key: "ai", name: "Bàn AI Recruiter", meta: aiData === null ? "—" : `${aiData.active} UV đang tư vấn`, href: "/settings/ai-recruiter", tone: "green" },
-    { key: "cv", name: "Kho CV", meta: cvData === null ? "—" : `${cvData.today} mới hôm nay`, href: "/cvs", tone: "cyan" },
+    { key: "cv", name: "Kho CV", meta: cvChat === null ? "—" : `${cvChat.today} CV mới hôm nay`, href: "/cvs", tone: "cyan" },
   ];
   const people = profiles.filter((person) => visiblePeople.has(person.id) && floorMatches(floor, person.department))
     .map((person) => ({ id: person.id, name: person.name, waiting: inboxData?.byOwner.get(person.id) ?? 0 })).filter((person) => person.waiting > 0)
@@ -307,13 +339,13 @@ export async function getHqData(floorParam: string | undefined): Promise<HqData 
     kpis, rooms, feed: feedItems, team, canSeeTeam: seesAll || visiblePeople.size > 1,
     stats: {
       waiting: inboxData?.waiting ?? null, tagged: inboxData?.tagged ?? null, sent: campaignData?.sent ?? null, replies: campaignData?.replies ?? null,
-      running, aiActive: aiData?.active ?? null, cvToday: cvData?.today ?? null, meetingsToday: calendarData.today, interviewNow: calendarData.interviewNow,
+      running, aiActive: aiData?.active ?? null, cvToday: cvChat?.today ?? null, meetingsToday: calendarData.today, interviewNow: calendarData.interviewNow,
     },
     details: {
       inbox: inboxData ? { waiting: inboxData.waiting, personal: inboxData.waiting - inboxData.tagged, tagged: inboxData.tagged, important: inboxData.important, unowned: inboxData.unowned, capped: inboxData.capped, people } : null,
       zalo: campaignData ? { running: campaignData.running, sent: campaignData.sent, replies: campaignData.replies, repliesToday: campaignData.repliesToday, campaigns: campaignData.campaigns } : null,
       broadcasts: broadcastData,
-      cv: cvData,
+      cv: cvChat || cvData ? { today: cvChat?.today ?? 0, yesterday: cvChat?.yesterday ?? 0, month: cvChat?.month ?? 0, fromCampaignMonth: cvChat?.fromCampaignMonth ?? 0, recent: cvChat?.recent ?? [], human: cvData } : null,
       calendar: { scope: calendarData.scope, events: calendarData.events },
       ai: aiData,
       soda: sodaData,

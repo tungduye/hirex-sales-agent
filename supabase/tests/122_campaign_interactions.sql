@@ -35,7 +35,9 @@ insert into public.channel_campaign_recipients(id,workspace_id,campaign_id,conta
 insert into public.channel_campaign_recipient_steps(workspace_id,campaign_id,recipient_id,step_id,channel_account_id,channel_type,status,idempotency_key,completed_at) values
   ('99000000-0000-4000-8000-000000002202','99000000-0000-4000-8000-000000002230','99000000-0000-4000-8000-000000002260','99000000-0000-4000-8000-000000002231','99000000-0000-4000-8000-000000002210','ZALO','SENT','k122-1',now() - interval '3 days'),
   ('99000000-0000-4000-8000-000000002202','99000000-0000-4000-8000-000000002230','99000000-0000-4000-8000-000000002261','99000000-0000-4000-8000-000000002231','99000000-0000-4000-8000-000000002210','ZALO','SENT','k122-2',now() - interval '2 hours');
-insert into public.candidate_flow_states(workspace_id,contact_id,step,outcome) values('99000000-0000-4000-8000-000000002202','99000000-0000-4000-8000-000000002221',8,'CV_RECEIVED');
+-- Since migration 145 the CV file itself moves Luồng Rec to bước 8 · Đã có CV; the fixture only makes sure of it.
+insert into public.candidate_flow_states(workspace_id,contact_id,step,outcome) values('99000000-0000-4000-8000-000000002202','99000000-0000-4000-8000-000000002221',8,'CV_RECEIVED')
+  on conflict (workspace_id, contact_id) where contact_id is not null do update set step = 8, outcome = 'CV_RECEIVED';
 
 create temp table rows122 as select * from public.campaign_interaction_rows('99000000-0000-4000-8000-000000002202', null, null);
 select pg_temp.assert_true((select count(*) = 1 from rows122),'one row per candidate who replied');

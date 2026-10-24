@@ -135,7 +135,7 @@ const fmt = (ms: number) => { const d = new Date(ms + 7 * 3600e3), p = (n: numbe
 
 /** Giao diện gốc phục vụ thẳng từ file (record/utilities.tsx nạp bằng link có số phiên bản) — không qua gói JS của Next mà Cloudflare giữ 4 giờ. */
 const ROOT = path.join(/*turbopackIgnore: true*/ process.cwd(), "moduleHS");
-const ASSETS: Record<string, [string, string]> = { "qa.js": ["qa/qa-ui.js", "text/javascript; charset=utf-8"], "qa.css": ["qa/qa.css", "text/css; charset=utf-8"], "meeting.js": ["record/meeting-ui.js", "text/javascript; charset=utf-8"], "meeting.css": ["record/meeting.css", "text/css; charset=utf-8"] };
+const ASSETS: Record<string, [string, string]> = { "qa.js": ["qa/qa-ui.js", "text/javascript; charset=utf-8"], "qa.css": ["qa/qa.css", "text/css; charset=utf-8"], "meeting.js": ["record/meeting-ui.js", "text/javascript; charset=utf-8"], "meeting.css": ["record/meeting.css", "text/css; charset=utf-8"], "guest.js": ["record/guest-ui.js", "text/javascript; charset=utf-8"], "guest.css": ["record/guest.css", "text/css; charset=utf-8"], "qr.js": ["record/qr.js", "text/javascript; charset=utf-8"] };
 function assetVer() { let m = 0; for (const [f] of Object.values(ASSETS)) { try { m = Math.max(m, fs.statSync(/*turbopackIgnore: true*/ path.join(ROOT, f)).mtimeMs); } catch { /* thiếu file */ } } return Math.round(m).toString(36); }
 function asset(name: string, v: string | null) {
   const a = ASSETS[name]; if (!a) return new Response(null, { status: 404 });

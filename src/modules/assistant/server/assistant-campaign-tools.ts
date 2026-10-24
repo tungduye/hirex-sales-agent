@@ -8,6 +8,7 @@ import {
   type InteractionFilter, type InteractionRow, type NickInfo, type ProgressRow,
 } from "@/modules/campaigns/core/interactions";
 import { classifyCampaignReplies } from "@/modules/campaigns/server/reply-insights";
+import { conversionTable, isGenericCampaignWord, type ConversionBy, type ConversionRow } from "@/modules/campaigns/core/cv-conversions";
 import type { ActionContext } from "@/modules/assistant/server/assistant-proposals";
 
 // Tương tác chiến dịch Zalo / Facebook cá nhân for Soda:
@@ -65,12 +66,18 @@ export const campaignTools: Record<string, (args: Record<string, unknown>, scope
     let rows: InteractionRow[];
     try { rows = await interactionRows(db, scope.workspaceId, from, to); } catch { return { loi: "Chưa tải được dữ liệu tương tác, thử lại sau ít phút." }; }
     const [nicks, names] = await Promise.all([nickMap(db, scope.workspaceId), ownerNames(db, scope.workspaceId)]);
-    const owner = str(args.owner), nick = str(args.nick), campaign = str(args.chien_dich);
+    const owner = str(args.owner), nick = str(args.nick), campaign = isGenericCampaignWord(str(args.chien_dich)) ? null : str(args.chien_dich);
+    const all = rows;
     rows = rows.filter((row) => {
       const who = ownerLabel(row.owner_name, row.campaign_name, names);
       return (!owner || matchesText(who.label, owner) || matchesText(row.owner_name, owner) || matchesText(row.campaign_name, owner))
         && matchesText(nicks.get(row.channel_account_id)?.name, nick) && matchesText(row.campaign_name, campaign);
     });
+    // A name that matches nothing is said so (not "0 tương tác"), with the names that exist.
+    if (!rows.length && all.length && (campaign || owner || nick)) {
+      return { loi: `Không có tương tác nào khớp ${[campaign && `chiến dịch "${campaign}"`, owner && `owner "${owner}"`, nick && `nick "${nick}"`].filter(Boolean).join(", ")} trong ${label}.`,
+        cac_chien_dich_co_tuong_tac: [...new Set(all.map((row) => row.campaign_name))].slice(0, 20), goi_y: "\"MKT Zalo\" = mọi chiến dịch: hỏi lại không lọc tên chiến dịch." };
+    }
     // Replies the AI has not read yet: read a few now (in the background) so the next answer is complete.
     const unread = rows.filter((row) => interestOf(row) === null).length;
     if (unread) void classifyCampaignReplies(48).catch(() => {});
@@ -118,6 +125,61 @@ export const campaignTools: Record<string, (args: Record<string, unknown>, scope
           };
         }),
       },
+    };
+  },
+
+  // CV chuyển hóa (migration 145): CVs candidates sent in Zalo / Facebook chats, on the nicks this member may see.
+  async cv_chuyen_hoa(args, scope) {
+    if (!scope.context.isAdmin && !scope.context.permissions.includes("inbox.view")) return { loi: "Sếp chưa có quyền Suối Nguồn · Xem." };
+    const period = str(args.ky) ?? (str(args.tu_ngay) || str(args.den_ngay) ? null : "THANG_NAY");
+    let from: Date | null = null, to: Date | null = null, label = "toàn bộ";
+    if (period !== "TAT_CA") {
+      const range = kpiRange(period as KpiPeriod | null, str(args.tu_ngay), str(args.den_ngay));
+      if ("error" in range) return { loi: range.error };
+      ({ from, to, label } = range);
+    }
+    const db = createPrivilegedClient();
+    const accessible = await getAccessibleChannelAccountIds();
+    let query = db.from("chat_cv_conversions").select("conversation_id,channel_account_id,file_name,first_cv_at,campaign_name,source").eq("workspace_id", scope.workspaceId).order("first_cv_at", { ascending: false }).limit(5000);
+    if (from) query = query.gte("first_cv_at", from.toISOString());
+    if (to) query = query.lt("first_cv_at", to.toISOString());
+    if (accessible) query = query.in("channel_account_id", accessible.length ? accessible : ["00000000-0000-0000-0000-000000000000"]);
+    const [{ data, error }, nicks, { data: accounts }, { data: people }] = await Promise.all([
+      query, nickMap(db, scope.workspaceId),
+      db.from("channel_accounts").select("id,primary_profile_id").eq("workspace_id", scope.workspaceId),
+      db.from("profiles").select("id,full_name,department").eq("workspace_id", scope.workspaceId),
+    ]);
+    if (error) return { loi: "Chưa tải được CV chuyển hóa, thử lại sau ít phút." };
+    const ownerOf = new Map((accounts ?? []).map((row) => [String(row.id), row.primary_profile_id ? String(row.primary_profile_id) : null]));
+    const person = new Map((people ?? []).map((row) => [String(row.id), { name: String(row.full_name ?? ""), department: row.department ? String(row.department) : null }]));
+    let rows: ConversionRow[] = (data ?? []).map((row) => {
+      const owner = ownerOf.get(String(row.channel_account_id)) ?? null;
+      return { conversation: String(row.conversation_id), nick: String(row.channel_account_id), nickName: nicks.get(String(row.channel_account_id))?.name ?? "Nick",
+        owner: owner ? person.get(owner)?.name ?? null : null, department: owner ? person.get(owner)?.department ?? null : null,
+        file: String(row.file_name ?? "CV"), at: Date.parse(String(row.first_cv_at)), campaign: row.campaign_name ? String(row.campaign_name) : null, source: row.source === "REC_FLOW" ? "REC_FLOW" : "FILE" };
+    });
+    const all = rows;
+    const campaign = isGenericCampaignWord(str(args.chien_dich)) ? null : str(args.chien_dich);
+    const source = str(args.nguon) ?? (str(args.chien_dich) && !campaign ? "MKT_ZALO" : null);
+    rows = rows.filter((row) => matchesText(row.owner, str(args.nguoi)) && matchesText(row.department, str(args.bo_phan)) && matchesText(row.nickName, str(args.nick))
+      && (!campaign || matchesText(row.campaign, campaign)) && (source !== "MKT_ZALO" || row.campaign) && (source !== "CHAT_KHAC" || !row.campaign));
+    const by = (str(args.chia_theo) ?? "NGUOI") as ConversionBy;
+    const limit = typeof args.so_luong === "number" ? Math.min(Math.max(1, args.so_luong), 50) : 15;
+    const listed = rows.slice(0, limit);
+    const { data: chats } = listed.length ? await db.from("omnichannel_conversations").select("id,metadata,contacts(full_name)").in("id", listed.map((row) => row.conversation)) : { data: [] };
+    const nameOf = new Map(((chats ?? []) as Array<{ id: unknown; metadata: unknown; contacts: unknown }>).map((row) => {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const contact = (Array.isArray(row.contacts) ? row.contacts[0] : row.contacts) as { full_name?: unknown } | null;
+      return [String(row.id), String(meta.participantDisplayName ?? meta.conversationDisplayName ?? contact?.full_name ?? "Ứng viên")];
+    }));
+    return {
+      khoang_thoi_gian: label,
+      dinh_nghia: "CV chuyển hóa = ứng viên gửi file CV trong chat 1-1 Zalo/Facebook (nick tuyển dụng hoặc sau khi phản hồi chiến dịch) hoặc Luồng Rec \"Đã có CV\"; mỗi ứng viên 1 lần; tu_mkt_zalo = ứng viên đã phản hồi chiến dịch trước khi gửi CV. Nhận ra CV theo tên file (không đọc file).",
+      tong: rows.length, tu_mkt_zalo: rows.filter((row) => row.campaign).length, tu_chat_khac: rows.filter((row) => !row.campaign).length,
+      ...(rows.length === 0 && all.length ? { ghi_chu: `Không có CV khớp bộ lọc; cả kỳ có ${all.length} CV chuyển hóa.` } : {}),
+      bang: conversionTable(rows, by).slice(0, 40),
+      danh_sach: listed.map((row) => ({ ung_vien: nameOf.get(row.conversation) ?? "Ứng viên", file: row.source === "REC_FLOW" ? "(Luồng Rec: Đã có CV)" : row.file, luc: vnTime(new Date(row.at).toISOString()),
+        nick: row.nickName, nguoi: row.owner, nguon: row.campaign ? `MKT Zalo · ${row.campaign}` : "Chat khác", link: `/inbox/all/${row.conversation}` })),
     };
   },
 

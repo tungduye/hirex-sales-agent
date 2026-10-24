@@ -18,6 +18,7 @@ import {
   FILES, deepText, dropEcho, fail, ffmpegVersion, finalize, meetingOpts, newSession, prepare, processMeeting, runTts, scriptClean, gTranslate,
 } from "./pipeline";
 import { zaloSend, zaloTargets } from "./zalo";
+import { openRoom, put as roomPut, roomByToken, roomRoute, roomStart } from "./room";
 
 type Fields = Record<string, string>;
 type Up = { name: string; size: number; buf: Buffer };
@@ -135,6 +136,13 @@ const POST: Record<string, (c: Ctx) => unknown> = {
   },
   /** Phụ đề (miễn phí): một câu trình duyệt vừa nghe xong → sửa tên / thuật ngữ theo từ điển học từ dữ liệu HireX → lọc câu rác → dịch bằng Google (miễn phí).
    *  Trả về: dòng đầu JSON {text} (câu đã sửa), phần sau là bản dịch. Không gọi OpenAI. */
+  /** Mời người nói tiếng Nhật / tiếng Anh dùng điện thoại riêng: mở (hoặc dùng lại) phòng dịch → link công khai. */
+  live_join: ({ f, base, userId, workspaceId }) => {
+    const pair = String(f.pair || "vi,ja").split(",").map((x) => lang(x)).filter(Boolean) as string[];
+    const r = openRoom(userId + ":" + workspaceId, workspaceId, pair.length === 2 ? pair : ["vi", "ja"]);
+    if (f.session_id) { const m = bySid(safeId(f.session_id)); if (m) roomStart(r, m.slug); }     // đang ghi cuộc họp mới → phòng sang hội thoại mới
+    return ok({ token: r.token, url: `${base}/api/hs/record/j/${r.token}` });
+  },
   live_tr: ({ f }) => {
     const m = need(f.session_id), to = lang(f.lang), src = lang(f.src) || "vi", raw = scriptClean(normText(f.text || "").slice(0, 4000)), enc = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
@@ -149,6 +157,11 @@ const POST: Record<string, (c: Ctx) => unknown> = {
           try { tr = pr.back(await gTranslate(pr.text, to, src)); if (tr) ctl.enqueue(enc.encode(tr)); } catch (e) { console.warn("[Cuộc họp] Google Dịch lỗi:", e instanceof Error ? e.message : e); }
         }
         if (t) { fs.mkdirSync(dir(m.slug), { recursive: true }); fs.appendFileSync(fp(m.slug, "live.jsonl"), JSON.stringify({ t: Date.now(), k: +f.k || 0, fin: f.fin !== "0", src, raw, text: t, tr, lang: to }) + "\n"); }
+        const room = roomByToken(f.room || "");                                         // có khách vào phòng dịch: gửi dòng này sang điện thoại của họ
+        if (room && room.ws === (m.ws || room.ws)) {
+          roomStart(room, m.slug); const dev = String(f.dev || "host").replace(/[^\w-]/g, "").slice(0, 24) || "host";
+          roomPut(room, { dev, k: +f.k || 0, lang: src, text: t, tr: to && tr ? { [to]: tr } : {}, fin: f.fin !== "0", conf: Math.min(1, Math.max(0, +f.conf || 0)), ts: +f.ts || 0, drop: !t && f.fin !== "0" });
+        }
         ctl.close();
       },
     });
@@ -203,6 +216,7 @@ export async function handle(req: Request, seg: string[]) {
   try {
     refresh();
     if (seg[0] === "f" || seg[0] === "d") return publicRoute(req, seg);
+    if (seg[0] === "j") { if (req.method === "POST" && !sameOrigin(req)) return json({ ok: false, stage: "csrf" }, 403); return roomRoute(req, seg); }
     if (seg.length) return text("Không tìm thấy", 404);
     const account = await getAccountContext();
     if (!account?.workspaceId) return json({ ok: false, stage: "Chưa đăng nhập" }, 401);

@@ -66,8 +66,17 @@ function playChanges(engine: Engine, before: Data, after: Data): Array<Omit<LogL
       lines.push({ at: clock(), text: `+${gained} phản hồi chiến dịch · ${person.name}`, tone: "info" });
     }
   }
+  // CV chuyển hóa: from the desk of whoever's nick got it; the rest (nick without main user) from the lobby.
   const cvs = (after.stats.cvToday ?? 0) - (before.stats.cvToday ?? 0);
-  if (cvs > 0 && before.stats.cvToday !== null) { for (let index = 0; index < Math.min(cvs, 5); index += 1) engine.effects.cv(spread()); lines.push({ at: clock(), text: `+${cvs} CV mới vào Kho CV`, tone: "info" }); }
+  let placed = 0;
+  const cvBefore = new Map(before.team.map((person) => [person.id, person.cvToday]));
+  for (const person of after.team) {
+    const gained = person.cvToday - (cvBefore.get(person.id) ?? person.cvToday);
+    if (gained <= 0) continue;
+    for (let index = 0; index < Math.min(gained, 3); index += 1, placed += 1) engine.effects.cv(spread(), () => engine.people.positionOf(person.id));
+    lines.push({ at: clock(), text: `+${gained} CV chuyển hóa · ${person.name}`, tone: "info" });
+  }
+  if (cvs > placed && before.stats.cvToday !== null) { for (let index = 0; index < Math.min(cvs - placed, 5); index += 1) engine.effects.cv(spread()); if (!placed) lines.push({ at: clock(), text: `+${cvs} CV mới vào Kho CV`, tone: "info" }); }
   const replies = (after.stats.replies ?? 0) - (before.stats.replies ?? 0);
   if (replies > 0 && before.stats.replies !== null) { for (let index = 0; index < Math.min(replies, 4); index += 1) engine.effects.firework(spread()); if (!bubbles) lines.push({ at: clock(), text: `+${replies} phản hồi chiến dịch Zalo`, tone: "info" }); }
   if (after.stats.interviewNow && after.stats.interviewNow !== before.stats.interviewNow) lines.push({ at: clock(), text: `Ứng viên đến phỏng vấn: ${after.stats.interviewNow}`, tone: "info" });

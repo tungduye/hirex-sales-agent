@@ -598,7 +598,7 @@ to{opacity:1;transform:none}
 .hs-rec .lp .cv-c.tr{color:var(--ui-text);font-weight:500}
 .hs-rec .lp .ln.cv.part .cv-c{color:var(--ui-text-2)}
 .hs-rec .lp .cv-w{color:var(--ui-muted)}
-.hs-rec .lp .ln.cv:last-child{background:var(--ui-primary-soft,#FEF3F2)}
+.hs-rec .lp .cv-hd+.ln.cv{background:var(--ui-primary-soft,#FEF3F2)}
 .hs-rec .lp:not(.two) .cv-hd{display:none}
 /* ai đang nói */
 .hs-rec .spk{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--ui-surface-2,#F2F4F7)}
@@ -613,3 +613,30 @@ to{opacity:1;transform:none}
 .hs-rec .lp-h .spk{flex:none;width:auto}
 
 .hs-rec .lp-h .say.on{color:var(--ui-primary);background:var(--ui-primary-50,#FEF3F2)}
+
+/* đầu 2 cột kiêm nút "ai đang nói": cột đang nghe có micro đỏ, bấm cột kia khi bên kia nói */
+.hs-rec .lp .cv-hd .cv-h{display:inline-flex;align-items:center;gap:6px;justify-self:start;height:28px;margin:-4px 0 -4px -8px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--ui-muted);font:inherit;cursor:pointer}
+.hs-rec .lp .cv-hd .cv-h b{font-weight:600}
+.hs-rec .lp .cv-hd .cv-h:hover{background:var(--ui-surface-2,#F2F4F7);color:var(--ui-text)}
+.hs-rec .lp .cv-hd .cv-h.on{background:var(--ui-primary-50,#FEF3F2);color:var(--ui-primary)}
+.hs-rec .lp .cv-hd .cv-h.on b{color:var(--ui-primary)}
+.hs-rec .lp .cv-hd .cv-h.live svg{animation:hsr-pl 1.4s ease-in-out infinite}
+.hs-rec .lp.two .ln.cv .cv-c+.cv-c,.hs-rec .lp.two .cv-hd>*+*+*{position:relative}
+.hs-rec .lp.two .ln.cv .cv-c+.cv-c::before,.hs-rec .lp.two .cv-hd>*+*+*::before{content:"";position:absolute;left:-8px;top:-12px;bottom:-12px;border-left:1px solid var(--ui-border-2,#F2F4F7)}
+/* 2 cột hiển thị như nhau (ghi đè kiểu dòng phụ đề cũ) */
+.hs-rec .lp .ln.cv .cv-c,.hs-rec .lp .ln.cv .cv-c.tr,.hs-rec .lp .ln.cv.wait .cv-c{font-size:16px;line-height:1.6;color:var(--ui-text);font-weight:500}
+.hs-rec .lp .ln.cv.part .cv-c,.hs-rec .lp .ln.cv.part .cv-c.tr{color:var(--ui-text-2)}
+.hs-rec .lp:fullscreen .ln.cv .cv-c,.hs-rec .lp.big .ln.cv .cv-c{font-size:26px;line-height:1.5}
+@media (max-width:600px){.hs-rec .lp .ln.cv .cv-c{font-size:14px}}
+.hs-rec .lp .cv-hd .cv-h{width:auto;margin-left:-10px}
+.hs-rec .lp.two .cv-hd>.cv-h+.cv-h::before{left:2px;top:-14px;bottom:-14px}
+.hs-rec .lp .cv-hd .cv-h b,.hs-rec .lp .cv-hd>b{letter-spacing:.04em}
+/* mời bên kia dùng điện thoại riêng */
+.hs-rec .lp-h .inv{gap:6px;padding:0 10px;font-weight:600}
+.hs-rec .lp-h .inv.on{color:var(--ui-primary);background:var(--ui-primary-50,#FEF3F2)}
+.hs-rec .inv-b{display:grid;gap:14px;justify-items:center}
+.hs-rec .inv-qr{display:grid;place-items:center;width:220px;height:220px;padding:6px;border:1px solid var(--ui-border);border-radius:12px;background:#fff;color:var(--ui-muted);font-size:13px;text-align:center}
+.hs-rec .inv-qr svg{width:100%;height:100%}
+.hs-rec .inv-t{margin:0;font-size:13.5px;line-height:1.55;color:var(--ui-text-2);text-align:center}
+.hs-rec .inv-l{display:flex;gap:8px;width:100%}
+.hs-rec .inv-l .in{flex:1;min-width:0;font-size:12.5px}

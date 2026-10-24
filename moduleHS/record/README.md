@@ -63,11 +63,19 @@ Dùng cho: prompt phiên âm (tên người + thuật ngữ), từ khoá phụ �
 
 ## Dịch hội thoại trực tiếp (23/10, miễn phí)
 - Combobox **Hội thoại** ở màn chính: *Việt ↔ Nhật (dịch 2 chiều)* (mặc định) · *Việt ↔ English (dịch 2 chiều)* · *Chỉ tiếng Việt* · *Tắt* (dừng nghe + ẩn khung). Mở trang luôn bật.
-- Nghe: Web Speech API của Chrome / Edge (máy nhận giọng của Google, miễn phí). Mỗi lúc chỉ nghe được **một** thứ tiếng → nút **Tiếng Việt | 日本語** trên khung,
-  hoặc phím **Space** lúc đang ghi, để đổi người đang nói (Google Meet cũng bắt chọn ngôn ngữ nói; Meet biết ai nói vì mỗi người một micro).
-- Hiển thị 2 cột (Tiếng Việt | 日本語): lời gốc ở cột người nói, bản dịch ở cột kia, lượt mới ở dưới, tự cuộn.
-  Các câu chốt của cùng người nói được **nối vào một lượt** cho tới khi im > 1,4 giây / đổi người nói / quá 320 ký tự → không còn dòng 1–2 chữ rồi nhảy dòng.
-- Dịch: `live_tr` sửa tên / thuật ngữ (chỉ với tiếng Việt) → Google Dịch (gtx, miễn phí), thuật ngữ được giữ nguyên. Không gọi OpenAI lúc đang họp.
+- Nghe: Web Speech API của Chrome / Edge (máy nhận giọng của Google, miễn phí). Mỗi lúc chỉ nghe được **một** thứ tiếng → bấm tên cột (VI | JP | EN)
+  của người đang nói, hoặc phím **Space** lúc đang ghi. Cột đang nghe có micro đỏ.
+- Hiển thị 2 cột như nhau (VI | JP hoặc VI | EN): lời gốc ở cột người nói, bản dịch ở cột kia; **dòng mới nhất ở trên cùng** (nền hồng = đang nói dở).
+- Cắt đoạn kiểu Google Meet: mỗi câu trình duyệt chốt là 1 dòng; nói liền một mạch quá ~64 ký tự Việt / ~26 chữ Nhật thì cắt phần chữ đã ổn định
+  ở dấu câu, hoặc trước từ nối (về, cho, và, trong…) / sau trợ từ Nhật, thành 1 dòng; câu chốt quá ngắn ("vâng ạ") nối vào dòng trước.
+- Dịch: dòng đang nói dở → gọi thẳng Google Dịch từ trình duyệt (~0,2 giây, 1 yêu cầu bay một lúc, giữ nguyên thuật ngữ HireX trong từ điển);
+  dòng chốt → `live_tr` sửa tên / thuật ngữ (chỉ tiếng Việt) → Google Dịch có giữ thuật ngữ → thay bản nháp. Không gọi OpenAI lúc đang họp.
+- **Bên kia dùng điện thoại riêng (kiểu Google Meet)** — nút **Mời** trên khung hội thoại → mã QR / link `/api/hs/record/j/<mã>?l=ja` (không cần đăng nhập, mã ngẫu nhiên).
+  Khách mở trên điện thoại (Chrome / Safari) → bấm タップして話す: điện thoại nghe tiếng Nhật bằng micro riêng, máy chủ trì nghe tiếng Việt → khỏi bấm đổi người nói, nói chen nhau vẫn ghi được.
+  Cả hai màn hình hiện 2 cột VI | JP như nhau, dòng mới nhất ở trên; khách có nút 読み上げ (đọc to bản dịch tiếng Nhật).
+  `room.ts`: phòng trong bộ nhớ (6 giờ), hỏi dài (long-poll) để nhận dòng mới ngay; dòng nói dở gửi ngay rồi ~4 lần/giây, dòng chốt qua máy chủ sửa từ điển + dịch.
+  Hai micro cùng phòng nghe lẫn tiếng nhau → dòng chốt trùng thời gian, khác thứ tiếng, độ chắc thấp hơn hẳn (≥ 0,15) bị bỏ trên mọi máy.
+  Bắt đầu ghi cuộc họp mới → phòng sang hội thoại mới (khách vẫn ở lại). Dòng của khách cũng ghi vào `live.jsonl` của cuộc họp.
 - **Đọc to bản dịch** (nút loa trên khung, nhớ theo máy): đọc bản dịch bằng giọng có sẵn của trình duyệt / Windows (miễn phí) — kiểu Meet "speech translation" / tai nghe phiên dịch.
   Lúc máy đọc thì tạm ngừng nghe để micro không bắt lại tiếng loa; bấm đổi người nói là ngắt đọc. Nên đeo tai nghe. Thiếu giọng tiếng Việt thì thêm trong Cài đặt Windows › Giọng nói.
 - `live.jsonl` của mỗi cuộc họp lưu `{t,k,fin,src,raw,text,tr,lang}` — `raw` (chữ trình duyệt nghe) dùng lại để học từ điển.
