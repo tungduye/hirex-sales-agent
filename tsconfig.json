@@ -433,7 +433,9 @@
     ".next-tong-quan-dot-2/types/**/*.ts",
     ".next-tong-quan-dot-2/dev/types/**/*.ts",
     ".next-tong-quan-dot-3/types/**/*.ts",
-    ".next-tong-quan-dot-3/dev/types/**/*.ts"
+    ".next-tong-quan-dot-3/dev/types/**/*.ts",
+    ".next-cv-chuyen-hoa/types/**/*.ts",
+    ".next-cv-chuyen-hoa/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
